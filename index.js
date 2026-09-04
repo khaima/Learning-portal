@@ -1,7 +1,14 @@
 import { $, $$ } from "./util.js";
 import { signIn, signUp, currentUser } from "./auth.js";
+import { ROLES } from "./data.js";
 
-const DASHBOARD_PATH = { teacher: "teacher.html", learner: "learner.html" };
+const DASHBOARD_PATH = {
+  teacher: "teacher.html",
+  learner: "learner.html",
+  school_leader: "leader.html",
+  field_officer: "field.html",
+};
+const ROLE_LABEL = Object.fromEntries(ROLES.map((r) => [r.value, r.label]));
 
 // Already signed in? Go straight to the right dashboard rather than
 // showing the sign-in form again.
@@ -18,7 +25,7 @@ const roleCards = $$(".role-card");
 function setRole(role) {
   selectedRole = role;
   roleCards.forEach((c) => c.setAttribute("aria-pressed", String(c.dataset.role === role)));
-  const label = role === "learner" ? "Learner" : "Teacher";
+  const label = ROLE_LABEL[role] || role;
   roleLabelEls.forEach((el) => (el.textContent = label));
   signupRoleLabelEls.forEach((el) => (el.textContent = label));
   $("#su_grade_field").hidden = role !== "learner";
@@ -40,18 +47,24 @@ loginForm.addEventListener("submit", (e) => {
     return;
   }
   if (res.user.role !== selectedRole) {
-    loginError.textContent = `That account is a ${res.user.role === "learner" ? "Learner" : "Teacher"} — switch the role above and try again.`;
+    loginError.textContent = `That account is a ${ROLE_LABEL[res.user.role] || res.user.role} — switch the role above and try again.`;
     loginError.hidden = false;
     return;
   }
   location.href = DASHBOARD_PATH[res.user.role];
 });
 
+const DEMO_USERNAME = {
+  teacher: "grace.mwangi",
+  learner: "naomi.k",
+  school_leader: "peter.kamau",
+  field_officer: "susan.wanjiru",
+};
 $$("[data-fill]").forEach((btn) =>
   btn.addEventListener("click", () => {
     const role = btn.dataset.fill;
     setRole(role);
-    $("#li_user").value = role === "teacher" ? "grace.mwangi" : "naomi.k";
+    $("#li_user").value = DEMO_USERNAME[role] || "";
     $("#li_pw").value = "demo1234";
   })
 );

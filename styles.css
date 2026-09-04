@@ -151,11 +151,11 @@ a{ color:inherit; }
 
 .field{ margin-bottom:.9rem; }
 .field label{ display:block; font-size:.78rem; font-weight:600; margin-bottom:.32rem; color:var(--ink); }
-.field input{
+.field input,.field select{
   width:100%; border:1.5px solid var(--line); background:var(--paper-raised); color:var(--ink);
   border-radius:var(--radius-sm); padding:.62rem .75rem; font-size:.92rem; font-family:inherit;
 }
-.field input:focus{ border-color:var(--brand); }
+.field input:focus,.field select:focus{ border-color:var(--brand); }
 .field .field-error{ color:var(--danger); font-size:.78rem; margin-top:.3rem; }
 .login-foot{ display:flex; justify-content:space-between; margin-top:.8rem; font-size:.8rem; }
 .login-foot button{ background:none; border:0; color:var(--ink-soft); cursor:pointer; font-size:.8rem; text-decoration:underline; text-underline-offset:2px; }

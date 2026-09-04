@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Field Officer dashboard — HPF Digital Learning Portal</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Work+Sans:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="./styles.css">
+  <link rel="icon" href="data:,">
+</head>
+<body>
+  <div class="demo-banner">Demo build — no real backend yet. Data lives only in this browser. See README.md.</div>
+
+  <div class="app-shell">
+    <aside class="app-side">
+      <a class="wordmark" href="index.html">
+        <span class="badge-mark">HPF</span>
+        <span class="wordmark-text"><b>Human Practice</b><span>Digital Learning Portal</span></span>
+      </a>
+      <nav class="side-nav">
+        <a class="side-link active"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Dashboard</a>
+        <a class="side-link"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s7-6.1 7-11.5A7 7 0 0 0 5 9.5C5 14.9 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg>Field Reports</a>
+      </nav>
+      <div class="side-user">
+        <span class="side-avatar" id="sideAvatar">?</span>
+        <div><b id="sideName">—</b><span id="sideMeta">—</span></div>
+      </div>
+      <button class="side-signout" id="signOutBtn">Sign out</button>
+    </aside>
+
+    <main class="app-main">
+      <div class="app-top">
+        <div>
+          <span class="pill warm">Field Officer workspace</span>
+          <h1 id="greeting" style="margin-top:.5rem">Habari</h1>
+          <p id="topSub">—</p>
+        </div>
+        <div class="app-top-actions">
+          <button class="icon-btn" aria-label="Notifications"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 8a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></button>
+          <button class="btn btn-outline" id="signOutBtn2">Sign out</button>
+        </div>
+      </div>
+
+      <div class="stat-row" id="statRow"></div>
+
+      <div class="body-grid">
+        <div>
+          <div class="panel">
+            <div class="panel-head"><h2>New field report</h2></div>
+            <form id="reportForm">
+              <div class="field">
+                <label for="fr_county">County</label>
+                <select id="fr_county" required>
+                  <option value="" disabled selected>Select county</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="fr_school">School</label>
+                <select id="fr_school" required disabled>
+                  <option value="" disabled selected>Select a county first</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="fr_visit">Visit type</label>
+                <select id="fr_visit" required>
+                  <option value="" disabled selected>Select visit type</option>
+                </select>
+              </div>
+              <button class="btn btn-primary btn-block" type="submit">Submit field report</button>
+            </form>
+          </div>
+        </div>
+
+        <div>
+          <div class="panel">
+            <div class="panel-head"><h2>Recent field reports</h2></div>
+            <div id="reportList"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script type="module" src="./field.js"></script>
+</body>
+</html>
