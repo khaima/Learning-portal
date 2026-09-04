@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="HPF Digital Learning Portal — sign in as a teacher or learner.">
+  <meta name="author" content="Human Practice Foundation">
+  <title>HPF Digital Learning Portal — Sign in</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Work+Sans:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="./styles.css">
+  <link rel="icon" href="data:,">
+</head>
+<body>
+  <div class="demo-banner">Demo build — no real backend yet. Data lives only in this browser. See README.md.</div>
+
+  <div class="login-screen">
+    <div class="login-art">
+      <a class="wordmark" href="index.html">
+        <span class="badge-mark">HPF</span>
+        <span class="wordmark-text"><b>Human Practice Foundation</b><span>Digital Learning Portal</span></span>
+      </a>
+      <div class="art-copy">
+        <h1>Karibu — welcome back.</h1>
+        <p>One home for every classroom HPF supports: assignments, results, and learning resources, kept current by the people who use them.</p>
+        <div class="art-stats">
+          <div class="art-stat"><b>340+</b><span>schools reached</span></div>
+          <div class="art-stat"><b>27</b><span>counties active</span></div>
+          <div class="art-stat"><b>12k</b><span>learners enrolled</span></div>
+        </div>
+      </div>
+      <svg class="art-scene" viewBox="0 0 800 300" preserveAspectRatio="none" role="img" aria-label="Sunrise over hills, an open book resting in the foreground">
+        <circle cx="640" cy="70" r="58" fill="#F0A05C" opacity=".9"/>
+        <path d="M0,190 C160,120 260,230 420,150 C560,90 660,190 800,140 L800,300 L0,300 Z" fill="#12315A" opacity=".55"/>
+        <path d="M0,230 C180,170 300,250 460,190 C600,145 700,225 800,190 L800,300 L0,300 Z" fill="#0C2545"/>
+        <g transform="translate(300,232)">
+          <path d="M0,28 C0,16 20,8 60,8 C100,8 120,16 120,28 L120,34 L0,34 Z" fill="#FAF6EF"/>
+          <path d="M60,8 L60,34" stroke="#D97A34" stroke-width="3"/>
+          <path d="M2,14 C16,8 44,8 58,13" stroke="#0F2C52" stroke-width="2" fill="none" opacity=".35"/>
+          <path d="M62,13 C76,8 104,8 118,14" stroke="#0F2C52" stroke-width="2" fill="none" opacity=".35"/>
+        </g>
+      </svg>
+    </div>
+
+    <div class="login-panel">
+      <div class="login-inner">
+        <a class="wordmark" href="index.html">
+          <span class="badge-mark">HPF</span>
+          <span class="wordmark-text"><b>Human Practice Foundation</b><span>Digital Learning Portal</span></span>
+        </a>
+
+        <div id="modeLogin">
+          <div class="login-eyebrow">Step 1 of 2</div>
+          <h2>Who's signing in?</h2>
+          <p class="login-sub">Pick your role — the sign-in form below adjusts to match.</p>
+
+          <div class="role-grid" role="group" aria-label="Choose your role" id="roleGrid">
+            <button type="button" class="role-card" data-role="teacher" aria-pressed="true">
+              <span class="role-check"></span>
+              <span class="r-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V6a2 2 0 0 1 2-2h13v14H6a2 2 0 0 0-2 2Zm0 0a2 2 0 0 0 2 2h13"/><path d="M9 8h7M9 11h7"/></svg></span>
+              <b>Teacher</b>
+              <p>Classes, assignments, results</p>
+            </button>
+            <button type="button" class="role-card" data-role="learner" aria-pressed="false">
+              <span class="role-check"></span>
+              <span class="r-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/></svg></span>
+              <b>Learner</b>
+              <p>Coursework and library</p>
+            </button>
+          </div>
+
+          <form id="loginForm">
+            <div class="field">
+              <label for="li_user">Username</label>
+              <input id="li_user" name="username" type="text" placeholder="e.g. grace.mwangi" autocomplete="username" required>
+            </div>
+            <div class="field">
+              <label for="li_pw">Password</label>
+              <input id="li_pw" name="password" type="password" placeholder="••••••••" autocomplete="current-password" required>
+              <div class="field-error" id="loginError" hidden></div>
+            </div>
+            <button class="btn btn-primary btn-block" type="submit">Sign in as <span data-role-label>Teacher</span></button>
+          </form>
+
+          <div class="login-demo">
+            <b>Try it without an account</b>
+            Teacher demo: <code>grace.mwangi</code> / <code>demo1234</code> —
+            <button type="button" data-fill="teacher">use this</button><br>
+            Learner demo: <code>naomi.k</code> / <code>demo1234</code> —
+            <button type="button" data-fill="learner">use this</button>
+          </div>
+
+          <div class="login-foot" style="margin-top:1.2rem">
+            <span></span>
+            <button type="button" id="toSignup">New here? Create an account</button>
+          </div>
+        </div>
+
+        <div id="modeSignup" hidden>
+          <div class="login-eyebrow">Step 2 of 2</div>
+          <h2>Create your account</h2>
+          <p class="login-sub">Signing up as a <b data-signup-role-label>Teacher</b>.</p>
+          <form id="signupForm">
+            <div class="field">
+              <label for="su_name">Full name</label>
+              <input id="su_name" name="fullName" type="text" required>
+            </div>
+            <div class="field">
+              <label for="su_user">Username</label>
+              <input id="su_user" name="username" type="text" required>
+            </div>
+            <div class="field">
+              <label for="su_pw">Password</label>
+              <input id="su_pw" name="password" type="password" minlength="4" required>
+            </div>
+            <div class="field">
+              <label for="su_school">School</label>
+              <input id="su_school" name="school" type="text" placeholder="e.g. Nyeri Hill Primary">
+            </div>
+            <div class="field">
+              <label for="su_county">County</label>
+              <input id="su_county" name="county" type="text" placeholder="e.g. Nyeri">
+            </div>
+            <div class="field" id="su_grade_field" hidden>
+              <label for="su_grade">Grade</label>
+              <input id="su_grade" name="grade" type="text" placeholder="e.g. Grade 5A">
+            </div>
+            <div class="field-error" id="signupError" hidden></div>
+            <button class="btn btn-primary btn-block" type="submit">Create account</button>
+          </form>
+          <div class="login-foot" style="margin-top:1rem">
+            <span></span>
+            <button type="button" id="toLogin">Already have an account? Sign in</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./index.js"></script>
+</body>
+</html>

@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Learner dashboard — HPF Digital Learning Portal</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Work+Sans:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="./styles.css">
+  <link rel="icon" href="data:,">
+</head>
+<body>
+  <div class="demo-banner">Demo build — no real backend yet. Data lives only in this browser. See README.md.</div>
+
+  <div class="app-shell">
+    <aside class="app-side">
+      <a class="wordmark" href="index.html">
+        <span class="badge-mark">HPF</span>
+        <span class="wordmark-text"><b>Human Practice</b><span>Digital Learning Portal</span></span>
+      </a>
+      <nav class="side-nav">
+        <a class="side-link active"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Dashboard</a>
+        <a class="side-link"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/></svg>My Classes</a>
+        <a class="side-link"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>Assignments</a>
+        <a class="side-link"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M9 13l2 2 4-4"/></svg>My Results</a>
+        <a class="side-link"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>Digital Library</a>
+      </nav>
+      <div class="side-user">
+        <span class="side-avatar" id="sideAvatar">?</span>
+        <div><b id="sideName">—</b><span id="sideMeta">—</span></div>
+      </div>
+      <button class="side-signout" id="signOutBtn">Sign out</button>
+    </aside>
+
+    <main class="app-main">
+      <div class="app-top">
+        <div>
+          <span class="pill warm">Learner workspace</span>
+          <h1 id="greeting" style="margin-top:.5rem">Habari</h1>
+          <p id="topSub">—</p>
+        </div>
+        <div class="app-top-actions">
+          <button class="icon-btn" aria-label="Notifications"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 8a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></button>
+          <button class="btn btn-outline" id="signOutBtn2">Sign out</button>
+        </div>
+      </div>
+
+      <div class="hero-progress">
+        <svg class="ring" viewBox="0 0 80 80" id="progressRing">
+          <circle cx="40" cy="40" r="34" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="8"/>
+          <circle cx="40" cy="40" r="34" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round"
+            id="progressArc" transform="rotate(-90 40 40)"/>
+          <text x="40" y="46" text-anchor="middle" font-family="Baloo 2, sans-serif" font-weight="700" font-size="18" fill="#fff" id="progressText">0/0</text>
+        </svg>
+        <div>
+          <h2 id="progressHeading">This week</h2>
+          <p id="progressSub">—</p>
+        </div>
+      </div>
+
+      <div class="card-grid" id="classGrid"></div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Assignments</h2></div>
+        <div id="assignmentList"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>From the Digital Library</h2></div>
+        <div class="lib-strip" id="libraryStrip"></div>
+      </div>
+    </main>
+  </div>
+
+  <script type="module" src="./learner.js"></script>
+</body>
+</html>

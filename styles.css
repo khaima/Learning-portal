@@ -1,0 +1,268 @@
+/* ============================================================
+   HPF Digital Learning Portal — shared design system.
+   Static, no build step, vanilla CSS custom properties.
+   Palette/type evolve Human Practice Foundation's existing blue
+   identity (see README.md) paired with a warm terracotta accent.
+   ============================================================ */
+
+:root{
+  --ink:#14213D; --ink-soft:#3D4C6B;
+  --paper:#FAF6EF; --paper-raised:#FFFFFF; --paper-sunk:#F1EAE0;
+  --line:#E4DACB;
+  --brand:#1E4C8A; --brand-soft:#E7EEF7; --brand-fg:#16386A;
+  --accent-soft:#FBE7D4; --accent-fg:#B05F22;
+  --success:#3E9C6E; --success-soft:#E1F3EA;
+  --danger:#D64545; --danger-soft:#FBE4E2;
+  --focus:#1E4C8A;
+  /* Fixed brand-identity tokens: the logo mark, hero/sidebar panels and
+     solid buttons keep one brand look regardless of theme (the same
+     reason a real logo never recolors itself) — never redefined below. */
+  --panel:#1E4C8A; --panel-deep:#0F2C52;
+  --accent:#D97A34; --accent-hover:#B05F22;
+  --shadow: 0 1px 2px rgba(20,33,61,.06), 0 8px 24px -12px rgba(20,33,61,.18);
+  --radius-lg:20px; --radius-md:14px; --radius-sm:9px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ink:#F1EDE4; --ink-soft:#B9C2D6;
+    --paper:#0E1730; --paper-raised:#152142; --paper-sunk:#0A1226;
+    --line:#293659;
+    --brand:#8FB4E3; --brand-soft:#1C2C4E; --brand-fg:#B7D0EF;
+    --accent-soft:#3A2A19; --accent-fg:#F0B27E;
+    --success:#5FC28C; --success-soft:#123527;
+    --danger:#F0797A; --danger-soft:#3B1C1E;
+    --focus:#8FB4E3;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --ink:#F1EDE4; --ink-soft:#B9C2D6;
+  --paper:#0E1730; --paper-raised:#152142; --paper-sunk:#0A1226;
+  --line:#293659;
+  --brand:#8FB4E3; --brand-soft:#1C2C4E; --brand-fg:#B7D0EF;
+  --accent-soft:#3A2A19; --accent-fg:#F0B27E;
+  --success:#5FC28C; --success-soft:#123527;
+  --danger:#F0797A; --danger-soft:#3B1C1E;
+  --focus:#8FB4E3;
+  color-scheme: dark;
+}
+
+*{ box-sizing:border-box; }
+html,body{ height:100%; }
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Work Sans",ui-sans-serif,system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3,.display{ font-family:"Baloo 2","Work Sans",sans-serif; font-weight:700; text-wrap:balance; margin:0; }
+img,svg{ max-width:100%; }
+button,input,select,textarea{ font-family:inherit; }
+a{ color:inherit; }
+:focus-visible{ outline:2px solid var(--focus); outline-offset:2px; border-radius:6px; }
+@media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+[hidden]{ display:none !important; }
+
+/* ---------------- shared bits ---------------- */
+.badge-mark{
+  width:38px; height:38px; border-radius:11px; background:var(--panel); color:#fff;
+  display:flex; align-items:center; justify-content:center; font-family:"Baloo 2",sans-serif;
+  font-weight:800; font-size:1rem; letter-spacing:-.02em; flex:none;
+}
+.wordmark{ display:flex; align-items:center; gap:.6rem; text-decoration:none; }
+.wordmark-text{ line-height:1.15; }
+.wordmark-text b{ display:block; font-family:"Baloo 2",sans-serif; font-weight:700; font-size:1.02rem; color:var(--ink); }
+.wordmark-text span{ display:block; font-size:.72rem; color:var(--ink-soft); }
+.pill{
+  display:inline-flex; align-items:center; gap:.35rem; padding:.28rem .7rem; border-radius:999px;
+  font-size:.76rem; font-weight:600; background:var(--brand-soft); color:var(--brand-fg);
+}
+.pill.warm{ background:var(--accent-soft); color:var(--accent-fg); }
+.pill.ok{ background:var(--success-soft); color:var(--success); }
+.icon{ width:1em; height:1em; display:inline-block; vertical-align:-.14em; }
+.btn{
+  border:0; border-radius:999px; font-weight:700; font-size:.92rem; cursor:pointer; font-family:inherit;
+  padding:.72rem 1.3rem; display:inline-flex; align-items:center; justify-content:center; gap:.4rem;
+}
+.btn-block{ width:100%; }
+.btn-primary{ background:var(--accent); color:#fff; }
+.btn-primary:hover{ background:var(--accent-hover); }
+.btn-outline{ background:var(--paper-raised); color:var(--ink); border:1.5px solid var(--line); }
+.btn-ghost{ background:transparent; color:var(--brand); }
+.demo-banner{
+  background:var(--accent-soft); color:var(--accent-fg); text-align:center; font-size:.8rem;
+  font-weight:600; padding:.5rem 1rem;
+}
+.toast-host{ position:fixed; bottom:1.2rem; right:1.2rem; z-index:200; display:flex; flex-direction:column; gap:.5rem; }
+.toast{
+  background:var(--ink); color:var(--paper); padding:.7rem 1rem; border-radius:var(--radius-sm);
+  font-size:.85rem; box-shadow:var(--shadow); max-width:20rem;
+}
+.toast.error{ background:var(--danger); }
+
+/* ================================================================ LANDING / SIGN-IN */
+.login-screen{ min-height:100vh; display:grid; grid-template-columns: 1.05fr 1fr; }
+@media (max-width: 900px){ .login-screen{ grid-template-columns: 1fr; } .login-art{ min-height:280px; } }
+
+.login-art{
+  position:relative; background:linear-gradient(175deg, var(--panel-deep), var(--panel) 78%);
+  color:#fff; padding:2.6rem 3rem; overflow:hidden; display:flex; flex-direction:column; justify-content:space-between;
+}
+.login-art .wordmark-text span{ color:rgba(255,255,255,.75); }
+.login-art .wordmark-text b{ color:#fff; }
+.login-art .badge-mark{ background:#fff; color:var(--panel); }
+.art-copy{ position:relative; z-index:2; max-width:26rem; margin-top:2.5rem; }
+.art-copy h1{ font-size:2.15rem; color:#fff; line-height:1.12; margin-bottom:.6rem; }
+.art-copy p{ color:rgba(255,255,255,.82); font-size:1rem; line-height:1.55; margin:0; }
+.art-scene{ position:absolute; inset:auto 0 0 0; height:58%; z-index:1; }
+.art-stats{ position:relative; z-index:2; display:flex; gap:1.6rem; margin-top:2rem; flex-wrap:wrap; }
+.art-stat b{ display:block; font-family:"Baloo 2",sans-serif; font-size:1.5rem; font-variant-numeric:tabular-nums; }
+.art-stat span{ font-size:.76rem; color:rgba(255,255,255,.72); }
+
+.login-panel{ display:flex; align-items:center; justify-content:center; padding:2.5rem 2rem; }
+.login-inner{ width:100%; max-width:23.5rem; }
+.login-inner > .wordmark{ display:none; }
+@media (max-width:900px){ .login-inner > .wordmark{ display:flex; margin-bottom:1.4rem; } }
+.login-eyebrow{ font-size:.78rem; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--accent-fg); margin-bottom:.4rem; }
+.login-inner h2{ font-size:1.5rem; margin-bottom:.35rem; }
+.login-sub{ color:var(--ink-soft); font-size:.92rem; margin:0 0 1.4rem; }
+
+.role-grid{ display:grid; grid-template-columns:1fr 1fr; gap:.6rem; margin-bottom:1.4rem; }
+.role-card{
+  text-align:left; border:1.5px solid var(--line); background:var(--paper-raised); border-radius:var(--radius-md);
+  padding:.85rem .9rem; cursor:pointer; display:flex; flex-direction:column; gap:.5rem; position:relative;
+}
+.role-card .r-icon{
+  width:34px; height:34px; border-radius:10px; display:flex; align-items:center; justify-content:center;
+  background:var(--brand-soft); color:var(--brand-fg);
+}
+.role-card b{ font-size:.87rem; font-weight:700; }
+.role-card p{ margin:0; font-size:.74rem; color:var(--ink-soft); line-height:1.35; }
+.role-card[aria-pressed="true"]{ border-color:var(--brand); box-shadow:0 0 0 3px var(--brand-soft); }
+.role-card[aria-pressed="true"] .r-icon{ background:var(--panel); color:#fff; }
+.role-check{
+  position:absolute; top:.7rem; right:.7rem; width:16px; height:16px; border-radius:50%;
+  border:1.5px solid var(--line); background:var(--paper-raised);
+}
+.role-card[aria-pressed="true"] .role-check{ border-color:var(--panel); background:var(--panel); }
+.role-card[aria-pressed="true"] .role-check::after{
+  content:""; display:block; width:6px; height:6px; margin:4px auto; border-radius:50%; background:#fff;
+}
+
+.field{ margin-bottom:.9rem; }
+.field label{ display:block; font-size:.78rem; font-weight:600; margin-bottom:.32rem; color:var(--ink); }
+.field input{
+  width:100%; border:1.5px solid var(--line); background:var(--paper-raised); color:var(--ink);
+  border-radius:var(--radius-sm); padding:.62rem .75rem; font-size:.92rem; font-family:inherit;
+}
+.field input:focus{ border-color:var(--brand); }
+.field .field-error{ color:var(--danger); font-size:.78rem; margin-top:.3rem; }
+.login-foot{ display:flex; justify-content:space-between; margin-top:.8rem; font-size:.8rem; }
+.login-foot button{ background:none; border:0; color:var(--ink-soft); cursor:pointer; font-size:.8rem; text-decoration:underline; text-underline-offset:2px; }
+.login-demo{ margin-top:1.4rem; padding:.85rem 1rem; border-radius:var(--radius-sm); background:var(--brand-soft); font-size:.8rem; color:var(--brand-fg); line-height:1.5; }
+.login-demo b{ display:block; font-family:"Baloo 2",sans-serif; margin-bottom:.2rem; }
+.login-demo button{ background:none; border:0; padding:0; color:inherit; text-decoration:underline; cursor:pointer; font:inherit; font-weight:700; }
+
+/* ================================================================ APP SHELL (teacher + learner) */
+.app-shell{ min-height:100vh; display:grid; grid-template-columns:15.5rem 1fr; }
+@media (max-width:860px){ .app-shell{ grid-template-columns:1fr; } .app-side{ display:none; } }
+.app-side{ background:var(--panel-deep); color:#fff; padding:1.3rem 1.1rem; display:flex; flex-direction:column; gap:1.6rem; }
+.app-side .wordmark-text b{ color:#fff; }
+.app-side .wordmark-text span{ color:rgba(255,255,255,.65); }
+.app-side .badge-mark{ background:#fff; color:var(--panel-deep); }
+.side-nav{ display:flex; flex-direction:column; gap:.15rem; flex:1; }
+.side-link{
+  display:flex; align-items:center; gap:.65rem; padding:.55rem .7rem; border-radius:10px;
+  color:rgba(255,255,255,.78); font-size:.87rem; font-weight:600; text-decoration:none; cursor:default;
+}
+.side-link .icon{ opacity:.85; }
+.side-link.active{ background:rgba(255,255,255,.14); color:#fff; }
+.side-user{ display:flex; align-items:center; gap:.6rem; padding-top:1rem; border-top:1px solid rgba(255,255,255,.14); }
+.side-avatar{ width:34px; height:34px; border-radius:50%; background:var(--panel); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:.82rem; flex:none; }
+.side-user div{ line-height:1.25; min-width:0; }
+.side-user b{ display:block; font-size:.84rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.side-user span{ font-size:.72rem; color:rgba(255,255,255,.65); }
+.side-signout{
+  margin-top:.4rem; background:rgba(255,255,255,.08); border:0; color:#fff; border-radius:10px;
+  padding:.5rem .7rem; font-size:.82rem; font-weight:600; cursor:pointer; text-align:left;
+}
+.side-signout:hover{ background:rgba(255,255,255,.16); }
+
+.app-main{ padding:1.7rem 2rem 3rem; max-width:72rem; }
+.app-top{ display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; margin-bottom:1.5rem; flex-wrap:wrap; }
+.app-top h1{ font-size:1.5rem; margin-bottom:.25rem; }
+.app-top p{ margin:0; color:var(--ink-soft); font-size:.9rem; }
+.app-top-actions{ display:flex; align-items:center; gap:.6rem; }
+.icon-btn{
+  width:38px; height:38px; border-radius:50%; border:1.5px solid var(--line); background:var(--paper-raised);
+  display:flex; align-items:center; justify-content:center; color:var(--ink-soft); cursor:pointer; position:relative;
+}
+.icon-btn .dot{ position:absolute; top:6px; right:7px; width:7px; height:7px; border-radius:50%; background:var(--accent); }
+
+.stat-row{ display:grid; grid-template-columns:repeat(auto-fit,minmax(11.5rem,1fr)); gap:.9rem; margin-bottom:1.6rem; }
+.stat-tile{ background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius-md); padding:1rem 1.1rem; box-shadow:var(--shadow); }
+.stat-tile .s-label{ display:flex; align-items:center; gap:.4rem; font-size:.76rem; font-weight:600; color:var(--ink-soft); margin-bottom:.5rem; }
+.stat-tile .s-num{ font-family:"Baloo 2",sans-serif; font-size:1.7rem; font-variant-numeric:tabular-nums; line-height:1; }
+.stat-tile .s-sub{ font-size:.74rem; color:var(--ink-soft); margin-top:.3rem; }
+
+.body-grid{ display:grid; grid-template-columns:1.5fr 1fr; gap:1.2rem; align-items:start; }
+@media (max-width:1080px){ .body-grid{ grid-template-columns:1fr; } }
+.panel{ background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius-lg); padding:1.3rem 1.4rem; box-shadow:var(--shadow); }
+.panel + .panel{ margin-top:1.1rem; }
+.panel-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:1rem; }
+.panel-head h2{ font-size:1.05rem; }
+.panel-head a,.panel-head button{ font-size:.8rem; font-weight:600; color:var(--brand); text-decoration:none; background:none; border:0; cursor:pointer; font-family:inherit; }
+
+.class-row{ display:flex; align-items:center; gap:.85rem; padding:.75rem 0; border-bottom:1px solid var(--line); }
+.class-row:last-child{ border-bottom:0; padding-bottom:0; }
+.class-row:first-child{ padding-top:0; }
+.class-swatch{ width:40px; height:40px; border-radius:11px; flex:none; display:flex; align-items:center; justify-content:center; color:#fff; font-family:"Baloo 2",sans-serif; font-weight:700; font-size:.85rem; }
+.class-info{ flex:1; min-width:0; }
+.class-info b{ display:block; font-size:.9rem; }
+.class-info span{ font-size:.78rem; color:var(--ink-soft); }
+.class-bar{ width:100%; height:5px; border-radius:3px; background:var(--paper-sunk); margin-top:.4rem; overflow:hidden; }
+.class-bar i{ display:block; height:100%; background:var(--brand); border-radius:3px; }
+.class-meta{ text-align:right; font-size:.78rem; color:var(--ink-soft); flex:none; }
+.class-meta b{ display:block; color:var(--ink); font-size:.86rem; }
+
+.task-row{ display:flex; align-items:flex-start; gap:.7rem; padding:.62rem 0; border-bottom:1px solid var(--line); }
+.task-row:last-child{ border-bottom:0; padding-bottom:0; }
+.task-row:first-child{ padding-top:0; }
+.task-dot{ width:8px; height:8px; border-radius:50%; margin-top:.4rem; flex:none; }
+.task-row.due .task-dot{ background:var(--accent); }
+.task-row.done .task-dot{ background:var(--success); }
+.task-row b{ display:block; font-size:.86rem; }
+.task-row span{ font-size:.76rem; color:var(--ink-soft); }
+.task-row button.mark-done{
+  margin-left:auto; flex:none; background:var(--success-soft); color:var(--success); border:0;
+  border-radius:999px; padding:.3rem .7rem; font-size:.72rem; font-weight:700; cursor:pointer;
+}
+
+.result-row{ display:flex; align-items:center; justify-content:space-between; padding:.55rem 0; border-bottom:1px solid var(--line); font-size:.86rem; }
+.result-row:last-child{ border-bottom:0; padding-bottom:0; }
+.result-row:first-child{ padding-top:0; }
+.score{ font-family:"Baloo 2",sans-serif; font-weight:700; font-variant-numeric:tabular-nums; }
+.score.good{ color:var(--success); } .score.mid{ color:var(--accent-fg); }
+
+/* ---- learner-specific ---- */
+.hero-progress{ background:linear-gradient(135deg,var(--panel),var(--panel-deep)); color:#fff; border-radius:var(--radius-lg); padding:1.5rem 1.6rem; display:flex; align-items:center; gap:1.4rem; margin-bottom:1.4rem; flex-wrap:wrap; box-shadow:var(--shadow); }
+.ring{ width:78px; height:78px; flex:none; }
+.hero-progress h2{ color:#fff; font-size:1.15rem; margin-bottom:.25rem; }
+.hero-progress p{ margin:0; color:rgba(255,255,255,.82); font-size:.86rem; max-width:24rem; }
+
+.card-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(15rem,1fr)); gap:1rem; margin-bottom:1.4rem; }
+.learn-card{ background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius-lg); padding:1.1rem 1.2rem; box-shadow:var(--shadow); }
+.learn-card .lc-top{ display:flex; align-items:center; gap:.65rem; margin-bottom:.7rem; }
+.lc-icon{ width:38px; height:38px; border-radius:11px; display:flex; align-items:center; justify-content:center; color:#fff; flex:none; }
+.learn-card b{ font-size:.95rem; display:block; }
+.learn-card .lc-meta{ font-size:.76rem; color:var(--ink-soft); }
+.learn-card .lc-next{ margin-top:.7rem; padding-top:.7rem; border-top:1px dashed var(--line); font-size:.78rem; color:var(--ink-soft); }
+.learn-card .lc-next b{ display:inline; font-size:.78rem; color:var(--ink); }
+
+.lib-strip{ display:flex; gap:.9rem; overflow-x:auto; padding-bottom:.3rem; }
+.lib-item{ flex:none; width:11.5rem; background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius-md); padding:.85rem .9rem; }
+.lib-item .li-icon{ width:32px; height:32px; border-radius:9px; background:var(--accent-soft); color:var(--accent-fg); display:flex; align-items:center; justify-content:center; margin-bottom:.55rem; }
+.lib-item b{ font-size:.83rem; display:block; margin-bottom:.15rem; }
+.lib-item span{ font-size:.74rem; color:var(--ink-soft); }
+
+.empty-state{ text-align:center; padding:2rem 1rem; color:var(--ink-soft); font-size:.88rem; }
