@@ -114,7 +114,7 @@ a{ color:inherit; }
 .art-copy{ position:relative; z-index:2; max-width:26rem; margin-top:2.5rem; }
 .art-copy h1{ font-size:2.15rem; color:#fff; line-height:1.12; margin-bottom:.6rem; }
 .art-copy p{ color:rgba(255,255,255,.82); font-size:1rem; line-height:1.55; margin:0; }
-.art-scene{ position:absolute; inset:auto 0 0 0; height:58%; z-index:1; }
+.art-scene{ position:absolute; inset:auto 0 0 0; height:42%; z-index:1; }
 .art-stats{ position:relative; z-index:2; display:flex; gap:1.6rem; margin-top:2rem; flex-wrap:wrap; }
 .art-stat b{ display:block; font-family:"Baloo 2",sans-serif; font-size:1.5rem; font-variant-numeric:tabular-nums; }
 .art-stat span{ font-size:.76rem; color:rgba(255,255,255,.72); }
