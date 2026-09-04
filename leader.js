@@ -1,6 +1,7 @@
-import { $, esc, initials } from "./util.js";
+import { $, $$, esc, initials } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { LEADER_CONTENT } from "./data.js";
+import { getForms, getResponses, addResponse } from "./store.js";
 
 const ICON = {
   learners: '<path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/>',
@@ -53,6 +54,65 @@ if (user) {
     ? content.visits.map((v) => `
       <div class="task-row"><div><b>${esc(v.label)}</b><span>${esc(v.detail)}</span></div></div>`).join("")
     : `<div class="empty-state">No field visits recorded yet.</div>`;
+
+  /* Forms the Education Team has sent to school heads — same
+     create-once-fill-once loop as the teacher dashboard. */
+  renderForms();
+  function renderForms() {
+    const forms = getForms().filter((f) => f.audience === "school_leader");
+    const responses = getResponses();
+    const answeredFormIds = new Set(responses.filter((r) => r.respondentId === user.id).map((r) => r.formId));
+
+    $("#formsList").innerHTML = forms.length
+      ? forms.map((f) => {
+          const done = answeredFormIds.has(f.id);
+          return `
+            <div class="form-card">
+              <div class="fc-head"><h3>${esc(f.title)}</h3>${done ? `<span class="pill ok">Submitted</span>` : `<span class="pill warm">Pending</span>`}</div>
+              <div class="fc-meta">${f.description ? esc(f.description) : "From " + esc(f.createdBy)}</div>
+              ${done ? "" : `<button class="btn btn-outline" type="button" data-fill-form="${esc(f.id)}">Fill out</button>
+                <div class="fill-form" id="fill-${esc(f.id)}" hidden></div>`}
+            </div>`;
+        }).join("")
+      : `<div class="empty-state">No forms from the Education Team yet.</div>`;
+
+    $$("[data-fill-form]").forEach((btn) =>
+      btn.addEventListener("click", () => openFormFill(btn.dataset.fillForm, forms, btn))
+    );
+  }
+
+  function openFormFill(formId, forms, btn) {
+    const form = forms.find((f) => f.id === formId);
+    const box = $("#fill-" + formId);
+    if (!form || !box) return;
+    btn.hidden = true;
+    box.hidden = false;
+    box.innerHTML = form.questions.map((q) => `
+      <div class="field">
+        <label>${esc(q.prompt)}</label>
+        ${q.type === "rating"
+          ? `<select data-q="${esc(q.id)}"><option value="5">5 — Excellent</option><option value="4">4 — Good</option><option value="3" selected>3 — Okay</option><option value="2">2 — Weak</option><option value="1">1 — Poor</option></select>`
+          : `<input type="text" data-q="${esc(q.id)}" placeholder="Your answer">`}
+      </div>`).join("") +
+      `<button class="btn btn-primary btn-block" type="button" id="submit-${esc(formId)}">Submit feedback</button>`;
+
+    $("#submit-" + formId).addEventListener("click", () => {
+      const answers = form.questions.map((q) => ({
+        questionId: q.id,
+        value: box.querySelector(`[data-q="${q.id}"]`).value,
+      }));
+      addResponse({
+        id: "resp_" + Date.now().toString(36),
+        formId: form.id,
+        respondentId: user.id,
+        respondentName: user.fullName,
+        respondentRole: "school_leader",
+        submittedAt: new Date().toISOString(),
+        answers,
+      });
+      renderForms();
+    });
+  }
 }
 
 function doSignOut() {

@@ -1,12 +1,13 @@
 import { $, $$, esc, initials } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { LEARNER_CONTENT, SUBJECT_ICON_PATHS } from "./data.js";
+import { getLibrary } from "./store.js";
 
 const CIRCUMFERENCE = 2 * Math.PI * 34;
 
 const user = requireRole("learner");
 if (user) {
-  const seed = LEARNER_CONTENT[user.id] || { classes: [], assignments: [], library: [] };
+  const seed = LEARNER_CONTENT[user.id] || { classes: [], assignments: [] };
 
   $("#sideAvatar").textContent = initials(user.fullName);
   $("#sideName").textContent = user.fullName;
@@ -85,11 +86,14 @@ if (user) {
       </div>`).join("")
     : `<div class="empty-state">You're not enrolled in any classes yet.</div>`;
 
-  $("#libraryStrip").innerHTML = seed.library.length
-    ? seed.library.map((l) => `
+  // Shared, org-wide store (education.js writes it) — whatever the
+  // Education Team has uploaded shows up here automatically.
+  const library = getLibrary();
+  $("#libraryStrip").innerHTML = library.length
+    ? library.map((l) => `
       <div class="lib-item">
         <span class="li-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${SUBJECT_ICON_PATHS[l.subject] || ""}</svg></span>
-        <b>${esc(l.title)}</b><span>${esc(l.subject)}</span>
+        <b>${esc(l.title)}</b><span>${esc(l.subject)} · ${esc(l.type)}</span>
       </div>`).join("")
     : `<div class="empty-state">Nothing in the library yet.</div>`;
 

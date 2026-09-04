@@ -1,7 +1,7 @@
 /* ============================================================
    HPF Digital Learning Portal — demo data.
    This build has no backend yet (see README.md): everything lives in
-   this file plus whatever the browser saves to localStorage. The four
+   this file plus whatever the browser saves to localStorage. The five
    seed accounts below are clearly-labelled demo logins, not real people.
    ============================================================ */
 
@@ -10,6 +10,7 @@ export const ROLES = [
   { value: "learner", label: "Learner", desc: "Coursework and library" },
   { value: "school_leader", label: "School Leader", desc: "Termly returns, oversight" },
   { value: "field_officer", label: "Field Officer", desc: "Visit reports by county" },
+  { value: "education_team", label: "Education Team", desc: "Content, forms & insights" },
 ];
 
 /* Seeded once into localStorage on first run — see auth.js. Passwords are
@@ -53,12 +54,22 @@ export const SEED_USERS = [
     school: "",
     county: "Nyeri",
   },
+  {
+    id: "u_edu_demo",
+    role: "education_team",
+    username: "amina.hassan",
+    password: "demo1234",
+    fullName: "Amina Hassan",
+    school: "",
+    county: "",
+  },
 ];
 
 /* Sample content for the seed accounts, keyed by user id. A newly signed-up
    account gets none of this — an honest empty dashboard rather than
    borrowed demo content, same as the seed accounts once looked before
-   anyone taught, enrolled, filed a return, or visited a school. */
+   anyone taught, enrolled, filed a return, filed a report, or published
+   anything. */
 export const TEACHER_CONTENT = {
   u_teacher_demo: {
     stats: { classes: 3, learners: 128, toGrade: 6, avgScore: 74, attendance: 91 },
@@ -76,10 +87,6 @@ export const TEACHER_CONTENT = {
       { id: "r1", label: "Grade 5A — Fractions quiz", score: 86, kind: "good" },
       { id: "r2", label: "Grade 6C — Ecosystems test", score: 69, kind: "mid" },
       { id: "r3", label: "Grade 4B — Comprehension", score: 78, kind: "good" },
-    ],
-    library: [
-      { title: "Fractions — visual walkthrough", subject: "Mathematics · Grade 5" },
-      { title: "Reading comprehension pack", subject: "English · Grade 4" },
     ],
   },
 };
@@ -99,12 +106,6 @@ export const LEARNER_CONTENT = {
       { id: "a2", title: "Reading log", subject: "English", due: "Monday", done: false },
       { id: "a3", title: "Times tables practice", subject: "Mathematics", due: "Wednesday", done: true },
       { id: "a4", title: "Comprehension worksheet", subject: "English", due: "Tuesday", done: true },
-    ],
-    library: [
-      { title: "Fractions — visual walkthrough", subject: "Mathematics" },
-      { title: "Reading comprehension pack", subject: "English" },
-      { title: "Life cycles explained", subject: "Science" },
-      { title: "Times tables practice", subject: "Mathematics" },
     ],
   },
 };
@@ -160,3 +161,65 @@ export const SUBJECT_ICON_PATHS = {
   English: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/>',
   Science: '<path d="M12 3c-4 3-4 7 0 9M12 3c4 3 4 7 0 9M12 12v9M7 21h10"/>',
 };
+
+/* ---------------------------------------------------------------- shared,
+   org-wide resources. Unlike everything above (seeded PER account), these
+   three are one shared list every account in this browser reads and
+   writes — see store.js. This is what makes "the education team uploads
+   a resource" or "creates a form" visible from a teacher or school leader
+   account signed in on the same browser. */
+export const SEED_LIBRARY = [
+  { id: "lib1", title: "Fractions — visual walkthrough", subject: "Mathematics", type: "Video",
+    description: "A short animated walkthrough of adding and subtracting fractions.",
+    uploadedBy: "Amina Hassan", uploadedAt: "2026-08-01T09:00:00.000Z" },
+  { id: "lib2", title: "Reading comprehension pack", subject: "English", type: "Worksheet",
+    description: "Six short passages with comprehension questions, Grade 4 level.",
+    uploadedBy: "Amina Hassan", uploadedAt: "2026-08-03T09:00:00.000Z" },
+  { id: "lib3", title: "Life cycles explained", subject: "Science", type: "Reading",
+    description: "An illustrated explainer of animal and plant life cycles.",
+    uploadedBy: "Amina Hassan", uploadedAt: "2026-08-10T09:00:00.000Z" },
+  { id: "lib4", title: "Times tables practice", subject: "Mathematics", type: "Worksheet",
+    description: "Drill sheets for the 2–12 times tables.",
+    uploadedBy: "Amina Hassan", uploadedAt: "2026-08-14T09:00:00.000Z" },
+];
+export const CONTENT_TYPES = ["Video", "Worksheet", "Reading", "Lesson plan", "Assessment"];
+export const LIBRARY_SUBJECTS = ["Mathematics", "English", "Science"];
+
+export const FORM_AUDIENCES = [
+  { value: "teacher", label: "Teachers" },
+  { value: "school_leader", label: "School Leaders" },
+];
+export const QUESTION_TYPES = [
+  { value: "rating", label: "Rating (1–5)" },
+  { value: "text", label: "Short answer" },
+];
+
+export const SEED_FORMS = [
+  {
+    id: "form1",
+    title: "Term 2 curriculum feedback",
+    description: "A quick check on how the new Mathematics materials are landing in class.",
+    audience: "teacher",
+    createdBy: "Amina Hassan",
+    createdAt: "2026-08-20T09:00:00.000Z",
+    questions: [
+      { id: "q1", type: "rating", prompt: "How well are learners engaging with the new Mathematics materials?" },
+      { id: "q2", type: "text", prompt: "What would make the materials more useful?" },
+    ],
+  },
+];
+
+export const SEED_RESPONSES = [
+  {
+    id: "resp1",
+    formId: "form1",
+    respondentId: "u_teacher_demo",
+    respondentName: "Grace Mwangi",
+    respondentRole: "teacher",
+    submittedAt: "2026-08-25T14:00:00.000Z",
+    answers: [
+      { questionId: "q1", value: 4 },
+      { questionId: "q2", value: "More worked examples for fractions would help — learners get stuck partway through." },
+    ],
+  },
+];

@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Education Team dashboard — HPF Digital Learning Portal</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Work+Sans:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="./styles.css">
+  <link rel="icon" href="data:,">
+</head>
+<body>
+  <div class="demo-banner">Demo build — no real backend yet. Data lives only in this browser. See README.md.</div>
+
+  <div class="app-shell">
+    <aside class="app-side">
+      <a class="wordmark" href="index.html">
+        <span class="badge-mark">HPF</span>
+        <span class="wordmark-text"><b>Human Practice</b><span>Digital Learning Portal</span></span>
+      </a>
+      <nav class="side-nav">
+        <a class="side-link active"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Overview</a>
+        <a class="side-link"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>Digital Library</a>
+        <a class="side-link"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>Forms & Feedback</a>
+      </nav>
+      <div class="side-user">
+        <span class="side-avatar" id="sideAvatar">?</span>
+        <div><b id="sideName">—</b><span id="sideMeta">—</span></div>
+      </div>
+      <button class="side-signout" id="signOutBtn">Sign out</button>
+    </aside>
+
+    <main class="app-main">
+      <div class="app-top">
+        <div>
+          <span class="pill">Education Team workspace</span>
+          <h1 id="greeting" style="margin-top:.5rem">Habari</h1>
+          <p>Live across every account on this browser · Term 2, 2026</p>
+        </div>
+        <div class="app-top-actions">
+          <button class="icon-btn" aria-label="Notifications"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 8a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg><span class="dot"></span></button>
+          <button class="btn btn-outline" id="signOutBtn2">Sign out</button>
+        </div>
+      </div>
+
+      <div class="stat-row" id="statRow"></div>
+
+      <div class="body-grid">
+        <div>
+          <div class="panel">
+            <div class="panel-head"><h2>Upload content</h2></div>
+            <form id="uploadForm">
+              <div class="field">
+                <label for="up_title">Title</label>
+                <input id="up_title" type="text" placeholder="e.g. Fractions — visual walkthrough" required>
+              </div>
+              <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:.9rem">
+                <div class="field">
+                  <label for="up_subject">Subject</label>
+                  <select id="up_subject" required></select>
+                </div>
+                <div class="field">
+                  <label for="up_type">Type</label>
+                  <select id="up_type" required></select>
+                </div>
+              </div>
+              <div class="field">
+                <label for="up_desc">Description</label>
+                <input id="up_desc" type="text" placeholder="What is this, and who is it for?">
+              </div>
+              <button class="btn btn-primary btn-block" type="submit">Add to library</button>
+            </form>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head"><h2>Create a form</h2></div>
+            <form id="formBuilder">
+              <div class="field">
+                <label for="fb_title">Title</label>
+                <input id="fb_title" type="text" placeholder="e.g. Term 2 curriculum feedback" required>
+              </div>
+              <div class="field">
+                <label for="fb_desc">Description</label>
+                <input id="fb_desc" type="text" placeholder="What is this form for?">
+              </div>
+              <div class="field">
+                <label for="fb_audience">Send to</label>
+                <select id="fb_audience" required></select>
+              </div>
+              <div class="field">
+                <label>Questions</label>
+                <div id="questionRows"></div>
+                <button class="btn btn-outline" type="button" id="addQuestion" style="margin-top:.3rem">+ Add question</button>
+              </div>
+              <button class="btn btn-primary btn-block" type="submit" style="margin-top:.9rem">Send form</button>
+            </form>
+          </div>
+        </div>
+
+        <div>
+          <div class="panel">
+            <div class="panel-head"><h2>Content Library</h2></div>
+            <div id="libraryList"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head"><h2>Your forms & feedback</h2></div>
+            <div id="formsList"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script type="module" src="./education.js"></script>
+</body>
+</html>

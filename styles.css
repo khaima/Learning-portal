@@ -266,3 +266,31 @@ a{ color:inherit; }
 .lib-item span{ font-size:.74rem; color:var(--ink-soft); }
 
 .empty-state{ text-align:center; padding:2rem 1rem; color:var(--ink-soft); font-size:.88rem; }
+
+/* ---- education team: content upload, form builder, results ---- */
+.qrow{ display:flex; gap:.5rem; align-items:flex-start; margin-bottom:.6rem; }
+.qrow .field{ flex:1; margin-bottom:0; }
+.qrow select{
+  width:9.5rem; flex:none; border:1.5px solid var(--line); background:var(--paper-raised); color:var(--ink);
+  border-radius:var(--radius-sm); padding:.62rem .5rem; font-size:.85rem; font-family:inherit;
+}
+.qrow-remove{
+  background:var(--danger-soft); color:var(--danger); border:0; border-radius:var(--radius-sm);
+  width:2.7rem; height:2.7rem; flex:none; cursor:pointer; font-size:1.1rem; font-weight:700; line-height:1;
+}
+.qrow-remove:disabled{ opacity:.4; cursor:not-allowed; }
+
+.form-card{ border:1px solid var(--line); border-radius:var(--radius-md); padding:1rem 1.1rem; margin-bottom:.8rem; }
+.form-card:last-child{ margin-bottom:0; }
+.form-card .fc-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:.6rem; margin-bottom:.2rem; }
+.form-card h3{ font-size:.92rem; }
+.form-card .fc-meta{ font-size:.76rem; color:var(--ink-soft); margin-bottom:.7rem; }
+.form-card .fc-q{ padding:.6rem 0; border-top:1px solid var(--line); }
+.form-card .fc-q:first-of-type{ border-top:0; padding-top:0; }
+.form-card .fc-q b{ display:block; font-size:.84rem; margin-bottom:.4rem; }
+.form-card .fc-avg{ font-family:"Baloo 2",sans-serif; font-weight:700; font-size:1.4rem; color:var(--brand); }
+.form-card .fc-answer{ font-size:.82rem; color:var(--ink-soft); padding:.3rem .6rem; background:var(--paper-sunk); border-radius:8px; margin-bottom:.35rem; }
+.form-card .fc-answer:last-child{ margin-bottom:0; }
+.form-card .fc-answer b{ display:block; font-size:.76rem; color:var(--ink); margin-bottom:.1rem; }
+
+.fill-form{ border:1.5px dashed var(--line); border-radius:var(--radius-md); padding:.9rem 1rem; margin-top:.7rem; background:var(--paper-sunk); }

@@ -1,6 +1,7 @@
-import { $, esc, initials } from "./util.js";
+import { $, $$, esc, initials } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { TEACHER_CONTENT } from "./data.js";
+import { getLibrary, getForms, getResponses, addResponse } from "./store.js";
 
 const ICON = {
   classes: '<path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/>',
@@ -14,7 +15,7 @@ const user = requireRole("teacher");
 if (user) {
   const content = TEACHER_CONTENT[user.id] || {
     stats: { classes: 0, learners: 0, toGrade: 0, avgScore: 0, attendance: 0 },
-    classes: [], tasks: [], results: [], library: [],
+    classes: [], tasks: [], results: [],
   };
 
   $("#sideAvatar").textContent = initials(user.fullName);
@@ -51,10 +52,74 @@ if (user) {
       <div class="result-row"><span>${esc(r.label)}</span><span class="score ${r.kind}">${r.score}%</span></div>`).join("")
     : `<div class="empty-state">No results recorded yet.</div>`;
 
-  $("#libraryList").innerHTML = content.library.length
-    ? content.library.map((l) => `
-      <div class="task-row"><div><b>${esc(l.title)}</b><span>${esc(l.subject)}</span></div></div>`).join("")
-    : `<div class="empty-state">Nothing saved from the library yet.</div>`;
+  /* Content library is a shared, org-wide store (education.js writes it) —
+     every teacher sees whatever the Education Team has uploaded, not a
+     fixed per-account list. */
+  const library = getLibrary();
+  $("#libraryList").innerHTML = library.length
+    ? library.map((l) => `
+      <div class="task-row"><div><b>${esc(l.title)}</b><span>${esc(l.subject)} · ${esc(l.type)}${l.description ? " — " + esc(l.description) : ""}</span></div></div>`).join("")
+    : `<div class="empty-state">Nothing in the library yet.</div>`;
+
+  /* Forms the Education Team has sent to teachers — same
+     create-once-fill-once loop as the field officer's report form, just
+     addressed at this account instead of built into it. */
+  renderForms();
+  function renderForms() {
+    const forms = getForms().filter((f) => f.audience === "teacher");
+    const responses = getResponses();
+    const answeredFormIds = new Set(responses.filter((r) => r.respondentId === user.id).map((r) => r.formId));
+
+    $("#formsList").innerHTML = forms.length
+      ? forms.map((f) => {
+          const done = answeredFormIds.has(f.id);
+          return `
+            <div class="form-card">
+              <div class="fc-head"><h3>${esc(f.title)}</h3>${done ? `<span class="pill ok">Submitted</span>` : `<span class="pill warm">Pending</span>`}</div>
+              <div class="fc-meta">${f.description ? esc(f.description) : "From " + esc(f.createdBy)}</div>
+              ${done ? "" : `<button class="btn btn-outline" type="button" data-fill-form="${esc(f.id)}">Fill out</button>
+                <div class="fill-form" id="fill-${esc(f.id)}" hidden></div>`}
+            </div>`;
+        }).join("")
+      : `<div class="empty-state">No forms from the Education Team yet.</div>`;
+
+    $$("[data-fill-form]").forEach((btn) =>
+      btn.addEventListener("click", () => openFormFill(btn.dataset.fillForm, forms, btn))
+    );
+  }
+
+  function openFormFill(formId, forms, btn) {
+    const form = forms.find((f) => f.id === formId);
+    const box = $("#fill-" + formId);
+    if (!form || !box) return;
+    btn.hidden = true;
+    box.hidden = false;
+    box.innerHTML = form.questions.map((q) => `
+      <div class="field">
+        <label>${esc(q.prompt)}</label>
+        ${q.type === "rating"
+          ? `<select data-q="${esc(q.id)}"><option value="5">5 — Excellent</option><option value="4">4 — Good</option><option value="3" selected>3 — Okay</option><option value="2">2 — Weak</option><option value="1">1 — Poor</option></select>`
+          : `<input type="text" data-q="${esc(q.id)}" placeholder="Your answer">`}
+      </div>`).join("") +
+      `<button class="btn btn-primary btn-block" type="button" id="submit-${esc(formId)}">Submit feedback</button>`;
+
+    $("#submit-" + formId).addEventListener("click", () => {
+      const answers = form.questions.map((q) => ({
+        questionId: q.id,
+        value: box.querySelector(`[data-q="${q.id}"]`).value,
+      }));
+      addResponse({
+        id: "resp_" + Date.now().toString(36),
+        formId: form.id,
+        respondentId: user.id,
+        respondentName: user.fullName,
+        respondentRole: "teacher",
+        submittedAt: new Date().toISOString(),
+        answers,
+      });
+      renderForms();
+    });
+  }
 }
 
 function doSignOut() {

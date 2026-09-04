@@ -7,6 +7,7 @@ const DASHBOARD_PATH = {
   learner: "learner.html",
   school_leader: "leader.html",
   field_officer: "field.html",
+  education_team: "education.html",
 };
 const ROLE_LABEL = Object.fromEntries(ROLES.map((r) => [r.value, r.label]));
 
@@ -59,6 +60,7 @@ const DEMO_USERNAME = {
   learner: "naomi.k",
   school_leader: "peter.kamau",
   field_officer: "susan.wanjiru",
+  education_team: "amina.hassan",
 };
 $$("[data-fill]").forEach((btn) =>
   btn.addEventListener("click", () => {
