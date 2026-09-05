@@ -2,6 +2,7 @@ import { $, $$, esc, initials } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { LEARNER_CONTENT, SUBJECT_ICON_PATHS } from "./data.js";
 import { getLibrary } from "./store.js";
+import { supabase } from "./supabase.js";
 
 const CIRCUMFERENCE = 2 * Math.PI * 34;
 
@@ -15,24 +16,22 @@ if (user) {
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
   $("#topSub").textContent = `${user.school || "No school set"} · ${user.grade || "—"}`;
 
-  // Assignment completion is the one thing on this page a learner can
-  // actually change, so it's the one thing persisted per-user in
-  // localStorage — everything else stays as seeded sample data. First
-  // visit copies the seed list in; every visit after reads the saved one.
-  const assignmentsKey = `hpf_learning_portal_assignments_${user.id}`;
-  let assignments = readAssignments();
-  function readAssignments() {
-    try {
-      const stored = JSON.parse(localStorage.getItem(assignmentsKey));
-      if (Array.isArray(stored)) return stored;
-    } catch { /* fall through to seed */ }
-    return seed.assignments.map((a) => ({ ...a }));
+  /* Assignments live in the real database now (learning_portal.assignments)
+     — a fresh learner account has none until a teacher assigns some (there
+     is no "create assignment" UI yet, so a signed-up account stays at
+     0/0, honestly, rather than borrowed demo content). */
+  async function loadAssignments() {
+    const { data, error } = await supabase
+      .from("assignments").select("*").eq("learner_id", user.id).order("id");
+    if (error) { console.warn("could not load assignments:", error.message); return []; }
+    return data.map((a) => ({ id: a.id, title: a.title, subject: a.subject, due: a.due, done: a.done }));
   }
-  function saveAssignments() {
-    localStorage.setItem(assignmentsKey, JSON.stringify(assignments));
+  async function markDone(id) {
+    const { error } = await supabase.from("assignments").update({ done: true }).eq("id", id);
+    if (error) console.warn("could not save assignment:", error.message);
   }
 
-  function renderProgress() {
+  function renderProgress(assignments) {
     const done = assignments.filter((a) => a.done).length;
     const total = assignments.length;
     const fraction = total ? done / total : 0;
@@ -50,7 +49,7 @@ if (user) {
       : "Your teacher hasn't set any assignments yet.";
   }
 
-  function renderAssignments() {
+  function renderAssignments(assignments, onMarkDone) {
     $("#assignmentList").innerHTML = assignments.length
       ? assignments.map((a) => `
         <div class="task-row ${a.done ? "done" : "due"}">
@@ -60,16 +59,25 @@ if (user) {
         </div>`).join("")
       : `<div class="empty-state">No assignments yet.</div>`;
     $$("[data-done-id]").forEach((btn) =>
-      btn.addEventListener("click", () => {
-        const a = assignments.find((x) => x.id === btn.dataset.doneId);
-        if (!a) return;
-        a.done = true;
-        saveAssignments();
-        renderProgress();
-        renderAssignments();
-      })
+      btn.addEventListener("click", () => onMarkDone(btn.dataset.doneId))
     );
   }
+
+  async function boot() {
+    $("#assignmentList").innerHTML = `<div class="empty-state">Loading…</div>`;
+    let assignments = await loadAssignments();
+
+    function renderAll() {
+      renderProgress(assignments);
+      renderAssignments(assignments, async (id) => {
+        await markDone(id);
+        assignments = assignments.map((a) => (a.id === id ? { ...a, done: true } : a));
+        renderAll();
+      });
+    }
+    renderAll();
+  }
+  boot();
 
   $("#classGrid").innerHTML = seed.classes.length
     ? seed.classes.map((c) => `
@@ -86,19 +94,16 @@ if (user) {
       </div>`).join("")
     : `<div class="empty-state">You're not enrolled in any classes yet.</div>`;
 
-  // Shared, org-wide store (education.js writes it) — whatever the
-  // Education Team has uploaded shows up here automatically.
-  const library = getLibrary();
-  $("#libraryStrip").innerHTML = library.length
-    ? library.map((l) => `
-      <div class="lib-item">
-        <span class="li-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${SUBJECT_ICON_PATHS[l.subject] || ""}</svg></span>
-        <b>${esc(l.title)}</b><span>${esc(l.subject)} · ${esc(l.type)}</span>
-      </div>`).join("")
-    : `<div class="empty-state">Nothing in the library yet.</div>`;
-
-  renderProgress();
-  renderAssignments();
+  $("#libraryStrip").innerHTML = `<div class="empty-state">Loading…</div>`;
+  getLibrary().then((library) => {
+    $("#libraryStrip").innerHTML = library.length
+      ? library.map((l) => `
+        <div class="lib-item">
+          <span class="li-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${SUBJECT_ICON_PATHS[l.subject] || ""}</svg></span>
+          <b>${esc(l.title)}</b><span>${esc(l.subject)} · ${esc(l.type)}</span>
+        </div>`).join("")
+      : `<div class="empty-state">Nothing in the library yet.</div>`;
+  });
 }
 
 function doSignOut() {

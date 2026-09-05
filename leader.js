@@ -58,9 +58,10 @@ if (user) {
   /* Forms the Education Team has sent to school heads — same
      create-once-fill-once loop as the teacher dashboard. */
   renderForms();
-  function renderForms() {
-    const forms = getForms().filter((f) => f.audience === "school_leader");
-    const responses = getResponses();
+  async function renderForms() {
+    $("#formsList").innerHTML = `<div class="empty-state">Loading…</div>`;
+    const [allForms, responses] = await Promise.all([getForms(), getResponses()]);
+    const forms = allForms.filter((f) => f.audience === "school_leader");
     const answeredFormIds = new Set(responses.filter((r) => r.respondentId === user.id).map((r) => r.formId));
 
     $("#formsList").innerHTML = forms.length
@@ -96,18 +97,20 @@ if (user) {
       </div>`).join("") +
       `<button class="btn btn-primary btn-block" type="button" id="submit-${esc(formId)}">Submit feedback</button>`;
 
-    $("#submit-" + formId).addEventListener("click", () => {
+    $("#submit-" + formId).addEventListener("click", async () => {
+      const submitBtn = $("#submit-" + formId);
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Submitting…";
       const answers = form.questions.map((q) => ({
         questionId: q.id,
         value: box.querySelector(`[data-q="${q.id}"]`).value,
       }));
-      addResponse({
+      await addResponse({
         id: "resp_" + Date.now().toString(36),
         formId: form.id,
         respondentId: user.id,
         respondentName: user.fullName,
         respondentRole: "school_leader",
-        submittedAt: new Date().toISOString(),
         answers,
       });
       renderForms();

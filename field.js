@@ -1,6 +1,7 @@
 import { $, esc, initials } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { FIELD_CONTENT, FIELD_SCHOOLS_BY_COUNTY, VISIT_TYPES } from "./data.js";
+import { supabase } from "./supabase.js";
 
 const ICON = {
   schools: '<path d="M4 21V8l8-5 8 5v13"/><path d="M9 21v-6h6v6"/>',
@@ -25,29 +26,25 @@ if (user) {
     <div class="stat-tile"><div class="s-label">${svg(ICON.counties)}Counties</div><div class="s-num">${seed.stats.counties}</div><div class="s-sub">covered</div></div>
   `;
 
-  // Persisted per-user, same pattern as the learner's assignment list: the
-  // seed reports are the starting point, every report submitted from this
-  // page appends to the saved copy.
-  const key = `hpf_learning_portal_reports_${user.id}`;
-  function loadReports() {
-    try {
-      const stored = JSON.parse(localStorage.getItem(key));
-      if (Array.isArray(stored)) return stored;
-    } catch { /* fall through to seed */ }
-    return seed.reports.map((r) => ({ ...r }));
+  /* Reports live in the real learning_portal.field_reports table now — a
+     fresh field officer account starts with none, honestly, rather than
+     someone else's demo visits. */
+  async function loadReports() {
+    const { data, error } = await supabase
+      .from("field_reports").select("*").eq("officer_id", user.id).order("created_at", { ascending: false });
+    if (error) { console.warn("could not load field reports:", error.message); return []; }
+    return data.map((r) => ({
+      school: r.school, county: r.county, visitType: r.visit_type,
+      detail: new Date(r.created_at).toLocaleDateString(),
+    }));
   }
-  function saveReports(list) {
-    localStorage.setItem(key, JSON.stringify(list));
-  }
-  let reports = loadReports();
 
-  function renderReports() {
+  function renderReports(reports) {
     $("#reportList").innerHTML = reports.length
       ? reports.map((r) => `
         <div class="task-row"><div><b>${esc(r.school)}</b><span>${esc(r.county)} · ${esc(r.visitType)} · ${esc(r.detail)}</span></div></div>`).join("")
       : `<div class="empty-state">No field reports filed yet.</div>`;
   }
-  renderReports();
 
   // ---- county -> school cascade, the real production app's flagship flow ----
   const countySelect = $("#fr_county");
@@ -69,19 +66,34 @@ if (user) {
       schools.map((s) => `<option>${esc(s)}</option>`).join("");
   });
 
-  $("#reportForm").addEventListener("submit", (e) => {
+  $("#reportForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const county = countySelect.value;
     const school = schoolSelect.value;
     const visitType = visitSelect.value;
     if (!county || !school || !visitType) return;
-    reports = [{ school, county, visitType, detail: "just now" }, ...reports];
-    saveReports(reports);
-    renderReports();
+
+    const submitBtn = e.target.querySelector("[type=submit]");
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Saving…";
+
+    const { error } = await supabase.from("field_reports").insert({
+      id: "fr_" + Date.now().toString(36),
+      officer_id: user.id,
+      school, county, visit_type: visitType,
+    });
+    submitBtn.disabled = false;
+    submitBtn.textContent = "Submit field report";
+    if (error) { console.warn("could not save field report:", error.message); return; }
+
+    renderReports(await loadReports());
     e.target.reset();
     schoolSelect.disabled = true;
     schoolSelect.innerHTML = `<option value="" disabled selected>Select a county first</option>`;
   });
+
+  $("#reportList").innerHTML = `<div class="empty-state">Loading…</div>`;
+  loadReports().then(renderReports);
 }
 
 function doSignOut() {

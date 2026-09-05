@@ -1,10 +1,10 @@
 import { $, esc, initials } from "./util.js";
 import { requireRole, signOut, allUsers } from "./auth.js";
 import {
-  ROLES, LEARNER_CONTENT, FIELD_CONTENT, SUBJECT_ICON_PATHS,
-  CONTENT_TYPES, LIBRARY_SUBJECTS, FORM_AUDIENCES, QUESTION_TYPES,
+  ROLES, CONTENT_TYPES, LIBRARY_SUBJECTS, FORM_AUDIENCES, QUESTION_TYPES,
 } from "./data.js";
 import { getLibrary, addLibraryItem, getForms, addForm, getResponses } from "./store.js";
+import { supabase } from "./supabase.js";
 
 const ROLE_LABEL = Object.fromEntries(ROLES.map((r) => [r.value, r.label]));
 const AUDIENCE_LABEL = Object.fromEntries(FORM_AUDIENCES.map((a) => [a.value, a.label]));
@@ -25,42 +25,28 @@ if (user) {
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
 
   /* ------------------------------------------------------------ live org-wide stats
-     Reads every account actually recorded in this browser (auth.js) plus
-     the per-account content each one has produced — real cross-account
-     aggregation, not a fixed number. A field report filed on the Field
-     Officer dashboard, or an assignment marked done on the Learner
-     dashboard, changes what shows up here on the next load. */
-  function readJSON(key, fallback) {
-    try {
-      const v = JSON.parse(localStorage.getItem(key));
-      return v == null ? fallback : v;
-    } catch {
-      return fallback;
-    }
-  }
-
-  function renderStats() {
-    const users = allUsers();
+     Reads every account actually recorded in the real database (auth.js)
+     plus what each has produced there — real cross-account aggregation
+     from the database, not a fixed number. A field report filed on the
+     Field Officer dashboard, or an assignment marked done on the Learner
+     dashboard, changes what shows up here on the next load — from any
+     browser or device, not just the one that filed it. */
+  async function renderStats() {
+    $("#statRow").innerHTML = `<div class="empty-state">Loading…</div>`;
+    const users = await allUsers();
     const counts = { teacher: 0, learner: 0, school_leader: 0, field_officer: 0, education_team: 0 };
     users.forEach((u) => { if (counts[u.role] !== undefined) counts[u.role]++; });
 
-    let assignmentsDone = 0, assignmentsTotal = 0;
-    users.filter((u) => u.role === "learner").forEach((u) => {
-      const seed = LEARNER_CONTENT[u.id];
-      const list = readJSON(`hpf_learning_portal_assignments_${u.id}`, seed ? seed.assignments : []);
-      assignmentsTotal += list.length;
-      assignmentsDone += list.filter((a) => a.done).length;
-    });
-
-    let reportsFiled = 0;
-    users.filter((u) => u.role === "field_officer").forEach((u) => {
-      const seed = FIELD_CONTENT[u.id];
-      const list = readJSON(`hpf_learning_portal_reports_${u.id}`, seed ? seed.reports : []);
-      reportsFiled += list.length;
-    });
-
-    const forms = getForms();
-    const responses = getResponses();
+    const [assignmentsRes, reportsRes, forms, responses] = await Promise.all([
+      supabase.from("assignments").select("done"),
+      supabase.from("field_reports").select("id", { count: "exact", head: true }),
+      getForms(),
+      getResponses(),
+    ]);
+    const assignments = assignmentsRes.data || [];
+    const assignmentsTotal = assignments.length;
+    const assignmentsDone = assignments.filter((a) => a.done).length;
+    const reportsFiled = reportsRes.count || 0;
 
     $("#statRow").innerHTML = `
       <div class="stat-tile"><div class="s-label">${svg(ICON.progress)}Accounts</div><div class="s-num">${users.length}</div>
@@ -78,8 +64,9 @@ if (user) {
   $("#up_subject").innerHTML = LIBRARY_SUBJECTS.map((s) => `<option>${esc(s)}</option>`).join("");
   $("#up_type").innerHTML = CONTENT_TYPES.map((t) => `<option>${esc(t)}</option>`).join("");
 
-  function renderLibrary() {
-    const items = getLibrary();
+  async function renderLibrary() {
+    $("#libraryList").innerHTML = `<div class="empty-state">Loading…</div>`;
+    const items = await getLibrary();
     $("#libraryList").innerHTML = items.length
       ? items.map((it) => `
         <div class="task-row">
@@ -92,19 +79,21 @@ if (user) {
       : `<div class="empty-state">Nothing uploaded yet.</div>`;
   }
 
-  $("#uploadForm").addEventListener("submit", (e) => {
+  $("#uploadForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const title = $("#up_title").value.trim();
     if (!title) return;
-    addLibraryItem({
+    const submitBtn = e.target.querySelector("[type=submit]");
+    submitBtn.disabled = true;
+    await addLibraryItem({
       id: "lib_" + Date.now().toString(36),
       title,
       subject: $("#up_subject").value,
       type: $("#up_type").value,
       description: $("#up_desc").value.trim(),
       uploadedBy: user.fullName,
-      uploadedAt: new Date().toISOString(),
     });
+    submitBtn.disabled = false;
     e.target.reset();
     $("#up_subject").value = LIBRARY_SUBJECTS[0];
     $("#up_type").value = CONTENT_TYPES[0];
@@ -131,7 +120,7 @@ if (user) {
   addQuestionRow();
   $("#addQuestion").addEventListener("click", addQuestionRow);
 
-  $("#formBuilder").addEventListener("submit", (e) => {
+  $("#formBuilder").addEventListener("submit", async (e) => {
     e.preventDefault();
     const title = $("#fb_title").value.trim();
     if (!title) return;
@@ -144,15 +133,17 @@ if (user) {
       .filter((q) => q.prompt);
     if (!questions.length) return;
 
-    addForm({
+    const submitBtn = e.target.querySelector("[type=submit]");
+    submitBtn.disabled = true;
+    await addForm({
       id: "form_" + Date.now().toString(36),
       title,
       description: $("#fb_desc").value.trim(),
       audience: $("#fb_audience").value,
       createdBy: user.fullName,
-      createdAt: new Date().toISOString(),
       questions,
     });
+    submitBtn.disabled = false;
 
     e.target.reset();
     questionRows.innerHTML = "";
@@ -162,9 +153,9 @@ if (user) {
   });
 
   /* ------------------------------------------------------------ forms & feedback */
-  function renderForms() {
-    const forms = getForms();
-    const responses = getResponses();
+  async function renderForms() {
+    $("#formsList").innerHTML = `<div class="empty-state">Loading…</div>`;
+    const [forms, responses] = await Promise.all([getForms(), getResponses()]);
     $("#formsList").innerHTML = forms.length
       ? forms.map((f) => {
           const answers = responses.filter((r) => r.formId === f.id);

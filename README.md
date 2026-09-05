@@ -2,14 +2,15 @@
 
 A fresh, standalone build for Human Practice Foundation's Teacher,
 Learner, School Leader, Field Officer, and Education Team experience —
-separate from the existing `HPF-digital-portal-2026` project, its
-Supabase backend, and its real accounts. Nothing here talks to that
-system or its data.
+separate from the existing `HPF-digital-portal-2026` project and its real
+accounts. It shares that project's Supabase *instance* (see "The
+database" below) but touches none of its tables and none of its data.
 
 ## What this is
 
 A static, no-build, dependency-free site: plain HTML, CSS, and vanilla
-ES-module JavaScript. Six real pages:
+ES-module JavaScript, backed by a real Postgres database (Supabase). Six
+real pages:
 
 - **`index.html`** — the landing / sign-in screen. Pick a role, then sign
   in or create an account. Styled in the spirit of Zeraki Learning's
@@ -31,7 +32,33 @@ ES-module JavaScript. Six real pages:
   to the shared Digital Library, build and send a form (a mix of 1–5
   rating and short-answer questions) to Teachers or School Leaders, see
   responses roll in with a live average for rating questions, and a
-  stats row aggregated live from every account recorded in this browser.
+  stats row aggregated live from every account in the database.
+
+## The database
+
+Real Postgres, via Supabase — same Supabase *project* as
+`HPF-digital-portal-2026` (the only one on this account), but every table
+this app touches lives in its own **`learning_portal` schema**, never
+`public` (where the production portal's real tables live). Nothing here
+can read, write, or join against that data, and nothing there can see
+this. See [`supabase-schema.sql`](supabase-schema.sql) for the exact
+migration (schema, tables, RLS, seed data) — apply it to a fresh project
+and this app works against it unmodified, just change `config.js`.
+
+Because "accounts" and their data are real database rows now, not
+per-browser `localStorage`, everything is genuinely shared: an account
+created on one device signs in from another; content the Education Team
+uploads or a form they send shows up for anyone, anywhere, not just the
+browser that created it.
+
+**Security posture is still a demo's, deliberately.** There is no real
+Supabase Auth here — no JWT, no password hashing — the app's own
+plaintext-password check (`auth.js`) is what it always was, just checked
+against a real table instead of a JS array. The `learning_portal` schema
+is open to the Supabase anon key (RLS enabled, with an "allow everything"
+policy), the same trust level the old `localStorage` version had. Do not
+carry this pattern into anything holding real people's data — it needs
+real Supabase Auth and RLS scoped to `auth.uid()` instead.
 
 ## The content → form → feedback loop
 
@@ -49,26 +76,19 @@ This is the part worth trying end to end:
    average for any rating questions and the respondent's name against
    any short answers.
 
-All of it — content, forms, and responses — is a **shared, org-wide**
-store (`store.js`), not tied to one account, which is what makes step 3
-and step 5 actually show each other's work within the same browser.
+Try steps 3–5 from a *different browser* (or a private window) to see
+the part `localStorage` could never do: it's the same data everywhere,
+because it's a real database now.
 
 ## What it does NOT have yet
 
-- **No real backend.** There is no server, no database, no Supabase
-  project. "Accounts" are a JSON array in `localStorage`
-  (`auth.js`) — plausible for a demo, not secure, and not meant to hold
-  real people's data. Passwords are stored in plain text because there is
-  nothing to hash against; do not carry that pattern into anything real.
 - **No M&E or Admin roles.** Scoped to the five roles above, per how this
   build was commissioned.
-- **No cross-device sync.** Everything — accounts, library, forms,
-  responses — lives in one browser's `localStorage`. Clearing site data
-  (or opening a different browser) starts over, and "live across every
-  account" only ever means every account recorded in *that* browser.
 - **No real file upload.** "Upload content" records a title, subject,
   type, and description — not an actual file. Treat it as the mechanism
   a real content-management flow would sit behind, not the whole thing.
+- **No real authentication.** See "Security posture" above — this is a
+  demo, and should not be treated as a place for real people's data.
 - **Sample content only.** The seed accounts below come with
   realistic-looking classes, assignments, returns, reports, library items
   and one already-answered form so the pages don't open empty — none of
@@ -80,7 +100,9 @@ and step 5 actually show each other's work within the same browser.
 ```
 python -m http.server 5174
 ```
-then open `http://localhost:5174`.
+then open `http://localhost:5174`. It talks to the live database
+immediately — no setup needed unless you're pointing it at a different
+Supabase project (see `config.js` and `supabase-schema.sql`).
 
 Five seed accounts (also offered as one-click fills on the sign-in page):
 
@@ -106,18 +128,18 @@ fabricated content.
 | `leader.html` / `leader.js` | School Leader dashboard |
 | `field.html` / `field.js` | Field Officer dashboard, incl. the county → school → visit type report form |
 | `education.html` / `education.js` | Education Team dashboard: content upload, form builder, results, live org-wide stats |
-| `auth.js` | Demo, localStorage-only accounts and sessions |
-| `store.js` | Shared, org-wide stores: content library, forms, responses |
-| `data.js` | Roles, seed accounts, seed content, and form/library constants |
+| `config.js` / `supabase.js` | Supabase connection, scoped to the `learning_portal` schema |
+| `auth.js` | Accounts and sessions — real database rows, demo-level security |
+| `store.js` | Shared, org-wide data: content library, forms, responses |
+| `data.js` | Roles, form/library constants (seed *data* now lives in the database, not here) |
 | `util.js` | Tiny shared DOM/escaping/toast helpers |
 | `styles.css` | The whole design system (light + dark, one file) |
+| `supabase-schema.sql` | The exact migration applied to create and seed `learning_portal` |
 
 ## Where this could go next
 
-The obvious next step, if this is worth carrying forward, is a real
-backend — the existing `HPF-digital-portal-2026` project already has one
-(Supabase: auth, RLS, a permission matrix, an offline-first PWA for field
-officers, and this exact county → school → visit-type cascade already
-live in production) that this could plug into instead of reinventing it.
-That is a deliberate choice to make later, not something this build
-assumes.
+The obvious next step, if this is worth carrying forward for real, is
+real Supabase Auth (email/password or magic link) with RLS rewritten
+against `auth.uid()` instead of the current "anon, wide open" policy —
+the schema and the app's data flow would barely change, only who's
+allowed to read and write what.

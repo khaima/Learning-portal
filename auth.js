@@ -1,73 +1,87 @@
 /* ============================================================
-   HPF Digital Learning Portal — demo auth.
-   No backend (see README.md): "sessions" and "accounts" are both plain
-   localStorage. This is deliberately NOT secure — passwords sit in plain
-   text in the browser — and exists only so the sign-in -> dashboard flow
-   is real and clickable. Do not carry this file's approach into anything
-   that handles real people's data.
+   HPF Digital Learning Portal — accounts and sessions.
+
+   Accounts now live in the real `learning_portal.users` table (Supabase),
+   not a localStorage array — that's what makes an account created on one
+   device visible from another. What's still local, deliberately: which
+   account *this browser* is currently signed in as. There is no real
+   Supabase Auth session here (no JWT, no password hashing) — the "anon
+   full access" policy on learning_portal is what the app's own
+   plaintext-password check relies on, same posture the localStorage
+   version always had. Do not carry this pattern into anything real.
    ============================================================ */
 
-import { SEED_USERS } from "./data.js";
+import { supabase } from "./supabase.js";
 
-const USERS_KEY = "hpf_learning_portal_users";
 const SESSION_KEY = "hpf_learning_portal_session";
 
 function readJSON(key, fallback) {
   try {
     const v = JSON.parse(localStorage.getItem(key));
-    return v ?? fallback;
+    return v == null ? fallback : v;
   } catch {
     return fallback;
   }
 }
 const writeJSON = (key, value) => localStorage.setItem(key, JSON.stringify(value));
 
-export function allUsers() {
-  const stored = readJSON(USERS_KEY, null);
-  if (Array.isArray(stored) && stored.length) return stored;
-  writeJSON(USERS_KEY, SEED_USERS);
-  return SEED_USERS.slice();
-}
-
-function saveUsers(users) {
-  writeJSON(USERS_KEY, users);
-}
-
 export function currentUser() {
   return readJSON(SESSION_KEY, null);
 }
 
-export function signIn(username, password) {
+function toSafeUser(row) {
+  return {
+    id: row.id, role: row.role, username: row.username, fullName: row.full_name,
+    school: row.school, county: row.county, grade: row.grade,
+  };
+}
+
+/* Every account actually recorded in the database — used by the
+   Education Team dashboard's live, cross-account stat row. Real
+   aggregation: it reflects whatever accounts exist right now, not a
+   fixed number. */
+export async function allUsers() {
+  const { data, error } = await supabase.from("users").select("*").order("created_at");
+  if (error) { console.warn("could not load accounts:", error.message); return []; }
+  return data.map(toSafeUser);
+}
+
+export async function signIn(username, password) {
   const id = (username || "").trim().toLowerCase();
-  const user = allUsers().find((u) => u.username.toLowerCase() === id);
-  if (!user) return { error: "No account with that username." };
-  if (user.password !== password) return { error: "Wrong password." };
-  const { password: _pw, ...safe } = user;
+  const { data, error } = await supabase
+    .from("users").select("*").eq("username", id).maybeSingle();
+  if (error) return { error: "Could not reach the database — " + error.message };
+  if (!data) return { error: "No account with that username." };
+  if (data.password !== password) return { error: "Wrong password." };
+  const safe = toSafeUser(data);
   writeJSON(SESSION_KEY, safe);
   return { user: safe };
 }
 
-export function signUp({ fullName, role, username, password, school, county, grade }) {
+export async function signUp({ fullName, role, username, password, school, county, grade }) {
   const id = (username || "").trim().toLowerCase();
   if (!id) return { error: "Choose a username." };
   if (!password || password.length < 4) return { error: "Password must be at least 4 characters." };
-  const users = allUsers();
-  if (users.some((u) => u.username.toLowerCase() === id)) {
-    return { error: "That username is already taken." };
-  }
-  const user = {
+
+  const { data: existing, error: checkErr } = await supabase
+    .from("users").select("id").eq("username", id).maybeSingle();
+  if (checkErr) return { error: "Could not reach the database — " + checkErr.message };
+  if (existing) return { error: "That username is already taken." };
+
+  const row = {
     id: "u_" + Date.now().toString(36),
     role,
     username: id,
     password,
-    fullName: fullName || id,
+    full_name: fullName || id,
     school: school || "",
     county: county || "",
     grade: grade || "",
   };
-  users.push(user);
-  saveUsers(users);
-  const { password: _pw, ...safe } = user;
+  const { data, error } = await supabase.from("users").insert(row).select().maybeSingle();
+  if (error) return { error: "Could not create the account — " + error.message };
+
+  const safe = toSafeUser(data);
   writeJSON(SESSION_KEY, safe);
   return { user: safe };
 }
@@ -76,9 +90,9 @@ export function signOut() {
   localStorage.removeItem(SESSION_KEY);
 }
 
-/* Call at the top of teacher.html/learner.html: sends anyone who isn't
-   signed in, or is signed in as the wrong role, back to the front door
-   rather than showing them an empty shell with no explanation. */
+/* Call at the top of every dashboard page: sends anyone who isn't signed
+   in, or is signed in as the wrong role, back to the front door rather
+   than showing them an empty shell with no explanation. */
 export function requireRole(role) {
   const user = currentUser();
   if (!user || user.role !== role) {

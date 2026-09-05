@@ -52,26 +52,29 @@ if (user) {
       <div class="result-row"><span>${esc(r.label)}</span><span class="score ${r.kind}">${r.score}%</span></div>`).join("")
     : `<div class="empty-state">No results recorded yet.</div>`;
 
-  /* Content library is a shared, org-wide store (education.js writes it) —
-     every teacher sees whatever the Education Team has uploaded, not a
-     fixed per-account list. */
-  const library = getLibrary();
-  $("#libraryList").innerHTML = library.length
-    ? library.map((l) => `
-      <div class="task-row"><div><b>${esc(l.title)}</b><span>${esc(l.subject)} · ${esc(l.type)}${l.description ? " — " + esc(l.description) : ""}</span></div></div>`).join("")
-    : `<div class="empty-state">Nothing in the library yet.</div>`;
+  /* Content library lives in the real database (education.js writes it) —
+     every teacher, on any device, sees whatever the Education Team has
+     uploaded. */
+  $("#libraryList").innerHTML = `<div class="empty-state">Loading…</div>`;
+  getLibrary().then((library) => {
+    $("#libraryList").innerHTML = library.length
+      ? library.map((l) => `
+        <div class="task-row"><div><b>${esc(l.title)}</b><span>${esc(l.subject)} · ${esc(l.type)}${l.description ? " — " + esc(l.description) : ""}</span></div></div>`).join("")
+      : `<div class="empty-state">Nothing in the library yet.</div>`;
+  });
 
   /* Forms the Education Team has sent to teachers — same
      create-once-fill-once loop as the field officer's report form, just
      addressed at this account instead of built into it. */
   renderForms();
-  function renderForms() {
-    const forms = getForms().filter((f) => f.audience === "teacher");
-    const responses = getResponses();
+  async function renderForms() {
+    $("#formsList").innerHTML = `<div class="empty-state">Loading…</div>`;
+    const [forms, responses] = await Promise.all([getForms(), getResponses()]);
+    const teacherForms = forms.filter((f) => f.audience === "teacher");
     const answeredFormIds = new Set(responses.filter((r) => r.respondentId === user.id).map((r) => r.formId));
 
-    $("#formsList").innerHTML = forms.length
-      ? forms.map((f) => {
+    $("#formsList").innerHTML = teacherForms.length
+      ? teacherForms.map((f) => {
           const done = answeredFormIds.has(f.id);
           return `
             <div class="form-card">
@@ -84,7 +87,7 @@ if (user) {
       : `<div class="empty-state">No forms from the Education Team yet.</div>`;
 
     $$("[data-fill-form]").forEach((btn) =>
-      btn.addEventListener("click", () => openFormFill(btn.dataset.fillForm, forms, btn))
+      btn.addEventListener("click", () => openFormFill(btn.dataset.fillForm, teacherForms, btn))
     );
   }
 
@@ -103,18 +106,20 @@ if (user) {
       </div>`).join("") +
       `<button class="btn btn-primary btn-block" type="button" id="submit-${esc(formId)}">Submit feedback</button>`;
 
-    $("#submit-" + formId).addEventListener("click", () => {
+    $("#submit-" + formId).addEventListener("click", async () => {
+      const submitBtn = $("#submit-" + formId);
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Submitting…";
       const answers = form.questions.map((q) => ({
         questionId: q.id,
         value: box.querySelector(`[data-q="${q.id}"]`).value,
       }));
-      addResponse({
+      await addResponse({
         id: "resp_" + Date.now().toString(36),
         formId: form.id,
         respondentId: user.id,
         respondentName: user.fullName,
         respondentRole: "teacher",
-        submittedAt: new Date().toISOString(),
         answers,
       });
       renderForms();

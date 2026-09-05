@@ -37,11 +37,14 @@ setRole("teacher");
 // ---- login ----
 const loginForm = $("#loginForm");
 const loginError = $("#loginError");
-loginForm.addEventListener("submit", (e) => {
+loginForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   loginError.hidden = true;
+  const submitBtn = loginForm.querySelector("[type=submit]");
   const fd = new FormData(loginForm);
-  const res = signIn(fd.get("username"), fd.get("password"));
+  submitBtn.disabled = true;
+  const res = await signIn(fd.get("username"), fd.get("password"));
+  submitBtn.disabled = false;
   if (res.error) {
     loginError.textContent = res.error;
     loginError.hidden = false;
@@ -86,11 +89,13 @@ $("#toLogin").addEventListener("click", () => {
 // ---- sign up ----
 const signupForm = $("#signupForm");
 const signupError = $("#signupError");
-signupForm.addEventListener("submit", (e) => {
+signupForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   signupError.hidden = true;
+  const submitBtn = signupForm.querySelector("[type=submit]");
   const fd = new FormData(signupForm);
-  const res = signUp({
+  submitBtn.disabled = true;
+  const res = await signUp({
     fullName: fd.get("fullName"),
     username: fd.get("username"),
     password: fd.get("password"),
@@ -99,6 +104,7 @@ signupForm.addEventListener("submit", (e) => {
     grade: fd.get("grade"),
     role: selectedRole,
   });
+  submitBtn.disabled = false;
   if (res.error) {
     signupError.textContent = res.error;
     signupError.hidden = false;
