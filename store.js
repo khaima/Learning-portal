@@ -16,14 +16,14 @@ export async function getLibrary() {
     .from("library_items").select("*").order("uploaded_at", { ascending: false });
   if (error) { console.warn("could not load library:", error.message); return []; }
   return data.map((r) => ({
-    id: r.id, title: r.title, subject: r.subject, type: r.type,
+    id: r.id, title: r.title, subject: r.subject, type: r.type, audience: r.audience,
     description: r.description, uploadedBy: r.uploaded_by,
   }));
 }
 
 export async function addLibraryItem(item) {
   const { error } = await supabase.from("library_items").insert({
-    id: item.id, title: item.title, subject: item.subject, type: item.type,
+    id: item.id, title: item.title, subject: item.subject, type: item.type, audience: item.audience,
     description: item.description, uploaded_by: item.uploadedBy,
   });
   if (error) console.warn("could not save library item:", error.message);

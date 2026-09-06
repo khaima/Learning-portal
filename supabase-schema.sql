@@ -34,6 +34,8 @@ create table if not exists learning_portal.library_items (
   title text not null,
   subject text not null,
   type text not null,
+  -- who this shows up for: the Teacher library, the Learner library, or both.
+  audience text not null default 'both' check (audience in ('teacher','learner','both')),
   description text not null default '',
   uploaded_by text not null default '',
   uploaded_at timestamptz not null default now()
@@ -43,7 +45,7 @@ create table if not exists learning_portal.forms (
   id text primary key,
   title text not null,
   description text not null default '',
-  audience text not null check (audience in ('teacher','school_leader')),
+  audience text not null check (audience in ('teacher','school_leader','field_officer')),
   created_by text not null default '',
   created_at timestamptz not null default now(),
   questions jsonb not null default '[]'::jsonb
@@ -77,6 +79,16 @@ create table if not exists learning_portal.field_reports (
   visit_type text not null,
   created_at timestamptz not null default now()
 );
+
+-- Additive fixups for a database that already had these tables before
+-- `audience` existed on library_items, or before field_officer was a
+-- valid form audience — safe to re-run, a no-op once applied.
+alter table learning_portal.library_items
+  add column if not exists audience text not null default 'both'
+  check (audience in ('teacher', 'learner', 'both'));
+alter table learning_portal.forms drop constraint if exists forms_audience_check;
+alter table learning_portal.forms add constraint forms_audience_check
+  check (audience in ('teacher', 'school_leader', 'field_officer'));
 
 create index if not exists responses_form_id_idx on learning_portal.responses (form_id);
 create index if not exists assignments_learner_id_idx on learning_portal.assignments (learner_id);
@@ -126,21 +138,26 @@ insert into learning_portal.users (id, role, username, password, full_name, scho
   ('u_edu_demo', 'education_team', 'amina.hassan', 'demo1234', 'Amina Hassan', '', '', '')
 on conflict (id) do nothing;
 
-insert into learning_portal.library_items (id, title, subject, type, description, uploaded_by) values
-  ('lib1', 'Fractions — visual walkthrough', 'Mathematics', 'Video', 'A short animated walkthrough of adding and subtracting fractions.', 'Amina Hassan'),
-  ('lib2', 'Reading comprehension pack', 'English', 'Worksheet', 'Six short passages with comprehension questions, Grade 4 level.', 'Amina Hassan'),
-  ('lib3', 'Life cycles explained', 'Science', 'Reading', 'An illustrated explainer of animal and plant life cycles.', 'Amina Hassan'),
-  ('lib4', 'Times tables practice', 'Mathematics', 'Worksheet', 'Drill sheets for the 2–12 times tables.', 'Amina Hassan')
+insert into learning_portal.library_items (id, title, subject, type, audience, description, uploaded_by) values
+  ('lib1', 'Fractions — visual walkthrough', 'Mathematics', 'Video', 'both', 'A short animated walkthrough of adding and subtracting fractions.', 'Amina Hassan'),
+  ('lib2', 'Reading comprehension pack', 'English', 'Worksheet', 'both', 'Six short passages with comprehension questions, Grade 4 level.', 'Amina Hassan'),
+  ('lib3', 'Life cycles explained', 'Science', 'Reading', 'learner', 'An illustrated explainer of animal and plant life cycles.', 'Amina Hassan'),
+  ('lib4', 'Times tables practice', 'Mathematics', 'Worksheet', 'both', 'Drill sheets for the 2–12 times tables.', 'Amina Hassan'),
+  ('lib5', 'Grading rubric — Term 2 assessments', 'Mathematics', 'Assessment', 'teacher', 'A shared rubric for marking Term 2 assessments consistently across classes.', 'Amina Hassan')
 on conflict (id) do nothing;
 
 insert into learning_portal.forms (id, title, description, audience, created_by, questions) values
   ('form1', 'Term 2 curriculum feedback', 'A quick check on how the new Mathematics materials are landing in class.', 'teacher', 'Amina Hassan',
-   '[{"id":"q1","type":"rating","prompt":"How well are learners engaging with the new Mathematics materials?"},{"id":"q2","type":"text","prompt":"What would make the materials more useful?"}]'::jsonb)
+   '[{"id":"q1","type":"rating","prompt":"How well are learners engaging with the new Mathematics materials?"},{"id":"q2","type":"text","prompt":"What would make the materials more useful?"}]'::jsonb),
+  ('form2', 'Field visit debrief', 'A quick check-in after this term''s school visits.', 'field_officer', 'Amina Hassan',
+   '[{"id":"q1","type":"rating","prompt":"How would you rate school readiness overall?"},{"id":"q2","type":"text","prompt":"Anything the Education Team should follow up on?"}]'::jsonb)
 on conflict (id) do nothing;
 
 insert into learning_portal.responses (id, form_id, respondent_id, respondent_name, respondent_role, answers) values
   ('resp1', 'form1', 'u_teacher_demo', 'Grace Mwangi', 'teacher',
-   '[{"questionId":"q1","value":4},{"questionId":"q2","value":"More worked examples for fractions would help — learners get stuck partway through."}]'::jsonb)
+   '[{"questionId":"q1","value":4},{"questionId":"q2","value":"More worked examples for fractions would help — learners get stuck partway through."}]'::jsonb),
+  ('resp2', 'form2', 'u_field_demo', 'Susan Wanjiru', 'field_officer',
+   '[{"questionId":"q1","value":4},{"questionId":"q2","value":"Chaka Primary still needs the roofing repair flagged last term."}]'::jsonb)
 on conflict (id) do nothing;
 
 insert into learning_portal.assignments (id, learner_id, title, subject, due, done) values

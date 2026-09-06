@@ -96,8 +96,9 @@ if (user) {
 
   $("#libraryStrip").innerHTML = `<div class="empty-state">Loading…</div>`;
   getLibrary().then((library) => {
-    $("#libraryStrip").innerHTML = library.length
-      ? library.map((l) => `
+    const forLearners = library.filter((l) => l.audience === "learner" || l.audience === "both" || !l.audience);
+    $("#libraryStrip").innerHTML = forLearners.length
+      ? forLearners.map((l) => `
         <div class="lib-item">
           <span class="li-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${SUBJECT_ICON_PATHS[l.subject] || ""}</svg></span>
           <b>${esc(l.title)}</b><span>${esc(l.subject)} · ${esc(l.type)}</span>

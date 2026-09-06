@@ -1,13 +1,14 @@
 import { $, esc, initials } from "./util.js";
 import { requireRole, signOut, allUsers } from "./auth.js";
 import {
-  ROLES, CONTENT_TYPES, LIBRARY_SUBJECTS, FORM_AUDIENCES, QUESTION_TYPES,
+  ROLES, CONTENT_TYPES, LIBRARY_SUBJECTS, LIBRARY_AUDIENCES, FORM_AUDIENCES, QUESTION_TYPES,
 } from "./data.js";
 import { getLibrary, addLibraryItem, getForms, addForm, getResponses } from "./store.js";
 import { supabase } from "./supabase.js";
 
 const ROLE_LABEL = Object.fromEntries(ROLES.map((r) => [r.value, r.label]));
 const AUDIENCE_LABEL = Object.fromEntries(FORM_AUDIENCES.map((a) => [a.value, a.label]));
+const LIBRARY_AUDIENCE_LABEL = Object.fromEntries(LIBRARY_AUDIENCES.map((a) => [a.value, a.label]));
 
 const ICON = {
   library: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/>',
@@ -63,6 +64,7 @@ if (user) {
   /* ------------------------------------------------------------ content library */
   $("#up_subject").innerHTML = LIBRARY_SUBJECTS.map((s) => `<option>${esc(s)}</option>`).join("");
   $("#up_type").innerHTML = CONTENT_TYPES.map((t) => `<option>${esc(t)}</option>`).join("");
+  $("#up_audience").innerHTML = LIBRARY_AUDIENCES.map((a) => `<option value="${a.value}">${esc(a.label)}</option>`).join("");
 
   async function renderLibrary() {
     $("#libraryList").innerHTML = `<div class="empty-state">Loading…</div>`;
@@ -75,6 +77,7 @@ if (user) {
             <b>${esc(it.title)}</b>
             <span>${esc(it.subject)} · ${esc(it.type)}${it.description ? " — " + esc(it.description) : ""}</span>
           </div>
+          <span class="pill">${esc(LIBRARY_AUDIENCE_LABEL[it.audience] || "Teachers & Learners")}</span>
         </div>`).join("")
       : `<div class="empty-state">Nothing uploaded yet.</div>`;
   }
@@ -90,6 +93,7 @@ if (user) {
       title,
       subject: $("#up_subject").value,
       type: $("#up_type").value,
+      audience: $("#up_audience").value,
       description: $("#up_desc").value.trim(),
       uploadedBy: user.fullName,
     });
@@ -97,6 +101,7 @@ if (user) {
     e.target.reset();
     $("#up_subject").value = LIBRARY_SUBJECTS[0];
     $("#up_type").value = CONTENT_TYPES[0];
+    $("#up_audience").value = LIBRARY_AUDIENCES[0].value;
     renderLibrary();
   });
 

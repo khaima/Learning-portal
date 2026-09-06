@@ -27,10 +27,14 @@ real pages:
 - **`field.html`** — a field officer's assigned-school stats and a real,
   working version of the production app's flagship flow: pick a county,
   the school list narrows to that county, pick a visit type, submit —
-  the new report is saved and appears in the list immediately.
+  the new report is saved and appears in the list immediately. Also
+  shows any forms the Education Team has addressed to Field Officers,
+  to be filled out in the field, same loop as Teachers and School
+  Leaders get.
 - **`education.html`** — the Education Team's dashboard: upload content
-  to the shared Digital Library, build and send a form (a mix of 1–5
-  rating and short-answer questions) to Teachers or School Leaders, see
+  to the shared Digital Library — addressed to Teachers, Learners, or
+  both — build and send a form (a mix of 1–5 rating and short-answer
+  questions) to Teachers, School Leaders, or Field Officers, see
   responses roll in with a live average for rating questions, and a
   stats row aggregated live from every account in the database.
 
@@ -65,12 +69,16 @@ real Supabase Auth and RLS scoped to `auth.uid()` instead.
 This is the part worth trying end to end:
 
 1. Sign in as **Education Team** (`amina.hassan` / `demo1234`).
-2. Upload something to the Digital Library, or create a form addressed
-   to Teachers or School Leaders (add as many rating/short-answer
-   questions as you like).
-3. Sign out, sign in as **Teacher** (`grace.mwangi`) or **School Leader**
-   (`peter.kamau`) — the new library item shows up, and the new form
-   appears under "Forms from the Education Team" as *Pending*.
+2. Upload something to the Digital Library — choose whether it's for
+   Teachers only, Learners only, or both — or create a form addressed
+   to Teachers, School Leaders, or Field Officers (add as many
+   rating/short-answer questions as you like).
+3. Sign out, sign in as whichever role you addressed content or a form
+   to (**Teacher** `grace.mwangi`, **Learner** `naomi.k`, **School
+   Leader** `peter.kamau`, or **Field Officer** `susan.wanjiru`) — a
+   library item shows up only if it was addressed to that role (or to
+   both), and the new form appears under "Forms from the Education
+   Team" as *Pending*.
 4. Fill it out and submit.
 5. Sign back in as Education Team — the response is there, with a live
    average for any rating questions and the respondent's name against
@@ -91,9 +99,9 @@ because it's a real database now.
   demo, and should not be treated as a place for real people's data.
 - **Sample content only.** The seed accounts below come with
   realistic-looking classes, assignments, returns, reports, library items
-  and one already-answered form so the pages don't open empty — none of
-  it is real. A freshly signed-up account gets an honest empty dashboard
-  instead of someone else's demo data.
+  and a couple of already-answered forms so the pages don't open empty —
+  none of it is real. A freshly signed-up account gets an honest empty
+  dashboard instead of someone else's demo data.
 
 ## Try it
 
@@ -126,7 +134,7 @@ fabricated content.
 | `teacher.html` / `teacher.js` | Teacher dashboard |
 | `learner.html` / `learner.js` | Learner dashboard |
 | `leader.html` / `leader.js` | School Leader dashboard |
-| `field.html` / `field.js` | Field Officer dashboard, incl. the county → school → visit type report form |
+| `field.html` / `field.js` | Field Officer dashboard, incl. the county → school → visit type report form and forms from the Education Team |
 | `education.html` / `education.js` | Education Team dashboard: content upload, form builder, results, live org-wide stats |
 | `config.js` / `supabase.js` | Supabase connection, scoped to the `learning_portal` schema |
 | `auth.js` | Accounts and sessions — real database rows, demo-level security |

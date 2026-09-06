@@ -54,11 +54,12 @@ if (user) {
 
   /* Content library lives in the real database (education.js writes it) —
      every teacher, on any device, sees whatever the Education Team has
-     uploaded. */
+     addressed to Teachers (or to Teachers & Learners both). */
   $("#libraryList").innerHTML = `<div class="empty-state">Loading…</div>`;
   getLibrary().then((library) => {
-    $("#libraryList").innerHTML = library.length
-      ? library.map((l) => `
+    const forTeachers = library.filter((l) => l.audience === "teacher" || l.audience === "both" || !l.audience);
+    $("#libraryList").innerHTML = forTeachers.length
+      ? forTeachers.map((l) => `
         <div class="task-row"><div><b>${esc(l.title)}</b><span>${esc(l.subject)} · ${esc(l.type)}${l.description ? " — " + esc(l.description) : ""}</span></div></div>`).join("")
       : `<div class="empty-state">Nothing in the library yet.</div>`;
   });

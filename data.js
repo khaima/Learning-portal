@@ -169,25 +169,38 @@ export const SUBJECT_ICON_PATHS = {
    a resource" or "creates a form" visible from a teacher or school leader
    account signed in on the same browser. */
 export const SEED_LIBRARY = [
-  { id: "lib1", title: "Fractions — visual walkthrough", subject: "Mathematics", type: "Video",
+  { id: "lib1", title: "Fractions — visual walkthrough", subject: "Mathematics", type: "Video", audience: "both",
     description: "A short animated walkthrough of adding and subtracting fractions.",
     uploadedBy: "Amina Hassan", uploadedAt: "2026-08-01T09:00:00.000Z" },
-  { id: "lib2", title: "Reading comprehension pack", subject: "English", type: "Worksheet",
+  { id: "lib2", title: "Reading comprehension pack", subject: "English", type: "Worksheet", audience: "both",
     description: "Six short passages with comprehension questions, Grade 4 level.",
     uploadedBy: "Amina Hassan", uploadedAt: "2026-08-03T09:00:00.000Z" },
-  { id: "lib3", title: "Life cycles explained", subject: "Science", type: "Reading",
+  { id: "lib3", title: "Life cycles explained", subject: "Science", type: "Reading", audience: "learner",
     description: "An illustrated explainer of animal and plant life cycles.",
     uploadedBy: "Amina Hassan", uploadedAt: "2026-08-10T09:00:00.000Z" },
-  { id: "lib4", title: "Times tables practice", subject: "Mathematics", type: "Worksheet",
+  { id: "lib4", title: "Times tables practice", subject: "Mathematics", type: "Worksheet", audience: "both",
     description: "Drill sheets for the 2–12 times tables.",
     uploadedBy: "Amina Hassan", uploadedAt: "2026-08-14T09:00:00.000Z" },
+  { id: "lib5", title: "Grading rubric — Term 2 assessments", subject: "Mathematics", type: "Assessment", audience: "teacher",
+    description: "A shared rubric for marking Term 2 assessments consistently across classes.",
+    uploadedBy: "Amina Hassan", uploadedAt: "2026-08-18T09:00:00.000Z" },
 ];
 export const CONTENT_TYPES = ["Video", "Worksheet", "Reading", "Lesson plan", "Assessment"];
 export const LIBRARY_SUBJECTS = ["Mathematics", "English", "Science"];
 
+/* Who a piece of content shows up for: Teachers' library, Learners'
+   library, or both. Distinct from FORM_AUDIENCES below — content and
+   forms are addressed independently. */
+export const LIBRARY_AUDIENCES = [
+  { value: "both", label: "Teachers & Learners" },
+  { value: "teacher", label: "Teachers only" },
+  { value: "learner", label: "Learners only" },
+];
+
 export const FORM_AUDIENCES = [
   { value: "teacher", label: "Teachers" },
   { value: "school_leader", label: "School Leaders" },
+  { value: "field_officer", label: "Field Officers" },
 ];
 export const QUESTION_TYPES = [
   { value: "rating", label: "Rating (1–5)" },
@@ -207,6 +220,18 @@ export const SEED_FORMS = [
       { id: "q2", type: "text", prompt: "What would make the materials more useful?" },
     ],
   },
+  {
+    id: "form2",
+    title: "Field visit debrief",
+    description: "A quick check-in after this term's school visits.",
+    audience: "field_officer",
+    createdBy: "Amina Hassan",
+    createdAt: "2026-08-28T09:00:00.000Z",
+    questions: [
+      { id: "q1", type: "rating", prompt: "How would you rate school readiness overall?" },
+      { id: "q2", type: "text", prompt: "Anything the Education Team should follow up on?" },
+    ],
+  },
 ];
 
 export const SEED_RESPONSES = [
@@ -220,6 +245,18 @@ export const SEED_RESPONSES = [
     answers: [
       { questionId: "q1", value: 4 },
       { questionId: "q2", value: "More worked examples for fractions would help — learners get stuck partway through." },
+    ],
+  },
+  {
+    id: "resp2",
+    formId: "form2",
+    respondentId: "u_field_demo",
+    respondentName: "Susan Wanjiru",
+    respondentRole: "field_officer",
+    submittedAt: "2026-08-30T11:00:00.000Z",
+    answers: [
+      { questionId: "q1", value: 4 },
+      { questionId: "q2", value: "Chaka Primary still needs the roofing repair flagged last term." },
     ],
   },
 ];
