@@ -15,15 +15,26 @@ import { supabase } from "./supabase.js";
 
 const SESSION_KEY = "hpf_learning_portal_session";
 
+/* Some browser contexts (a locked-down embed, strict private-browsing,
+   site data blocked outright) can make localStorage throw on every
+   access rather than just come back empty. Fall back to an in-memory
+   session for this page view so sign-in still works there — it just
+   won't survive a reload, which is the best that's possible without
+   real storage. */
+const memorySession = Object.create(null);
 function readJSON(key, fallback) {
   try {
-    const v = JSON.parse(localStorage.getItem(key));
-    return v == null ? fallback : v;
+    const raw = localStorage.getItem(key);
+    if (raw != null) return JSON.parse(raw);
   } catch {
-    return fallback;
+    /* storage blocked or corrupt — fall through to memory */
   }
+  return Object.prototype.hasOwnProperty.call(memorySession, key) ? memorySession[key] : fallback;
 }
-const writeJSON = (key, value) => localStorage.setItem(key, JSON.stringify(value));
+function writeJSON(key, value) {
+  memorySession[key] = value;
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage blocked — memory-only this visit */ }
+}
 
 export function currentUser() {
   return readJSON(SESSION_KEY, null);
@@ -87,7 +98,8 @@ export async function signUp({ fullName, role, username, password, school, count
 }
 
 export function signOut() {
-  localStorage.removeItem(SESSION_KEY);
+  delete memorySession[SESSION_KEY];
+  try { localStorage.removeItem(SESSION_KEY); } catch { /* storage blocked */ }
 }
 
 /* Call at the top of every dashboard page: sends anyone who isn't signed
