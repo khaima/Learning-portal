@@ -2,9 +2,10 @@
 
 A fresh, standalone build for Human Practice Foundation's Teacher,
 Learner, School Leader, Field Officer, and Education Team experience —
-separate from the existing `HPF-digital-portal-2026` project and its real
-accounts. It shares that project's Supabase *instance* (see "The
-database" below) but touches none of its tables and none of its data.
+a genuinely separate system from the existing `HPF-digital-portal-2026`
+project and its real accounts, with its own dedicated Supabase project
+(see "The database" below), not just a different table or schema in the
+same one.
 
 ## What this is
 
@@ -40,13 +41,15 @@ real pages:
 
 ## The database
 
-Real Postgres, via Supabase — same Supabase *project* as
-`HPF-digital-portal-2026` (the only one on this account), but every table
-this app touches lives in its own **`learning_portal` schema**, never
-`public` (where the production portal's real tables live). Nothing here
-can read, write, or join against that data, and nothing there can see
-this. See [`supabase-schema.sql`](supabase-schema.sql) for the exact
-migration (schema, tables, RLS, seed data) — apply it to a fresh project
+Real Postgres, via Supabase — its own dedicated Supabase **project**
+(`hpf-learning-portal`), entirely separate from `HPF-digital-portal-2026`
+(the production portal, a different Supabase project altogether). There
+is no shared infrastructure between the two: nothing here can read,
+write, or join against the production portal's data, and nothing there
+can see this. Every table lives in the default `public` schema, since
+this whole project *is* the Learning Portal's database — no schema-level
+split needed. See [`supabase-schema.sql`](supabase-schema.sql) for the
+exact migration (tables, RLS, seed data) — apply it to a fresh project
 and this app works against it unmodified, just change `config.js`.
 
 Because "accounts" and their data are real database rows now, not
@@ -58,8 +61,8 @@ browser that created it.
 **Security posture is still a demo's, deliberately.** There is no real
 Supabase Auth here — no JWT, no password hashing — the app's own
 plaintext-password check (`auth.js`) is what it always was, just checked
-against a real table instead of a JS array. The `learning_portal` schema
-is open to the Supabase anon key (RLS enabled, with an "allow everything"
+against a real table instead of a JS array. This project's tables are
+open to the Supabase anon key (RLS enabled, with an "allow everything"
 policy), the same trust level the old `localStorage` version had. Do not
 carry this pattern into anything holding real people's data — it needs
 real Supabase Auth and RLS scoped to `auth.uid()` instead.
@@ -136,13 +139,13 @@ fabricated content.
 | `leader.html` / `leader.js` | School Leader dashboard |
 | `field.html` / `field.js` | Field Officer dashboard, incl. the county → school → visit type report form and forms from the Education Team |
 | `education.html` / `education.js` | Education Team dashboard: content upload, form builder, results, live org-wide stats |
-| `config.js` / `supabase.js` | Supabase connection, scoped to the `learning_portal` schema |
+| `config.js` / `supabase.js` | Supabase connection — its own dedicated project |
 | `auth.js` | Accounts and sessions — real database rows, demo-level security |
 | `store.js` | Shared, org-wide data: content library, forms, responses |
 | `data.js` | Roles, form/library constants (seed *data* now lives in the database, not here) |
 | `util.js` | Tiny shared DOM/escaping/toast helpers |
 | `styles.css` | The whole design system (light + dark, one file) |
-| `supabase-schema.sql` | The exact migration applied to create and seed `learning_portal` |
+| `supabase-schema.sql` | The exact migration applied to create and seed this project's tables |
 
 ## Where this could go next
 
