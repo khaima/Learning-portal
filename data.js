@@ -193,7 +193,7 @@ export const LIBRARY_SUBJECTS = ["Mathematics", "English", "Science"];
    forms are addressed independently. */
 export const LIBRARY_AUDIENCES = [
   { value: "both", label: "Teachers & Learners" },
-  { value: "teacher", label: "Teachers only" },
+  { value: "teacher", label: "Teacher Resources (Teachers only)" },
   { value: "learner", label: "Learners only" },
 ];
 

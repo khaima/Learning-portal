@@ -52,15 +52,22 @@ if (user) {
       <div class="result-row"><span>${esc(r.label)}</span><span class="score ${r.kind}">${r.score}%</span></div>`).join("")
     : `<div class="empty-state">No results recorded yet.</div>`;
 
-  /* Content library lives in the real database (education.js writes it) —
-     every teacher, on any device, sees whatever the Education Team has
-     addressed to Teachers (or to Teachers & Learners both). */
+  /* Content library lives in the real database (education.js writes it).
+     Teacher Resources — addressed only to Teachers — never show up on
+     the Learner dashboard; the Digital Library below is what's shared
+     with Learners too. */
+  $("#teacherResourceList").innerHTML = `<div class="empty-state">Loading…</div>`;
   $("#libraryList").innerHTML = `<div class="empty-state">Loading…</div>`;
   getLibrary().then((library) => {
-    const forTeachers = library.filter((l) => l.audience === "teacher" || l.audience === "both" || !l.audience);
-    $("#libraryList").innerHTML = forTeachers.length
-      ? forTeachers.map((l) => `
-        <div class="task-row"><div><b>${esc(l.title)}</b><span>${esc(l.subject)} · ${esc(l.type)}${l.description ? " — " + esc(l.description) : ""}</span></div></div>`).join("")
+    const resources = library.filter((l) => l.audience === "teacher");
+    const shared = library.filter((l) => l.audience === "both" || !l.audience);
+    const row = (l) => `
+        <div class="task-row"><div><b>${esc(l.title)}</b><span>${esc(l.subject)} · ${esc(l.type)}${l.description ? " — " + esc(l.description) : ""}</span></div></div>`;
+    $("#teacherResourceList").innerHTML = resources.length
+      ? resources.map(row).join("")
+      : `<div class="empty-state">No teacher resources uploaded yet.</div>`;
+    $("#libraryList").innerHTML = shared.length
+      ? shared.map(row).join("")
       : `<div class="empty-state">Nothing in the library yet.</div>`;
   });
 
