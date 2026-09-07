@@ -108,6 +108,12 @@ because it's a real database now.
 
 ## Try it
 
+**Live:** <https://khaima.github.io/Learning-portal/> — deployed from
+`main` via GitHub Pages ([`.github/workflows/pages.yml`](.github/workflows/pages.yml)),
+talking to the live Supabase project.
+
+Or run it locally:
+
 ```
 python -m http.server 5174
 ```
