@@ -28,7 +28,15 @@ def main():
         except ValueError:
             print(f"Invalid port '{sys.argv[1]}', using {port}.")
 
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=ROOT)
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        """Serve the static site, but never let the browser cache it —
+        local development should always reflect the files on disk."""
+
+        def end_headers(self):
+            self.send_header("Cache-Control", "no-store, must-revalidate")
+            super().end_headers()
+
+    handler = functools.partial(Handler, directory=ROOT)
 
     class Server(socketserver.ThreadingTCPServer):
         allow_reuse_address = True

@@ -33,11 +33,14 @@ real pages:
   to be filled out in the field, same loop as Teachers and School
   Leaders get.
 - **`education.html`** — the Education Team's dashboard: upload content
-  to the shared Digital Library — addressed to Teachers, Learners, or
-  both — build and send a form (a mix of 1–5 rating and short-answer
-  questions) to Teachers, School Leaders, or Field Officers, see
-  responses roll in with a live average for rating questions, and a
-  stats row aggregated live from every account in the database.
+  to the shared Digital Library — attach a real file or a whole folder
+  from your computer (drag-and-drop or the file/folder picker; stored in
+  Supabase Storage, downloadable from every dashboard), addressed to
+  Teachers, Learners, or both — build and send a form (a mix of 1–5
+  rating and short-answer questions) to Teachers, School Leaders, or
+  Field Officers, see responses roll in with a live average for rating
+  questions, and a stats row aggregated live from every account in the
+  database.
 
 ## The database
 
@@ -95,9 +98,6 @@ because it's a real database now.
 
 - **No M&E or Admin roles.** Scoped to the five roles above, per how this
   build was commissioned.
-- **No real file upload.** "Upload content" records a title, subject,
-  type, and description — not an actual file. Treat it as the mechanism
-  a real content-management flow would sit behind, not the whole thing.
 - **No real authentication.** See "Security posture" above — this is a
   demo, and should not be treated as a place for real people's data.
 - **Sample content only.** The seed accounts below come with

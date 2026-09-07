@@ -1,7 +1,7 @@
 import { $, $$, esc, initials } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { TEACHER_CONTENT } from "./data.js";
-import { getLibrary, getForms, getResponses, addResponse } from "./store.js";
+import { getLibrary, getForms, getResponses, addResponse, libraryFilesHtml } from "./store.js";
 
 const ICON = {
   classes: '<path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/>',
@@ -62,7 +62,7 @@ if (user) {
     const resources = library.filter((l) => l.audience === "teacher");
     const shared = library.filter((l) => l.audience === "both" || !l.audience);
     const row = (l) => `
-        <div class="task-row"><div><b>${esc(l.title)}</b><span>${esc(l.subject)} · ${esc(l.type)}${l.description ? " — " + esc(l.description) : ""}</span></div></div>`;
+        <div class="task-row"><div><b>${esc(l.title)}</b><span>${esc(l.subject)} · ${esc(l.type)}${l.description ? " — " + esc(l.description) : ""}</span>${libraryFilesHtml(l)}</div></div>`;
     $("#teacherResourceList").innerHTML = resources.length
       ? resources.map(row).join("")
       : `<div class="empty-state">No teacher resources uploaded yet.</div>`;

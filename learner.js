@@ -1,7 +1,7 @@
 import { $, $$, esc, initials } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { LEARNER_CONTENT, SUBJECT_ICON_PATHS } from "./data.js";
-import { getLibrary } from "./store.js";
+import { getLibrary, libraryFilesHtml } from "./store.js";
 import { supabase } from "./supabase.js";
 
 const CIRCUMFERENCE = 2 * Math.PI * 34;
@@ -102,6 +102,7 @@ if (user) {
         <div class="lib-item">
           <span class="li-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${SUBJECT_ICON_PATHS[l.subject] || ""}</svg></span>
           <b>${esc(l.title)}</b><span>${esc(l.subject)} · ${esc(l.type)}</span>
+          ${libraryFilesHtml(l)}
         </div>`).join("")
       : `<div class="empty-state">Nothing in the library yet.</div>`;
   });

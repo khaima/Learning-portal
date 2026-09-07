@@ -37,7 +37,15 @@ create table if not exists public.library_items (
   audience text not null default 'both' check (audience in ('teacher','learner','both')),
   description text not null default '',
   uploaded_by text not null default '',
-  uploaded_at timestamptz not null default now()
+  uploaded_at timestamptz not null default now(),
+  -- real file/folder uploads: the actual bytes live in the `library`
+  -- Storage bucket (below); `files` is the manifest the dashboards read
+  -- to render download links — [{ "name", "path", "size" }, ...].
+  -- Metadata-only items (no file) keep files = '[]'.
+  file_name text,
+  file_size bigint not null default 0,
+  is_folder boolean not null default false,
+  files jsonb not null default '[]'::jsonb
 );
 
 create table if not exists public.forms (
@@ -85,6 +93,42 @@ create table if not exists public.field_reports (
 alter table public.library_items
   add column if not exists audience text not null default 'both'
   check (audience in ('teacher', 'learner', 'both'));
+
+-- Additive fixup for a database that predates real file uploads.
+alter table public.library_items
+  add column if not exists file_name text,
+  add column if not exists file_size bigint not null default 0,
+  add column if not exists is_folder boolean not null default false,
+  add column if not exists files jsonb not null default '[]'::jsonb;
+
+-- ---------------------------------------------------------------- storage
+-- Content-library files (education.js -> "Upload content"). Public bucket:
+-- the download links on every dashboard are plain public URLs. Uploads
+-- are stored under `<library_item id>/<relative path>`, so one item's
+-- files (a single file, or a whole folder) stay grouped.
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('library', 'library', true, 52428800)  -- 50 MB per file
+on conflict (id) do update set public = true, file_size_limit = 52428800;
+
+-- Demo posture: anon has full access within the `library` bucket only —
+-- the same trust level as the "anon full access" table policies above.
+-- A real deployment scopes these to auth.uid() / an education_team role.
+do $$ begin
+  create policy "library anon read" on storage.objects for select to anon
+    using (bucket_id = 'library');
+exception when duplicate_object then null; end $$;
+do $$ begin
+  create policy "library anon insert" on storage.objects for insert to anon
+    with check (bucket_id = 'library');
+exception when duplicate_object then null; end $$;
+do $$ begin
+  create policy "library anon update" on storage.objects for update to anon
+    using (bucket_id = 'library') with check (bucket_id = 'library');
+exception when duplicate_object then null; end $$;
+do $$ begin
+  create policy "library anon delete" on storage.objects for delete to anon
+    using (bucket_id = 'library');
+exception when duplicate_object then null; end $$;
 
 create index if not exists responses_form_id_idx on public.responses (form_id);
 create index if not exists assignments_learner_id_idx on public.assignments (learner_id);

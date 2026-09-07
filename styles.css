@@ -294,3 +294,44 @@ a{ color:inherit; }
 .form-card .fc-answer b{ display:block; font-size:.76rem; color:var(--ink); margin-bottom:.1rem; }
 
 .fill-form{ border:1.5px dashed var(--line); border-radius:var(--radius-md); padding:.9rem 1rem; margin-top:.7rem; background:var(--paper-sunk); }
+
+/* ---- file / folder upload on "Upload content" ---- */
+.upload-drop{
+  border:1.5px dashed var(--line); border-radius:var(--radius-md);
+  background:var(--paper-sunk); padding:.9rem 1rem; text-align:center;
+  transition:border-color .15s, background .15s;
+}
+.upload-drop.is-drag{ border-color:var(--brand); background:var(--brand-soft); }
+.upload-choices{ display:flex; gap:.5rem; justify-content:center; flex-wrap:wrap; }
+.upload-choices .btn{ padding:.5rem .9rem; font-size:.85rem; }
+.upload-hint{ margin:.6rem 0 0; font-size:.76rem; color:var(--ink-soft); line-height:1.4; }
+.upload-list{ list-style:none; margin:.7rem 0 0; padding:0; }
+.upload-summary{
+  display:flex; align-items:center; gap:.5rem; justify-content:center; flex-wrap:wrap;
+  font-size:.82rem; background:var(--paper-raised); border:1px solid var(--line);
+  border-radius:var(--radius-sm); padding:.5rem .7rem;
+}
+.upload-clear{
+  background:var(--danger-soft); color:var(--danger); border:0; border-radius:6px;
+  width:1.5rem; height:1.5rem; flex:none; cursor:pointer; font-size:1rem; font-weight:700; line-height:1;
+}
+
+/* ---- download affordance shared by every dashboard's library list ---- */
+.lib-download{
+  display:inline-flex; align-items:center; gap:.35rem; margin-top:.4rem;
+  font-size:.78rem; font-weight:600; color:var(--brand-fg);
+  background:var(--brand-soft); border-radius:var(--radius-sm);
+  padding:.3rem .6rem; text-decoration:none;
+}
+.lib-download:hover{ text-decoration:underline; }
+.lib-download .icon{ width:14px; height:14px; }
+.lib-size{ color:var(--ink-soft); font-weight:500; }
+.lib-folder{ margin-top:.4rem; font-size:.78rem; }
+.lib-folder summary{
+  display:inline-flex; align-items:center; gap:.35rem; cursor:pointer;
+  font-weight:600; color:var(--brand-fg);
+}
+.lib-folder summary .icon{ width:14px; height:14px; }
+.lib-folder ul{ list-style:none; margin:.4rem 0 0; padding:0 0 0 .3rem; }
+.lib-folder li{ padding:.2rem 0; }
+.lib-folder li a{ color:var(--brand-fg); }

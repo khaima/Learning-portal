@@ -72,6 +72,18 @@
                 <label for="up_desc">Description</label>
                 <input id="up_desc" type="text" placeholder="What is this, and who is it for?">
               </div>
+              <div class="field">
+                <label>File <span style="color:var(--ink-soft);font-weight:500">— optional</span></label>
+                <div class="upload-drop" id="uploadDrop">
+                  <input id="up_file" type="file" multiple hidden>
+                  <div class="upload-choices">
+                    <button type="button" class="btn btn-outline" id="pickFileBtn">Choose a file</button>
+                    <button type="button" class="btn btn-outline" id="pickFolderBtn">Choose a folder</button>
+                  </div>
+                  <p class="upload-hint" id="uploadHint">Drag a file here, or pick one from your computer. Folders upload every file inside.</p>
+                  <ul class="upload-list" id="uploadList" hidden></ul>
+                </div>
+              </div>
               <button class="btn btn-primary btn-block" type="submit">Add to library</button>
             </form>
           </div>

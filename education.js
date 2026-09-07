@@ -1,9 +1,12 @@
-import { $, esc, initials } from "./util.js";
+import { $, esc, initials, toast } from "./util.js";
 import { requireRole, signOut, allUsers } from "./auth.js";
 import {
   ROLES, CONTENT_TYPES, LIBRARY_SUBJECTS, LIBRARY_AUDIENCES, FORM_AUDIENCES, QUESTION_TYPES,
 } from "./data.js";
-import { getLibrary, addLibraryItem, getForms, addForm, getResponses } from "./store.js";
+import {
+  getLibrary, addLibraryItem, getForms, addForm, getResponses,
+  uploadLibraryFiles, libraryFilesHtml,
+} from "./store.js";
 import { supabase } from "./supabase.js";
 
 const ROLE_LABEL = Object.fromEntries(ROLES.map((r) => [r.value, r.label]));
@@ -76,11 +79,88 @@ if (user) {
           <div style="flex:1">
             <b>${esc(it.title)}</b>
             <span>${esc(it.subject)} · ${esc(it.type)}${it.description ? " — " + esc(it.description) : ""}</span>
+            ${libraryFilesHtml(it)}
           </div>
           <span class="pill">${esc(LIBRARY_AUDIENCE_LABEL[it.audience] || "Teachers & Learners")}</span>
         </div>`).join("")
       : `<div class="empty-state">Nothing uploaded yet.</div>`;
   }
+
+  /* ---- file / folder picker for "Upload content" ---- */
+  const fileInput = $("#up_file");
+  const uploadList = $("#uploadList");
+  const uploadHint = $("#uploadHint");
+  const uploadDrop = $("#uploadDrop");
+  let picked = [];
+
+  function setFolderMode(on) {
+    // webkitdirectory turns the same input into a folder picker.
+    if (on) {
+      fileInput.setAttribute("webkitdirectory", "");
+      fileInput.setAttribute("directory", "");
+    } else {
+      fileInput.removeAttribute("webkitdirectory");
+      fileInput.removeAttribute("directory");
+    }
+  }
+
+  function showPicked() {
+    if (!picked.length) {
+      uploadList.hidden = true;
+      uploadList.innerHTML = "";
+      uploadHint.hidden = false;
+      return;
+    }
+    uploadHint.hidden = true;
+    uploadList.hidden = false;
+    const total = picked.reduce((s, f) => s + f.size, 0);
+    const kb = total > 1024 * 1024 ? `${(total / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(total / 1024))} KB`;
+    const head = picked.length === 1
+      ? esc(picked[0].name)
+      : `${picked.length} files${picked[0].webkitRelativePath ? ` in <b>${esc(picked[0].webkitRelativePath.split("/")[0])}</b>` : ""}`;
+    uploadList.innerHTML = `
+      <li class="upload-summary">${head} <span class="lib-size">${kb}</span>
+        <button type="button" class="upload-clear" aria-label="Remove selected files">&times;</button></li>`;
+    uploadList.querySelector(".upload-clear").addEventListener("click", clearPicked);
+  }
+
+  function clearPicked() {
+    picked = [];
+    fileInput.value = "";
+    setFolderMode(false);
+    showPicked();
+  }
+
+  $("#pickFileBtn").addEventListener("click", () => { setFolderMode(false); fileInput.click(); });
+  $("#pickFolderBtn").addEventListener("click", () => { setFolderMode(true); fileInput.click(); });
+  fileInput.addEventListener("change", () => {
+    picked = [...fileInput.files];
+    if (picked.length && !$("#up_title").value.trim()) {
+      const base = picked[0].webkitRelativePath
+        ? picked[0].webkitRelativePath.split("/")[0]
+        : picked[0].name.replace(/\.[^.]+$/, "");
+      $("#up_title").value = base;
+    }
+    showPicked();
+  });
+
+  // Drag-and-drop a single file onto the box.
+  ["dragover", "dragenter"].forEach((ev) => uploadDrop.addEventListener(ev, (e) => {
+    e.preventDefault();
+    uploadDrop.classList.add("is-drag");
+  }));
+  ["dragleave", "drop"].forEach((ev) => uploadDrop.addEventListener(ev, (e) => {
+    e.preventDefault();
+    uploadDrop.classList.remove("is-drag");
+  }));
+  uploadDrop.addEventListener("drop", (e) => {
+    const dropped = [...(e.dataTransfer?.files || [])];
+    if (!dropped.length) return;
+    setFolderMode(false);
+    picked = dropped;
+    if (!$("#up_title").value.trim()) $("#up_title").value = dropped[0].name.replace(/\.[^.]+$/, "");
+    showPicked();
+  });
 
   $("#uploadForm").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -88,21 +168,39 @@ if (user) {
     if (!title) return;
     const submitBtn = e.target.querySelector("[type=submit]");
     submitBtn.disabled = true;
-    await addLibraryItem({
-      id: "lib_" + Date.now().toString(36),
-      title,
-      subject: $("#up_subject").value,
-      type: $("#up_type").value,
-      audience: $("#up_audience").value,
-      description: $("#up_desc").value.trim(),
-      uploadedBy: user.fullName,
-    });
-    submitBtn.disabled = false;
-    e.target.reset();
-    $("#up_subject").value = LIBRARY_SUBJECTS[0];
-    $("#up_type").value = CONTENT_TYPES[0];
-    $("#up_audience").value = LIBRARY_AUDIENCES[0].value;
-    renderLibrary();
+    const itemId = "lib_" + Date.now().toString(36);
+
+    let manifest = { fileName: null, fileSize: 0, isFolder: false, files: [] };
+    try {
+      if (picked.length) {
+        submitBtn.textContent = `Uploading 0/${picked.length}…`;
+        manifest = await uploadLibraryFiles(itemId, picked, (done, n) => {
+          submitBtn.textContent = `Uploading ${done}/${n}…`;
+        });
+      }
+      await addLibraryItem({
+        id: itemId,
+        title,
+        subject: $("#up_subject").value,
+        type: $("#up_type").value,
+        audience: $("#up_audience").value,
+        description: $("#up_desc").value.trim(),
+        uploadedBy: user.fullName,
+        ...manifest,
+      });
+      toast("Added to library", picked.length ? `${manifest.files.length} file(s) uploaded` : "");
+      e.target.reset();
+      clearPicked();
+      $("#up_subject").value = LIBRARY_SUBJECTS[0];
+      $("#up_type").value = CONTENT_TYPES[0];
+      $("#up_audience").value = LIBRARY_AUDIENCES[0].value;
+      renderLibrary();
+    } catch (err) {
+      toast("Upload failed", err?.message || "Could not upload the file. Check the library storage bucket.", "error");
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Add to library";
+    }
   });
 
   /* ------------------------------------------------------------ form builder */
