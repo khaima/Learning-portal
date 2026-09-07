@@ -2,6 +2,7 @@ import { $, esc, initials, toast } from "./util.js";
 import { requireRole, signOut, allUsers } from "./auth.js";
 import {
   ROLES, CONTENT_TYPES, LIBRARY_SUBJECTS, LIBRARY_AUDIENCES, FORM_AUDIENCES, QUESTION_TYPES,
+  normalizeLibraryAudience,
 } from "./data.js";
 import {
   getLibrary, addLibraryItem, getForms, addForm, getResponses,
@@ -11,7 +12,6 @@ import { supabase } from "./supabase.js";
 
 const ROLE_LABEL = Object.fromEntries(ROLES.map((r) => [r.value, r.label]));
 const AUDIENCE_LABEL = Object.fromEntries(FORM_AUDIENCES.map((a) => [a.value, a.label]));
-const LIBRARY_AUDIENCE_LABEL = Object.fromEntries(LIBRARY_AUDIENCES.map((a) => [a.value, a.label]));
 
 const ICON = {
   library: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/>',
@@ -81,7 +81,9 @@ if (user) {
             <span>${esc(it.subject)} · ${esc(it.type)}${it.description ? " — " + esc(it.description) : ""}</span>
             ${libraryFilesHtml(it)}
           </div>
-          <span class="pill">${esc(LIBRARY_AUDIENCE_LABEL[it.audience] || "Teachers & Learners")}</span>
+          <span class="pill${normalizeLibraryAudience(it.audience) === "staff" ? "" : " ok"}">${
+            normalizeLibraryAudience(it.audience) === "staff" ? "Teacher Resources" : "Digital Library"
+          }</span>
         </div>`).join("")
       : `<div class="empty-state">Nothing uploaded yet.</div>`;
   }

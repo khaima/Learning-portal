@@ -32,9 +32,11 @@ create table if not exists public.library_items (
   title text not null,
   subject text not null,
   type text not null,
-  -- who this shows up for: the Teacher Resources panel, the Learner
-  -- library, or both.
-  audience text not null default 'both' check (audience in ('teacher','learner','both')),
+  -- where this content goes:
+  --   'staff'   -> Teacher Resources: teachers + head of institution only
+  --   'library' -> Digital Library: for learners, also visible to
+  --                teachers + head of institution
+  audience text not null default 'library' check (audience in ('staff','library')),
   description text not null default '',
   uploaded_by text not null default '',
   uploaded_at timestamptz not null default now(),
@@ -88,11 +90,32 @@ create table if not exists public.field_reports (
 );
 
 -- Additive fixup for a database that already had these tables before
--- `audience` existed on library_items — safe to re-run, a no-op once
--- applied.
+-- `audience` existed on library_items — safe to re-run.
 alter table public.library_items
-  add column if not exists audience text not null default 'both'
-  check (audience in ('teacher', 'learner', 'both'));
+  add column if not exists audience text not null default 'library';
+
+-- Migrate the audience column to its two current destinations
+-- ('staff' | 'library') from whatever an older schema used
+-- ('both' | 'teacher' | 'learner'). Safe to re-run.
+do $$
+declare c record;
+begin
+  for c in
+    select conname from pg_constraint
+    where conrelid = 'public.library_items'::regclass and contype = 'c'
+      and pg_get_constraintdef(oid) ilike '%audience%'
+  loop
+    execute format('alter table public.library_items drop constraint %I', c.conname);
+  end loop;
+end $$;
+
+update public.library_items
+  set audience = case when audience in ('staff', 'teacher') then 'staff' else 'library' end
+  where audience not in ('staff', 'library');
+
+alter table public.library_items alter column audience set default 'library';
+alter table public.library_items
+  add constraint library_items_audience_check check (audience in ('staff', 'library'));
 
 -- Additive fixup for a database that predates real file uploads.
 alter table public.library_items
@@ -170,11 +193,11 @@ insert into public.users (id, role, username, password, full_name, school, count
 on conflict (id) do nothing;
 
 insert into public.library_items (id, title, subject, type, audience, description, uploaded_by) values
-  ('lib1', 'Fractions — visual walkthrough', 'Mathematics', 'Video', 'both', 'A short animated walkthrough of adding and subtracting fractions.', 'Amina Hassan'),
-  ('lib2', 'Reading comprehension pack', 'English', 'Worksheet', 'both', 'Six short passages with comprehension questions, Grade 4 level.', 'Amina Hassan'),
-  ('lib3', 'Life cycles explained', 'Science', 'Reading', 'learner', 'An illustrated explainer of animal and plant life cycles.', 'Amina Hassan'),
-  ('lib4', 'Times tables practice', 'Mathematics', 'Worksheet', 'both', 'Drill sheets for the 2–12 times tables.', 'Amina Hassan'),
-  ('lib5', 'Grading rubric — Term 2 assessments', 'Mathematics', 'Assessment', 'teacher', 'A shared rubric for marking Term 2 assessments consistently across classes.', 'Amina Hassan')
+  ('lib1', 'Fractions — visual walkthrough', 'Mathematics', 'Video', 'library', 'A short animated walkthrough of adding and subtracting fractions.', 'Amina Hassan'),
+  ('lib2', 'Reading comprehension pack', 'English', 'Worksheet', 'library', 'Six short passages with comprehension questions, Grade 4 level.', 'Amina Hassan'),
+  ('lib3', 'Life cycles explained', 'Science', 'Reading', 'library', 'An illustrated explainer of animal and plant life cycles.', 'Amina Hassan'),
+  ('lib4', 'Times tables practice', 'Mathematics', 'Worksheet', 'library', 'Drill sheets for the 2–12 times tables.', 'Amina Hassan'),
+  ('lib5', 'Grading rubric — Term 2 assessments', 'Mathematics', 'Assessment', 'staff', 'A shared rubric for marking Term 2 assessments consistently across classes.', 'Amina Hassan')
 on conflict (id) do nothing;
 
 insert into public.forms (id, title, description, audience, created_by, questions) values

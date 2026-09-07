@@ -1,6 +1,6 @@
 import { $, $$, esc, initials } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
-import { LEARNER_CONTENT, SUBJECT_ICON_PATHS } from "./data.js";
+import { LEARNER_CONTENT, SUBJECT_ICON_PATHS, normalizeLibraryAudience } from "./data.js";
 import { getLibrary, libraryFilesHtml } from "./store.js";
 import { supabase } from "./supabase.js";
 
@@ -96,7 +96,7 @@ if (user) {
 
   $("#libraryStrip").innerHTML = `<div class="empty-state">Loading…</div>`;
   getLibrary().then((library) => {
-    const forLearners = library.filter((l) => l.audience === "learner" || l.audience === "both" || !l.audience);
+    const forLearners = library.filter((l) => normalizeLibraryAudience(l.audience) === "library");
     $("#libraryStrip").innerHTML = forLearners.length
       ? forLearners.map((l) => `
         <div class="lib-item">

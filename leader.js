@@ -1,7 +1,7 @@
 import { $, $$, esc, initials } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
-import { LEADER_CONTENT } from "./data.js";
-import { getForms, getResponses, addResponse } from "./store.js";
+import { LEADER_CONTENT, normalizeLibraryAudience } from "./data.js";
+import { getForms, getResponses, addResponse, getLibrary, libraryFilesHtml } from "./store.js";
 
 const ICON = {
   learners: '<path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/>',
@@ -54,6 +54,25 @@ if (user) {
     ? content.visits.map((v) => `
       <div class="task-row"><div><b>${esc(v.label)}</b><span>${esc(v.detail)}</span></div></div>`).join("")
     : `<div class="empty-state">No field visits recorded yet.</div>`;
+
+  /* Content library. As head of institution, the school leader sees both
+     shelves: Teacher Resources (staff-only) and the learner-facing
+     Digital Library. */
+  $("#resourceList").innerHTML = `<div class="empty-state">Loading…</div>`;
+  $("#libraryList").innerHTML = `<div class="empty-state">Loading…</div>`;
+  getLibrary().then((library) => {
+    const row = (l) => `
+      <div class="task-row"><div><b>${esc(l.title)}</b><span>${esc(l.subject)} · ${esc(l.type)}${
+        l.description ? " — " + esc(l.description) : ""}</span>${libraryFilesHtml(l)}</div></div>`;
+    const resources = library.filter((l) => normalizeLibraryAudience(l.audience) === "staff");
+    const shared = library.filter((l) => normalizeLibraryAudience(l.audience) === "library");
+    $("#resourceList").innerHTML = resources.length
+      ? resources.map(row).join("")
+      : `<div class="empty-state">No teacher resources uploaded yet.</div>`;
+    $("#libraryList").innerHTML = shared.length
+      ? shared.map(row).join("")
+      : `<div class="empty-state">Nothing in the library yet.</div>`;
+  });
 
   /* Forms the Education Team has sent to school heads — same
      create-once-fill-once loop as the teacher dashboard. */

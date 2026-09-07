@@ -22,9 +22,11 @@ real pages:
   Digital Library.
 - **`learner.html`** — a learner's classes, assignments (with a working
   "Mark done" that actually persists), and the shared Digital Library.
-- **`leader.html`** — a school leader's enrolment/staffing snapshot, the
-  termly return cycle (filed / due / upcoming), recent field visits to
-  their school, and forms sent by the Education Team.
+- **`leader.html`** — a school leader's (head of institution's)
+  enrolment/staffing snapshot, the termly return cycle (filed / due /
+  upcoming), recent field visits to their school, forms sent by the
+  Education Team, and both content shelves — Teacher Resources and the
+  Digital Library.
 - **`field.html`** — a field officer's assigned-school stats and a real,
   working version of the production app's flagship flow: pick a county,
   the school list narrows to that county, pick a visit type, submit —
@@ -32,15 +34,16 @@ real pages:
   shows any forms the Education Team has addressed to Field Officers,
   to be filled out in the field, same loop as Teachers and School
   Leaders get.
-- **`education.html`** — the Education Team's dashboard: upload content
-  to the shared Digital Library — attach a real file or a whole folder
-  from your computer (drag-and-drop or the file/folder picker; stored in
-  Supabase Storage, downloadable from every dashboard), addressed to
-  Teachers, Learners, or both — build and send a form (a mix of 1–5
-  rating and short-answer questions) to Teachers, School Leaders, or
-  Field Officers, see responses roll in with a live average for rating
-  questions, and a stats row aggregated live from every account in the
-  database.
+- **`education.html`** — the Education Team's dashboard: upload content —
+  attach a real file or a whole folder from your computer (drag-and-drop
+  or the file/folder picker; stored in Supabase Storage, downloadable
+  from every dashboard) — to one of two destinations:
+  **Teacher Resources** (teachers and the head of institution only) or
+  the **Digital Library** (learner-facing, and visible to teachers and
+  heads too). Also: build and send a form (a mix of 1–5 rating and
+  short-answer questions) to Teachers, School Leaders, or Field Officers,
+  see responses roll in with a live average for rating questions, and a
+  stats row aggregated live from every account in the database.
 
 ## The database
 
@@ -75,16 +78,18 @@ real Supabase Auth and RLS scoped to `auth.uid()` instead.
 This is the part worth trying end to end:
 
 1. Sign in as **Education Team** (`amina.hassan` / `demo1234`).
-2. Upload something to the Digital Library — choose whether it's for
-   Teachers only, Learners only, or both — or create a form addressed
-   to Teachers, School Leaders, or Field Officers (add as many
+2. Upload content — attach a file or a folder — to **Teacher Resources**
+   (teachers + head of institution) or the **Digital Library**
+   (learner-facing, also visible to teachers + heads) — or create a form
+   addressed to Teachers, School Leaders, or Field Officers (add as many
    rating/short-answer questions as you like).
 3. Sign out, sign in as whichever role you addressed content or a form
    to (**Teacher** `grace.mwangi`, **Learner** `naomi.k`, **School
    Leader** `peter.kamau`, or **Field Officer** `susan.wanjiru`) — a
-   library item shows up only if it was addressed to that role (or to
-   both), and the new form appears under "Forms from the Education
-   Team" as *Pending*.
+   Teacher Resources item shows up for the teacher and the school leader
+   but never the learner; a Digital Library item shows up for all three;
+   and the new form appears under "Forms from the Education Team" as
+   *Pending*.
 4. Fill it out and submit.
 5. Sign back in as Education Team — the response is there, with a live
    average for any rating questions and the respondent's name against

@@ -169,33 +169,52 @@ export const SUBJECT_ICON_PATHS = {
    a resource" or "creates a form" visible from a teacher or school leader
    account signed in on the same browser. */
 export const SEED_LIBRARY = [
-  { id: "lib1", title: "Fractions — visual walkthrough", subject: "Mathematics", type: "Video", audience: "both",
+  { id: "lib1", title: "Fractions — visual walkthrough", subject: "Mathematics", type: "Video", audience: "library",
     description: "A short animated walkthrough of adding and subtracting fractions.",
     uploadedBy: "Amina Hassan", uploadedAt: "2026-08-01T09:00:00.000Z" },
-  { id: "lib2", title: "Reading comprehension pack", subject: "English", type: "Worksheet", audience: "both",
+  { id: "lib2", title: "Reading comprehension pack", subject: "English", type: "Worksheet", audience: "library",
     description: "Six short passages with comprehension questions, Grade 4 level.",
     uploadedBy: "Amina Hassan", uploadedAt: "2026-08-03T09:00:00.000Z" },
-  { id: "lib3", title: "Life cycles explained", subject: "Science", type: "Reading", audience: "learner",
+  { id: "lib3", title: "Life cycles explained", subject: "Science", type: "Reading", audience: "library",
     description: "An illustrated explainer of animal and plant life cycles.",
     uploadedBy: "Amina Hassan", uploadedAt: "2026-08-10T09:00:00.000Z" },
-  { id: "lib4", title: "Times tables practice", subject: "Mathematics", type: "Worksheet", audience: "both",
+  { id: "lib4", title: "Times tables practice", subject: "Mathematics", type: "Worksheet", audience: "library",
     description: "Drill sheets for the 2–12 times tables.",
     uploadedBy: "Amina Hassan", uploadedAt: "2026-08-14T09:00:00.000Z" },
-  { id: "lib5", title: "Grading rubric — Term 2 assessments", subject: "Mathematics", type: "Assessment", audience: "teacher",
+  { id: "lib5", title: "Grading rubric — Term 2 assessments", subject: "Mathematics", type: "Assessment", audience: "staff",
     description: "A shared rubric for marking Term 2 assessments consistently across classes.",
     uploadedBy: "Amina Hassan", uploadedAt: "2026-08-18T09:00:00.000Z" },
 ];
 export const CONTENT_TYPES = ["Video", "Worksheet", "Reading", "Lesson plan", "Assessment"];
 export const LIBRARY_SUBJECTS = ["Mathematics", "English", "Science"];
 
-/* Who a piece of content shows up for: Teachers' library, Learners'
-   library, or both. Distinct from FORM_AUDIENCES below — content and
-   forms are addressed independently. */
+/* Where a piece of content goes. Two destinations:
+
+     staff   — "Teacher Resources": teachers and the head of institution
+               (school leader) only. Never shown to learners.
+     library — "Digital Library": for learners, and also visible to
+               teachers and the head of institution.
+
+   Distinct from FORM_AUDIENCES below — content and forms are addressed
+   independently. */
 export const LIBRARY_AUDIENCES = [
-  { value: "both", label: "Teachers & Learners" },
-  { value: "teacher", label: "Teacher Resources (Teachers only)" },
-  { value: "learner", label: "Learners only" },
+  { value: "library", label: "Digital Library — for learners (teachers & head of institution see it too)" },
+  { value: "staff", label: "Teacher Resources — teachers & head of institution only" },
 ];
+
+/* Legacy rows used ('both' | 'teacher' | 'learner'); map them onto the
+   two current destinations. 'learner' ("learners only") folds into the
+   Digital Library, which teachers and heads can now see as well. */
+export function normalizeLibraryAudience(audience) {
+  return audience === "staff" || audience === "teacher" ? "staff" : "library";
+}
+
+/* Can this role open this library item? */
+export function canSeeLibraryItem(item, role) {
+  const dest = normalizeLibraryAudience(item && item.audience);
+  if (dest === "staff") return role === "teacher" || role === "school_leader";
+  return role === "teacher" || role === "school_leader" || role === "learner";
+}
 
 export const FORM_AUDIENCES = [
   { value: "teacher", label: "Teachers" },

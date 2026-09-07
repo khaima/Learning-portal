@@ -1,6 +1,6 @@
 import { $, $$, esc, initials } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
-import { TEACHER_CONTENT } from "./data.js";
+import { TEACHER_CONTENT, normalizeLibraryAudience } from "./data.js";
 import { getLibrary, getForms, getResponses, addResponse, libraryFilesHtml } from "./store.js";
 
 const ICON = {
@@ -53,14 +53,14 @@ if (user) {
     : `<div class="empty-state">No results recorded yet.</div>`;
 
   /* Content library lives in the real database (education.js writes it).
-     Teacher Resources — addressed only to Teachers — never show up on
-     the Learner dashboard; the Digital Library below is what's shared
-     with Learners too. */
+     Teacher Resources go to teachers and the head of institution only —
+     never the Learner dashboard; the Digital Library is the learner-facing
+     shelf, which teachers and heads can see too. */
   $("#teacherResourceList").innerHTML = `<div class="empty-state">Loading…</div>`;
   $("#libraryList").innerHTML = `<div class="empty-state">Loading…</div>`;
   getLibrary().then((library) => {
-    const resources = library.filter((l) => l.audience === "teacher");
-    const shared = library.filter((l) => l.audience === "both" || !l.audience);
+    const resources = library.filter((l) => normalizeLibraryAudience(l.audience) === "staff");
+    const shared = library.filter((l) => normalizeLibraryAudience(l.audience) === "library");
     const row = (l) => `
         <div class="task-row"><div><b>${esc(l.title)}</b><span>${esc(l.subject)} · ${esc(l.type)}${l.description ? " — " + esc(l.description) : ""}</span>${libraryFilesHtml(l)}</div></div>`;
     $("#teacherResourceList").innerHTML = resources.length
