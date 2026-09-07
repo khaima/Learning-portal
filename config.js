@@ -1,16 +1,17 @@
 /* ============================================================
-   HPF Digital Learning Portal — Supabase connection settings.
+   HPF Digital Learning Portal — connection settings.
 
-   Its own, separate Supabase project — genuinely a different system
-   from the production HPF-digital-portal-2026 app, not just a
-   different schema in the same project. Nothing here can read, write,
-   or collide with the production portal's real data, because there is
-   no shared project at all anymore.
+   Its own, separate Supabase project — a different system from the
+   production HPF-digital-portal-2026 app.
 
-   Both values below are safe to publish: access is controlled by the
-   RLS policies on these tables (see supabase-schema.sql), not by
-   keeping the key secret.
+   The two values below are safe to publish: the publishable key can only
+   talk to Supabase Auth, and every table is locked down (deny-all RLS,
+   privileges revoked). All data goes through the `api` Edge Function,
+   which authorises each request server-side.
    ============================================================ */
 
 export const SUPABASE_URL = "https://fwpqytrdlmxymvegvgji.supabase.co";
 export const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_oP17Qvcq_jOzcZGJyh8UVw_paLVL9_v";
+
+/** Base URL of the backend API (the `api` Edge Function). */
+export const API_BASE = `${SUPABASE_URL}/functions/v1/api`;

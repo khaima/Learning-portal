@@ -1,8 +1,9 @@
 import { $, $$, esc, initials } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { FIELD_CONTENT, FIELD_SCHOOLS_BY_COUNTY, VISIT_TYPES } from "./data.js";
-import { getForms, getResponses, addResponse } from "./store.js";
-import { supabase } from "./supabase.js";
+import {
+  getForms, getResponses, addResponse, getFieldReports, addFieldReport,
+} from "./store.js";
 
 const ICON = {
   schools: '<path d="M4 21V8l8-5 8 5v13"/><path d="M9 21v-6h6v6"/>',
@@ -11,8 +12,9 @@ const ICON = {
 };
 const svg = (paths) => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${paths}</svg>`;
 
-const user = requireRole("field_officer");
-if (user) {
+async function main() {
+  const user = await requireRole("field_officer");
+  if (!user) return;
   const seed = FIELD_CONTENT[user.id] || { stats: { schools: 0, counties: 0, visitsThisTerm: 0 }, reports: [] };
 
   $("#sideAvatar").textContent = initials(user.fullName);
@@ -31,13 +33,16 @@ if (user) {
      fresh field officer account starts with none, honestly, rather than
      someone else's demo visits. */
   async function loadReports() {
-    const { data, error } = await supabase
-      .from("field_reports").select("*").eq("officer_id", user.id).order("created_at", { ascending: false });
-    if (error) { console.warn("could not load field reports:", error.message); return []; }
-    return data.map((r) => ({
-      school: r.school, county: r.county, visitType: r.visit_type,
-      detail: new Date(r.created_at).toLocaleDateString(),
-    }));
+    try {
+      const reports = await getFieldReports();
+      return reports.map((r) => ({
+        school: r.school, county: r.county, visitType: r.visitType,
+        detail: new Date(r.createdAt).toLocaleDateString(),
+      }));
+    } catch (err) {
+      console.warn("could not load field reports:", err.message);
+      return [];
+    }
   }
 
   function renderReports(reports) {
@@ -78,14 +83,16 @@ if (user) {
     submitBtn.disabled = true;
     submitBtn.textContent = "Saving…";
 
-    const { error } = await supabase.from("field_reports").insert({
-      id: "fr_" + Date.now().toString(36),
-      officer_id: user.id,
-      school, county, visit_type: visitType,
-    });
+    try {
+      await addFieldReport({ school, county, visitType });
+    } catch (err) {
+      console.warn("could not save field report:", err.message);
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Submit field report";
+      return;
+    }
     submitBtn.disabled = false;
     submitBtn.textContent = "Submit field report";
-    if (error) { console.warn("could not save field report:", error.message); return; }
 
     renderReports(await loadReports());
     e.target.reset();
@@ -159,9 +166,10 @@ if (user) {
     });
   }
 }
+main();
 
-function doSignOut() {
-  signOut();
+async function doSignOut() {
+  await signOut();
   location.href = "index.html";
 }
 $("#signOutBtn")?.addEventListener("click", doSignOut);

@@ -1,15 +1,24 @@
 /* ============================================================
-   HPF Digital Learning Portal — Supabase client.
-   Loaded from a CDN as an ES module, matching the rest of this static
-   build (no build step). This project's own dedicated Supabase
-   project — every table lives in the default `public` schema here,
-   since there's no production data sharing this project to keep
-   separate from.
+   HPF Digital Learning Portal — Supabase Auth client.
+
+   Used for ONE thing only: real Supabase Auth (magic-link sign-in and
+   the session it returns). All data now goes through the `api` Edge
+   Function (see api.js) — the browser has no direct database access.
    ============================================================ */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./config.js";
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-  auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+  },
 });
+
+/** The current access token, or null. Attached as a Bearer by api.js. */
+export async function accessToken() {
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token ?? null;
+}

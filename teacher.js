@@ -11,8 +11,9 @@ const ICON = {
 };
 const svg = (paths) => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${paths}</svg>`;
 
-const user = requireRole("teacher");
-if (user) {
+async function main() {
+  const user = await requireRole("teacher");
+  if (!user) return;
   const content = TEACHER_CONTENT[user.id] || {
     stats: { classes: 0, learners: 0, toGrade: 0, avgScore: 0, attendance: 0 },
     classes: [], tasks: [], results: [],
@@ -134,9 +135,10 @@ if (user) {
     });
   }
 }
+main();
 
-function doSignOut() {
-  signOut();
+async function doSignOut() {
+  await signOut();
   location.href = "index.html";
 }
 $("#signOutBtn")?.addEventListener("click", doSignOut);

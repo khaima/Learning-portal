@@ -1,13 +1,15 @@
 import { $, $$, esc, initials } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { LEARNER_CONTENT, SUBJECT_ICON_PATHS, normalizeLibraryAudience } from "./data.js";
-import { getLibrary, libraryFilesHtml } from "./store.js";
-import { supabase } from "./supabase.js";
+import {
+  getLibrary, libraryFilesHtml, getAssignments, markAssignmentDone,
+} from "./store.js";
 
 const CIRCUMFERENCE = 2 * Math.PI * 34;
 
-const user = requireRole("learner");
-if (user) {
+async function main() {
+  const user = await requireRole("learner");
+  if (!user) return;
   const seed = LEARNER_CONTENT[user.id] || { classes: [], assignments: [] };
 
   $("#sideAvatar").textContent = initials(user.fullName);
@@ -21,14 +23,19 @@ if (user) {
      is no "create assignment" UI yet, so a signed-up account stays at
      0/0, honestly, rather than borrowed demo content). */
   async function loadAssignments() {
-    const { data, error } = await supabase
-      .from("assignments").select("*").eq("learner_id", user.id).order("id");
-    if (error) { console.warn("could not load assignments:", error.message); return []; }
-    return data.map((a) => ({ id: a.id, title: a.title, subject: a.subject, due: a.due, done: a.done }));
+    try {
+      return await getAssignments();
+    } catch (err) {
+      console.warn("could not load assignments:", err.message);
+      return [];
+    }
   }
   async function markDone(id) {
-    const { error } = await supabase.from("assignments").update({ done: true }).eq("id", id);
-    if (error) console.warn("could not save assignment:", error.message);
+    try {
+      await markAssignmentDone(id);
+    } catch (err) {
+      console.warn("could not save assignment:", err.message);
+    }
   }
 
   function renderProgress(assignments) {
@@ -107,9 +114,10 @@ if (user) {
       : `<div class="empty-state">Nothing in the library yet.</div>`;
   });
 }
+main();
 
-function doSignOut() {
-  signOut();
+async function doSignOut() {
+  await signOut();
   location.href = "index.html";
 }
 $("#signOutBtn")?.addEventListener("click", doSignOut);

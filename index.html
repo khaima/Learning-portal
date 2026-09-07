@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="HPF Digital Learning Portal — sign in as a teacher or learner.">
+  <meta name="description" content="HPF Digital Learning Portal — sign in.">
   <meta name="author" content="Human Practice Foundation">
   <title>HPF Digital Learning Portal — Sign in</title>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -12,8 +12,6 @@
   <link rel="icon" href="data:,">
 </head>
 <body>
-  <div class="demo-banner">Demo build — no real backend yet. Data lives only in this browser. See README.md.</div>
-
   <div class="login-screen">
     <div class="login-art">
       <a class="wordmark" href="index.html">
@@ -33,10 +31,6 @@
         <circle cx="660" cy="66" r="54" fill="#F0A05C" opacity=".9"/>
         <path d="M0,190 C160,120 260,230 420,150 C560,90 660,190 800,140 L800,300 L0,300 Z" fill="#12315A" opacity=".55"/>
         <path d="M0,230 C180,170 300,250 460,190 C600,145 700,225 800,190 L800,300 L0,300 Z" fill="#0C2545"/>
-
-        <!-- education motif: pencil, book stack, open book, graduation cap —
-             kept as one compact group in the lower-right corner, clear of
-             where the headline/stats text sits in the flex layout above. -->
         <g transform="translate(470,205) scale(0.62) translate(-210,-128)">
           <g transform="translate(210,258) rotate(-24)">
             <rect x="0" y="0" width="92" height="14" rx="3" fill="#D97A34"/>
@@ -76,112 +70,97 @@
           <span class="wordmark-text"><b>Human Practice Foundation</b><span>Digital Learning Portal</span></span>
         </a>
 
-        <div id="modeLogin">
-          <div class="login-eyebrow">Step 1 of 2</div>
-          <h2>Who's signing in?</h2>
-          <p class="login-sub">Pick your role — the sign-in form below adjusts to match.</p>
-
-          <div class="role-grid" role="group" aria-label="Choose your role" id="roleGrid">
-            <button type="button" class="role-card" data-role="teacher" aria-pressed="true">
-              <span class="role-check"></span>
-              <span class="r-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V6a2 2 0 0 1 2-2h13v14H6a2 2 0 0 0-2 2Zm0 0a2 2 0 0 0 2 2h13"/><path d="M9 8h7M9 11h7"/></svg></span>
-              <b>Teacher</b>
-              <p>Classes, assignments, results</p>
-            </button>
-            <button type="button" class="role-card" data-role="learner" aria-pressed="false">
-              <span class="role-check"></span>
-              <span class="r-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/></svg></span>
-              <b>Learner</b>
-              <p>Coursework and library</p>
-            </button>
-            <button type="button" class="role-card" data-role="school_leader" aria-pressed="false">
-              <span class="role-check"></span>
-              <span class="r-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V9l9-6 9 6v12"/><path d="M9 21v-6h6v6"/></svg></span>
-              <b>School Leader</b>
-              <p>Termly returns, oversight</p>
-            </button>
-            <button type="button" class="role-card" data-role="field_officer" aria-pressed="false">
-              <span class="role-check"></span>
-              <span class="r-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s7-6.1 7-11.5A7 7 0 0 0 5 9.5C5 14.9 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg></span>
-              <b>Field Officer</b>
-              <p>Visit reports by county</p>
-            </button>
-            <button type="button" class="role-card" data-role="education_team" aria-pressed="false" style="grid-column:1 / -1">
-              <span class="role-check"></span>
-              <span class="r-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="M6 11.5V17c0 1.7 2.7 3 6 3s6-1.3 6-3v-5.5"/><path d="M22 8v6"/></svg></span>
-              <b>Education Team</b>
-              <p>Content, forms & insights</p>
-            </button>
-          </div>
-
-          <form id="loginForm">
-            <div class="field">
-              <label for="li_user">Username</label>
-              <input id="li_user" name="username" type="text" placeholder="e.g. grace.mwangi" autocomplete="username" required>
-            </div>
-            <div class="field">
-              <label for="li_pw">Password</label>
-              <input id="li_pw" name="password" type="password" placeholder="••••••••" autocomplete="current-password" required>
-              <div class="field-error" id="loginError" hidden></div>
-            </div>
-            <button class="btn btn-primary btn-block" type="submit">Sign in as <span data-role-label>Teacher</span></button>
-          </form>
-
-          <div class="login-demo">
-            <b>Try it without an account</b>
-            Teacher demo: <code>grace.mwangi</code> / <code>demo1234</code> —
-            <button type="button" data-fill="teacher">use this</button><br>
-            Learner demo: <code>naomi.k</code> / <code>demo1234</code> —
-            <button type="button" data-fill="learner">use this</button><br>
-            School Leader demo: <code>peter.kamau</code> / <code>demo1234</code> —
-            <button type="button" data-fill="school_leader">use this</button><br>
-            Field Officer demo: <code>susan.wanjiru</code> / <code>demo1234</code> —
-            <button type="button" data-fill="field_officer">use this</button><br>
-            Education Team demo: <code>amina.hassan</code> / <code>demo1234</code> —
-            <button type="button" data-fill="education_team">use this</button>
-          </div>
-
-          <div class="login-foot" style="margin-top:1.2rem">
-            <span></span>
-            <button type="button" id="toSignup">New here? Create an account</button>
-          </div>
+        <!-- checking for an existing session -->
+        <div id="stepLoading">
+          <p class="login-sub">One moment…</p>
         </div>
 
-        <div id="modeSignup" hidden>
-          <div class="login-eyebrow">Step 2 of 2</div>
-          <h2>Create your account</h2>
-          <p class="login-sub">Signing up as a <b data-signup-role-label>Teacher</b>.</p>
-          <form id="signupForm">
+        <!-- ask for an email -->
+        <div id="stepEmail" hidden>
+          <div class="login-eyebrow">Sign in</div>
+          <h2>Enter your email</h2>
+          <p class="login-sub">We'll email you a one-time link to sign in — no password to remember.</p>
+          <form id="emailForm">
             <div class="field">
-              <label for="su_name">Full name</label>
-              <input id="su_name" name="fullName" type="text" required>
+              <label for="email">Email address</label>
+              <input id="email" name="email" type="email" autocomplete="email" placeholder="you@example.org" required>
+              <div class="field-error" id="emailError" hidden></div>
+            </div>
+            <button class="btn btn-primary btn-block" type="submit">Email me a sign-in link</button>
+          </form>
+        </div>
+
+        <!-- link sent -->
+        <div id="stepSent" hidden>
+          <div class="login-eyebrow">Check your inbox</div>
+          <h2>Link on its way</h2>
+          <p class="login-sub">We sent a sign-in link to <b id="sentTo">your email</b>. Open it on this device to continue. It can take a minute to arrive.</p>
+          <button class="btn btn-outline btn-block" type="button" id="tryDifferent">Use a different email</button>
+        </div>
+
+        <!-- first sign-in: create the profile -->
+        <div id="stepOnboard" hidden>
+          <div class="login-eyebrow">Almost there</div>
+          <h2>Set up your account</h2>
+          <p class="login-sub">Signed in as <b id="onboardEmail">you</b>. Tell us who you are.</p>
+          <form id="onboardForm">
+            <div class="field">
+              <label for="ob_name">Full name</label>
+              <input id="ob_name" name="fullName" type="text" required>
             </div>
             <div class="field">
-              <label for="su_user">Username</label>
-              <input id="su_user" name="username" type="text" required>
+              <label>I am a…</label>
+              <div class="role-grid" role="group" aria-label="Choose your role" id="roleGrid">
+                <button type="button" class="role-card" data-role="teacher" aria-pressed="true">
+                  <span class="role-check"></span>
+                  <span class="r-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V6a2 2 0 0 1 2-2h13v14H6a2 2 0 0 0-2 2Zm0 0a2 2 0 0 0 2 2h13"/><path d="M9 8h7M9 11h7"/></svg></span>
+                  <b>Teacher</b>
+                  <p>Classes, assignments, results</p>
+                </button>
+                <button type="button" class="role-card" data-role="learner" aria-pressed="false">
+                  <span class="role-check"></span>
+                  <span class="r-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/></svg></span>
+                  <b>Learner</b>
+                  <p>Coursework and library</p>
+                </button>
+                <button type="button" class="role-card" data-role="school_leader" aria-pressed="false">
+                  <span class="role-check"></span>
+                  <span class="r-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V9l9-6 9 6v12"/><path d="M9 21v-6h6v6"/></svg></span>
+                  <b>School Leader</b>
+                  <p>Head of institution</p>
+                </button>
+                <button type="button" class="role-card" data-role="field_officer" aria-pressed="false">
+                  <span class="role-check"></span>
+                  <span class="r-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s7-6.1 7-11.5A7 7 0 0 0 5 9.5C5 14.9 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg></span>
+                  <b>Field Officer</b>
+                  <p>Visit reports by county</p>
+                </button>
+                <button type="button" class="role-card" data-role="education_team" aria-pressed="false" style="grid-column:1 / -1">
+                  <span class="role-check"></span>
+                  <span class="r-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="M6 11.5V17c0 1.7 2.7 3 6 3s6-1.3 6-3v-5.5"/><path d="M22 8v6"/></svg></span>
+                  <b>Education Team</b>
+                  <p>Content, forms & insights</p>
+                </button>
+              </div>
             </div>
             <div class="field">
-              <label for="su_pw">Password</label>
-              <input id="su_pw" name="password" type="password" minlength="4" required>
+              <label for="ob_school">School / institution</label>
+              <input id="ob_school" name="school" type="text" placeholder="e.g. Nyeri Hill Primary">
             </div>
             <div class="field">
-              <label for="su_school">School</label>
-              <input id="su_school" name="school" type="text" placeholder="e.g. Nyeri Hill Primary">
+              <label for="ob_county">County</label>
+              <input id="ob_county" name="county" type="text" placeholder="e.g. Nyeri">
             </div>
-            <div class="field">
-              <label for="su_county">County</label>
-              <input id="su_county" name="county" type="text" placeholder="e.g. Nyeri">
+            <div class="field" id="ob_grade_field" hidden>
+              <label for="ob_grade">Grade / class</label>
+              <input id="ob_grade" name="grade" type="text" placeholder="e.g. Grade 5A">
             </div>
-            <div class="field" id="su_grade_field" hidden>
-              <label for="su_grade">Grade</label>
-              <input id="su_grade" name="grade" type="text" placeholder="e.g. Grade 5A">
-            </div>
-            <div class="field-error" id="signupError" hidden></div>
-            <button class="btn btn-primary btn-block" type="submit">Create account</button>
+            <div class="field-error" id="onboardError" hidden></div>
+            <button class="btn btn-primary btn-block" type="submit">Continue to my dashboard</button>
           </form>
           <div class="login-foot" style="margin-top:1rem">
             <span></span>
-            <button type="button" id="toLogin">Already have an account? Sign in</button>
+            <button type="button" id="onboardSignOut">Sign out</button>
           </div>
         </div>
       </div>

@@ -1,53 +1,50 @@
 /* ============================================================
-   HPF Digital Learning Portal — shared, org-wide data.
+   HPF Digital Learning Portal — data access.
 
-   Content library, forms, and form responses live in the real
-   `learning_portal.library_items` / `.forms` / `.responses` tables
-   (Supabase) — genuinely shared across every browser and device now,
-   not a per-browser localStorage copy. That's what makes "the education
-   team uploads a resource" or "creates a form" show up for a teacher or
-   school leader signed in anywhere, not just the same browser.
+   Every call goes to the `api` Edge Function (see api.js). The browser
+   has no direct database or storage access. File uploads use a signed
+   upload URL the API hands back; downloads use signed URLs the API puts
+   on each file.
    ============================================================ */
 
-import { supabase } from "./supabase.js";
 import { esc } from "./util.js";
+import { supabase } from "./supabase.js";
+import { apiGet, apiSend } from "./api.js";
+
+const LIBRARY_BUCKET = "library";
+
+/* ---------------------------------------------------------------- library */
 
 export async function getLibrary() {
-  const { data, error } = await supabase
-    .from("library_items").select("*").order("uploaded_at", { ascending: false });
-  if (error) { console.warn("could not load library:", error.message); return []; }
-  return data.map((r) => ({
-    id: r.id, title: r.title, subject: r.subject, type: r.type, audience: r.audience,
-    description: r.description, uploadedBy: r.uploaded_by,
-    fileName: r.file_name, fileSize: r.file_size || 0,
-    isFolder: !!r.is_folder, files: Array.isArray(r.files) ? r.files : [],
-  }));
+  const { items } = await apiGet("/library");
+  return items || [];
 }
 
+/* Create a library item. `files` is the manifest [{ name, size }] the
+   caller intends to upload; the API returns a signed upload URL per
+   file, which uploadLibraryFiles() then PUTs to. */
 export async function addLibraryItem(item) {
-  const { error } = await supabase.from("library_items").insert({
-    id: item.id, title: item.title, subject: item.subject, type: item.type, audience: item.audience,
-    description: item.description, uploaded_by: item.uploadedBy,
-    file_name: item.fileName || null, file_size: item.fileSize || 0,
-    is_folder: !!item.isFolder, files: item.files || [],
+  const { item: saved } = await apiSend("POST", "/library", {
+    title: item.title,
+    subject: item.subject,
+    type: item.type,
+    audience: item.audience,
+    description: item.description,
+    fileName: item.fileName || null,
+    isFolder: !!item.isFolder,
+    files: (item.files || []).map((f) => ({ name: f.name, size: f.size })),
   });
-  if (error) console.warn("could not save library item:", error.message);
-  return getLibrary();
+  return saved;
 }
-
-/* Content-library file storage lives in the public `library` Storage
-   bucket. Uploads go under `<itemId>/<relative path>` so a single item's
-   files (one file, or a whole folder) stay grouped and easy to clear. */
-export const LIBRARY_BUCKET = "library";
 
 const safeSegment = (s) =>
   String(s).replace(/[^\w.\- ]+/g, "_").replace(/\s+/g, " ").trim() || "file";
-const safePath = (p) => String(p).split("/").map(safeSegment).join("/");
 
-/* Upload one File (from an <input type="file">) or every File in a folder
-   pick (webkitdirectory). Returns a manifest the library row stores:
-   { fileName, fileSize, isFolder, files: [{ name, path, size }] }. */
-export async function uploadLibraryFiles(itemId, fileList, onProgress) {
+/* Upload one File, or every File in a folder pick (webkitdirectory).
+   Returns a manifest for addLibraryItem: { fileName, fileSize, isFolder,
+   files: [{ name, size }] }. The actual bytes are pushed straight to
+   Storage via the signed upload URLs the API returns. */
+export async function uploadLibraryFiles(item, fileList, onProgress) {
   const list = [...(fileList || [])].filter((f) => f && f.size >= 0);
   if (!list.length) return { fileName: null, fileSize: 0, isFolder: false, files: [] };
 
@@ -56,34 +53,40 @@ export async function uploadLibraryFiles(itemId, fileList, onProgress) {
     ? list[0].webkitRelativePath.split("/")[0]
     : null;
 
-  const files = [];
+  const manifest = list.map((f) => ({
+    name: f.webkitRelativePath || f.name,
+    size: f.size,
+  }));
+
+  // Create the row + get one signed upload URL per file.
+  const { item: saved, uploads } = await apiSend("POST", "/library", {
+    title: item.title,
+    subject: item.subject,
+    type: item.type,
+    audience: item.audience,
+    description: item.description,
+    fileName: folderName || list[0].name,
+    isFolder,
+    files: manifest,
+  });
+
   let done = 0;
-  for (const file of list) {
-    const rel = file.webkitRelativePath || file.name;
-    const path = `${itemId}/${safePath(rel)}`;
+  for (let i = 0; i < list.length; i++) {
+    const up = uploads[i];
     const { error } = await supabase.storage
       .from(LIBRARY_BUCKET)
-      .upload(path, file, { upsert: true, contentType: file.type || undefined });
-    if (error) { console.warn("upload failed:", rel, error.message); throw error; }
-    files.push({ name: rel, path, size: file.size });
+      .uploadToSignedUrl(up.path, up.token, list[i], {
+        contentType: list[i].type || undefined,
+      });
+    if (error) {
+      await apiSend("DELETE", `/library/${saved.id}`).catch(() => {});
+      throw error;
+    }
     done += 1;
     if (onProgress) onProgress(done, list.length);
   }
 
-  return {
-    fileName: folderName || list[0].name,
-    fileSize: files.reduce((s, f) => s + (f.size || 0), 0),
-    isFolder,
-    files,
-  };
-}
-
-/* A ready-to-use download URL for a stored file (public bucket). */
-export function libraryFileUrl(file) {
-  return supabase.storage
-    .from(LIBRARY_BUCKET)
-    .getPublicUrl(file.path, { download: file.name?.split("/").pop() || true })
-    .data.publicUrl;
+  return saved;
 }
 
 export function formatBytes(n = 0) {
@@ -94,18 +97,18 @@ export function formatBytes(n = 0) {
   return `${n.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-/* Download affordance for a library item, shared by every dashboard that
-   lists the library. Nothing when the item is metadata-only (no file). */
+/* Download affordance for a library item, shared by every dashboard.
+   The API already put a signed `downloadUrl` on each file. */
 export function libraryFilesHtml(item) {
   const files = item.files || [];
   if (!files.length) return "";
   if (files.length === 1) {
     const f = files[0];
-    return `<a class="lib-download" href="${esc(libraryFileUrl(f))}" target="_blank" rel="noopener" download>
+    return `<a class="lib-download" href="${esc(f.downloadUrl || "#")}" target="_blank" rel="noopener">
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg>
       Download${f.size ? ` <span class="lib-size">${esc(formatBytes(f.size))}</span>` : ""}</a>`;
   }
-  const rows = files.map((f) => `<li><a href="${esc(libraryFileUrl(f))}" target="_blank" rel="noopener" download>${esc(f.name)}</a>${
+  const rows = files.map((f) => `<li><a href="${esc(f.downloadUrl || "#")}" target="_blank" rel="noopener">${esc(f.name)}</a>${
     f.size ? ` <span class="lib-size">${esc(formatBytes(f.size))}</span>` : ""}</li>`).join("");
   return `<details class="lib-folder">
     <summary><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>
@@ -113,40 +116,62 @@ export function libraryFilesHtml(item) {
     <ul>${rows}</ul></details>`;
 }
 
+/* ---------------------------------------------------------------- forms */
+
 export async function getForms() {
-  const { data, error } = await supabase
-    .from("forms").select("*").order("created_at", { ascending: false });
-  if (error) { console.warn("could not load forms:", error.message); return []; }
-  return data.map((r) => ({
-    id: r.id, title: r.title, description: r.description, audience: r.audience,
-    createdBy: r.created_by, questions: r.questions || [],
-  }));
+  const { forms } = await apiGet("/forms");
+  return forms || [];
 }
 
 export async function addForm(form) {
-  const { error } = await supabase.from("forms").insert({
-    id: form.id, title: form.title, description: form.description, audience: form.audience,
-    created_by: form.createdBy, questions: form.questions,
+  const { form: saved } = await apiSend("POST", "/forms", {
+    title: form.title,
+    description: form.description,
+    audience: form.audience,
+    questions: form.questions,
   });
-  if (error) console.warn("could not save form:", error.message);
-  return getForms();
+  return saved;
 }
 
 export async function getResponses() {
-  const { data, error } = await supabase
-    .from("responses").select("*").order("submitted_at", { ascending: false });
-  if (error) { console.warn("could not load responses:", error.message); return []; }
-  return data.map((r) => ({
-    id: r.id, formId: r.form_id, respondentId: r.respondent_id,
-    respondentName: r.respondent_name, respondentRole: r.respondent_role, answers: r.answers || [],
-  }));
+  const { responses } = await apiGet("/responses");
+  return responses || [];
 }
 
 export async function addResponse(r) {
-  const { error } = await supabase.from("responses").upsert({
-    id: r.id, form_id: r.formId, respondent_id: r.respondentId,
-    respondent_name: r.respondentName, respondent_role: r.respondentRole, answers: r.answers,
-  }, { onConflict: "form_id,respondent_id" });
-  if (error) console.warn("could not save response:", error.message);
-  return getResponses();
+  const { response } = await apiSend("POST", "/responses", {
+    formId: r.formId,
+    answers: r.answers,
+  });
+  return response;
+}
+
+/* ---------------------------------------------------------------- assignments */
+
+export async function getAssignments() {
+  const { assignments } = await apiGet("/assignments");
+  return assignments || [];
+}
+
+export async function markAssignmentDone(id) {
+  const { assignment } = await apiSend("PATCH", `/assignments/${id}`, { done: true });
+  return assignment;
+}
+
+/* ---------------------------------------------------------------- field reports */
+
+export async function getFieldReports() {
+  const { reports } = await apiGet("/field-reports");
+  return reports || [];
+}
+
+export async function addFieldReport({ school, county, visitType }) {
+  const { report } = await apiSend("POST", "/field-reports", { school, county, visitType });
+  return report;
+}
+
+/* ---------------------------------------------------------------- stats */
+
+export async function getStats() {
+  return apiGet("/stats");
 }

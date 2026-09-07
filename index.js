@@ -1,114 +1,104 @@
 import { $, $$ } from "./util.js";
-import { signIn, signUp, currentUser } from "./auth.js";
-import { ROLES } from "./data.js";
+import { supabase } from "./supabase.js";
+import {
+  DASHBOARD_PATH, sendMagicLink, getProfile, createProfile, signOut,
+} from "./auth.js";
 
-const DASHBOARD_PATH = {
-  teacher: "teacher.html",
-  learner: "learner.html",
-  school_leader: "leader.html",
-  field_officer: "field.html",
-  education_team: "education.html",
+const steps = {
+  loading: $("#stepLoading"),
+  email: $("#stepEmail"),
+  sent: $("#stepSent"),
+  onboard: $("#stepOnboard"),
 };
-const ROLE_LABEL = Object.fromEntries(ROLES.map((r) => [r.value, r.label]));
-
-// Already signed in? Go straight to the right dashboard rather than
-// showing the sign-in form again.
-const existing = currentUser();
-if (existing && DASHBOARD_PATH[existing.role]) {
-  location.href = DASHBOARD_PATH[existing.role];
+function show(name) {
+  for (const [k, el] of Object.entries(steps)) el.hidden = k !== name;
 }
 
-let selectedRole = "teacher";
-const roleLabelEls = $$("[data-role-label]");
-const signupRoleLabelEls = $$("[data-signup-role-label]");
-const roleCards = $$(".role-card");
+function goToDashboard(role) {
+  location.href = DASHBOARD_PATH[role] || "index.html";
+}
 
+/* ---- decide which step to show on load ----
+   detectSessionInUrl (see supabase.js) consumes the magic-link token
+   before this runs, so getSession() already reflects a fresh sign-in. */
+async function route() {
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) { show("email"); return; }
+  const profile = await getProfile({ force: true });
+  if (profile && !profile.needsOnboarding) {
+    goToDashboard(profile.role);
+    return;
+  }
+  // Signed in but no profile yet — onboard.
+  $("#onboardEmail").textContent = profile?.email || data.session.user.email || "you";
+  show("onboard");
+}
+
+// ---- email step ----
+const emailForm = $("#emailForm");
+const emailError = $("#emailError");
+emailForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  emailError.hidden = true;
+  const email = $("#email").value.trim();
+  const btn = emailForm.querySelector("[type=submit]");
+  btn.disabled = true;
+  btn.textContent = "Sending…";
+  const res = await sendMagicLink(email, `${location.origin}${location.pathname}`);
+  btn.disabled = false;
+  btn.textContent = "Email me a sign-in link";
+  if (res.error) {
+    emailError.textContent = res.error;
+    emailError.hidden = false;
+    return;
+  }
+  $("#sentTo").textContent = email;
+  show("sent");
+});
+
+$("#tryDifferent").addEventListener("click", () => {
+  $("#email").value = "";
+  show("email");
+});
+
+// ---- onboarding step ----
+let selectedRole = "teacher";
+const roleCards = $$("#roleGrid .role-card");
 function setRole(role) {
   selectedRole = role;
   roleCards.forEach((c) => c.setAttribute("aria-pressed", String(c.dataset.role === role)));
-  const label = ROLE_LABEL[role] || role;
-  roleLabelEls.forEach((el) => (el.textContent = label));
-  signupRoleLabelEls.forEach((el) => (el.textContent = label));
-  $("#su_grade_field").hidden = role !== "learner";
+  $("#ob_grade_field").hidden = role !== "learner";
 }
 roleCards.forEach((c) => c.addEventListener("click", () => setRole(c.dataset.role)));
 setRole("teacher");
 
-// ---- login ----
-const loginForm = $("#loginForm");
-const loginError = $("#loginError");
-loginForm.addEventListener("submit", async (e) => {
+const onboardForm = $("#onboardForm");
+const onboardError = $("#onboardError");
+onboardForm.addEventListener("submit", async (e) => {
   e.preventDefault();
-  loginError.hidden = true;
-  const submitBtn = loginForm.querySelector("[type=submit]");
-  const fd = new FormData(loginForm);
-  submitBtn.disabled = true;
-  const res = await signIn(fd.get("username"), fd.get("password"));
-  submitBtn.disabled = false;
-  if (res.error) {
-    loginError.textContent = res.error;
-    loginError.hidden = false;
-    return;
+  onboardError.hidden = true;
+  const btn = onboardForm.querySelector("[type=submit]");
+  const fd = new FormData(onboardForm);
+  btn.disabled = true;
+  try {
+    const profile = await createProfile({
+      fullName: fd.get("fullName"),
+      role: selectedRole,
+      school: fd.get("school"),
+      county: fd.get("county"),
+      grade: fd.get("grade"),
+    });
+    goToDashboard(profile.role);
+  } catch (err) {
+    btn.disabled = false;
+    onboardError.textContent = err?.message || "Could not create your account.";
+    onboardError.hidden = false;
   }
-  if (res.user.role !== selectedRole) {
-    loginError.textContent = `That account is a ${ROLE_LABEL[res.user.role] || res.user.role} — switch the role above and try again.`;
-    loginError.hidden = false;
-    return;
-  }
-  location.href = DASHBOARD_PATH[res.user.role];
 });
 
-const DEMO_USERNAME = {
-  teacher: "grace.mwangi",
-  learner: "naomi.k",
-  school_leader: "peter.kamau",
-  field_officer: "susan.wanjiru",
-  education_team: "amina.hassan",
-};
-$$("[data-fill]").forEach((btn) =>
-  btn.addEventListener("click", () => {
-    const role = btn.dataset.fill;
-    setRole(role);
-    $("#li_user").value = DEMO_USERNAME[role] || "";
-    $("#li_pw").value = "demo1234";
-  })
-);
-
-// ---- mode switch (login <-> signup) ----
-const modeLogin = $("#modeLogin");
-const modeSignup = $("#modeSignup");
-$("#toSignup").addEventListener("click", () => {
-  modeLogin.hidden = true;
-  modeSignup.hidden = false;
-});
-$("#toLogin").addEventListener("click", () => {
-  modeSignup.hidden = true;
-  modeLogin.hidden = false;
+$("#onboardSignOut").addEventListener("click", async () => {
+  await signOut();
+  show("email");
 });
 
-// ---- sign up ----
-const signupForm = $("#signupForm");
-const signupError = $("#signupError");
-signupForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  signupError.hidden = true;
-  const submitBtn = signupForm.querySelector("[type=submit]");
-  const fd = new FormData(signupForm);
-  submitBtn.disabled = true;
-  const res = await signUp({
-    fullName: fd.get("fullName"),
-    username: fd.get("username"),
-    password: fd.get("password"),
-    school: fd.get("school"),
-    county: fd.get("county"),
-    grade: fd.get("grade"),
-    role: selectedRole,
-  });
-  submitBtn.disabled = false;
-  if (res.error) {
-    signupError.textContent = res.error;
-    signupError.hidden = false;
-    return;
-  }
-  location.href = DASHBOARD_PATH[res.user.role];
-});
+route();

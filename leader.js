@@ -13,8 +13,9 @@ const svg = (paths) => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke
 const RETURN_PILL = { ok: "pill ok", due: "pill warm", upcoming: "pill" };
 const RETURN_LABEL = { ok: "Filed", due: "Due soon", upcoming: "Upcoming" };
 
-const user = requireRole("school_leader");
-if (user) {
+async function main() {
+  const user = await requireRole("school_leader");
+  if (!user) return;
   const content = LEADER_CONTENT[user.id] || {
     stats: { learners: 0, teachers: 0, classes: 0, attendance: 0 },
     classes: [], returns: [], visits: [],
@@ -136,9 +137,10 @@ if (user) {
     });
   }
 }
+main();
 
-function doSignOut() {
-  signOut();
+async function doSignOut() {
+  await signOut();
   location.href = "index.html";
 }
 $("#signOutBtn")?.addEventListener("click", doSignOut);

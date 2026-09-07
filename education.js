@@ -1,16 +1,14 @@
 import { $, esc, initials, toast } from "./util.js";
-import { requireRole, signOut, allUsers } from "./auth.js";
+import { requireRole, signOut } from "./auth.js";
 import {
-  ROLES, CONTENT_TYPES, LIBRARY_SUBJECTS, LIBRARY_AUDIENCES, FORM_AUDIENCES, QUESTION_TYPES,
+  CONTENT_TYPES, LIBRARY_SUBJECTS, LIBRARY_AUDIENCES, FORM_AUDIENCES, QUESTION_TYPES,
   normalizeLibraryAudience,
 } from "./data.js";
 import {
-  getLibrary, addLibraryItem, getForms, addForm, getResponses,
+  getLibrary, addLibraryItem, getForms, addForm, getResponses, getStats,
   uploadLibraryFiles, libraryFilesHtml,
 } from "./store.js";
-import { supabase } from "./supabase.js";
 
-const ROLE_LABEL = Object.fromEntries(ROLES.map((r) => [r.value, r.label]));
 const AUDIENCE_LABEL = Object.fromEntries(FORM_AUDIENCES.map((a) => [a.value, a.label]));
 
 const ICON = {
@@ -21,45 +19,38 @@ const ICON = {
 };
 const svg = (paths) => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${paths}</svg>`;
 
-const user = requireRole("education_team");
-if (user) {
+async function main() {
+  const user = await requireRole("education_team");
+  if (!user) return;
+
   $("#sideAvatar").textContent = initials(user.fullName);
   $("#sideName").textContent = user.fullName;
   $("#sideMeta").textContent = "Education Team";
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
 
   /* ------------------------------------------------------------ live org-wide stats
-     Reads every account actually recorded in the real database (auth.js)
-     plus what each has produced there — real cross-account aggregation
-     from the database, not a fixed number. A field report filed on the
-     Field Officer dashboard, or an assignment marked done on the Learner
-     dashboard, changes what shows up here on the next load — from any
-     browser or device, not just the one that filed it. */
+     Real aggregation, computed server-side from every account and everything
+     they've produced (see the /stats route). A field report filed on the
+     Field Officer dashboard, or an assignment marked done by a learner,
+     changes these numbers on the next load, from any device. */
   async function renderStats() {
     $("#statRow").innerHTML = `<div class="empty-state">Loading…</div>`;
-    const users = await allUsers();
-    const counts = { teacher: 0, learner: 0, school_leader: 0, field_officer: 0, education_team: 0 };
-    users.forEach((u) => { if (counts[u.role] !== undefined) counts[u.role]++; });
-
-    const [assignmentsRes, reportsRes, forms, responses] = await Promise.all([
-      supabase.from("assignments").select("done"),
-      supabase.from("field_reports").select("id", { count: "exact", head: true }),
-      getForms(),
-      getResponses(),
-    ]);
-    const assignments = assignmentsRes.data || [];
-    const assignmentsTotal = assignments.length;
-    const assignmentsDone = assignments.filter((a) => a.done).length;
-    const reportsFiled = reportsRes.count || 0;
-
+    let s;
+    try {
+      s = await getStats();
+    } catch {
+      $("#statRow").innerHTML = `<div class="empty-state">Couldn't load stats.</div>`;
+      return;
+    }
+    const r = s.byRole || {};
     $("#statRow").innerHTML = `
-      <div class="stat-tile"><div class="s-label">${svg(ICON.progress)}Accounts</div><div class="s-num">${users.length}</div>
-        <div class="s-sub">${counts.teacher} teachers · ${counts.learner} learners · ${counts.school_leader} leaders · ${counts.field_officer} officers</div></div>
-      <div class="stat-tile"><div class="s-label">${svg(ICON.responses)}Assignments done</div><div class="s-num">${assignmentsDone}/${assignmentsTotal}</div>
+      <div class="stat-tile"><div class="s-label">${svg(ICON.progress)}Accounts</div><div class="s-num">${s.accounts}</div>
+        <div class="s-sub">${r.teacher || 0} teachers · ${r.learner || 0} learners · ${r.school_leader || 0} leaders · ${r.field_officer || 0} officers</div></div>
+      <div class="stat-tile"><div class="s-label">${svg(ICON.responses)}Assignments done</div><div class="s-num">${s.assignmentsDone}/${s.assignmentsTotal}</div>
         <div class="s-sub">across all learner accounts</div></div>
-      <div class="stat-tile"><div class="s-label">${svg(ICON.forms)}Field reports filed</div><div class="s-num">${reportsFiled}</div>
+      <div class="stat-tile"><div class="s-label">${svg(ICON.forms)}Field reports filed</div><div class="s-num">${s.reportsFiled}</div>
         <div class="s-sub">across all field officer accounts</div></div>
-      <div class="stat-tile"><div class="s-label">${svg(ICON.library)}Forms & responses</div><div class="s-num">${forms.length} / ${responses.length}</div>
+      <div class="stat-tile"><div class="s-label">${svg(ICON.library)}Forms & responses</div><div class="s-num">${s.formsSent} / ${s.responsesReceived}</div>
         <div class="s-sub">sent / received</div></div>
     `;
   }
@@ -71,7 +62,8 @@ if (user) {
 
   async function renderLibrary() {
     $("#libraryList").innerHTML = `<div class="empty-state">Loading…</div>`;
-    const items = await getLibrary();
+    let items = [];
+    try { items = await getLibrary(); } catch { /* shown as empty */ }
     $("#libraryList").innerHTML = items.length
       ? items.map((it) => `
         <div class="task-row">
@@ -170,27 +162,26 @@ if (user) {
     if (!title) return;
     const submitBtn = e.target.querySelector("[type=submit]");
     submitBtn.disabled = true;
-    const itemId = "lib_" + Date.now().toString(36);
 
-    let manifest = { fileName: null, fileSize: 0, isFolder: false, files: [] };
+    const meta = {
+      title,
+      subject: $("#up_subject").value,
+      type: $("#up_type").value,
+      audience: $("#up_audience").value,
+      description: $("#up_desc").value.trim(),
+    };
+
     try {
       if (picked.length) {
         submitBtn.textContent = `Uploading 0/${picked.length}…`;
-        manifest = await uploadLibraryFiles(itemId, picked, (done, n) => {
+        await uploadLibraryFiles(meta, picked, (done, n) => {
           submitBtn.textContent = `Uploading ${done}/${n}…`;
         });
+        toast("Added to library", `${picked.length} file(s) uploaded`);
+      } else {
+        await addLibraryItem(meta);
+        toast("Added to library", "");
       }
-      await addLibraryItem({
-        id: itemId,
-        title,
-        subject: $("#up_subject").value,
-        type: $("#up_type").value,
-        audience: $("#up_audience").value,
-        description: $("#up_desc").value.trim(),
-        uploadedBy: user.fullName,
-        ...manifest,
-      });
-      toast("Added to library", picked.length ? `${manifest.files.length} file(s) uploaded` : "");
       e.target.reset();
       clearPicked();
       $("#up_subject").value = LIBRARY_SUBJECTS[0];
@@ -198,7 +189,7 @@ if (user) {
       $("#up_audience").value = LIBRARY_AUDIENCES[0].value;
       renderLibrary();
     } catch (err) {
-      toast("Upload failed", err?.message || "Could not upload the file. Check the library storage bucket.", "error");
+      toast("Upload failed", err?.message || "Could not save the content.", "error");
     } finally {
       submitBtn.disabled = false;
       submitBtn.textContent = "Add to library";
@@ -240,27 +231,33 @@ if (user) {
 
     const submitBtn = e.target.querySelector("[type=submit]");
     submitBtn.disabled = true;
-    await addForm({
-      id: "form_" + Date.now().toString(36),
-      title,
-      description: $("#fb_desc").value.trim(),
-      audience: $("#fb_audience").value,
-      createdBy: user.fullName,
-      questions,
-    });
-    submitBtn.disabled = false;
-
-    e.target.reset();
-    questionRows.innerHTML = "";
-    addQuestionRow();
-    renderForms();
-    renderStats();
+    try {
+      await addForm({
+        title,
+        description: $("#fb_desc").value.trim(),
+        audience: $("#fb_audience").value,
+        questions,
+      });
+      e.target.reset();
+      questionRows.innerHTML = "";
+      addQuestionRow();
+      renderForms();
+      renderStats();
+    } catch (err) {
+      toast("Couldn't send the form", err?.message || "", "error");
+    } finally {
+      submitBtn.disabled = false;
+    }
   });
 
   /* ------------------------------------------------------------ forms & feedback */
   async function renderForms() {
     $("#formsList").innerHTML = `<div class="empty-state">Loading…</div>`;
-    const [forms, responses] = await Promise.all([getForms(), getResponses()]);
+    let forms = [];
+    let responses = [];
+    try {
+      [forms, responses] = await Promise.all([getForms(), getResponses()]);
+    } catch { /* shown as empty */ }
     $("#formsList").innerHTML = forms.length
       ? forms.map((f) => {
           const answers = responses.filter((r) => r.formId === f.id);
@@ -297,9 +294,10 @@ if (user) {
   renderLibrary();
   renderForms();
 }
+main();
 
-function doSignOut() {
-  signOut();
+async function doSignOut() {
+  await signOut();
   location.href = "index.html";
 }
 $("#signOutBtn")?.addEventListener("click", doSignOut);

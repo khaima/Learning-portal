@@ -1,8 +1,12 @@
 /* ============================================================
-   HPF Digital Learning Portal — demo data.
-   This build has no backend yet (see README.md): everything lives in
-   this file plus whatever the browser saves to localStorage. The five
-   seed accounts below are clearly-labelled demo logins, not real people.
+   HPF Digital Learning Portal — static constants and UI copy.
+
+   Real data lives in Postgres and is fetched through the `api` Edge
+   Function (see api.js / store.js). This file only holds the fixed
+   lists the UI needs — roles, subjects, content types, question types —
+   plus a few legacy per-account demo dictionaries that no longer match
+   any real account (kept only so the dashboards still render their
+   empty states; slated for removal).
    ============================================================ */
 
 export const ROLES = [
@@ -13,63 +17,10 @@ export const ROLES = [
   { value: "education_team", label: "Education Team", desc: "Content, forms & insights" },
 ];
 
-/* Seeded once into localStorage on first run — see auth.js. Passwords are
-   plain text ON PURPOSE: this build has no server, so there is nothing to
-   hash against. Never carry this pattern into a real backend. */
-export const SEED_USERS = [
-  {
-    id: "u_teacher_demo",
-    role: "teacher",
-    username: "grace.mwangi",
-    password: "demo1234",
-    fullName: "Grace Mwangi",
-    school: "Nyeri Hill Primary",
-    county: "Nyeri",
-  },
-  {
-    id: "u_learner_demo",
-    role: "learner",
-    username: "naomi.k",
-    password: "demo1234",
-    fullName: "Naomi Kiptoo",
-    school: "Nyeri Hill Primary",
-    county: "Nyeri",
-    grade: "Grade 5A",
-  },
-  {
-    id: "u_leader_demo",
-    role: "school_leader",
-    username: "peter.kamau",
-    password: "demo1234",
-    fullName: "Peter Kamau",
-    school: "Nyeri Hill Primary",
-    county: "Nyeri",
-  },
-  {
-    id: "u_field_demo",
-    role: "field_officer",
-    username: "susan.wanjiru",
-    password: "demo1234",
-    fullName: "Susan Wanjiru",
-    school: "",
-    county: "Nyeri",
-  },
-  {
-    id: "u_edu_demo",
-    role: "education_team",
-    username: "amina.hassan",
-    password: "demo1234",
-    fullName: "Amina Hassan",
-    school: "",
-    county: "",
-  },
-];
-
-/* Sample content for the seed accounts, keyed by user id. A newly signed-up
-   account gets none of this — an honest empty dashboard rather than
-   borrowed demo content, same as the seed accounts once looked before
-   anyone taught, enrolled, filed a return, filed a report, or published
-   anything. */
+/* Legacy per-account demo content, keyed by the old text ids. Nothing
+   matches these keys any more (accounts are auth.users UUIDs now), so
+   every lookup falls through to the dashboard's empty state — which is
+   the intended behaviour for a fresh account. */
 export const TEACHER_CONTENT = {
   u_teacher_demo: {
     stats: { classes: 3, learners: 128, toGrade: 6, avgScore: 74, attendance: 91 },
@@ -162,29 +113,6 @@ export const SUBJECT_ICON_PATHS = {
   Science: '<path d="M12 3c-4 3-4 7 0 9M12 3c4 3 4 7 0 9M12 12v9M7 21h10"/>',
 };
 
-/* ---------------------------------------------------------------- shared,
-   org-wide resources. Unlike everything above (seeded PER account), these
-   three are one shared list every account in this browser reads and
-   writes — see store.js. This is what makes "the education team uploads
-   a resource" or "creates a form" visible from a teacher or school leader
-   account signed in on the same browser. */
-export const SEED_LIBRARY = [
-  { id: "lib1", title: "Fractions — visual walkthrough", subject: "Mathematics", type: "Video", audience: "library",
-    description: "A short animated walkthrough of adding and subtracting fractions.",
-    uploadedBy: "Amina Hassan", uploadedAt: "2026-08-01T09:00:00.000Z" },
-  { id: "lib2", title: "Reading comprehension pack", subject: "English", type: "Worksheet", audience: "library",
-    description: "Six short passages with comprehension questions, Grade 4 level.",
-    uploadedBy: "Amina Hassan", uploadedAt: "2026-08-03T09:00:00.000Z" },
-  { id: "lib3", title: "Life cycles explained", subject: "Science", type: "Reading", audience: "library",
-    description: "An illustrated explainer of animal and plant life cycles.",
-    uploadedBy: "Amina Hassan", uploadedAt: "2026-08-10T09:00:00.000Z" },
-  { id: "lib4", title: "Times tables practice", subject: "Mathematics", type: "Worksheet", audience: "library",
-    description: "Drill sheets for the 2–12 times tables.",
-    uploadedBy: "Amina Hassan", uploadedAt: "2026-08-14T09:00:00.000Z" },
-  { id: "lib5", title: "Grading rubric — Term 2 assessments", subject: "Mathematics", type: "Assessment", audience: "staff",
-    description: "A shared rubric for marking Term 2 assessments consistently across classes.",
-    uploadedBy: "Amina Hassan", uploadedAt: "2026-08-18T09:00:00.000Z" },
-];
 export const CONTENT_TYPES = ["Video", "Worksheet", "Reading", "Lesson plan", "Assessment"];
 export const LIBRARY_SUBJECTS = ["Mathematics", "English", "Science"];
 
@@ -224,58 +152,4 @@ export const FORM_AUDIENCES = [
 export const QUESTION_TYPES = [
   { value: "rating", label: "Rating (1–5)" },
   { value: "text", label: "Short answer" },
-];
-
-export const SEED_FORMS = [
-  {
-    id: "form1",
-    title: "Term 2 curriculum feedback",
-    description: "A quick check on how the new Mathematics materials are landing in class.",
-    audience: "teacher",
-    createdBy: "Amina Hassan",
-    createdAt: "2026-08-20T09:00:00.000Z",
-    questions: [
-      { id: "q1", type: "rating", prompt: "How well are learners engaging with the new Mathematics materials?" },
-      { id: "q2", type: "text", prompt: "What would make the materials more useful?" },
-    ],
-  },
-  {
-    id: "form2",
-    title: "Field visit debrief",
-    description: "A quick check-in after this term's school visits.",
-    audience: "field_officer",
-    createdBy: "Amina Hassan",
-    createdAt: "2026-08-28T09:00:00.000Z",
-    questions: [
-      { id: "q1", type: "rating", prompt: "How would you rate school readiness overall?" },
-      { id: "q2", type: "text", prompt: "Anything the Education Team should follow up on?" },
-    ],
-  },
-];
-
-export const SEED_RESPONSES = [
-  {
-    id: "resp1",
-    formId: "form1",
-    respondentId: "u_teacher_demo",
-    respondentName: "Grace Mwangi",
-    respondentRole: "teacher",
-    submittedAt: "2026-08-25T14:00:00.000Z",
-    answers: [
-      { questionId: "q1", value: 4 },
-      { questionId: "q2", value: "More worked examples for fractions would help — learners get stuck partway through." },
-    ],
-  },
-  {
-    id: "resp2",
-    formId: "form2",
-    respondentId: "u_field_demo",
-    respondentName: "Susan Wanjiru",
-    respondentRole: "field_officer",
-    submittedAt: "2026-08-30T11:00:00.000Z",
-    answers: [
-      { questionId: "q1", value: 4 },
-      { questionId: "q2", value: "Chaka Primary still needs the roofing repair flagged last term." },
-    ],
-  },
 ];

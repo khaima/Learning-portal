@@ -1,167 +1,147 @@
 # HPF Digital Learning Portal
 
-A fresh, standalone build for Human Practice Foundation's Teacher,
-Learner, School Leader, Field Officer, and Education Team experience —
-a genuinely separate system from the existing `HPF-digital-portal-2026`
-project and its real accounts, with its own dedicated Supabase project
-(see "The database" below), not just a different table or schema in the
-same one.
+A standalone build for Human Practice Foundation's Teacher, Learner,
+School Leader (head of institution), Field Officer, and Education Team
+experience — a genuinely separate system from the existing
+`HPF-digital-portal-2026` project and its real accounts, with its own
+dedicated Supabase project (see "The backend" below).
 
 ## What this is
 
-A static, no-build, dependency-free site: plain HTML, CSS, and vanilla
-ES-module JavaScript, backed by a real Postgres database (Supabase). Six
-real pages:
+A **static, no-build, dependency-free front end** — plain HTML, CSS, and
+vanilla ES-module JavaScript — talking to a **real backend**: a Supabase
+Edge Function API in front of a locked-down Postgres database, with real
+Supabase Auth (magic-link sign-in). Six pages:
 
-- **`index.html`** — the landing / sign-in screen. Pick a role, then sign
-  in or create an account. Styled in the spirit of Zeraki Learning's
-  role-first flow, in HPF's own branding — a deep-navy hero panel, warm
-  terracotta accent, and the portal's real numbers.
+- **`index.html`** — sign-in. Enter your email, get a one-time link, click
+  it, land back signed in. First time through, a one-step form captures
+  your name and role. No passwords.
 - **`teacher.html`** — a teacher's classes, this week's grading queue,
-  recent results, forms sent by the Education Team, and the shared
-  Digital Library.
+  recent results, forms sent by the Education Team, Teacher Resources and
+  the Digital Library.
 - **`learner.html`** — a learner's classes, assignments (with a working
-  "Mark done" that actually persists), and the shared Digital Library.
-- **`leader.html`** — a school leader's (head of institution's)
-  enrolment/staffing snapshot, the termly return cycle (filed / due /
-  upcoming), recent field visits to their school, forms sent by the
-  Education Team, and both content shelves — Teacher Resources and the
-  Digital Library.
-- **`field.html`** — a field officer's assigned-school stats and a real,
-  working version of the production app's flagship flow: pick a county,
-  the school list narrows to that county, pick a visit type, submit —
-  the new report is saved and appears in the list immediately. Also
-  shows any forms the Education Team has addressed to Field Officers,
-  to be filled out in the field, same loop as Teachers and School
-  Leaders get.
+  "Mark done" that persists server-side), and the Digital Library.
+- **`leader.html`** — a head of institution's enrolment/staffing snapshot,
+  the termly return cycle, recent field visits, forms from the Education
+  Team, and **both** content shelves — Teacher Resources and the Digital
+  Library.
+- **`field.html`** — a field officer's stats and the flagship flow: pick a
+  county, the school list narrows, pick a visit type, submit — the report
+  saves and appears immediately. Plus forms addressed to Field Officers.
 - **`education.html`** — the Education Team's dashboard: upload content —
   attach a real file or a whole folder from your computer (drag-and-drop
-  or the file/folder picker; stored in Supabase Storage, downloadable
-  from every dashboard) — to one of two destinations:
-  **Teacher Resources** (teachers and the head of institution only) or
-  the **Digital Library** (learner-facing, and visible to teachers and
-  heads too). Also: build and send a form (a mix of 1–5 rating and
-  short-answer questions) to Teachers, School Leaders, or Field Officers,
-  see responses roll in with a live average for rating questions, and a
-  stats row aggregated live from every account in the database.
+  or the file/folder picker) — to one of two destinations:
+  **Teacher Resources** (teachers and the head of institution only) or the
+  **Digital Library** (learner-facing, also visible to teachers and
+  heads). Build and send a form (1–5 rating and short-answer questions) to
+  Teachers, School Leaders, or Field Officers, watch responses roll in
+  with live rating averages, and see org-wide stats aggregated
+  server-side.
 
-## The database
+## The backend
 
-Real Postgres, via Supabase — its own dedicated Supabase **project**
-(`hpf-learning-portal`), entirely separate from `HPF-digital-portal-2026`
-(the production portal, a different Supabase project altogether). There
-is no shared infrastructure between the two: nothing here can read,
-write, or join against the production portal's data, and nothing there
-can see this. Every table lives in the default `public` schema, since
-this whole project *is* the Learning Portal's database — no schema-level
-split needed. See [`supabase-schema.sql`](supabase-schema.sql) for the
-exact migration (tables, RLS, seed data) — apply it to a fresh project
-and this app works against it unmodified, just change `config.js`.
+Three parts, all in the project's own dedicated Supabase project
+(`hpf-learning-portal`, ref `fwpqytrdlmxymvegvgji`) — entirely separate
+from `HPF-digital-portal-2026`:
 
-Because "accounts" and their data are real database rows now, not
-per-browser `localStorage`, everything is genuinely shared: an account
-created on one device signs in from another; content the Education Team
-uploads or a form they send shows up for anyone, anywhere, not just the
-browser that created it.
+1. **Auth** — real Supabase Auth. Sign-in is a magic link: no passwords,
+   no plaintext anything. The browser holds a real JWT session.
+2. **API** — one Edge Function, [`supabase/functions/api`](supabase/functions/api/index.ts)
+   (Deno + Hono). Every read and write goes through it. It verifies the
+   caller's JWT, loads their role from the `profiles` table (never trusts
+   a JWT claim for authorisation), and does all data access with the
+   service-role key.
+3. **Database** — Postgres, **locked down**. Every table has RLS enabled
+   with **no policies**, and the `anon`/`authenticated` roles have every
+   privilege revoked. The browser cannot touch a table directly — the
+   only way in is the API. Storage (`library` bucket) is private too;
+   the API hands out short-lived signed upload and download URLs.
 
-**Security posture is still a demo's, deliberately.** There is no real
-Supabase Auth here — no JWT, no password hashing — the app's own
-plaintext-password check (`auth.js`) is what it always was, just checked
-against a real table instead of a JS array. This project's tables are
-open to the Supabase anon key (RLS enabled, with an "allow everything"
-policy), the same trust level the old `localStorage` version had. Do not
-carry this pattern into anything holding real people's data — it needs
-real Supabase Auth and RLS scoped to `auth.uid()` instead.
+The publishable key in [`config.js`](config.js) is safe to ship: it can
+only reach Supabase Auth, and the database ignores it entirely.
+
+See [`supabase-schema.sql`](supabase-schema.sql) for the full schema and
+the lock-down. Apply it to a fresh project, deploy the `api` function,
+point `config.js` at the new project, and the app works unmodified.
 
 ## The content → form → feedback loop
 
-This is the part worth trying end to end:
+Worth trying end to end (you'll need two email addresses):
 
-1. Sign in as **Education Team** (`amina.hassan` / `demo1234`).
-2. Upload content — attach a file or a folder — to **Teacher Resources**
-   (teachers + head of institution) or the **Digital Library**
-   (learner-facing, also visible to teachers + heads) — or create a form
-   addressed to Teachers, School Leaders, or Field Officers (add as many
-   rating/short-answer questions as you like).
-3. Sign out, sign in as whichever role you addressed content or a form
-   to (**Teacher** `grace.mwangi`, **Learner** `naomi.k`, **School
-   Leader** `peter.kamau`, or **Field Officer** `susan.wanjiru`) — a
-   Teacher Resources item shows up for the teacher and the school leader
-   but never the learner; a Digital Library item shows up for all three;
-   and the new form appears under "Forms from the Education Team" as
-   *Pending*.
-4. Fill it out and submit.
-5. Sign back in as Education Team — the response is there, with a live
-   average for any rating questions and the respondent's name against
-   any short answers.
+1. Sign in with email #1 → onboard as **Education Team**.
+2. Upload content — attach a file or folder — to **Teacher Resources** or
+   the **Digital Library**, and/or send a form to Teachers, School
+   Leaders, or Field Officers.
+3. Sign out. Sign in with email #2 → onboard as a **Learner** (or Teacher
+   / School Leader / Field Officer). A Teacher Resources item never shows
+   for a learner; a Digital Library item shows for everyone; the form
+   appears as *Pending*.
+4. Fill the form in and submit.
+5. Back as Education Team — the response is there, with a live average for
+   rating questions and the respondent's name against short answers.
 
-Try steps 3–5 from a *different browser* (or a private window) to see
-the part `localStorage` could never do: it's the same data everywhere,
-because it's a real database now.
+Do steps 3–5 on a different device to see what a real backend buys you:
+same data everywhere, because the database is the source of truth.
 
 ## What it does NOT have yet
 
-- **No M&E or Admin roles.** Scoped to the five roles above, per how this
-  build was commissioned.
-- **No real authentication.** See "Security posture" above — this is a
-  demo, and should not be treated as a place for real people's data.
-- **Sample content only.** The seed accounts below come with
-  realistic-looking classes, assignments, returns, reports, library items
-  and a couple of already-answered forms so the pages don't open empty —
-  none of it is real. A freshly signed-up account gets an honest empty
-  dashboard instead of someone else's demo data.
+- **No M&E or Admin roles.** Scoped to the five roles above.
+- **Role is self-selected at onboarding.** Fine for a pilot; a real
+  deployment would have an admin assign or approve roles rather than let
+  anyone pick "Education Team".
+- **Built-in email only.** Magic-link email goes through Supabase's
+  built-in sender, which is rate-limited to a handful per hour. Configure
+  custom SMTP (Auth → SMTP Settings) before any real use.
+- **No "create class" / "assign homework" UI.** A fresh teacher or learner
+  account has an honest empty dashboard until those exist.
 
 ## Try it
 
 **Live:** <https://khaima.github.io/Learning-portal/> — deployed from
-`main` via GitHub Pages ([`.github/workflows/pages.yml`](.github/workflows/pages.yml)),
-talking to the live Supabase project.
+`main` via GitHub Pages ([`.github/workflows/pages.yml`](.github/workflows/pages.yml)).
 
-Or run it locally:
+Run it locally:
 
 ```
-python -m http.server 5174
+python serve.py
 ```
-then open `http://localhost:5174`. It talks to the live database
-immediately — no setup needed unless you're pointing it at a different
-Supabase project (see `config.js` and `supabase-schema.sql`).
 
-Five seed accounts (also offered as one-click fills on the sign-in page):
+then open the printed `http://localhost:<port>`. It talks to the live
+API immediately.
 
-| Role           | Username        | Password   |
-|----------------|-----------------|------------|
-| Teacher        | `grace.mwangi`  | `demo1234` |
-| Learner        | `naomi.k`       | `demo1234` |
-| School Leader  | `peter.kamau`   | `demo1234` |
-| Field Officer  | `susan.wanjiru` | `demo1234` |
-| Education Team | `amina.hassan`  | `demo1234` |
-
-Or use "Create an account" to sign up fresh — the new account starts with
-no classes, assignments, returns, or reports, honestly, rather than
-fabricated content.
+**One-time Supabase setup** (Dashboard → Authentication → URL
+Configuration): set the **Site URL** and add **Redirect URLs** for
+wherever you run it — `http://localhost:*/**` for local, and
+`https://khaima.github.io/**` for the deployed site — or the magic link
+won't be able to send you back.
 
 ## File map
 
 | File | Purpose |
 |---|---|
-| `index.html` / `index.js` | Landing page: role picker, sign in, sign up |
+| `index.html` / `index.js` | Sign-in: email → magic link → onboarding |
 | `teacher.html` / `teacher.js` | Teacher dashboard |
 | `learner.html` / `learner.js` | Learner dashboard |
-| `leader.html` / `leader.js` | School Leader dashboard |
-| `field.html` / `field.js` | Field Officer dashboard, incl. the county → school → visit type report form and forms from the Education Team |
-| `education.html` / `education.js` | Education Team dashboard: content upload, form builder, results, live org-wide stats |
-| `config.js` / `supabase.js` | Supabase connection — its own dedicated project |
-| `auth.js` | Accounts and sessions — real database rows, demo-level security |
-| `store.js` | Shared, org-wide data: content library, forms, responses |
-| `data.js` | Roles, form/library constants (seed *data* now lives in the database, not here) |
-| `util.js` | Tiny shared DOM/escaping/toast helpers |
+| `leader.html` / `leader.js` | Head-of-institution dashboard |
+| `field.html` / `field.js` | Field Officer dashboard (county → school → visit report) |
+| `education.html` / `education.js` | Education Team dashboard (upload, form builder, results, stats) |
+| `supabase.js` | The Supabase Auth client — used only for magic-link sign-in |
+| `api.js` | Thin fetch wrapper over the `api` Edge Function; attaches the JWT |
+| `auth.js` | Sessions, the profile, `requireRole` for each dashboard |
+| `store.js` | Every data call — library, forms, responses, assignments, reports, stats |
+| `config.js` | Supabase URL, publishable key, API base URL |
+| `data.js` | Static UI constants (roles, subjects, question types) |
+| `util.js` | Tiny shared DOM / escaping / toast helpers |
 | `styles.css` | The whole design system (light + dark, one file) |
-| `supabase-schema.sql` | The exact migration applied to create and seed this project's tables |
+| `serve.py` | Local static server (honours `$PORT`) |
+| `supabase/functions/api/` | The backend API (Deno + Hono) |
+| `supabase-schema.sql` | Full schema + the database lock-down |
 
 ## Where this could go next
 
-The obvious next step, if this is worth carrying forward for real, is
-real Supabase Auth (email/password or magic link) with RLS rewritten
-against `auth.uid()` instead of the current "anon, wide open" policy —
-the schema and the app's data flow would barely change, only who's
-allowed to read and write what.
+- Custom SMTP so magic links send reliably at volume.
+- Admin-assigned / approved roles instead of self-select.
+- The missing "create class", "set assignment", "record result" flows, so
+  Teacher and Learner dashboards fill from real activity.
+- Per-row authorisation could move partly into RLS if the app ever needs
+  the database reachable by anything other than this one API.
