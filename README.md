@@ -18,9 +18,12 @@ Supabase Auth (magic-link sign-in). Six pages:
   your name and role. No passwords.
 - **`teacher.html`** — a teacher's classes, this week's grading queue,
   recent results, forms sent by the Education Team, Teacher Resources and
-  the Digital Library.
-- **`learner.html`** — a learner's classes, assignments (with a working
-  "Mark done" that persists server-side), and the Digital Library.
+  the Digital Library, plus **My Learners**: an editable roster where the
+  teacher adds learner accounts (name, username, grade, 4-digit PIN) and
+  can edit them, reset a PIN, unlock, or remove.
+- **`learner.html`** — signed in with a username + PIN. A learner's
+  classes, assignments (with a working "Mark done" that persists
+  server-side), and the Digital Library.
 - **`leader.html`** — a head of institution's enrolment/staffing snapshot,
   the termly return cycle, recent field visits, forms from the Education
   Team, and **both** content shelves — Teacher Resources and the Digital
@@ -44,9 +47,14 @@ Three parts, all in the project's own dedicated Supabase project
 (`hpf-learning-portal`, ref `fwpqytrdlmxymvegvgji`) — entirely separate
 from `HPF-digital-portal-2026`:
 
-1. **Auth** — real Supabase Auth. Sign-in emails you a one-time code (the
-   same email also carries a magic link — either works): no passwords, no
-   plaintext anything. The browser holds a real JWT session.
+1. **Auth** — two paths:
+   - **Staff** (teacher / school head / field officer / education team) use
+     real Supabase Auth: enter an email, get a one-time code (the same
+     email also carries a magic link — either works). No passwords.
+   - **Learners** use a **username + 4-digit PIN**. Their teacher creates
+     the account from the teacher dashboard; the API verifies the PIN
+     (scrypt-hashed, locks after 5 wrong tries) and issues its own session
+     token. No email, no Supabase Auth for learners.
 2. **API** — one Edge Function, [`supabase/functions/api`](supabase/functions/api/index.ts)
    (Deno + Hono). Every read and write goes through it. It verifies the
    caller's JWT, loads their role from the `profiles` table (never trusts
@@ -73,11 +81,12 @@ Worth trying end to end (you'll need two email addresses):
 2. Upload content — attach a file or folder — to **Teacher Resources** or
    the **Digital Library**, and/or send a form to Teachers, School
    Leaders, or Field Officers.
-3. Sign out. Sign in with email #2 → onboard as a **Learner** (or Teacher
-   / School Leader / Field Officer). A Teacher Resources item never shows
-   for a learner; a Digital Library item shows for everyone; the form
-   appears as *Pending*.
-4. Fill the form in and submit.
+3. Sign out. Sign in with email #2 → onboard as a **Teacher**. Add a
+   learner from **My Learners**. Sign out, pick **Learner** on the
+   sign-in screen, and sign in with that username + PIN — a Teacher
+   Resources item never shows for them, a Digital Library item does.
+4. Back as the Teacher / a Field Officer / School Leader: the form
+   appears as *Pending*; fill it in and submit.
 5. Back as Education Team — the response is there, with a live average for
    rating questions and the respondent's name against short answers.
 
@@ -87,9 +96,16 @@ same data everywhere, because the database is the source of truth.
 ## What it does NOT have yet
 
 - **No M&E or Admin roles.** Scoped to the five roles above.
-- **Role is self-selected at onboarding.** Fine for a pilot; a real
+- **Staff role is self-selected at onboarding.** Fine for a pilot; a real
   deployment would have an admin assign or approve roles rather than let
-  anyone pick "Education Team".
+  anyone pick "Education Team". (Learners don't self-onboard — a teacher
+  creates them.)
+- **Learner PINs are 4 digits — intentionally weak.** They're
+  teacher-managed and locked after 5 wrong tries; fine for coursework and
+  library access, not for anything sensitive.
+- **A learner belongs to the teacher who created them.** No school-wide
+  roster for the school head yet, and no way to move a learner between
+  teachers.
 - **Built-in email only.** Sign-in email goes through Supabase's built-in
   sender, which is rate-limited (raise it under Auth → Rate Limits, but it
   still caps low). Configure custom SMTP (Auth → SMTP Settings) before any

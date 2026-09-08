@@ -80,10 +80,40 @@ create table if not exists public.responses (
 );
 create index if not exists responses_form_id_idx on public.responses (form_id);
 
+-- ---------------------------------------------------------------- learners
+-- Learners are children who mostly have no email. Their account is a
+-- username + 4-digit PIN, created and managed by their teacher — NOT a
+-- Supabase Auth user. The `api` Edge Function verifies the PIN
+-- (scrypt-hashed, lockout after 5 tries) and issues an opaque session
+-- token stored in learner_sessions. Deliberately low-security: this
+-- gates coursework/library access, nothing sensitive.
+create table if not exists public.learners (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null references public.profiles(id) on delete cascade,
+  username text not null unique,
+  pin_hash text not null,
+  pin_salt text not null,
+  full_name text not null default '',
+  grade text not null default '',
+  school text not null default '',
+  failed_attempts int not null default 0,
+  locked_until timestamptz,
+  created_at timestamptz not null default now()
+);
+create index if not exists learners_teacher_id_idx on public.learners (teacher_id);
+
+create table if not exists public.learner_sessions (
+  token text primary key,
+  learner_id uuid not null references public.learners(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null default (now() + interval '30 days')
+);
+create index if not exists learner_sessions_learner_id_idx on public.learner_sessions (learner_id);
+
 -- ---------------------------------------------------------------- learner assignments
 create table if not exists public.assignments (
   id text primary key,
-  learner_id uuid not null references public.profiles(id) on delete cascade,
+  learner_id uuid not null references public.learners(id) on delete cascade,
   title text not null,
   subject text not null,
   due text not null default '',
@@ -103,12 +133,14 @@ create table if not exists public.field_reports (
 create index if not exists field_reports_officer_id_idx on public.field_reports (officer_id);
 
 -- ---------------------------------------------------------------- lock everything down
-alter table public.profiles      enable row level security;
-alter table public.library_items enable row level security;
-alter table public.forms         enable row level security;
-alter table public.responses     enable row level security;
-alter table public.assignments   enable row level security;
-alter table public.field_reports enable row level security;
+alter table public.profiles         enable row level security;
+alter table public.learners         enable row level security;
+alter table public.learner_sessions enable row level security;
+alter table public.library_items    enable row level security;
+alter table public.forms            enable row level security;
+alter table public.responses        enable row level security;
+alter table public.assignments      enable row level security;
+alter table public.field_reports    enable row level security;
 -- No policies on purpose. Only the service-role key (the Edge Function)
 -- reaches these tables.
 

@@ -114,7 +114,30 @@
           </div>
         </div>
 
-        <!-- step 2: ask for an email -->
+        <!-- step 2 (learners): username + PIN -->
+        <div id="stepLearner" hidden>
+          <div class="login-eyebrow">Learner sign-in</div>
+          <h2>Enter your details</h2>
+          <p class="login-sub">Your teacher gives you a username and a 4-digit PIN.</p>
+          <form id="learnerForm">
+            <div class="field">
+              <label for="ln_user">Username</label>
+              <input id="ln_user" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="e.g. naomi.k" required>
+            </div>
+            <div class="field">
+              <label for="ln_pin">4-digit PIN</label>
+              <input id="ln_pin" name="pin" type="text" inputmode="numeric" autocomplete="off" pattern="[0-9]{4}" maxlength="4" placeholder="0000" required>
+              <div class="field-error" id="learnerError" hidden></div>
+            </div>
+            <button class="btn btn-primary btn-block" type="submit">Sign in</button>
+          </form>
+          <div class="login-foot" style="margin-top:1rem">
+            <span></span>
+            <button type="button" id="learnerBack">← Not a learner</button>
+          </div>
+        </div>
+
+        <!-- step 2 (staff): ask for an email -->
         <div id="stepEmail" hidden>
           <div class="login-eyebrow">Step 2 of 2</div>
           <h2>Sign in as <span id="emailRoleLabel">Teacher</span></h2>
@@ -171,12 +194,6 @@
                   <b>Teacher</b>
                   <p>Classes, assignments, results</p>
                 </button>
-                <button type="button" class="role-card" data-role="learner" aria-pressed="false">
-                  <span class="role-check"></span>
-                  <span class="r-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/></svg></span>
-                  <b>Learner</b>
-                  <p>Coursework and library</p>
-                </button>
                 <button type="button" class="role-card" data-role="school_leader" aria-pressed="false">
                   <span class="role-check"></span>
                   <span class="r-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V9l9-6 9 6v12"/><path d="M9 21v-6h6v6"/></svg></span>
@@ -189,7 +206,7 @@
                   <b>Field Officer</b>
                   <p>Visit reports by county</p>
                 </button>
-                <button type="button" class="role-card" data-role="education_team" aria-pressed="false" style="grid-column:1 / -1">
+                <button type="button" class="role-card" data-role="education_team" aria-pressed="false">
                   <span class="role-check"></span>
                   <span class="r-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="M6 11.5V17c0 1.7 2.7 3 6 3s6-1.3 6-3v-5.5"/><path d="M22 8v6"/></svg></span>
                   <b>Education Team</b>

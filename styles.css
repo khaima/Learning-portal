@@ -335,3 +335,14 @@ a{ color:inherit; }
 .lib-folder ul{ list-style:none; margin:.4rem 0 0; padding:0 0 0 .3rem; }
 .lib-folder li{ padding:.2rem 0; }
 .lib-folder li a{ color:var(--brand-fg); }
+
+/* ---- teacher's learner roster ---- */
+.roster-actions{ display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; flex:none; }
+.roster-actions button{
+  background:none; border:0; padding:.15rem .1rem; cursor:pointer;
+  font-family:inherit; font-size:.76rem; font-weight:600; color:var(--brand);
+}
+.roster-actions button:hover{ text-decoration:underline; }
+.roster-actions button.danger{ color:var(--danger); }
+#addLearnerForm .form-row{ margin-bottom:0; }
+#addLearnerForm .field{ margin-bottom:.7rem; }

@@ -3,17 +3,20 @@
  *
  * The static frontend never touches Postgres or Storage directly. Every
  * read and write goes through this one Edge Function, which:
- *   - verifies the caller's Supabase Auth JWT (magic-link sessions),
- *   - loads their role from `public.profiles` (never from user_metadata),
+ *   - authenticates the caller (staff: Supabase Auth JWT; learners: an
+ *     opaque PIN-issued session token, "hpl_<token>"),
+ *   - loads their role from `public.profiles` / `public.learners` (never
+ *     from a JWT claim),
  *   - does all data access with the service-role key, which bypasses the
  *     deny-all RLS on every table.
  *
- * Deployed with verify_jwt = false: auth is enforced here, per route, so
- * the health check and CORS preflight get through.
+ * Deployed with verify_jwt = false: auth is enforced here, per route.
  */
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { Buffer } from "node:buffer";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY =
@@ -25,17 +28,22 @@ const admin: SupabaseClient = createClient(SUPABASE_URL, SERVICE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-const ROLES = [
+const STAFF_ROLES = [
   "teacher",
-  "learner",
   "school_leader",
   "field_officer",
   "education_team",
 ] as const;
-type Role = (typeof ROLES)[number];
+const ALL_ROLES = [...STAFF_ROLES, "learner"] as const;
+type Role = (typeof ALL_ROLES)[number];
 
 const LIBRARY_BUCKET = "library";
 const DOWNLOAD_TTL = 60 * 60; // 1 h signed download URLs
+const LEARNER_SESSION_TTL_DAYS = 30;
+const PIN_MAX_ATTEMPTS = 5;
+const PIN_LOCK_MINUTES = 15;
+const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{2,31}$/;
+const PIN_RE = /^\d{4}$/;
 
 // ---------------------------------------------------------------- helpers
 
@@ -45,6 +53,15 @@ const safePath = (p: string) => String(p).split("/").map(safeSegment).join("/");
 
 const rid = (prefix: string) =>
   prefix + "_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+
+function hashPin(pin: string, salt: string) {
+  return scryptSync(pin, salt, 32).toString("hex");
+}
+function pinMatches(pin: string, salt: string, hash: string) {
+  const a = Buffer.from(hashPin(pin, salt), "hex");
+  const b = Buffer.from(hash, "hex");
+  return a.length === b.length && timingSafeEqual(a, b);
+}
 
 /** Two content destinations; legacy values fold in. */
 function normalizeAudience(a: string | null | undefined): "staff" | "library" {
@@ -94,6 +111,22 @@ const mapProfile = (r: Record<string, unknown>) => ({
   county: r.county,
   grade: r.grade,
 });
+const mapLearnerSelf = (r: Record<string, unknown>) => ({
+  id: r.id,
+  role: "learner" as const,
+  fullName: r.full_name,
+  username: r.username,
+  grade: r.grade,
+  school: r.school,
+});
+const mapRosterLearner = (r: Record<string, unknown>) => ({
+  id: r.id,
+  username: r.username,
+  fullName: r.full_name,
+  grade: r.grade,
+  createdAt: r.created_at,
+  locked: !!(r.locked_until && new Date(r.locked_until as string) > new Date()),
+});
 const mapForm = (r: Record<string, unknown>) => ({
   id: r.id,
   title: r.title,
@@ -126,15 +159,13 @@ const mapReport = (r: Record<string, unknown>) => ({
 
 // ---------------------------------------------------------------- app
 
-type Vars = { userId: string; email: string; profile: Profile };
-type Profile = {
-  id: string;
-  role: Role;
-  full_name: string;
+type Actor = { id: string; role: Role; fullName: string; grade: string; school: string };
+type Vars = {
+  actorKind: "staff" | "learner";
+  userId: string;
   email: string;
-  school: string;
-  county: string;
-  grade: string;
+  learnerId: string;
+  actor: Actor;
 };
 
 const app = new Hono<{ Variables: Vars }>().basePath("/api");
@@ -155,55 +186,174 @@ app.use(
 
 app.get("/health", (c) => c.json({ ok: true }));
 
-/** Everything below needs a valid Supabase Auth session. */
+// ---- learner sign-in (no session required) ----
+
+app.post("/learner/login", async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const username = String(b.username ?? "").trim().toLowerCase();
+  const pin = String(b.pin ?? "").trim();
+  if (!username || !PIN_RE.test(pin)) {
+    return c.json({ error: "Enter your username and 4-digit PIN" }, 400);
+  }
+  const { data: learner } = await admin
+    .from("learners")
+    .select("*")
+    .eq("username", username)
+    .maybeSingle();
+  if (!learner) return c.json({ error: "Wrong username or PIN" }, 401);
+
+  if (learner.locked_until && new Date(learner.locked_until) > new Date()) {
+    return c.json({ error: "Too many tries. Ask your teacher to unlock it." }, 423);
+  }
+
+  if (!pinMatches(pin, learner.pin_salt, learner.pin_hash)) {
+    const attempts = (learner.failed_attempts ?? 0) + 1;
+    const lock = attempts >= PIN_MAX_ATTEMPTS
+      ? new Date(Date.now() + PIN_LOCK_MINUTES * 60_000).toISOString()
+      : null;
+    await admin.from("learners").update({
+      failed_attempts: lock ? 0 : attempts,
+      locked_until: lock,
+    }).eq("id", learner.id);
+    return c.json({
+      error: lock ? "Too many tries. Ask your teacher to unlock it." : "Wrong username or PIN",
+    }, lock ? 423 : 401);
+  }
+
+  await admin.from("learners")
+    .update({ failed_attempts: 0, locked_until: null })
+    .eq("id", learner.id);
+  const token = randomBytes(24).toString("hex");
+  await admin.from("learner_sessions").insert({
+    token,
+    learner_id: learner.id,
+    expires_at: new Date(
+      Date.now() + LEARNER_SESSION_TTL_DAYS * 86400_000,
+    ).toISOString(),
+  });
+  return c.json({ token, learner: mapLearnerSelf(learner) });
+});
+
+app.post("/learner/logout", async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const token = String(b.token ?? "").replace(/^hpl_/, "");
+  if (token) await admin.from("learner_sessions").delete().eq("token", token);
+  return c.json({ ok: true });
+});
+
+// ---- authentication ----
+
 app.use("*", async (c, next) => {
-  const token = c.req.header("Authorization")?.replace(/^Bearer\s+/i, "");
-  if (!token) return c.json({ error: "Not signed in" }, 401);
-  const { data, error } = await admin.auth.getUser(token);
+  const raw = c.req.header("Authorization")?.replace(/^Bearer\s+/i, "");
+  if (!raw) return c.json({ error: "Not signed in" }, 401);
+
+  if (raw.startsWith("hpl_")) {
+    const { data } = await admin
+      .from("learner_sessions")
+      .select("learner_id, expires_at")
+      .eq("token", raw.slice(4))
+      .maybeSingle();
+    if (!data || new Date(data.expires_at) < new Date()) {
+      return c.json({ error: "Invalid session" }, 401);
+    }
+    c.set("actorKind", "learner");
+    c.set("learnerId", data.learner_id);
+    await next();
+    return;
+  }
+
+  const { data, error } = await admin.auth.getUser(raw);
   if (error || !data.user) return c.json({ error: "Invalid session" }, 401);
+  c.set("actorKind", "staff");
   c.set("userId", data.user.id);
   c.set("email", data.user.email ?? "");
   await next();
 });
 
-async function loadProfile(userId: string): Promise<Profile | null> {
+async function loadStaffProfile(userId: string) {
   const { data } = await admin
     .from("profiles")
     .select("*")
     .eq("id", userId)
     .maybeSingle();
-  return (data as Profile) ?? null;
+  return data;
+}
+async function loadLearner(learnerId: string) {
+  const { data } = await admin
+    .from("learners")
+    .select("*")
+    .eq("id", learnerId)
+    .maybeSingle();
+  return data;
 }
 
-/** Route guard: require an onboarded profile, optionally of a given role. */
+/** Staff-only guard. Learners are refused (403), un-onboarded staff get 428. */
 function withProfile(...roles: Role[]) {
   return async (c: any, next: any) => {
-    const profile = await loadProfile(c.get("userId"));
+    if (c.get("actorKind") === "learner") {
+      return c.json({ error: "Not allowed for your role" }, 403);
+    }
+    const profile = await loadStaffProfile(c.get("userId"));
     if (!profile) {
       return c.json({ needsOnboarding: true, email: c.get("email") }, 428);
     }
     if (roles.length && !roles.includes(profile.role)) {
       return c.json({ error: "Not allowed for your role" }, 403);
     }
-    c.set("profile", profile);
-    await next();
+    c.set("actor", {
+      id: profile.id,
+      role: profile.role,
+      fullName: profile.full_name,
+      grade: profile.grade,
+      school: profile.school,
+    });
+    return next();
+  };
+}
+
+/** Guard that accepts staff OR learners, resolved into a common actor. */
+function withActor(...roles: Role[]) {
+  return async (c: any, next: any) => {
+    let actor: Actor | null = null;
+    if (c.get("actorKind") === "learner") {
+      const l = await loadLearner(c.get("learnerId"));
+      if (l) actor = { id: l.id, role: "learner", fullName: l.full_name, grade: l.grade, school: l.school };
+    } else {
+      const p = await loadStaffProfile(c.get("userId"));
+      if (!p) return c.json({ needsOnboarding: true, email: c.get("email") }, 428);
+      actor = { id: p.id, role: p.role, fullName: p.full_name, grade: p.grade, school: p.school };
+    }
+    if (!actor) return c.json({ error: "Invalid session" }, 401);
+    if (roles.length && !roles.includes(actor.role)) {
+      return c.json({ error: "Not allowed for your role" }, 403);
+    }
+    c.set("actor", actor);
+    return next();
   };
 }
 
 // ---- session / onboarding ----
 
 app.get("/me", async (c) => {
-  const profile = await loadProfile(c.get("userId"));
+  if (c.get("actorKind") === "learner") {
+    const l = await loadLearner(c.get("learnerId"));
+    if (!l) return c.json({ error: "Invalid session" }, 401);
+    return c.json({ profile: mapLearnerSelf(l) });
+  }
+  const profile = await loadStaffProfile(c.get("userId"));
   if (!profile) return c.json({ needsOnboarding: true, email: c.get("email") });
   return c.json({ profile: mapProfile(profile) });
 });
 
 app.post("/me", async (c) => {
-  if (await loadProfile(c.get("userId"))) {
+  if (c.get("actorKind") === "learner") {
+    return c.json({ error: "Learners are added by a teacher" }, 403);
+  }
+  if (await loadStaffProfile(c.get("userId"))) {
     return c.json({ error: "Profile already exists" }, 409);
   }
   const b = await c.req.json().catch(() => ({}));
-  if (!ROLES.includes(b.role)) return c.json({ error: "Pick a role" }, 400);
+  if (!STAFF_ROLES.includes(b.role)) return c.json({ error: "Pick a role" }, 400);
   if (!String(b.fullName ?? "").trim()) {
     return c.json({ error: "Full name is required" }, 400);
   }
@@ -224,10 +374,119 @@ app.post("/me", async (c) => {
   return c.json({ profile: mapProfile(data) });
 });
 
+// ---- teacher's learner roster ----
+
+app.get("/learners", withProfile("teacher"), async (c) => {
+  const { data, error } = await admin
+    .from("learners")
+    .select("id, username, full_name, grade, created_at, locked_until")
+    .eq("teacher_id", c.get("actor").id)
+    .order("full_name");
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ learners: (data ?? []).map(mapRosterLearner) });
+});
+
+app.post("/learners", withProfile("teacher"), async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const username = String(b.username ?? "").trim().toLowerCase();
+  const pin = String(b.pin ?? "").trim();
+  const fullName = String(b.fullName ?? "").trim();
+  if (!fullName) return c.json({ error: "Full name is required" }, 400);
+  if (!USERNAME_RE.test(username)) {
+    return c.json({ error: "Username: 3–32 chars, lowercase letters, digits, . _ -" }, 400);
+  }
+  if (!PIN_RE.test(pin)) return c.json({ error: "PIN must be exactly 4 digits" }, 400);
+
+  const { data: taken } = await admin
+    .from("learners").select("id").eq("username", username).maybeSingle();
+  if (taken) return c.json({ error: "That username is taken" }, 409);
+
+  const salt = randomBytes(16).toString("hex");
+  const teacher = c.get("actor");
+  const { data, error } = await admin
+    .from("learners")
+    .insert({
+      teacher_id: teacher.id,
+      username,
+      pin_hash: hashPin(pin, salt),
+      pin_salt: salt,
+      full_name: fullName,
+      grade: String(b.grade ?? "").trim(),
+      school: teacher.school ?? "",
+    })
+    .select("id, username, full_name, grade, created_at, locked_until")
+    .single();
+  if (error) return c.json({ error: error.message }, 400);
+  return c.json({ learner: mapRosterLearner(data) });
+});
+
+app.patch("/learners/:id", withProfile("teacher"), async (c) => {
+  const id = c.req.param("id");
+  const { data: existing } = await admin
+    .from("learners").select("id, teacher_id").eq("id", id).maybeSingle();
+  if (!existing || existing.teacher_id !== c.get("actor").id) {
+    return c.json({ error: "Learner not found" }, 404);
+  }
+  const b = await c.req.json().catch(() => ({}));
+  const patch: Record<string, unknown> = {};
+
+  if (b.fullName !== undefined) {
+    const fn = String(b.fullName).trim();
+    if (!fn) return c.json({ error: "Full name is required" }, 400);
+    patch.full_name = fn;
+  }
+  if (b.grade !== undefined) patch.grade = String(b.grade).trim();
+  if (b.username !== undefined) {
+    const u = String(b.username).trim().toLowerCase();
+    if (!USERNAME_RE.test(u)) {
+      return c.json({ error: "Username: 3–32 chars, lowercase letters, digits, . _ -" }, 400);
+    }
+    const { data: taken } = await admin
+      .from("learners").select("id").eq("username", u).neq("id", id).maybeSingle();
+    if (taken) return c.json({ error: "That username is taken" }, 409);
+    patch.username = u;
+  }
+  if (b.pin !== undefined) {
+    const pin = String(b.pin).trim();
+    if (!PIN_RE.test(pin)) return c.json({ error: "PIN must be exactly 4 digits" }, 400);
+    const salt = randomBytes(16).toString("hex");
+    patch.pin_salt = salt;
+    patch.pin_hash = hashPin(pin, salt);
+    patch.failed_attempts = 0;
+    patch.locked_until = null;
+  }
+  if (b.unlock) {
+    patch.failed_attempts = 0;
+    patch.locked_until = null;
+  }
+  if (!Object.keys(patch).length) return c.json({ error: "Nothing to update" }, 400);
+
+  const { data, error } = await admin
+    .from("learners")
+    .update(patch)
+    .eq("id", id)
+    .select("id, username, full_name, grade, created_at, locked_until")
+    .single();
+  if (error) return c.json({ error: error.message }, 400);
+  return c.json({ learner: mapRosterLearner(data) });
+});
+
+app.delete("/learners/:id", withProfile("teacher"), async (c) => {
+  const id = c.req.param("id");
+  const { data: existing } = await admin
+    .from("learners").select("id, teacher_id").eq("id", id).maybeSingle();
+  if (!existing || existing.teacher_id !== c.get("actor").id) {
+    return c.json({ error: "Learner not found" }, 404);
+  }
+  const { error } = await admin.from("learners").delete().eq("id", id);
+  if (error) return c.json({ error: error.message }, 400);
+  return c.json({ ok: true });
+});
+
 // ---- content library ----
 
-app.get("/library", withProfile(), async (c) => {
-  const role = c.get("profile").role;
+app.get("/library", withActor(), async (c) => {
+  const role = c.get("actor").role;
   const { data, error } = await admin
     .from("library_items")
     .select("*")
@@ -272,7 +531,7 @@ app.post("/library", withProfile("education_team"), async (c) => {
       type: b.type,
       audience: b.audience === "staff" ? "staff" : "library",
       description: String(b.description ?? "").trim(),
-      uploaded_by: c.get("profile").full_name,
+      uploaded_by: c.get("actor").fullName,
       file_name: b.fileName ?? files[0]?.name ?? null,
       file_size: files.reduce((s, f) => s + (f.size || 0), 0),
       is_folder: isFolder,
@@ -298,10 +557,10 @@ app.delete("/library/:id", withProfile("education_team"), async (c) => {
   return c.json({ ok: true });
 });
 
-// ---- forms & responses ----
+// ---- forms & responses (staff only) ----
 
 app.get("/forms", withProfile(), async (c) => {
-  const p = c.get("profile");
+  const p = c.get("actor");
   let q = admin.from("forms").select("*").order("created_at", { ascending: false });
   if (p.role !== "education_team") q = q.eq("audience", p.role);
   const { data, error } = await q;
@@ -322,7 +581,7 @@ app.post("/forms", withProfile("education_team"), async (c) => {
       title: String(b.title).trim(),
       description: String(b.description ?? "").trim(),
       audience: b.audience,
-      created_by: c.get("profile").full_name,
+      created_by: c.get("actor").fullName,
       questions: Array.isArray(b.questions) ? b.questions : [],
     })
     .select()
@@ -332,7 +591,7 @@ app.post("/forms", withProfile("education_team"), async (c) => {
 });
 
 app.get("/responses", withProfile(), async (c) => {
-  const p = c.get("profile");
+  const p = c.get("actor");
   let q = admin
     .from("responses")
     .select("*")
@@ -345,7 +604,7 @@ app.get("/responses", withProfile(), async (c) => {
 
 app.post("/responses", withProfile(), async (c) => {
   const b = await c.req.json().catch(() => ({}));
-  const p = c.get("profile");
+  const p = c.get("actor");
   if (!b.formId) return c.json({ error: "Missing form" }, 400);
   const { data, error } = await admin
     .from("responses")
@@ -354,7 +613,7 @@ app.post("/responses", withProfile(), async (c) => {
         id: b.id ?? rid("resp"),
         form_id: b.formId,
         respondent_id: p.id,
-        respondent_name: p.full_name,
+        respondent_name: p.fullName,
         respondent_role: p.role,
         answers: Array.isArray(b.answers) ? b.answers : [],
       },
@@ -366,28 +625,28 @@ app.post("/responses", withProfile(), async (c) => {
   return c.json({ response: mapResponse(data) });
 });
 
-// ---- learner assignments ----
+// ---- assignments (learner-facing) ----
 
-app.get("/assignments", withProfile(), async (c) => {
-  const p = c.get("profile");
-  if (p.role !== "learner" && p.role !== "education_team") {
+app.get("/assignments", withActor(), async (c) => {
+  const a = c.get("actor");
+  if (a.role !== "learner" && a.role !== "education_team") {
     return c.json({ assignments: [] });
   }
   let q = admin.from("assignments").select("*").order("id");
-  if (p.role === "learner") q = q.eq("learner_id", p.id);
+  if (a.role === "learner") q = q.eq("learner_id", a.id);
   const { data, error } = await q;
   if (error) return c.json({ error: error.message }, 500);
   return c.json({ assignments: (data ?? []).map(mapAssignment) });
 });
 
-app.patch("/assignments/:id", withProfile("learner"), async (c) => {
-  const p = c.get("profile");
+app.patch("/assignments/:id", withActor("learner"), async (c) => {
+  const a = c.get("actor");
   const b = await c.req.json().catch(() => ({}));
   const { data, error } = await admin
     .from("assignments")
     .update({ done: b.done !== false })
     .eq("id", c.req.param("id"))
-    .eq("learner_id", p.id)
+    .eq("learner_id", a.id)
     .select()
     .maybeSingle();
   if (error) return c.json({ error: error.message }, 400);
@@ -395,10 +654,10 @@ app.patch("/assignments/:id", withProfile("learner"), async (c) => {
   return c.json({ assignment: mapAssignment(data) });
 });
 
-// ---- field reports ----
+// ---- field reports (staff only) ----
 
 app.get("/field-reports", withProfile(), async (c) => {
-  const p = c.get("profile");
+  const p = c.get("actor");
   if (p.role !== "field_officer" && p.role !== "education_team") {
     return c.json({ reports: [] });
   }
@@ -421,7 +680,7 @@ app.post("/field-reports", withProfile("field_officer"), async (c) => {
     .from("field_reports")
     .insert({
       id: rid("fr"),
-      officer_id: c.get("profile").id,
+      officer_id: c.get("actor").id,
       school: b.school,
       county: b.county,
       visit_type: b.visitType,
@@ -435,8 +694,9 @@ app.post("/field-reports", withProfile("field_officer"), async (c) => {
 // ---- education-team dashboard stats ----
 
 app.get("/stats", withProfile("education_team"), async (c) => {
-  const [profs, asg, reports, forms, responses] = await Promise.all([
+  const [profs, learners, asg, reports, forms, responses] = await Promise.all([
     admin.from("profiles").select("role"),
+    admin.from("learners").select("id", { count: "exact", head: true }),
     admin.from("assignments").select("done"),
     admin.from("field_reports").select("id", { count: "exact", head: true }),
     admin.from("forms").select("id"),
@@ -444,7 +704,7 @@ app.get("/stats", withProfile("education_team"), async (c) => {
   ]);
   const byRole: Record<string, number> = {
     teacher: 0,
-    learner: 0,
+    learner: learners.count ?? 0,
     school_leader: 0,
     field_officer: 0,
     education_team: 0,
@@ -454,7 +714,7 @@ app.get("/stats", withProfile("education_team"), async (c) => {
   }
   const assignments = asg.data ?? [];
   return c.json({
-    accounts: (profs.data ?? []).length,
+    accounts: (profs.data ?? []).length + (learners.count ?? 0),
     byRole,
     assignmentsTotal: assignments.length,
     assignmentsDone: assignments.filter((a) => a.done).length,

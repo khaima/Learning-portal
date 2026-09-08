@@ -49,6 +49,28 @@
       <div class="body-grid">
         <div>
           <div class="panel">
+            <div class="panel-head">
+              <h2>My Learners</h2>
+              <button type="button" id="addLearnerBtn">+ Add learner</button>
+            </div>
+            <form id="addLearnerForm" class="fill-form" hidden>
+              <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:.9rem">
+                <div class="field"><label for="nl_name">Full name</label><input id="nl_name" type="text" required></div>
+                <div class="field"><label for="nl_grade">Grade / class</label><input id="nl_grade" type="text" placeholder="e.g. Grade 5A"></div>
+              </div>
+              <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:.9rem">
+                <div class="field"><label for="nl_user">Username</label><input id="nl_user" type="text" autocapitalize="none" spellcheck="false" placeholder="e.g. naomi.k" required></div>
+                <div class="field"><label for="nl_pin">4-digit PIN</label><input id="nl_pin" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="0000" required></div>
+              </div>
+              <div class="field-error" id="addLearnerError" hidden></div>
+              <div style="display:flex;gap:.6rem">
+                <button class="btn btn-primary" type="submit">Create learner</button>
+                <button class="btn btn-ghost" type="button" id="cancelLearnerBtn">Cancel</button>
+              </div>
+            </form>
+            <div id="learnerRoster"></div>
+          </div>
+          <div class="panel">
             <div class="panel-head"><h2>My classes</h2></div>
             <div id="classList"></div>
           </div>

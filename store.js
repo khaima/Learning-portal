@@ -175,3 +175,24 @@ export async function addFieldReport({ school, county, visitType }) {
 export async function getStats() {
   return apiGet("/stats");
 }
+
+/* ---------------------------------------------------------------- learner roster (teacher) */
+
+export async function getLearners() {
+  const { learners } = await apiGet("/learners");
+  return learners || [];
+}
+
+export async function addLearner({ fullName, username, grade, pin }) {
+  const { learner } = await apiSend("POST", "/learners", { fullName, username, grade, pin });
+  return learner;
+}
+
+export async function updateLearner(id, patch) {
+  const { learner } = await apiSend("PATCH", `/learners/${id}`, patch);
+  return learner;
+}
+
+export async function deleteLearner(id) {
+  return apiSend("DELETE", `/learners/${id}`);
+}

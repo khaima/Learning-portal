@@ -1,8 +1,10 @@
 import { $, $$ } from "./util.js";
 import { supabase } from "./supabase.js";
 import {
-  DASHBOARD_PATH, sendSignInEmail, verifySignInCode, getProfile, createProfile, signOut,
+  DASHBOARD_PATH, sendSignInEmail, verifySignInCode, learnerLogin,
+  getProfile, createProfile, signOut,
 } from "./auth.js";
+import { learnerToken } from "./api.js";
 import { ROLES } from "./data.js";
 
 const ROLE_LABEL = Object.fromEntries(ROLES.map((r) => [r.value, r.label]));
@@ -11,6 +13,7 @@ const PENDING_ROLE_KEY = "hpf_pending_role";
 const steps = {
   loading: $("#stepLoading"),
   role: $("#stepRole"),
+  learner: $("#stepLearner"),
   email: $("#stepEmail"),
   code: $("#stepCode"),
   onboard: $("#stepOnboard"),
@@ -31,20 +34,21 @@ function goToDashboard(role) {
   location.href = DASHBOARD_PATH[role] || "index.html";
 }
 
-/* ---- decide which step to show on load ----
-   detectSessionInUrl (see supabase.js) consumes the magic-link token
-   before this runs, so getSession() already reflects a fresh sign-in. */
+/* ---- decide which step to show on load ---- */
 async function route() {
-  const { data } = await supabase.auth.getSession();
-  if (!data.session) { show("role"); return; }
+  const hasLearner = !!learnerToken();
+  if (!hasLearner) {
+    const { data } = await supabase.auth.getSession();
+    if (!data.session) { show("role"); return; }
+  }
   const profile = await getProfile({ force: true });
   if (profile && !profile.needsOnboarding) {
     goToDashboard(profile.role);
     return;
   }
-  // Signed in but no profile yet — onboard, pre-filled with the role
-  // they picked before signing in.
-  $("#onboardEmail").textContent = profile?.email || data.session.user.email || "you";
+  if (hasLearner) { show("role"); return; } // stale learner token, cleared by getProfile
+  // Staff signed in but not onboarded yet.
+  $("#onboardEmail").textContent = profile?.email || "you";
   setOnboardRole(pendingRole());
   show("onboard");
 }
@@ -53,6 +57,12 @@ async function route() {
 $$("#loginRoleGrid .role-card").forEach((card) =>
   card.addEventListener("click", () => {
     const role = card.dataset.role;
+    if (role === "learner") {
+      $("#learnerError").hidden = true;
+      show("learner");
+      $("#ln_user").focus();
+      return;
+    }
     setPendingRole(role);
     $("#emailRoleLabel").textContent = ROLE_LABEL[role] || role;
     show("email");
@@ -61,8 +71,30 @@ $$("#loginRoleGrid .role-card").forEach((card) =>
 );
 
 $("#changeRole").addEventListener("click", () => show("role"));
+$("#learnerBack").addEventListener("click", () => show("role"));
 
-// ---- step 2: email ----
+// ---- learner sign-in (username + PIN) ----
+const learnerForm = $("#learnerForm");
+const learnerError = $("#learnerError");
+learnerForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  learnerError.hidden = true;
+  const btn = learnerForm.querySelector("[type=submit]");
+  btn.disabled = true;
+  btn.textContent = "Signing in…";
+  const res = await learnerLogin($("#ln_user").value, $("#ln_pin").value);
+  btn.disabled = false;
+  btn.textContent = "Sign in";
+  if (res.error) {
+    learnerError.textContent = res.error;
+    learnerError.hidden = false;
+    $("#ln_pin").value = "";
+    return;
+  }
+  location.href = "learner.html";
+});
+
+// ---- staff step 2: email ----
 const emailForm = $("#emailForm");
 const emailError = $("#emailError");
 let signInEmail = "";
@@ -94,7 +126,7 @@ emailForm.addEventListener("submit", async (e) => {
   startResendCooldown();
 });
 
-// ---- step 3: code ----
+// ---- staff step 3: code ----
 const codeForm = $("#codeForm");
 const codeError = $("#codeError");
 const resendBtn = $("#resendCode");
@@ -116,7 +148,6 @@ codeForm.addEventListener("submit", async (e) => {
     codeError.hidden = false;
     return;
   }
-  // Session established — route() sorts out dashboard vs onboarding.
   show("loading");
   route();
 });
@@ -152,7 +183,7 @@ $("#tryDifferent").addEventListener("click", () => {
   $("#email").focus();
 });
 
-// ---- onboarding ----
+// ---- onboarding (staff only) ----
 let selectedRole = "teacher";
 const roleCards = $$("#roleGrid .role-card");
 function setOnboardRole(role) {

@@ -2,12 +2,25 @@
    HPF Digital Learning Portal — backend API client.
 
    Thin wrapper over fetch() to the `api` Edge Function. Attaches the
-   Supabase Auth access token as a Bearer on every call. The database is
-   not reachable from the browser — this is the only data path.
+   caller's token as a Bearer — a learner's PIN-issued session token if
+   one is stored, otherwise the staff Supabase Auth token. The database
+   is not reachable from the browser — this is the only data path.
    ============================================================ */
 
 import { API_BASE } from "./config.js";
 import { supabase, accessToken } from "./supabase.js";
+
+export const LEARNER_TOKEN_KEY = "hpf_learner_token";
+
+export function learnerToken() {
+  try { return localStorage.getItem(LEARNER_TOKEN_KEY); } catch { return null; }
+}
+export function setLearnerToken(token) {
+  try {
+    if (token) localStorage.setItem(LEARNER_TOKEN_KEY, token);
+    else localStorage.removeItem(LEARNER_TOKEN_KEY);
+  } catch { /* ignore */ }
+}
 
 export class ApiError extends Error {
   constructor(status, body) {
@@ -19,15 +32,21 @@ export class ApiError extends Error {
   }
 }
 
+async function authHeader() {
+  const lt = learnerToken();
+  if (lt) return { Authorization: `Bearer hpl_${lt}` };
+  const t = await accessToken();
+  return t ? { Authorization: `Bearer ${t}` } : {};
+}
+
 /* Low-level call — never redirects, lets the caller handle every status.
    index.js uses this for the sign-in / onboarding flow. */
 export async function rawRequest(method, path, body) {
-  const token = await accessToken();
   const res = await fetch(API_BASE + path, {
     method,
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(await authHeader()),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -44,7 +63,10 @@ async function request(method, path, body) {
     return await rawRequest(method, path, body);
   } catch (err) {
     if (err instanceof ApiError && (err.status === 401 || err.needsOnboarding)) {
-      if (err.status === 401) await supabase.auth.signOut().catch(() => {});
+      if (err.status === 401) {
+        setLearnerToken(null);
+        await supabase.auth.signOut().catch(() => {});
+      }
       if (!location.pathname.endsWith("index.html") && location.pathname !== "/") {
         location.href = "index.html";
       }

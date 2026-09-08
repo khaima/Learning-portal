@@ -1,7 +1,10 @@
-import { $, $$, esc, initials } from "./util.js";
+import { $, $$, esc, initials, toast } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { TEACHER_CONTENT, normalizeLibraryAudience } from "./data.js";
-import { getLibrary, getForms, getResponses, addResponse, libraryFilesHtml } from "./store.js";
+import {
+  getLibrary, getForms, getResponses, addResponse, libraryFilesHtml,
+  getLearners, addLearner, updateLearner, deleteLearner,
+} from "./store.js";
 
 const ICON = {
   classes: '<path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/>',
@@ -52,6 +55,115 @@ async function main() {
     ? content.results.map((r) => `
       <div class="result-row"><span>${esc(r.label)}</span><span class="score ${r.kind}">${r.score}%</span></div>`).join("")
     : `<div class="empty-state">No results recorded yet.</div>`;
+
+  /* ------------------------------------------------------------ my learners
+     Learners sign in with a username + 4-digit PIN. This teacher creates
+     and manages the accounts; the roster below is the whole editable list. */
+  const roster = $("#learnerRoster");
+  const addForm = $("#addLearnerForm");
+  const addError = $("#addLearnerError");
+
+  function learnerRow(l) {
+    return `
+      <div class="task-row" data-learner="${esc(l.id)}" data-username="${esc(l.username)}" data-grade="${esc(l.grade || "")}">
+        <div style="flex:1">
+          <b>${esc(l.fullName)}</b>
+          <span>@${esc(l.username)}${l.grade ? " · " + esc(l.grade) : ""}${l.locked ? ' · <span class="pill warm">Locked</span>' : ""}</span>
+        </div>
+        <div class="roster-actions">
+          <button type="button" data-act="edit">Edit</button>
+          <button type="button" data-act="pin">Reset PIN</button>
+          ${l.locked ? '<button type="button" data-act="unlock">Unlock</button>' : ""}
+          <button type="button" data-act="remove" class="danger">Remove</button>
+        </div>
+      </div>`;
+  }
+
+  async function renderRoster() {
+    roster.innerHTML = `<div class="empty-state">Loading…</div>`;
+    let list = [];
+    try { list = await getLearners(); } catch { /* shown as empty */ }
+    roster.innerHTML = list.length
+      ? list.map(learnerRow).join("")
+      : `<div class="empty-state">No learners yet. Add one to give them a sign-in.</div>`;
+  }
+
+  $("#addLearnerBtn").addEventListener("click", () => {
+    addForm.hidden = false;
+    addError.hidden = true;
+    $("#nl_name").focus();
+  });
+  $("#cancelLearnerBtn").addEventListener("click", () => {
+    addForm.hidden = true;
+    addForm.reset();
+  });
+
+  addForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    addError.hidden = true;
+    const btn = addForm.querySelector("[type=submit]");
+    btn.disabled = true;
+    try {
+      await addLearner({
+        fullName: $("#nl_name").value.trim(),
+        username: $("#nl_user").value.trim().toLowerCase(),
+        grade: $("#nl_grade").value.trim(),
+        pin: $("#nl_pin").value.trim(),
+      });
+      addForm.reset();
+      addForm.hidden = true;
+      toast("Learner added", `They can sign in with @${$("#nl_user").value.trim().toLowerCase()}`);
+      renderRoster();
+    } catch (err) {
+      addError.textContent = err?.body?.error || err?.message || "Could not add the learner.";
+      addError.hidden = false;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  roster.addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-act]");
+    if (!btn) return;
+    const rowEl = btn.closest("[data-learner]");
+    const id = rowEl.dataset.learner;
+    const nameEl = rowEl.querySelector("b");
+    const act = btn.dataset.act;
+
+    try {
+      if (act === "edit") {
+        const fullName = prompt("Full name", nameEl.textContent);
+        if (fullName === null) return;
+        const username = prompt("Username (lowercase, 3–32 chars)", rowEl.dataset.username);
+        if (username === null) return;
+        const grade = prompt("Grade / class", rowEl.dataset.grade);
+        if (grade === null) return;
+        await updateLearner(id, {
+          fullName: fullName.trim(),
+          username: username.trim().toLowerCase(),
+          grade: grade.trim(),
+        });
+        toast("Learner updated", "");
+      } else if (act === "pin") {
+        const pin = prompt("New 4-digit PIN");
+        if (!pin) return;
+        await updateLearner(id, { pin: pin.trim() });
+        toast("PIN reset", "Tell the learner their new PIN.");
+      } else if (act === "unlock") {
+        await updateLearner(id, { unlock: true });
+        toast("Unlocked", "");
+      } else if (act === "remove") {
+        if (!confirm(`Remove ${nameEl.textContent}? Their sign-in stops working.`)) return;
+        await deleteLearner(id);
+        toast("Learner removed", "");
+      }
+      renderRoster();
+    } catch (err) {
+      toast("Couldn't do that", err?.body?.error || err?.message || "", "error");
+    }
+  });
+
+  renderRoster();
 
   /* Content library lives in the real database (education.js writes it).
      Teacher Resources go to teachers and the head of institution only —
