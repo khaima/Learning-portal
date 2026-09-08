@@ -44,8 +44,9 @@ Three parts, all in the project's own dedicated Supabase project
 (`hpf-learning-portal`, ref `fwpqytrdlmxymvegvgji`) — entirely separate
 from `HPF-digital-portal-2026`:
 
-1. **Auth** — real Supabase Auth. Sign-in is a magic link: no passwords,
-   no plaintext anything. The browser holds a real JWT session.
+1. **Auth** — real Supabase Auth. Sign-in emails you a one-time code (the
+   same email also carries a magic link — either works): no passwords, no
+   plaintext anything. The browser holds a real JWT session.
 2. **API** — one Edge Function, [`supabase/functions/api`](supabase/functions/api/index.ts)
    (Deno + Hono). Every read and write goes through it. It verifies the
    caller's JWT, loads their role from the `profiles` table (never trusts
@@ -89,9 +90,10 @@ same data everywhere, because the database is the source of truth.
 - **Role is self-selected at onboarding.** Fine for a pilot; a real
   deployment would have an admin assign or approve roles rather than let
   anyone pick "Education Team".
-- **Built-in email only.** Magic-link email goes through Supabase's
-  built-in sender, which is rate-limited to a handful per hour. Configure
-  custom SMTP (Auth → SMTP Settings) before any real use.
+- **Built-in email only.** Sign-in email goes through Supabase's built-in
+  sender, which is rate-limited (raise it under Auth → Rate Limits, but it
+  still caps low). Configure custom SMTP (Auth → SMTP Settings) before any
+  real use.
 - **No "create class" / "assign homework" UI.** A fresh teacher or learner
   account has an honest empty dashboard until those exist.
 
@@ -109,11 +111,17 @@ python serve.py
 then open the printed `http://localhost:<port>`. It talks to the live
 API immediately.
 
-**One-time Supabase setup** (Dashboard → Authentication → URL
-Configuration): set the **Site URL** and add **Redirect URLs** for
-wherever you run it — `http://localhost:*/**` for local, and
-`https://khaima.github.io/**` for the deployed site — or the magic link
-won't be able to send you back.
+**One-time Supabase setup** (Dashboard → Authentication):
+
+1. **Email Templates → "Magic Link"** and **"Confirm signup"** — include
+   the code in the body so people can type it:
+   `<p>Your sign-in code: <b>{{ .Token }}</b></p>`
+   (keep the `{{ .ConfirmationURL }}` link too — clicking it still works).
+2. **Rate Limits** — raise "Rate limit for sending emails" if the default
+   is too tight for testing.
+3. **URL Configuration** — only needed if you want the magic *link* (not
+   the code) to work: set the **Site URL** and add **Redirect URLs**
+   (`http://localhost:*/**`, `https://khaima.github.io/**`).
 
 ## File map
 

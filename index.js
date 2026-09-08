@@ -1,7 +1,7 @@
 import { $, $$ } from "./util.js";
 import { supabase } from "./supabase.js";
 import {
-  DASHBOARD_PATH, sendMagicLink, getProfile, createProfile, signOut,
+  DASHBOARD_PATH, sendSignInEmail, verifySignInCode, getProfile, createProfile, signOut,
 } from "./auth.js";
 import { ROLES } from "./data.js";
 
@@ -12,7 +12,7 @@ const steps = {
   loading: $("#stepLoading"),
   role: $("#stepRole"),
   email: $("#stepEmail"),
-  sent: $("#stepSent"),
+  code: $("#stepCode"),
   onboard: $("#stepOnboard"),
 };
 function show(name) {
@@ -65,6 +65,12 @@ $("#changeRole").addEventListener("click", () => show("role"));
 // ---- step 2: email ----
 const emailForm = $("#emailForm");
 const emailError = $("#emailError");
+let signInEmail = "";
+
+async function requestCode(email) {
+  return sendSignInEmail(email, `${location.origin}${location.pathname}`);
+}
+
 emailForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   emailError.hidden = true;
@@ -72,7 +78,7 @@ emailForm.addEventListener("submit", async (e) => {
   const btn = emailForm.querySelector("[type=submit]");
   btn.disabled = true;
   btn.textContent = "Sending…";
-  const res = await sendMagicLink(email, `${location.origin}${location.pathname}`);
+  const res = await requestCode(email);
   btn.disabled = false;
   btn.textContent = "Email me a sign-in link";
   if (res.error) {
@@ -80,13 +86,70 @@ emailForm.addEventListener("submit", async (e) => {
     emailError.hidden = false;
     return;
   }
-  $("#sentTo").textContent = email;
-  show("sent");
+  signInEmail = email;
+  $("#codeSentTo").textContent = email;
+  $("#code").value = "";
+  show("code");
+  $("#code").focus();
+  startResendCooldown();
+});
+
+// ---- step 3: code ----
+const codeForm = $("#codeForm");
+const codeError = $("#codeError");
+const resendBtn = $("#resendCode");
+
+codeForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  codeError.hidden = true;
+  const code = $("#code").value.trim();
+  const btn = codeForm.querySelector("[type=submit]");
+  btn.disabled = true;
+  btn.textContent = "Verifying…";
+  const res = await verifySignInCode(signInEmail, code);
+  if (res.error) {
+    btn.disabled = false;
+    btn.textContent = "Verify & sign in";
+    codeError.textContent = res.error === "Something went wrong."
+      ? "That code didn't work. Check it and try again, or resend."
+      : res.error;
+    codeError.hidden = false;
+    return;
+  }
+  // Session established — route() sorts out dashboard vs onboarding.
+  show("loading");
+  route();
+});
+
+let resendTimer = null;
+function startResendCooldown(seconds = 60) {
+  clearInterval(resendTimer);
+  let left = seconds;
+  resendBtn.disabled = true;
+  const tick = () => {
+    resendBtn.textContent = left > 0 ? `Resend code (${left}s)` : "Resend code";
+    if (left <= 0) { clearInterval(resendTimer); resendBtn.disabled = false; }
+    left -= 1;
+  };
+  tick();
+  resendTimer = setInterval(tick, 1000);
+}
+
+resendBtn.addEventListener("click", async () => {
+  codeError.hidden = true;
+  const res = await requestCode(signInEmail);
+  if (res.error) {
+    codeError.textContent = res.error;
+    codeError.hidden = false;
+    return;
+  }
+  startResendCooldown();
 });
 
 $("#tryDifferent").addEventListener("click", () => {
-  $("#email").value = "";
+  $("#email").value = signInEmail;
   show("email");
+  $("#email").focus();
 });
 
 // ---- onboarding ----
@@ -125,6 +188,7 @@ onboardForm.addEventListener("submit", async (e) => {
 
 $("#onboardSignOut").addEventListener("click", async () => {
   await signOut();
+  clearInterval(resendTimer);
   show("role");
 });
 

@@ -1,11 +1,11 @@
 /* ============================================================
    HPF Digital Learning Portal — accounts and sessions.
 
-   Real Supabase Auth now. Sign-in is a magic link: enter an email,
-   click the link, land back with a real JWT session. The account's
-   role and profile live in `public.profiles`, reachable only through
-   the `api` Edge Function — never trusted from the browser or from a
-   JWT claim.
+   Real Supabase Auth. Sign-in: enter an email, get a 6-digit code (the
+   same email also has a magic link, either works), come back with a real
+   JWT session. The account's role and profile live in `public.profiles`,
+   reachable only through the `api` Edge Function — never trusted from the
+   browser or from a JWT claim.
    ============================================================ */
 
 import { supabase } from "./supabase.js";
@@ -19,8 +19,16 @@ export const DASHBOARD_PATH = {
   education_team: "education.html",
 };
 
-/** Send a one-time sign-in link to `email`, returning to `redirectTo`. */
-export async function sendMagicLink(email, redirectTo) {
+function friendlyAuthError(error) {
+  if (!error) return null;
+  if (error.status === 429 || /rate limit/i.test(error.message || "")) {
+    return "Too many requests. Wait a minute before trying again.";
+  }
+  return error.message || "Something went wrong.";
+}
+
+/** Email a one-time 6-digit code (and magic link) to `email`. */
+export async function sendSignInEmail(email, redirectTo) {
   const { error } = await supabase.auth.signInWithOtp({
     email: (email || "").trim(),
     options: {
@@ -28,7 +36,18 @@ export async function sendMagicLink(email, redirectTo) {
       emailRedirectTo: redirectTo || `${location.origin}${location.pathname}`,
     },
   });
-  return error ? { error: error.message } : { ok: true };
+  return error ? { error: friendlyAuthError(error) } : { ok: true };
+}
+
+/** Verify the 6-digit code from the email and establish a session. */
+export async function verifySignInCode(email, code) {
+  const { data, error } = await supabase.auth.verifyOtp({
+    email: (email || "").trim(),
+    token: (code || "").trim(),
+    type: "email",
+  });
+  if (error) return { error: friendlyAuthError(error) };
+  return { ok: true, session: data.session };
 }
 
 let cachedProfile;

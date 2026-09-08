@@ -133,12 +133,23 @@
           </div>
         </div>
 
-        <!-- link sent -->
-        <div id="stepSent" hidden>
-          <div class="login-eyebrow">Check your inbox</div>
-          <h2>Link on its way</h2>
-          <p class="login-sub">We sent a sign-in link to <b id="sentTo">your email</b>. Open it on this device to continue. It can take a minute to arrive.</p>
-          <button class="btn btn-outline btn-block" type="button" id="tryDifferent">Use a different email</button>
+        <!-- enter the code from the email -->
+        <div id="stepCode" hidden>
+          <div class="login-eyebrow">Check your email</div>
+          <h2>Enter your code</h2>
+          <p class="login-sub">We emailed a sign-in code to <b id="codeSentTo">your email</b>. Type it in below — or just click the link in the same email.</p>
+          <form id="codeForm">
+            <div class="field">
+              <label for="code">Code from the email</label>
+              <input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,10}" maxlength="10" placeholder="Paste your code" required>
+              <div class="field-error" id="codeError" hidden></div>
+            </div>
+            <button class="btn btn-primary btn-block" type="submit">Verify &amp; sign in</button>
+          </form>
+          <div class="login-foot" style="margin-top:1rem">
+            <button type="button" id="resendCode">Resend code</button>
+            <button type="button" id="tryDifferent">Use a different email</button>
+          </div>
         </div>
 
         <!-- first sign-in: create the profile -->
