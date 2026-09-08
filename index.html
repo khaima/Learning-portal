@@ -75,11 +75,50 @@
           <p class="login-sub">One moment…</p>
         </div>
 
-        <!-- ask for an email -->
+        <!-- step 1: pick a role -->
+        <div id="stepRole" hidden>
+          <div class="login-eyebrow">Step 1 of 2</div>
+          <h2>Who's signing in?</h2>
+          <p class="login-sub">Pick your role, then sign in with your email.</p>
+          <div class="role-grid" role="group" aria-label="Choose your role" id="loginRoleGrid">
+            <button type="button" class="role-card" data-role="teacher">
+              <span class="role-check"></span>
+              <span class="r-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V6a2 2 0 0 1 2-2h13v14H6a2 2 0 0 0-2 2Zm0 0a2 2 0 0 0 2 2h13"/><path d="M9 8h7M9 11h7"/></svg></span>
+              <b>Teacher</b>
+              <p>Classes, assignments, results</p>
+            </button>
+            <button type="button" class="role-card" data-role="learner">
+              <span class="role-check"></span>
+              <span class="r-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/></svg></span>
+              <b>Learner</b>
+              <p>Coursework and library</p>
+            </button>
+            <button type="button" class="role-card" data-role="school_leader">
+              <span class="role-check"></span>
+              <span class="r-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V9l9-6 9 6v12"/><path d="M9 21v-6h6v6"/></svg></span>
+              <b>School Head</b>
+              <p>Head of institution</p>
+            </button>
+            <button type="button" class="role-card" data-role="field_officer">
+              <span class="role-check"></span>
+              <span class="r-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s7-6.1 7-11.5A7 7 0 0 0 5 9.5C5 14.9 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg></span>
+              <b>Field Officer</b>
+              <p>Visit reports by county</p>
+            </button>
+            <button type="button" class="role-card" data-role="education_team" style="grid-column:1 / -1">
+              <span class="role-check"></span>
+              <span class="r-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="M6 11.5V17c0 1.7 2.7 3 6 3s6-1.3 6-3v-5.5"/><path d="M22 8v6"/></svg></span>
+              <b>Education Team</b>
+              <p>Content, forms & insights</p>
+            </button>
+          </div>
+        </div>
+
+        <!-- step 2: ask for an email -->
         <div id="stepEmail" hidden>
-          <div class="login-eyebrow">Sign in</div>
-          <h2>Enter your email</h2>
-          <p class="login-sub">We'll email you a one-time link to sign in — no password to remember.</p>
+          <div class="login-eyebrow">Step 2 of 2</div>
+          <h2>Sign in as <span id="emailRoleLabel">Teacher</span></h2>
+          <p class="login-sub">We'll email you a one-time link — no password to remember.</p>
           <form id="emailForm">
             <div class="field">
               <label for="email">Email address</label>
@@ -88,6 +127,10 @@
             </div>
             <button class="btn btn-primary btn-block" type="submit">Email me a sign-in link</button>
           </form>
+          <div class="login-foot" style="margin-top:1rem">
+            <span></span>
+            <button type="button" id="changeRole">← Choose a different role</button>
+          </div>
         </div>
 
         <!-- link sent -->

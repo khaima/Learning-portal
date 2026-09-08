@@ -3,9 +3,14 @@ import { supabase } from "./supabase.js";
 import {
   DASHBOARD_PATH, sendMagicLink, getProfile, createProfile, signOut,
 } from "./auth.js";
+import { ROLES } from "./data.js";
+
+const ROLE_LABEL = Object.fromEntries(ROLES.map((r) => [r.value, r.label]));
+const PENDING_ROLE_KEY = "hpf_pending_role";
 
 const steps = {
   loading: $("#stepLoading"),
+  role: $("#stepRole"),
   email: $("#stepEmail"),
   sent: $("#stepSent"),
   onboard: $("#stepOnboard"),
@@ -14,7 +19,15 @@ function show(name) {
   for (const [k, el] of Object.entries(steps)) el.hidden = k !== name;
 }
 
+function pendingRole() {
+  try { return sessionStorage.getItem(PENDING_ROLE_KEY) || "teacher"; } catch { return "teacher"; }
+}
+function setPendingRole(role) {
+  try { sessionStorage.setItem(PENDING_ROLE_KEY, role); } catch { /* ignore */ }
+}
+
 function goToDashboard(role) {
+  try { sessionStorage.removeItem(PENDING_ROLE_KEY); } catch { /* ignore */ }
   location.href = DASHBOARD_PATH[role] || "index.html";
 }
 
@@ -23,18 +36,33 @@ function goToDashboard(role) {
    before this runs, so getSession() already reflects a fresh sign-in. */
 async function route() {
   const { data } = await supabase.auth.getSession();
-  if (!data.session) { show("email"); return; }
+  if (!data.session) { show("role"); return; }
   const profile = await getProfile({ force: true });
   if (profile && !profile.needsOnboarding) {
     goToDashboard(profile.role);
     return;
   }
-  // Signed in but no profile yet — onboard.
+  // Signed in but no profile yet — onboard, pre-filled with the role
+  // they picked before signing in.
   $("#onboardEmail").textContent = profile?.email || data.session.user.email || "you";
+  setOnboardRole(pendingRole());
   show("onboard");
 }
 
-// ---- email step ----
+// ---- step 1: role ----
+$$("#loginRoleGrid .role-card").forEach((card) =>
+  card.addEventListener("click", () => {
+    const role = card.dataset.role;
+    setPendingRole(role);
+    $("#emailRoleLabel").textContent = ROLE_LABEL[role] || role;
+    show("email");
+    $("#email").focus();
+  })
+);
+
+$("#changeRole").addEventListener("click", () => show("role"));
+
+// ---- step 2: email ----
 const emailForm = $("#emailForm");
 const emailError = $("#emailError");
 emailForm.addEventListener("submit", async (e) => {
@@ -61,16 +89,15 @@ $("#tryDifferent").addEventListener("click", () => {
   show("email");
 });
 
-// ---- onboarding step ----
+// ---- onboarding ----
 let selectedRole = "teacher";
 const roleCards = $$("#roleGrid .role-card");
-function setRole(role) {
+function setOnboardRole(role) {
   selectedRole = role;
   roleCards.forEach((c) => c.setAttribute("aria-pressed", String(c.dataset.role === role)));
   $("#ob_grade_field").hidden = role !== "learner";
 }
-roleCards.forEach((c) => c.addEventListener("click", () => setRole(c.dataset.role)));
-setRole("teacher");
+roleCards.forEach((c) => c.addEventListener("click", () => setOnboardRole(c.dataset.role)));
 
 const onboardForm = $("#onboardForm");
 const onboardError = $("#onboardError");
@@ -98,7 +125,7 @@ onboardForm.addEventListener("submit", async (e) => {
 
 $("#onboardSignOut").addEventListener("click", async () => {
   await signOut();
-  show("email");
+  show("role");
 });
 
 route();
