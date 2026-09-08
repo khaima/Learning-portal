@@ -7,8 +7,11 @@
 -- access: every table has RLS enabled with ZERO policies, and the
 -- anon/authenticated roles have had all privileges revoked. The only way
 -- in is the `api` Edge Function (supabase/functions/api), which:
---   * verifies the caller's Supabase Auth JWT,
---   * reads their role from `public.profiles` (never a JWT claim),
+--   * authenticates the caller — staff via a Supabase Auth JWT
+--     (email + password; the function creates accounts pre-confirmed so
+--     no email is ever sent), learners via a PIN-issued session token,
+--   * reads their role from `public.profiles` / `public.learners`
+--     (never a JWT claim),
 --   * does all data access with the service-role key, which bypasses RLS.
 --
 -- The advisors report `rls_enabled_no_policy` (INFO) for every table —
@@ -18,10 +21,11 @@
 -- Safe to re-run against a fresh project.
 
 -- ---------------------------------------------------------------- accounts
--- Real Supabase Auth users. This table only holds the app-level profile;
--- email/password/session live in `auth.users`. Role is assigned here at
+-- Staff accounts. Supabase Auth (`auth.users`) holds the email +
+-- password; this table holds the app-level profile. Role is assigned at
 -- onboarding (self-selected in this build — a real deployment would gate
--- it behind an admin).
+-- it behind an admin). No email is sent: the `api` /auth/register route
+-- creates the auth user already-confirmed.
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   role text not null check (role in ('teacher','learner','school_leader','field_officer','education_team')),

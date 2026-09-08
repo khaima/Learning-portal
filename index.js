@@ -1,7 +1,7 @@
 import { $, $$ } from "./util.js";
 import { supabase } from "./supabase.js";
 import {
-  DASHBOARD_PATH, sendSignInEmail, verifySignInCode, learnerLogin,
+  DASHBOARD_PATH, registerStaff, signInWithPassword, learnerLogin,
   getProfile, createProfile, signOut,
 } from "./auth.js";
 import { learnerToken } from "./api.js";
@@ -14,8 +14,7 @@ const steps = {
   loading: $("#stepLoading"),
   role: $("#stepRole"),
   learner: $("#stepLearner"),
-  email: $("#stepEmail"),
-  code: $("#stepCode"),
+  password: $("#stepPassword"),
   onboard: $("#stepOnboard"),
 };
 function show(name) {
@@ -64,9 +63,10 @@ $$("#loginRoleGrid .role-card").forEach((card) =>
       return;
     }
     setPendingRole(role);
-    $("#emailRoleLabel").textContent = ROLE_LABEL[role] || role;
-    show("email");
-    $("#email").focus();
+    $("#pwRoleLabel").textContent = ROLE_LABEL[role] || role;
+    setPwMode(false);
+    show("password");
+    $("#pw_email").focus();
   })
 );
 
@@ -94,113 +94,60 @@ learnerForm.addEventListener("submit", async (e) => {
   location.href = "learner.html";
 });
 
-// ---- staff step 2: email ----
-const emailForm = $("#emailForm");
-const emailError = $("#emailError");
-let signInEmail = "";
+// ---- staff step 2: email + password ----
+const passwordForm = $("#passwordForm");
+const pwError = $("#pwError");
+let pwSignupMode = false;
 
-async function requestCode(email) {
-  return sendSignInEmail(email, `${location.origin}${location.pathname}`);
+function setPwMode(signup) {
+  pwSignupMode = signup;
+  $("#pwHeadVerb").textContent = signup ? "Create an account" : "Sign in";
+  $("#pwSub").textContent = signup
+    ? "Pick a password you'll remember — there's no email reset."
+    : "Enter your email and password.";
+  $("#pwSubmit").textContent = signup ? "Create account" : "Sign in";
+  $("#pw_pass").setAttribute("autocomplete", signup ? "new-password" : "current-password");
+  $("#pwToggleMode").textContent = signup
+    ? "Already have an account? Sign in"
+    : "New here? Create an account";
+  pwError.hidden = true;
 }
 
-function goToCodeStep(email, { rateLimited = false } = {}) {
-  signInEmail = email;
-  $("#codeSentTo").textContent = email;
-  $("#codeNote").hidden = !rateLimited;
-  $("#code").value = "";
-  show("code");
-  $("#code").focus();
-  startResendCooldown();
-}
+$("#pwToggleMode").addEventListener("click", () => setPwMode(!pwSignupMode));
 
-emailForm.addEventListener("submit", async (e) => {
+passwordForm.addEventListener("submit", async (e) => {
   e.preventDefault();
-  emailError.hidden = true;
-  const email = $("#email").value.trim();
-  const btn = emailForm.querySelector("[type=submit]");
+  pwError.hidden = true;
+  const email = $("#pw_email").value.trim();
+  const password = $("#pw_pass").value;
+  const btn = $("#pwSubmit");
   btn.disabled = true;
-  btn.textContent = "Sending…";
-  const res = await requestCode(email);
-  btn.disabled = false;
-  btn.textContent = "Email me a sign-in code";
-  if (res.error) {
-    // A rate-limit usually means a code was sent recently and is still
-    // valid — let them enter it rather than dead-end here.
-    if (res.rateLimited) { goToCodeStep(email, { rateLimited: true }); return; }
-    emailError.textContent = res.error;
-    emailError.hidden = false;
-    return;
-  }
-  goToCodeStep(email);
-});
+  btn.textContent = pwSignupMode ? "Creating…" : "Signing in…";
 
-$("#haveCode").addEventListener("click", () => {
-  const email = $("#email").value.trim();
-  if (!email) { emailError.textContent = "Enter your email first."; emailError.hidden = false; $("#email").focus(); return; }
-  goToCodeStep(email);
-});
-
-// ---- staff step 3: code ----
-const codeForm = $("#codeForm");
-const codeError = $("#codeError");
-const resendBtn = $("#resendCode");
-
-codeForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  codeError.hidden = true;
-  const code = $("#code").value.trim();
-  const btn = codeForm.querySelector("[type=submit]");
-  btn.disabled = true;
-  btn.textContent = "Verifying…";
-  const res = await verifySignInCode(signInEmail, code);
-  if (res.error) {
-    btn.disabled = false;
-    btn.textContent = "Verify & sign in";
-    codeError.textContent = res.error === "Something went wrong."
-      ? "That code didn't work. Check it and try again, or resend."
-      : res.error;
-    codeError.hidden = false;
-    return;
-  }
-  show("loading");
-  route();
-});
-
-let resendTimer = null;
-function startResendCooldown(seconds = 60) {
-  clearInterval(resendTimer);
-  let left = seconds;
-  resendBtn.disabled = true;
-  const tick = () => {
-    resendBtn.textContent = left > 0 ? `Resend code (${left}s)` : "Resend code";
-    if (left <= 0) { clearInterval(resendTimer); resendBtn.disabled = false; }
-    left -= 1;
-  };
-  tick();
-  resendTimer = setInterval(tick, 1000);
-}
-
-resendBtn.addEventListener("click", async () => {
-  codeError.hidden = true;
-  const res = await requestCode(signInEmail);
-  if (res.error) {
-    if (res.rateLimited) {
-      $("#codeNote").hidden = false;
-      startResendCooldown();
+  try {
+    if (pwSignupMode) {
+      const reg = await registerStaff(email, password);
+      if (reg.error && !reg.exists) {
+        pwError.textContent = reg.error;
+        pwError.hidden = false;
+        return;
+      }
+      // reg.exists → fall through and just try to sign in
+    }
+    const res = await signInWithPassword(email, password);
+    if (res.error) {
+      pwError.textContent = pwSignupMode
+        ? "Account is ready, but that password didn't sign you in. Try again."
+        : res.error;
+      pwError.hidden = false;
       return;
     }
-    codeError.textContent = res.error;
-    codeError.hidden = false;
-    return;
+    show("loading");
+    route();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = pwSignupMode ? "Create account" : "Sign in";
   }
-  $("#codeNote").hidden = true;
-  startResendCooldown();
-});
-
-$("#tryDifferent").addEventListener("click", () => {
-  $("#email").value = signInEmail;
-  show("email");
-  $("#email").focus();
 });
 
 // ---- onboarding (staff only) ----
@@ -239,7 +186,6 @@ onboardForm.addEventListener("submit", async (e) => {
 
 $("#onboardSignOut").addEventListener("click", async () => {
   await signOut();
-  clearInterval(resendTimer);
   show("role");
 });
 

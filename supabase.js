@@ -1,9 +1,9 @@
 /* ============================================================
    HPF Digital Learning Portal — Supabase Auth client.
 
-   Used for ONE thing only: real Supabase Auth (magic-link sign-in and
-   the session it returns). All data now goes through the `api` Edge
-   Function (see api.js) — the browser has no direct database access.
+   Used for ONE thing only: staff email + password sign-in and the
+   session it returns. All data goes through the `api` Edge Function
+   (see api.js) — the browser has no direct database access.
    ============================================================ */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -13,7 +13,7 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
-    detectSessionInUrl: true,
+    detectSessionInUrl: false,
   },
 });
 

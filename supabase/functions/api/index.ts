@@ -186,6 +186,33 @@ app.use(
 
 app.get("/health", (c) => c.json({ ok: true }));
 
+// ---- staff sign-up (email + password, no confirmation email) ----
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+app.post("/auth/register", async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const email = String(b.email ?? "").trim().toLowerCase();
+  const password = String(b.password ?? "");
+  if (!EMAIL_RE.test(email)) return c.json({ error: "Enter a valid email address" }, 400);
+  if (password.length < 8) {
+    return c.json({ error: "Password must be at least 8 characters" }, 400);
+  }
+  const { error } = await admin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+  });
+  if (error) {
+    const msg = error.message || "";
+    if (/registered|already exists|duplicate/i.test(msg)) {
+      return c.json({ error: "That email already has an account — sign in instead." }, 409);
+    }
+    return c.json({ error: msg || "Could not create the account" }, 400);
+  }
+  return c.json({ ok: true });
+});
+
 // ---- learner sign-in (no session required) ----
 
 app.post("/learner/login", async (c) => {

@@ -10,12 +10,12 @@ dedicated Supabase project (see "The backend" below).
 
 A **static, no-build, dependency-free front end** — plain HTML, CSS, and
 vanilla ES-module JavaScript — talking to a **real backend**: a Supabase
-Edge Function API in front of a locked-down Postgres database, with real
-Supabase Auth (magic-link sign-in). Six pages:
+Edge Function API in front of a locked-down Postgres database. Six pages:
 
-- **`index.html`** — sign-in. Enter your email, get a one-time link, click
-  it, land back signed in. First time through, a one-step form captures
-  your name and role. No passwords.
+- **`index.html`** — sign-in. Pick a role, then sign in — staff with an
+  email + password, learners with a username + 4-digit PIN. New staff
+  create an account (no email verification) and a one-step form captures
+  name and role.
 - **`teacher.html`** — a teacher's classes, this week's grading queue,
   recent results, forms sent by the Education Team, Teacher Resources and
   the Digital Library, plus **My Learners**: an editable roster where the
@@ -47,14 +47,15 @@ Three parts, all in the project's own dedicated Supabase project
 (`hpf-learning-portal`, ref `fwpqytrdlmxymvegvgji`) — entirely separate
 from `HPF-digital-portal-2026`:
 
-1. **Auth** — two paths:
+1. **Auth** — two paths, **no email is ever sent**:
    - **Staff** (teacher / school head / field officer / education team) use
-     real Supabase Auth: enter an email, get a one-time code (the same
-     email also carries a magic link — either works). No passwords.
+     an **email + password**. The API creates the account
+     already-confirmed, so sign-in is a plain Supabase Auth password
+     check. (Trade-off: no email means no self-service password reset.)
    - **Learners** use a **username + 4-digit PIN**. Their teacher creates
      the account from the teacher dashboard; the API verifies the PIN
      (scrypt-hashed, locks after 5 wrong tries) and issues its own session
-     token. No email, no Supabase Auth for learners.
+     token.
 2. **API** — one Edge Function, [`supabase/functions/api`](supabase/functions/api/index.ts)
    (Deno + Hono). Every read and write goes through it. It verifies the
    caller's JWT, loads their role from the `profiles` table (never trusts
@@ -75,14 +76,14 @@ point `config.js` at the new project, and the app works unmodified.
 
 ## The content → form → feedback loop
 
-Worth trying end to end (you'll need two email addresses):
+Worth trying end to end:
 
-1. Sign in with email #1 → onboard as **Education Team**.
+1. Create a staff account → onboard as **Education Team**.
 2. Upload content — attach a file or folder — to **Teacher Resources** or
    the **Digital Library**, and/or send a form to Teachers, School
    Leaders, or Field Officers.
-3. Sign out. Sign in with email #2 → onboard as a **Teacher**. Add a
-   learner from **My Learners**. Sign out, pick **Learner** on the
+3. Sign out. Create another staff account → onboard as a **Teacher**. Add
+   a learner from **My Learners**. Sign out, pick **Learner** on the
    sign-in screen, and sign in with that username + PIN — a Teacher
    Resources item never shows for them, a Digital Library item does.
 4. Back as the Teacher / a Field Officer / School Leader: the form
@@ -106,10 +107,12 @@ same data everywhere, because the database is the source of truth.
 - **A learner belongs to the teacher who created them.** No school-wide
   roster for the school head yet, and no way to move a learner between
   teachers.
-- **Built-in email only.** Sign-in email goes through Supabase's built-in
-  sender, which is rate-limited (raise it under Auth → Rate Limits, but it
-  still caps low). Configure custom SMTP (Auth → SMTP Settings) before any
-  real use.
+- **No password reset for staff.** No email is sent, so a forgotten
+  password can only be fixed by an admin resetting it in the Supabase
+  dashboard (or a future admin screen).
+- **Open staff sign-up.** Anyone who reaches the page can create a staff
+  account and pick any role. Fine for a closed pilot; a real deployment
+  needs an invite / approval step.
 - **No "create class" / "assign homework" UI.** A fresh teacher or learner
   account has an honest empty dashboard until those exist.
 
@@ -125,31 +128,20 @@ python serve.py
 ```
 
 then open the printed `http://localhost:<port>`. It talks to the live
-API immediately.
-
-**One-time Supabase setup** (Dashboard → Authentication):
-
-1. **Email Templates → "Magic Link"** and **"Confirm signup"** — include
-   the code in the body so people can type it:
-   `<p>Your sign-in code: <b>{{ .Token }}</b></p>`
-   (keep the `{{ .ConfirmationURL }}` link too — clicking it still works).
-2. **Rate Limits** — raise "Rate limit for sending emails" if the default
-   is too tight for testing.
-3. **URL Configuration** — only needed if you want the magic *link* (not
-   the code) to work: set the **Site URL** and add **Redirect URLs**
-   (`http://localhost:*/**`, `https://khaima.github.io/**`).
+API immediately — no Supabase dashboard setup needed (email is never
+used).
 
 ## File map
 
 | File | Purpose |
 |---|---|
-| `index.html` / `index.js` | Sign-in: email → magic link → onboarding |
+| `index.html` / `index.js` | Sign-in: role → staff password / learner PIN → onboarding |
 | `teacher.html` / `teacher.js` | Teacher dashboard |
 | `learner.html` / `learner.js` | Learner dashboard |
 | `leader.html` / `leader.js` | Head-of-institution dashboard |
 | `field.html` / `field.js` | Field Officer dashboard (county → school → visit report) |
 | `education.html` / `education.js` | Education Team dashboard (upload, form builder, results, stats) |
-| `supabase.js` | The Supabase Auth client — used only for magic-link sign-in |
+| `supabase.js` | The Supabase Auth client — used only for staff email + password sign-in |
 | `api.js` | Thin fetch wrapper over the `api` Edge Function; attaches the JWT |
 | `auth.js` | Sessions, the profile, `requireRole` for each dashboard |
 | `store.js` | Every data call — library, forms, responses, assignments, reports, stats |
@@ -163,8 +155,10 @@ API immediately.
 
 ## Where this could go next
 
-- Custom SMTP so magic links send reliably at volume.
-- Admin-assigned / approved roles instead of self-select.
+- Invite-only staff sign-up + an admin screen to assign/approve roles and
+  reset passwords (right now staff sign-up is open and there's no reset).
+- Optional custom SMTP if you later want password-reset or notification
+  email — the code path is gone but easy to re-add.
 - The missing "create class", "set assignment", "record result" flows, so
   Teacher and Learner dashboards fill from real activity.
 - Per-row authorisation could move partly into RLS if the app ever needs

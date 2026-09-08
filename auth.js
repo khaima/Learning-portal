@@ -3,7 +3,9 @@
 
    Two ways in:
    - Staff (teacher / school head / field officer / education team) use
-     real Supabase Auth: enter an email, get a 6-digit code.
+     an email + password. No email is ever sent — the `api` Edge Function
+     creates the account already-confirmed, and sign-in is a plain
+     password check.
    - Learners use a username + 4-digit PIN. Their teacher creates the
      account; the `api` Edge Function issues an opaque session token
      (stored as `hpf_learner_token`). No email, no Supabase Auth.
@@ -23,40 +25,33 @@ export const DASHBOARD_PATH = {
   education_team: "education.html",
 };
 
-function isRateLimit(error) {
-  return !!error && (error.status === 429 || /rate limit/i.test(error.message || ""));
-}
-function friendlyAuthError(error) {
-  if (!error) return null;
-  if (isRateLimit(error)) {
-    return "The email service is busy right now. If you asked for a code in the last few minutes, enter it below — otherwise wait a minute and resend.";
+/* ---- staff: email + password ---- */
+
+/** Create a staff account (already email-confirmed, server-side). */
+export async function registerStaff(email, password) {
+  try {
+    await rawRequest("POST", "/auth/register", { email: (email || "").trim(), password });
+    return { ok: true };
+  } catch (err) {
+    return {
+      error: err?.body?.error || err?.message || "Could not create the account.",
+      exists: err instanceof ApiError && err.status === 409,
+    };
   }
-  return error.message || "Something went wrong.";
 }
 
-/* ---- staff: email + code ---- */
-
-/** Email a one-time code (and magic link) to `email`. */
-export async function sendSignInEmail(email, redirectTo) {
-  const { error } = await supabase.auth.signInWithOtp({
+/** Sign in with an email + password. */
+export async function signInWithPassword(email, password) {
+  const { data, error } = await supabase.auth.signInWithPassword({
     email: (email || "").trim(),
-    options: {
-      shouldCreateUser: true,
-      emailRedirectTo: redirectTo || `${location.origin}${location.pathname}`,
-    },
+    password: password || "",
   });
-  if (!error) return { ok: true };
-  return { error: friendlyAuthError(error), rateLimited: isRateLimit(error) };
-}
-
-/** Verify the 6-digit code from the email and establish a session. */
-export async function verifySignInCode(email, code) {
-  const { data, error } = await supabase.auth.verifyOtp({
-    email: (email || "").trim(),
-    token: (code || "").trim(),
-    type: "email",
-  });
-  if (error) return { error: friendlyAuthError(error) };
+  if (error) {
+    const msg = /invalid login credentials/i.test(error.message || "")
+      ? "Wrong email or password."
+      : error.message || "Could not sign in.";
+    return { error: msg };
+  }
   return { ok: true, session: data.session };
 }
 

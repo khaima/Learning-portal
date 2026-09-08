@@ -137,42 +137,26 @@
           </div>
         </div>
 
-        <!-- step 2 (staff): ask for an email -->
-        <div id="stepEmail" hidden>
+        <!-- step 2 (staff): email + password -->
+        <div id="stepPassword" hidden>
           <div class="login-eyebrow">Step 2 of 2</div>
-          <h2>Sign in as <span id="emailRoleLabel">Teacher</span></h2>
-          <p class="login-sub">We'll email you a one-time sign-in code — no password to remember.</p>
-          <form id="emailForm">
+          <h2><span id="pwHeadVerb">Sign in</span> as <span id="pwRoleLabel">Teacher</span></h2>
+          <p class="login-sub" id="pwSub">Enter your email and password.</p>
+          <form id="passwordForm">
             <div class="field">
-              <label for="email">Email address</label>
-              <input id="email" name="email" type="email" autocomplete="email" placeholder="you@example.org" required>
-              <div class="field-error" id="emailError" hidden></div>
+              <label for="pw_email">Email address</label>
+              <input id="pw_email" name="email" type="email" autocomplete="email" placeholder="you@example.org" required>
             </div>
-            <button class="btn btn-primary btn-block" type="submit">Email me a sign-in code</button>
+            <div class="field">
+              <label for="pw_pass">Password</label>
+              <input id="pw_pass" name="password" type="password" autocomplete="current-password" minlength="8" placeholder="••••••••" required>
+              <div class="field-error" id="pwError" hidden></div>
+            </div>
+            <button class="btn btn-primary btn-block" type="submit" id="pwSubmit">Sign in</button>
           </form>
           <div class="login-foot" style="margin-top:1rem">
-            <button type="button" id="haveCode">I already have a code</button>
+            <button type="button" id="pwToggleMode">New here? Create an account</button>
             <button type="button" id="changeRole">← Different role</button>
-          </div>
-        </div>
-
-        <!-- enter the code from the email -->
-        <div id="stepCode" hidden>
-          <div class="login-eyebrow">Check your email</div>
-          <h2>Enter your code</h2>
-          <p class="login-sub">We emailed a sign-in code to <b id="codeSentTo">your email</b>. Type it in below — or just click the link in the same email.</p>
-          <p class="login-sub" id="codeNote" hidden style="color:var(--accent-fg)">We couldn't send a fresh code just now (the email service is rate-limited). If one arrived in the last few minutes, use it — or wait and hit Resend.</p>
-          <form id="codeForm">
-            <div class="field">
-              <label for="code">Code from the email</label>
-              <input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,10}" maxlength="10" placeholder="Paste your code" required>
-              <div class="field-error" id="codeError" hidden></div>
-            </div>
-            <button class="btn btn-primary btn-block" type="submit">Verify &amp; sign in</button>
-          </form>
-          <div class="login-foot" style="margin-top:1rem">
-            <button type="button" id="resendCode">Resend code</button>
-            <button type="button" id="tryDifferent">Use a different email</button>
           </div>
         </div>
 
