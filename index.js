@@ -103,6 +103,16 @@ async function requestCode(email) {
   return sendSignInEmail(email, `${location.origin}${location.pathname}`);
 }
 
+function goToCodeStep(email, { rateLimited = false } = {}) {
+  signInEmail = email;
+  $("#codeSentTo").textContent = email;
+  $("#codeNote").hidden = !rateLimited;
+  $("#code").value = "";
+  show("code");
+  $("#code").focus();
+  startResendCooldown();
+}
+
 emailForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   emailError.hidden = true;
@@ -112,18 +122,22 @@ emailForm.addEventListener("submit", async (e) => {
   btn.textContent = "Sending…";
   const res = await requestCode(email);
   btn.disabled = false;
-  btn.textContent = "Email me a sign-in link";
+  btn.textContent = "Email me a sign-in code";
   if (res.error) {
+    // A rate-limit usually means a code was sent recently and is still
+    // valid — let them enter it rather than dead-end here.
+    if (res.rateLimited) { goToCodeStep(email, { rateLimited: true }); return; }
     emailError.textContent = res.error;
     emailError.hidden = false;
     return;
   }
-  signInEmail = email;
-  $("#codeSentTo").textContent = email;
-  $("#code").value = "";
-  show("code");
-  $("#code").focus();
-  startResendCooldown();
+  goToCodeStep(email);
+});
+
+$("#haveCode").addEventListener("click", () => {
+  const email = $("#email").value.trim();
+  if (!email) { emailError.textContent = "Enter your email first."; emailError.hidden = false; $("#email").focus(); return; }
+  goToCodeStep(email);
 });
 
 // ---- staff step 3: code ----
@@ -170,10 +184,16 @@ resendBtn.addEventListener("click", async () => {
   codeError.hidden = true;
   const res = await requestCode(signInEmail);
   if (res.error) {
+    if (res.rateLimited) {
+      $("#codeNote").hidden = false;
+      startResendCooldown();
+      return;
+    }
     codeError.textContent = res.error;
     codeError.hidden = false;
     return;
   }
+  $("#codeNote").hidden = true;
   startResendCooldown();
 });
 

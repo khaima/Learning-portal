@@ -23,17 +23,20 @@ export const DASHBOARD_PATH = {
   education_team: "education.html",
 };
 
+function isRateLimit(error) {
+  return !!error && (error.status === 429 || /rate limit/i.test(error.message || ""));
+}
 function friendlyAuthError(error) {
   if (!error) return null;
-  if (error.status === 429 || /rate limit/i.test(error.message || "")) {
-    return "Too many requests. Wait a minute before trying again.";
+  if (isRateLimit(error)) {
+    return "The email service is busy right now. If you asked for a code in the last few minutes, enter it below — otherwise wait a minute and resend.";
   }
   return error.message || "Something went wrong.";
 }
 
 /* ---- staff: email + code ---- */
 
-/** Email a one-time 6-digit code (and magic link) to `email`. */
+/** Email a one-time code (and magic link) to `email`. */
 export async function sendSignInEmail(email, redirectTo) {
   const { error } = await supabase.auth.signInWithOtp({
     email: (email || "").trim(),
@@ -42,7 +45,8 @@ export async function sendSignInEmail(email, redirectTo) {
       emailRedirectTo: redirectTo || `${location.origin}${location.pathname}`,
     },
   });
-  return error ? { error: friendlyAuthError(error) } : { ok: true };
+  if (!error) return { ok: true };
+  return { error: friendlyAuthError(error), rateLimited: isRateLimit(error) };
 }
 
 /** Verify the 6-digit code from the email and establish a session. */

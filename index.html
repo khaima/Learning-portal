@@ -141,18 +141,18 @@
         <div id="stepEmail" hidden>
           <div class="login-eyebrow">Step 2 of 2</div>
           <h2>Sign in as <span id="emailRoleLabel">Teacher</span></h2>
-          <p class="login-sub">We'll email you a one-time link — no password to remember.</p>
+          <p class="login-sub">We'll email you a one-time sign-in code — no password to remember.</p>
           <form id="emailForm">
             <div class="field">
               <label for="email">Email address</label>
               <input id="email" name="email" type="email" autocomplete="email" placeholder="you@example.org" required>
               <div class="field-error" id="emailError" hidden></div>
             </div>
-            <button class="btn btn-primary btn-block" type="submit">Email me a sign-in link</button>
+            <button class="btn btn-primary btn-block" type="submit">Email me a sign-in code</button>
           </form>
           <div class="login-foot" style="margin-top:1rem">
-            <span></span>
-            <button type="button" id="changeRole">← Choose a different role</button>
+            <button type="button" id="haveCode">I already have a code</button>
+            <button type="button" id="changeRole">← Different role</button>
           </div>
         </div>
 
@@ -161,6 +161,7 @@
           <div class="login-eyebrow">Check your email</div>
           <h2>Enter your code</h2>
           <p class="login-sub">We emailed a sign-in code to <b id="codeSentTo">your email</b>. Type it in below — or just click the link in the same email.</p>
+          <p class="login-sub" id="codeNote" hidden style="color:var(--accent-fg)">We couldn't send a fresh code just now (the email service is rate-limited). If one arrived in the last few minutes, use it — or wait and hit Resend.</p>
           <form id="codeForm">
             <div class="field">
               <label for="code">Code from the email</label>
