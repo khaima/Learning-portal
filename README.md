@@ -30,7 +30,11 @@ Edge Function API in front of a locked-down Postgres database. Six pages:
   Library.
 - **`field.html`** — a field officer's stats and the flagship flow: pick a
   county, the school list narrows, pick a visit type, submit — the report
-  saves and appears immediately. Plus forms addressed to Field Officers.
+  saves and appears immediately. Plus forms addressed to Field Officers,
+  and **Field surveys** — KoboToolbox surveys attached by the Education
+  Team, each with an **Open survey** button that launches Kobo's own web
+  form (prefilled with the officer's ID) and a status pill that flips to
+  **Submitted** once the submission is detected.
 - **`education.html`** — the Education Team's dashboard: upload content —
   attach a real file or a whole folder from your computer (drag-and-drop
   or the file/folder picker) — to one of two destinations:
@@ -38,8 +42,27 @@ Edge Function API in front of a locked-down Postgres database. Six pages:
   **Digital Library** (learner-facing, also visible to teachers and
   heads). Build and send a form (1–5 rating and short-answer questions) to
   Teachers, School Leaders, or Field Officers, watch responses roll in
-  with live rating averages, and see org-wide stats aggregated
-  server-side.
+  with live rating averages, connect **KoboToolbox** to publish field
+  surveys (see below), and see org-wide stats aggregated server-side.
+
+### KoboToolbox field surveys
+
+The Education Team's dashboard has a **Field surveys (KoboToolbox)** panel:
+
+- **Connect once** — paste an EU KoboToolbox **API token**
+  (`https://eu.kobotoolbox.org` → Account settings → Security). The token
+  is verified against KoboToolbox and then stored **server-side only**
+  (`kobo_config`) — it is never sent back to any browser.
+- **Attach a survey** — pick any *deployed* survey from the account and
+  attach it. It appears on every Field Officer dashboard.
+- Each survey must contain a **hidden** question whose data column name is
+  `officer_ref` (configurable). The portal prefills it with the field
+  officer's profile id via the Enketo `?d[officer_ref]=<id>` URL param,
+  and matches submissions back with
+  `?query={"officer_ref":"<id>"}` on the Kobo data API.
+- Submissions are detected automatically (on the officer's dashboard load
+  and the Education Team's **Sync now**); officers also have a manual
+  "I've submitted this" fallback.
 
 ## The backend
 

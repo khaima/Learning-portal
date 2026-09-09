@@ -4,6 +4,7 @@ import { requireRole, signOut } from "./auth.js";
 import { FIELD_CONTENT, FIELD_SCHOOLS_BY_COUNTY, VISIT_TYPES } from "./data.js";
 import {
   getForms, getResponses, addResponse, getFieldReports, addFieldReport,
+  myKoboSurveys, markKoboSubmitted,
 } from "./store.js";
 
 const ICON = {
@@ -103,6 +104,68 @@ async function main() {
 
   $("#reportList").innerHTML = `<div class="empty-state">Loading…</div>`;
   loadReports().then(renderReports);
+
+  /* ---- Field surveys (KoboToolbox) ----
+     The Education Team attaches a deployed Kobo survey; it shows here with
+     an Open survey button that launches Kobo's own web form (prefilled
+     with this officer's ID). Submission goes straight to KoboToolbox; the
+     pill flips to "Submitted" once the portal detects it (auto-sync on
+     load, or the manual "I've submitted this" fallback). */
+  const koboList = $("#koboSurveyList");
+
+  function renderKoboSurveys(data) {
+    const surveys = data?.surveys || [];
+    if (!surveys.length) {
+      koboList.innerHTML = `<div class="empty-state">${
+        data && data.configured === false
+          ? "Field surveys aren't set up yet."
+          : "No field surveys yet."
+      }</div>`;
+      return;
+    }
+    koboList.innerHTML = surveys.map((s) => {
+      const pill = s.submitted
+        ? `<span class="pill ok">Submitted${s.submittedAt ? " · " + new Date(s.submittedAt).toLocaleDateString() : ""}</span>`
+        : `<span class="pill warm">Pending</span>`;
+      return `
+        <div class="form-card">
+          <div class="fc-head"><h3>${esc(s.title)}</h3>${pill}</div>
+          ${s.openUrl
+            ? `<a class="kobo-open" href="${esc(s.openUrl)}" target="_blank" rel="noopener">
+                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3h7v7M21 3l-9 9M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg>
+                 Open survey</a>`
+            : `<div class="fc-meta">This survey has no web form link yet.</div>`}
+          ${s.submitted
+            ? ""
+            : `<div style="margin-top:.5rem"><button type="button" class="btn-link" data-kobo-done="${esc(s.id)}"
+                 style="background:none;border:0;color:var(--brand);font-weight:600;cursor:pointer;font-family:inherit;font-size:.8rem;padding:0">I've submitted this</button></div>`}
+        </div>`;
+    }).join("");
+
+    $$("[data-kobo-done]").forEach((btn) => btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      try {
+        await markKoboSubmitted(btn.dataset.koboDone);
+        loadKoboSurveys();
+      } catch (err) {
+        console.warn("could not mark submitted:", err.message);
+        btn.disabled = false;
+      }
+    }));
+  }
+
+  async function loadKoboSurveys() {
+    koboList.innerHTML = `<div class="empty-state">Loading…</div>`;
+    try {
+      renderKoboSurveys(await myKoboSurveys());
+    } catch (err) {
+      console.warn("could not load field surveys:", err.message);
+      koboList.innerHTML = `<div class="empty-state">Couldn't load field surveys.</div>`;
+    }
+  }
+
+  $("#koboRefresh")?.addEventListener("click", loadKoboSurveys);
+  loadKoboSurveys();
 
   /* Forms the Education Team has sent to field officers — same
      create-once-fill-once loop as the teacher and school-leader

@@ -136,6 +136,50 @@ create table if not exists public.field_reports (
 );
 create index if not exists field_reports_officer_id_idx on public.field_reports (officer_id);
 
+-- ---------------------------------------------------------------- KoboToolbox field surveys
+-- The Education Team runs field surveys in KoboToolbox. They connect the
+-- account once (`kobo_config`, single row) — the API token is stored here
+-- server-side ONLY and is never returned to the browser. They then attach
+-- a deployed survey (`kobo_forms`), which shows up on every Field Officer
+-- dashboard with an "Open survey" button. That button opens Kobo's own
+-- Enketo web form with the officer's profile id prefilled into a HIDDEN
+-- question whose data column name is `kobo_config.officer_field`
+-- (default 'officer_ref'). The submission goes straight to KoboToolbox;
+-- the portal then matches it back to the officer — by polling the Kobo
+-- data API (`?query={"<officer_field>":"<id>"}`) on dashboard load and on
+-- the Education Team's "Sync now" — and records it in `kobo_submissions`.
+-- A manual "I've submitted this" button is the fallback (source 'manual').
+create table if not exists public.kobo_config (
+  id int primary key default 1 check (id = 1),
+  base_url text not null default 'https://eu.kobotoolbox.org',
+  api_token text not null,                 -- server-side only, never returned
+  officer_field text not null default 'officer_ref',
+  updated_by text not null default '',
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.kobo_forms (
+  id text primary key,                     -- kb_<rand>
+  asset_uid text not null unique,
+  title text not null default '',
+  enketo_url text,                          -- deployment offline/main link
+  active boolean not null default true,
+  submission_count int not null default 0,
+  created_by text not null default '',
+  created_at timestamptz not null default now(),
+  synced_at timestamptz
+);
+
+create table if not exists public.kobo_submissions (
+  kobo_form_id text not null references public.kobo_forms(id) on delete cascade,
+  officer_id uuid not null references public.profiles(id) on delete cascade,
+  kobo_submission_id text,
+  source text not null default 'sync' check (source in ('sync','manual')),
+  submitted_at timestamptz not null default now(),
+  primary key (kobo_form_id, officer_id)
+);
+create index if not exists kobo_submissions_officer_idx on public.kobo_submissions (officer_id);
+
 -- ---------------------------------------------------------------- lock everything down
 alter table public.profiles         enable row level security;
 alter table public.learners         enable row level security;
@@ -145,6 +189,9 @@ alter table public.forms            enable row level security;
 alter table public.responses        enable row level security;
 alter table public.assignments      enable row level security;
 alter table public.field_reports    enable row level security;
+alter table public.kobo_config      enable row level security;
+alter table public.kobo_forms       enable row level security;
+alter table public.kobo_submissions enable row level security;
 -- No policies on purpose. Only the service-role key (the Edge Function)
 -- reaches these tables.
 

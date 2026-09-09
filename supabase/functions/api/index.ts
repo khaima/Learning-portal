@@ -54,6 +54,48 @@ const safePath = (p: string) => String(p).split("/").map(safeSegment).join("/");
 const rid = (prefix: string) =>
   prefix + "_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
 
+// ---------------------------------------------------------------- KoboToolbox
+
+type KoboConfig = { base_url: string; api_token: string; officer_field: string };
+
+async function loadKoboConfig(): Promise<KoboConfig | null> {
+  const { data } = await admin.from("kobo_config").select("*").eq("id", 1).maybeSingle();
+  return (data as KoboConfig) ?? null;
+}
+
+async function koboFetch(cfg: KoboConfig, path: string) {
+  const url = cfg.base_url.replace(/\/+$/, "") + path;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 15000);
+  try {
+    return await fetch(url, {
+      signal: ctrl.signal,
+      headers: { Authorization: `Token ${cfg.api_token}`, Accept: "application/json" },
+    });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function koboJson(cfg: KoboConfig, path: string) {
+  const res = await koboFetch(cfg, path);
+  if (!res.ok) {
+    throw new Error(
+      res.status === 401 || res.status === 403
+        ? "KoboToolbox rejected the API token"
+        : `KoboToolbox returned ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
+/** Read the officer-ref value off a Kobo submission row (handles grouped names). */
+function pickOfficerRef(row: Record<string, unknown>, field: string): string | null {
+  if (row[field] != null && String(row[field]).trim()) return String(row[field]).trim();
+  const key = Object.keys(row).find((k) => k === field || k.endsWith("/" + field));
+  return key && String(row[key]).trim() ? String(row[key]).trim() : null;
+}
+
 function hashPin(pin: string, salt: string) {
   return scryptSync(pin, salt, 32).toString("hex");
 }
@@ -180,7 +222,7 @@ app.use(
       return null;
     },
     allowHeaders: ["authorization", "content-type"],
-    allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   }),
 );
 
@@ -749,6 +791,245 @@ app.get("/stats", withProfile("education_team"), async (c) => {
     formsSent: (forms.data ?? []).length,
     responsesReceived: responses.count ?? 0,
   });
+});
+
+// ---- KoboToolbox: education-team config + attached surveys ----
+
+app.get("/kobo/config", withProfile("education_team"), async (c) => {
+  const cfg = await loadKoboConfig();
+  return c.json({
+    configured: !!cfg,
+    baseUrl: cfg?.base_url ?? "https://eu.kobotoolbox.org",
+    officerField: cfg?.officer_field ?? "officer_ref",
+  });
+});
+
+app.put("/kobo/config", withProfile("education_team"), async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const apiToken = String(b.apiToken ?? "").trim();
+  const baseUrl = String(b.baseUrl ?? "https://eu.kobotoolbox.org").trim().replace(/\/+$/, "");
+  const officerField = (String(b.officerField ?? "").trim() || "officer_ref");
+  if (!apiToken) return c.json({ error: "Paste your KoboToolbox API token" }, 400);
+  if (!/^https:\/\/[^\s]+$/.test(baseUrl)) return c.json({ error: "Server URL must start with https://" }, 400);
+  if (!/^[A-Za-z_][\w./-]*$/.test(officerField)) return c.json({ error: "Hidden question name looks invalid" }, 400);
+
+  const test = await koboFetch(
+    { base_url: baseUrl, api_token: apiToken, officer_field: officerField },
+    "/api/v2/assets/?limit=1&format=json",
+  ).catch(() => null);
+  if (!test || !test.ok) {
+    const s = test?.status;
+    return c.json({
+      error: s === 401 || s === 403 ? "That API token was rejected by KoboToolbox"
+        : s ? `KoboToolbox returned ${s}` : "Couldn't reach KoboToolbox",
+    }, 400);
+  }
+  const { error } = await admin.from("kobo_config").upsert({
+    id: 1, base_url: baseUrl, api_token: apiToken, officer_field: officerField,
+    updated_by: c.get("actor").fullName, updated_at: new Date().toISOString(),
+  });
+  if (error) return c.json({ error: error.message }, 400);
+  return c.json({ ok: true, officerField });
+});
+
+app.get("/kobo/assets", withProfile("education_team"), async (c) => {
+  const cfg = await loadKoboConfig();
+  if (!cfg) return c.json({ error: "Connect KoboToolbox first" }, 400);
+  let data;
+  try {
+    data = await koboJson(cfg, "/api/v2/assets/?q=asset_type:survey&limit=300&format=json");
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 502);
+  }
+  const assets = (data.results ?? [])
+    .filter((a: any) => a.asset_type === "survey")
+    .map((a: any) => ({
+      uid: a.uid,
+      name: a.name || "(untitled survey)",
+      deployed: !!a.deployment__active,
+      submissionCount: a.deployment__submission_count ?? 0,
+    }));
+  return c.json({ assets });
+});
+
+app.get("/kobo/forms", withProfile("education_team"), async (c) => {
+  const { data } = await admin
+    .from("kobo_forms").select("*").order("created_at", { ascending: false });
+  const { data: subs } = await admin.from("kobo_submissions").select("kobo_form_id");
+  const counts: Record<string, number> = {};
+  for (const s of subs ?? []) counts[s.kobo_form_id] = (counts[s.kobo_form_id] ?? 0) + 1;
+  return c.json({
+    forms: (data ?? []).map((f) => ({
+      id: f.id,
+      assetUid: f.asset_uid,
+      title: f.title,
+      active: f.active,
+      submissionCount: f.submission_count,
+      officerSubmissions: counts[f.id] ?? 0,
+      syncedAt: f.synced_at,
+    })),
+  });
+});
+
+app.post("/kobo/forms", withProfile("education_team"), async (c) => {
+  const cfg = await loadKoboConfig();
+  if (!cfg) return c.json({ error: "Connect KoboToolbox first" }, 400);
+  const b = await c.req.json().catch(() => ({}));
+  const uid = String(b.assetUid ?? "").trim();
+  if (!uid) return c.json({ error: "Pick a survey" }, 400);
+
+  const { data: existing } = await admin
+    .from("kobo_forms").select("id").eq("asset_uid", uid).maybeSingle();
+  if (existing) return c.json({ error: "That survey is already attached" }, 409);
+
+  let asset;
+  try {
+    asset = await koboJson(cfg, `/api/v2/assets/${uid}/?format=json`);
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 502);
+  }
+  if (!asset.deployment__active) {
+    return c.json({ error: "That survey isn't deployed in KoboToolbox yet" }, 400);
+  }
+  const links = asset.deployment__links ?? {};
+  const enketo = links.offline_url || links.url || links.iframe_url || null;
+
+  const { data, error } = await admin
+    .from("kobo_forms")
+    .insert({
+      id: rid("kb"),
+      asset_uid: uid,
+      title: asset.name || "(untitled survey)",
+      enketo_url: enketo,
+      submission_count: asset.deployment__submission_count ?? 0,
+      created_by: c.get("actor").fullName,
+    })
+    .select()
+    .single();
+  if (error) return c.json({ error: error.message }, 400);
+  return c.json({ form: { id: data.id, title: data.title, assetUid: data.asset_uid } });
+});
+
+app.delete("/kobo/forms/:id", withProfile("education_team"), async (c) => {
+  const { error } = await admin.from("kobo_forms").delete().eq("id", c.req.param("id"));
+  if (error) return c.json({ error: error.message }, 400);
+  return c.json({ ok: true });
+});
+
+app.post("/kobo/sync", withProfile("education_team"), async (c) => {
+  const cfg = await loadKoboConfig();
+  if (!cfg) return c.json({ error: "Connect KoboToolbox first" }, 400);
+  const { data: forms } = await admin.from("kobo_forms").select("*").eq("active", true);
+  const { data: profs } = await admin.from("profiles").select("id");
+  const validIds = new Set((profs ?? []).map((p) => p.id));
+
+  let matched = 0;
+  for (const f of forms ?? []) {
+    let data;
+    try {
+      data = await koboJson(cfg, `/api/v2/assets/${f.asset_uid}/data/?format=json&limit=30000`);
+    } catch {
+      continue;
+    }
+    const rows: any[] = data.results ?? [];
+    const upserts: any[] = [];
+    for (const r of rows) {
+      const ref = pickOfficerRef(r, cfg.officer_field);
+      if (ref && validIds.has(ref)) {
+        upserts.push({
+          kobo_form_id: f.id,
+          officer_id: ref,
+          kobo_submission_id: String(r._id ?? ""),
+          source: "sync",
+          submitted_at: r._submission_time ?? new Date().toISOString(),
+        });
+      }
+    }
+    if (upserts.length) {
+      await admin.from("kobo_submissions").upsert(upserts, {
+        onConflict: "kobo_form_id,officer_id",
+        ignoreDuplicates: true,
+      });
+      matched += upserts.length;
+    }
+    await admin.from("kobo_forms").update({
+      submission_count: data.count ?? rows.length,
+      synced_at: new Date().toISOString(),
+    }).eq("id", f.id);
+  }
+  return c.json({ ok: true, matched });
+});
+
+// ---- KoboToolbox: field-officer surveys ----
+
+app.get("/kobo/my-surveys", withProfile("field_officer"), async (c) => {
+  const officerId = c.get("actor").id;
+  const cfg = await loadKoboConfig();
+  const { data: forms } = await admin
+    .from("kobo_forms").select("*").eq("active", true).order("created_at", { ascending: false });
+  const { data: mine } = await admin
+    .from("kobo_submissions").select("*").eq("officer_id", officerId);
+  const done = new Map((mine ?? []).map((s) => [s.kobo_form_id, s]));
+
+  if (cfg) {
+    for (const f of forms ?? []) {
+      if (done.has(f.id)) continue;
+      try {
+        const q = encodeURIComponent(JSON.stringify({ [cfg.officer_field]: officerId }));
+        const data = await koboJson(cfg, `/api/v2/assets/${f.asset_uid}/data/?format=json&query=${q}&limit=1`);
+        const rows: any[] = data.results ?? [];
+        if ((data.count ?? rows.length) > 0) {
+          const row = rows[0] ?? {};
+          const rec = {
+            kobo_form_id: f.id,
+            officer_id: officerId,
+            kobo_submission_id: String(row._id ?? ""),
+            source: "sync",
+            submitted_at: row._submission_time ?? new Date().toISOString(),
+          };
+          await admin.from("kobo_submissions").upsert(rec, {
+            onConflict: "kobo_form_id,officer_id",
+            ignoreDuplicates: true,
+          });
+          done.set(f.id, rec);
+        }
+      } catch { /* leave as pending */ }
+    }
+  }
+
+  const field = cfg?.officer_field ?? "officer_ref";
+  return c.json({
+    configured: !!cfg,
+    surveys: (forms ?? []).map((f) => {
+      const s = done.get(f.id);
+      const sep = (f.enketo_url ?? "").includes("?") ? "&" : "?";
+      return {
+        id: f.id,
+        title: f.title,
+        openUrl: f.enketo_url
+          ? `${f.enketo_url}${sep}d[${field}]=${encodeURIComponent(officerId)}`
+          : null,
+        submitted: !!s,
+        submittedAt: s?.submitted_at ?? null,
+        source: s?.source ?? null,
+      };
+    }),
+  });
+});
+
+app.post("/kobo/my-surveys/:id/submitted", withProfile("field_officer"), async (c) => {
+  const officerId = c.get("actor").id;
+  const id = c.req.param("id");
+  const { data: form } = await admin.from("kobo_forms").select("id").eq("id", id).maybeSingle();
+  if (!form) return c.json({ error: "Survey not found" }, 404);
+  const { error } = await admin.from("kobo_submissions").upsert({
+    kobo_form_id: id,
+    officer_id: officerId,
+    source: "manual",
+    submitted_at: new Date().toISOString(),
+  }, { onConflict: "kobo_form_id,officer_id", ignoreDuplicates: true });
+  if (error) return c.json({ error: error.message }, 400);
+  return c.json({ ok: true });
 });
 
 app.notFound((c) => c.json({ error: "Not found" }, 404));

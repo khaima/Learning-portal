@@ -176,6 +176,55 @@ export async function getStats() {
   return apiGet("/stats");
 }
 
+/* ---------------------------------------------------------------- KoboToolbox */
+
+/* Education Team: connection state (never returns the API token). */
+export async function koboConfig() {
+  return apiGet("/kobo/config");
+}
+
+/* Education Team: connect / update the KoboToolbox account. The token is
+   verified against KoboToolbox server-side and stored only there. */
+export async function saveKoboConfig({ baseUrl, apiToken, officerField }) {
+  return apiSend("PUT", "/kobo/config", { baseUrl, apiToken, officerField });
+}
+
+/* Education Team: the account's deployed survey assets, to attach one. */
+export async function koboAssets() {
+  const { assets } = await apiGet("/kobo/assets");
+  return assets || [];
+}
+
+/* Education Team: surveys attached to the portal, with submission counts. */
+export async function koboForms() {
+  const { forms } = await apiGet("/kobo/forms");
+  return forms || [];
+}
+
+export async function attachKoboForm(assetUid) {
+  const { form } = await apiSend("POST", "/kobo/forms", { assetUid });
+  return form;
+}
+
+export async function removeKoboForm(id) {
+  return apiSend("DELETE", `/kobo/forms/${id}`);
+}
+
+/* Education Team: pull submissions from KoboToolbox and match officers. */
+export async function syncKobo() {
+  return apiSend("POST", "/kobo/sync");
+}
+
+/* Field Officer: the surveys to fill, each with a prefilled openUrl and
+   a submitted flag (auto-detected from KoboToolbox, or set manually). */
+export async function myKoboSurveys() {
+  return apiGet("/kobo/my-surveys");
+}
+
+export async function markKoboSubmitted(id) {
+  return apiSend("POST", `/kobo/my-surveys/${id}/submitted`);
+}
+
 /* ---------------------------------------------------------------- learner roster (teacher) */
 
 export async function getLearners() {

@@ -1,5 +1,5 @@
 import "./nav.js";
-import { $, esc, initials, toast } from "./util.js";
+import { $, $$, esc, initials, toast } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import {
   CONTENT_TYPES, LIBRARY_SUBJECTS, LIBRARY_AUDIENCES, FORM_AUDIENCES, QUESTION_TYPES,
@@ -8,6 +8,8 @@ import {
 import {
   getLibrary, addLibraryItem, getForms, addForm, getResponses, getStats,
   uploadLibraryFiles, libraryFilesHtml,
+  koboConfig, saveKoboConfig, koboAssets, koboForms, attachKoboForm,
+  removeKoboForm, syncKobo,
 } from "./store.js";
 
 const AUDIENCE_LABEL = Object.fromEntries(FORM_AUDIENCES.map((a) => [a.value, a.label]));
@@ -291,9 +293,149 @@ async function main() {
       : `<div class="empty-state">No forms created yet.</div>`;
   }
 
+  /* ------------------------------------------------------------ field surveys (KoboToolbox) */
+  const koboConnectForm = $("#koboConnectForm");
+  const koboManage = $("#koboManage");
+  const koboSyncBtn = $("#koboSyncBtn");
+  const koboAssetSel = $("#kb_asset");
+  let koboState = { configured: false };
+
+  function showKoboConnect() {
+    koboConnectForm.hidden = false;
+    koboManage.hidden = true;
+    koboSyncBtn.hidden = true;
+  }
+
+  async function renderKobo() {
+    try {
+      koboState = await koboConfig();
+    } catch {
+      $("#koboFormList").innerHTML = `<div class="empty-state">Couldn't load KoboToolbox settings.</div>`;
+      return;
+    }
+    $("#kb_url").value = koboState.baseUrl || "https://eu.kobotoolbox.org";
+    $("#kb_field").value = koboState.officerField || "officer_ref";
+    $("#koboFieldEcho").textContent = koboState.officerField || "officer_ref";
+
+    if (!koboState.configured) { showKoboConnect(); return; }
+
+    koboConnectForm.hidden = true;
+    koboManage.hidden = false;
+    koboSyncBtn.hidden = false;
+    $("#koboServerEcho").textContent = (koboState.baseUrl || "").replace(/^https?:\/\//, "");
+    $("#koboFieldEcho2").textContent = koboState.officerField || "officer_ref";
+
+    renderKoboAssets();
+    renderKoboForms();
+  }
+
+  async function renderKoboAssets() {
+    koboAssetSel.innerHTML = `<option value="">Loading surveys…</option>`;
+    let assets = [];
+    try { assets = await koboAssets(); } catch (err) {
+      koboAssetSel.innerHTML = `<option value="">${esc(err?.message || "Couldn't reach KoboToolbox")}</option>`;
+      return;
+    }
+    const deployed = assets.filter((a) => a.deployed);
+    koboAssetSel.innerHTML = deployed.length
+      ? `<option value="">Choose a deployed survey…</option>` +
+        deployed.map((a) => `<option value="${esc(a.uid)}">${esc(a.name)} (${a.submissionCount} submission${a.submissionCount === 1 ? "" : "s"})</option>`).join("")
+      : `<option value="">No deployed surveys in this account</option>`;
+  }
+
+  async function renderKoboForms() {
+    $("#koboFormList").innerHTML = `<div class="empty-state">Loading…</div>`;
+    let forms = [];
+    try { forms = await koboForms(); } catch { /* shown as empty */ }
+    $("#koboFormList").innerHTML = forms.length
+      ? forms.map((f) => `
+        <div class="form-card">
+          <div class="kobo-row">
+            <div>
+              <b style="font-size:.92rem">${esc(f.title)}</b>
+              <div class="fc-meta" style="margin:.2rem 0 0">${f.officerSubmissions} officer submission${f.officerSubmissions === 1 ? "" : "s"}${
+                f.syncedAt ? " · synced " + new Date(f.syncedAt).toLocaleString() : " · not synced yet"
+              }</div>
+            </div>
+            <div class="kobo-actions">
+              <button type="button" data-kobo-remove="${esc(f.id)}" class="danger">Remove</button>
+            </div>
+          </div>
+        </div>`).join("")
+      : `<div class="empty-state">No surveys attached yet.</div>`;
+
+    $$("[data-kobo-remove]").forEach((btn) => btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      try {
+        await removeKoboForm(btn.dataset.koboRemove);
+        renderKoboForms();
+      } catch (err) {
+        toast("Couldn't remove it", err?.message || "", "error");
+        btn.disabled = false;
+      }
+    }));
+  }
+
+  koboConnectForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector("[type=submit]");
+    btn.disabled = true;
+    btn.textContent = "Connecting…";
+    try {
+      await saveKoboConfig({
+        baseUrl: $("#kb_url").value.trim(),
+        apiToken: $("#kb_token").value.trim(),
+        officerField: $("#kb_field").value.trim(),
+      });
+      $("#kb_token").value = "";
+      toast("KoboToolbox connected", "");
+      renderKobo();
+    } catch (err) {
+      toast("Couldn't connect", err?.message || "Check the server URL and token.", "error");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Connect";
+    }
+  });
+
+  $("#koboReconnect").addEventListener("click", showKoboConnect);
+
+  $("#koboAttachForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const uid = koboAssetSel.value;
+    if (!uid) return;
+    const btn = e.target.querySelector("[type=submit]");
+    btn.disabled = true;
+    try {
+      await attachKoboForm(uid);
+      koboAssetSel.value = "";
+      renderKoboForms();
+    } catch (err) {
+      toast("Couldn't attach that survey", err?.message || "", "error");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  koboSyncBtn.addEventListener("click", async () => {
+    koboSyncBtn.disabled = true;
+    koboSyncBtn.textContent = "Syncing…";
+    try {
+      const { matched } = await syncKobo();
+      toast("Synced with KoboToolbox", `${matched} officer submission(s) matched.`);
+      renderKoboForms();
+    } catch (err) {
+      toast("Sync failed", err?.message || "", "error");
+    } finally {
+      koboSyncBtn.disabled = false;
+      koboSyncBtn.textContent = "Sync now";
+    }
+  });
+
   renderStats();
   renderLibrary();
   renderForms();
+  renderKobo();
 }
 main();
 

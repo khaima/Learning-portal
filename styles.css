@@ -354,3 +354,27 @@ a{ color:inherit; }
 .roster-actions button.danger{ color:var(--danger); }
 #addLearnerForm .form-row{ margin-bottom:0; }
 #addLearnerForm .field{ margin-bottom:.7rem; }
+
+/* ---- KoboToolbox field surveys ---- */
+.kobo-note{
+  font-size:.78rem; color:var(--ink-soft); background:var(--paper-sunk);
+  border-radius:var(--radius-sm); padding:.55rem .7rem; margin:.2rem 0 .8rem;
+}
+.kobo-note code{
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.9em;
+  background:var(--brand-soft); color:var(--brand-fg); padding:.05rem .3rem; border-radius:5px;
+}
+.kobo-row{ display:flex; align-items:flex-start; justify-content:space-between; gap:.7rem; }
+.kobo-row .kobo-actions{ display:flex; gap:.6rem; flex:none; align-items:center; }
+.kobo-actions button{
+  background:none; border:0; padding:.15rem .1rem; cursor:pointer;
+  font-family:inherit; font-size:.76rem; font-weight:600; color:var(--brand);
+}
+.kobo-actions button:hover{ text-decoration:underline; }
+.kobo-actions button.danger{ color:var(--danger); }
+.kobo-open{
+  display:inline-flex; align-items:center; gap:.35rem; margin-top:.55rem;
+  font-size:.82rem; font-weight:700; text-decoration:none;
+  background:var(--accent); color:#fff; border-radius:999px; padding:.4rem .9rem;
+}
+.kobo-open:hover{ background:var(--accent-hover); }

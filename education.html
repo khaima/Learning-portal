@@ -20,6 +20,7 @@
         <a class="side-link active"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Overview</a>
         <a class="side-link"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>Digital Library</a>
         <a class="side-link"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>Forms & Feedback</a>
+        <a class="side-link"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>Field Surveys</a>
       </nav>
       <div class="side-user">
         <span class="side-avatar" id="sideAvatar">?</span>
@@ -108,6 +109,52 @@
               </div>
               <button class="btn btn-primary btn-block" type="submit" style="margin-top:.9rem">Send form</button>
             </form>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <h2>Field surveys (KoboToolbox)</h2>
+              <button type="button" id="koboSyncBtn" hidden>Sync now</button>
+            </div>
+
+            <form id="koboConnectForm" hidden>
+              <p class="kobo-note">
+                Connect the KoboToolbox account that hosts your field surveys.
+                Each survey must include a <b>hidden</b> question whose data
+                column name is <code id="koboFieldEcho">officer_ref</code> — the
+                portal fills it with the field officer's ID so submissions match
+                back automatically.
+              </p>
+              <div class="field">
+                <label for="kb_url">KoboToolbox server</label>
+                <input id="kb_url" type="url" value="https://eu.kobotoolbox.org" required>
+              </div>
+              <div class="field">
+                <label for="kb_token">API token</label>
+                <input id="kb_token" type="password" placeholder="Paste your KoboToolbox API token" autocomplete="off" required>
+              </div>
+              <div class="field">
+                <label for="kb_field">Hidden question name</label>
+                <input id="kb_field" type="text" value="officer_ref" required>
+              </div>
+              <button class="btn btn-primary btn-block" type="submit">Connect</button>
+            </form>
+
+            <div id="koboManage" hidden>
+              <form id="koboAttachForm" class="field" style="margin-bottom:1rem">
+                <label for="kb_asset">Add a deployed survey</label>
+                <div style="display:flex;gap:.5rem;align-items:stretch">
+                  <select id="kb_asset" style="flex:1"><option value="">Loading surveys…</option></select>
+                  <button class="btn btn-outline" type="submit" style="flex:none">Attach</button>
+                </div>
+                <p class="kobo-note" style="margin-bottom:0">
+                  Connected to <b id="koboServerEcho">—</b> · hidden question
+                  <code id="koboFieldEcho2">officer_ref</code>.
+                  <button type="button" id="koboReconnect" style="background:none;border:0;color:var(--brand);font-weight:600;cursor:pointer;font-family:inherit;font-size:inherit;padding:0">Change</button>
+                </p>
+              </form>
+              <div id="koboFormList"></div>
+            </div>
           </div>
         </div>
 

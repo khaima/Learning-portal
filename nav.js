@@ -21,6 +21,7 @@ const HEADING_MATCH = {
   "termly returns": ["termly returns"],
   "field visits": ["recent field visits", "field visits"],
   "field reports": ["field report", "recent field reports", "new field report"],
+  "field surveys": ["field surveys"],
 };
 /* fallbacks for sections whose heading is dynamic or absent */
 const SELECTOR_FALLBACK = {
