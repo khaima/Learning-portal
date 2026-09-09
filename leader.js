@@ -1,3 +1,4 @@
+import "./nav.js";
 import { $, $$, esc, initials } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { LEADER_CONTENT, normalizeLibraryAudience } from "./data.js";

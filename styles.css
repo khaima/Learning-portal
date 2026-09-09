@@ -173,9 +173,11 @@ a{ color:inherit; }
 .side-nav{ display:flex; flex-direction:column; gap:.15rem; flex:1; }
 .side-link{
   display:flex; align-items:center; gap:.65rem; padding:.55rem .7rem; border-radius:10px;
-  color:rgba(255,255,255,.78); font-size:.87rem; font-weight:600; text-decoration:none; cursor:default;
+  color:rgba(255,255,255,.78); font-size:.87rem; font-weight:600; text-decoration:none; cursor:pointer;
 }
 .side-link .icon{ opacity:.85; }
+.side-link:hover:not(.active){ background:rgba(255,255,255,.07); color:#fff; }
+.side-link:focus-visible{ outline:2px solid rgba(255,255,255,.55); outline-offset:1px; }
 .side-link.active{ background:rgba(255,255,255,.14); color:#fff; }
 .side-user{ display:flex; align-items:center; gap:.6rem; padding-top:1rem; border-top:1px solid rgba(255,255,255,.14); }
 .side-avatar{ width:34px; height:34px; border-radius:50%; background:var(--panel); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:.82rem; flex:none; }
@@ -189,6 +191,12 @@ a{ color:inherit; }
 .side-signout:hover{ background:rgba(255,255,255,.16); }
 
 .app-main{ padding:1.7rem 2rem 3rem; max-width:72rem; }
+.app-main .panel,
+.app-main .hero-progress,
+.app-main .card-grid,
+.app-main .stat-row{ scroll-margin-top:1.2rem; }
+@keyframes navFlash{ from{ box-shadow:0 0 0 3px var(--brand-soft); } to{ box-shadow:var(--shadow); } }
+.nav-flash{ animation:navFlash 1.1s ease-out; }
 .app-top{ display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; margin-bottom:1.5rem; flex-wrap:wrap; }
 .app-top h1{ font-size:1.5rem; margin-bottom:.25rem; }
 .app-top p{ margin:0; color:var(--ink-soft); font-size:.9rem; }

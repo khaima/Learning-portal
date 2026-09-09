@@ -1,3 +1,4 @@
+import "./nav.js";
 import { $, esc, initials, toast } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import {
