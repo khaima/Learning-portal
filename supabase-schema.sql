@@ -149,6 +149,12 @@ create index if not exists field_reports_officer_id_idx on public.field_reports 
 -- data API (`?query={"<officer_field>":"<id>"}`) on dashboard load and on
 -- the Education Team's "Sync now" — and records it in `kobo_submissions`.
 -- A manual "I've submitted this" button is the fallback (source 'manual').
+--
+-- The Education Team dashboard also reads live aggregated results
+-- (GET /api/kobo/forms/:id/results): the API pulls the survey schema +
+-- every submission from KoboToolbox on demand and tallies each question
+-- into chart data. Nothing is stored here — kobo_submissions only tracks
+-- who has responded, not the answers.
 create table if not exists public.kobo_config (
   id int primary key default 1 check (id = 1),
   base_url text not null default 'https://eu.kobotoolbox.org',

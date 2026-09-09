@@ -96,6 +96,27 @@ function pickOfficerRef(row: Record<string, unknown>, field: string): string | n
   return key && String(row[key]).trim() ? String(row[key]).trim() : null;
 }
 
+/** Kobo labels are a translation array, a bare string, or missing. */
+function koboLabel(label: unknown, fallback: string): string {
+  if (Array.isArray(label)) return String(label[0] ?? fallback);
+  if (typeof label === "string" && label.trim()) return label;
+  return fallback;
+}
+
+/** Read a question's value off a submission row (bare or group-prefixed name). */
+function rowValue(row: Record<string, unknown>, name: string): unknown {
+  if (row[name] !== undefined) return row[name];
+  const k = Object.keys(row).find((kk) => kk === name || kk.endsWith("/" + name));
+  return k ? row[k] : undefined;
+}
+
+const KOBO_SKIP_TYPES = new Set([
+  "start", "end", "today", "deviceid", "subscriberid", "simserial", "phonenumber",
+  "username", "note", "calculate", "begin_group", "end_group", "begin_repeat",
+  "end_repeat", "begin_kobomatrix", "end_kobomatrix", "audit", "background-audio",
+  "hidden",
+]);
+
 function hashPin(pin: string, salt: string) {
   return scryptSync(pin, salt, 32).toString("hex");
 }
@@ -958,6 +979,142 @@ app.post("/kobo/sync", withProfile("education_team"), async (c) => {
     }).eq("id", f.id);
   }
   return c.json({ ok: true, matched });
+});
+
+// ---- KoboToolbox: aggregated survey results (charts) ----
+
+app.get("/kobo/forms/:id/results", withProfile("education_team"), async (c) => {
+  const cfg = await loadKoboConfig();
+  if (!cfg) return c.json({ error: "Connect KoboToolbox first" }, 400);
+  const { data: form } = await admin
+    .from("kobo_forms").select("*").eq("id", c.req.param("id")).maybeSingle();
+  if (!form) return c.json({ error: "Survey not found" }, 404);
+
+  let asset: any, sub: any;
+  try {
+    asset = await koboJson(cfg, `/api/v2/assets/${form.asset_uid}/?format=json`);
+    sub = await koboJson(cfg, `/api/v2/assets/${form.asset_uid}/data/?format=json&limit=30000`);
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 502);
+  }
+
+  const rows: Record<string, unknown>[] = sub.results ?? [];
+  const content = asset.content ?? {};
+  const surveyDef: any[] = content.survey ?? [];
+
+  // choice-list name -> [{ name, label }]
+  const lists: Record<string, { name: string; label: string }[]> = {};
+  for (const ch of content.choices ?? []) {
+    const list = ch.list_name;
+    if (!list) continue;
+    (lists[list] ||= []).push({ name: String(ch.name), label: koboLabel(ch.label, String(ch.name)) });
+  }
+
+  const questions: any[] = [];
+
+  // Synthetic: submissions per field officer (from the prefilled officer_ref).
+  if (rows.length) {
+    const perOfficer: Record<string, number> = {};
+    for (const r of rows) {
+      const ref = pickOfficerRef(r, cfg.officer_field);
+      const key = ref || " unlinked";
+      perOfficer[key] = (perOfficer[key] ?? 0) + 1;
+    }
+    const ids = Object.keys(perOfficer).filter((k) => k !== " unlinked");
+    let names: Record<string, string> = {};
+    if (ids.length) {
+      const { data: profs } = await admin.from("profiles").select("id, full_name").in("id", ids);
+      names = Object.fromEntries((profs ?? []).map((p) => [p.id, p.full_name || "Unnamed officer"]));
+    }
+    questions.push({
+      name: "_officer", label: "Submissions by field officer", type: "meta", chart: "bar",
+      answered: rows.length,
+      data: Object.entries(perOfficer)
+        .map(([k, v]) => ({ label: k === " unlinked" ? "(unlinked)" : (names[k] || "Unknown officer"), value: v }))
+        .sort((a, b) => b.value - a.value),
+    });
+  }
+
+  for (const q of surveyDef) {
+    let type = String(q.type ?? "");
+    if (!type || KOBO_SKIP_TYPES.has(type)) continue;
+    let listName: string | undefined = q.select_from_list_name;
+    if (type.startsWith("select_one ")) { listName = type.slice(11); type = "select_one"; }
+    else if (type.startsWith("select_multiple ")) { listName = type.slice(16); type = "select_multiple"; }
+
+    const name = String(q.name ?? q.$autoname ?? "");
+    if (!name || name === cfg.officer_field) continue;
+    const label = koboLabel(q.label, name);
+    const raw = rows.map((r) => rowValue(r, name));
+    const answered = raw.filter((v) => v !== undefined && v !== null && String(v).trim() !== "");
+
+    if (type === "select_one" || type === "select_multiple") {
+      const opts = lists[listName ?? ""] ?? [];
+      const counts: Record<string, number> = {};
+      for (const o of opts) counts[o.name] = 0;
+      let other = 0;
+      for (const v of answered) {
+        const toks = type === "select_multiple" ? String(v).split(/\s+/).filter(Boolean) : [String(v)];
+        for (const t of toks) {
+          if (t in counts) counts[t]++;
+          else other++;
+        }
+      }
+      const data = opts.map((o) => ({ label: o.label, value: counts[o.name] }));
+      if (other) data.push({ label: "Other", value: other });
+      questions.push({
+        name, label, type, answered: answered.length,
+        chart: type === "select_one" && opts.length > 0 && opts.length <= 6 ? "donut" : "bar",
+        data,
+      });
+    } else if (type === "integer" || type === "decimal" || type === "range") {
+      const nums = answered.map(Number).filter((n) => Number.isFinite(n));
+      let data: unknown = null;
+      if (nums.length) {
+        let min = Infinity, max = -Infinity, sum = 0;
+        for (const n of nums) { if (n < min) min = n; if (n > max) max = n; sum += n; }
+        const buckets = Math.min(8, Math.max(1, new Set(nums).size));
+        const step = (max - min) / buckets || 1;
+        const hist = Array.from({ length: buckets }, (_, i) => ({
+          label: step >= 1
+            ? `${Math.round(min + i * step)}–${Math.round(min + (i + 1) * step)}`
+            : `${(min + i * step).toFixed(1)}`,
+          value: 0,
+        }));
+        for (const n of nums) {
+          let idx = Math.floor((n - min) / step);
+          if (idx < 0) idx = 0;
+          if (idx >= buckets) idx = buckets - 1;
+          hist[idx].value++;
+        }
+        data = {
+          count: nums.length,
+          mean: Math.round((sum / nums.length) * 100) / 100,
+          min, max, histogram: hist,
+        };
+      }
+      questions.push({ name, label, type, answered: answered.length, chart: "number", data });
+    } else {
+      // text / date / time / datetime / geopoint / etc. -> recent answers
+      const withTime = rows
+        .map((r) => ({ v: rowValue(r, name), t: String(r._submission_time ?? "") }))
+        .filter((x) => x.v !== undefined && x.v !== null && String(x.v).trim() !== "");
+      withTime.sort((a, b) => b.t.localeCompare(a.t));
+      questions.push({
+        name, label, type, answered: withTime.length, chart: "list",
+        data: withTime.slice(0, 50).map((x) => String(x.v)),
+      });
+    }
+  }
+
+  const times = rows.map((r) => String(r._submission_time ?? "")).filter(Boolean).sort();
+  return c.json({
+    id: form.id,
+    title: form.title,
+    submissionCount: rows.length,
+    lastSubmission: times.length ? times[times.length - 1] : null,
+    questions,
+  });
 });
 
 // ---- KoboToolbox: field-officer surveys ----

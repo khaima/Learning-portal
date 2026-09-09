@@ -9,7 +9,7 @@ import {
   getLibrary, addLibraryItem, getForms, addForm, getResponses, getStats,
   uploadLibraryFiles, libraryFilesHtml,
   koboConfig, saveKoboConfig, koboAssets, koboForms, attachKoboForm,
-  removeKoboForm, syncKobo,
+  removeKoboForm, syncKobo, koboResults,
 } from "./store.js";
 
 const AUDIENCE_LABEL = Object.fromEntries(FORM_AUDIENCES.map((a) => [a.value, a.label]));
@@ -317,7 +317,7 @@ async function main() {
     $("#kb_field").value = koboState.officerField || "officer_ref";
     $("#koboFieldEcho").textContent = koboState.officerField || "officer_ref";
 
-    if (!koboState.configured) { showKoboConnect(); return; }
+    if (!koboState.configured) { showKoboConnect(); refreshSurveyPicker(); return; }
 
     koboConnectForm.hidden = true;
     koboManage.hidden = false;
@@ -327,6 +327,7 @@ async function main() {
 
     renderKoboAssets();
     renderKoboForms();
+    refreshSurveyPicker();
   }
 
   async function renderKoboAssets() {
@@ -369,6 +370,7 @@ async function main() {
       try {
         await removeKoboForm(btn.dataset.koboRemove);
         renderKoboForms();
+        refreshSurveyPicker();
       } catch (err) {
         toast("Couldn't remove it", err?.message || "", "error");
         btn.disabled = false;
@@ -410,6 +412,7 @@ async function main() {
       await attachKoboForm(uid);
       koboAssetSel.value = "";
       renderKoboForms();
+      refreshSurveyPicker();
     } catch (err) {
       toast("Couldn't attach that survey", err?.message || "", "error");
     } finally {
@@ -424,12 +427,183 @@ async function main() {
       const { matched } = await syncKobo();
       toast("Synced with KoboToolbox", `${matched} officer submission(s) matched.`);
       renderKoboForms();
+      refreshSurveyPicker();
     } catch (err) {
       toast("Sync failed", err?.message || "", "error");
     } finally {
       koboSyncBtn.disabled = false;
       koboSyncBtn.textContent = "Sync now";
     }
+  });
+
+  /* ------------------------------------------------------------ survey results (live charts)
+     Picks one attached Kobo survey and draws a chart per question from
+     its live submissions — the API pulls the schema + data from Kobo and
+     tallies each answer. Re-runs on survey change, on Refresh, when the
+     tab regains focus, and every 45s while the tab is visible. */
+  const srPicker = $("#srPicker");
+  const srBody = $("#srBody");
+  const srMeta = $("#srMeta");
+  const srRefresh = $("#srRefresh");
+  let srCurrent = "";
+  let srBusy = false;
+  let srTimer = null;
+
+  function srIdle(message) {
+    srPicker.innerHTML = "";
+    $("#srPickerField").hidden = true;
+    srRefresh.hidden = true;
+    srMeta.textContent = "";
+    srBody.innerHTML = `<div class="empty-state">${message}</div>`;
+    srCurrent = "";
+    stopSrPolling();
+  }
+
+  async function refreshSurveyPicker() {
+    if (!koboState.configured) {
+      srIdle("Connect KoboToolbox to see survey results.");
+      return;
+    }
+    let forms = [];
+    try { forms = await koboForms(); } catch { /* shown as empty */ }
+    if (!forms.length) {
+      srIdle("Attach a survey above to see its results here.");
+      return;
+    }
+    $("#srPickerField").hidden = forms.length === 1;
+    srRefresh.hidden = false;
+    const prev = srCurrent;
+    srPicker.innerHTML = forms
+      .map((f) => `<option value="${esc(f.id)}">${esc(f.title)} — ${f.submissionCount} submission${f.submissionCount === 1 ? "" : "s"}</option>`)
+      .join("");
+    srCurrent = forms.some((f) => f.id === prev) ? prev : forms[0].id;
+    srPicker.value = srCurrent;
+    srBody.dataset.for = "";
+    loadSurveyResults();
+    startSrPolling();
+  }
+
+  async function loadSurveyResults() {
+    if (!srCurrent || srBusy) return;
+    srBusy = true;
+    const wanted = srCurrent;
+    const firstView = srBody.dataset.for !== wanted;
+    if (firstView) srBody.innerHTML = `<div class="empty-state">Loading…</div>`;
+    try {
+      const res = await koboResults(wanted);
+      if (res.id !== srCurrent) return; // survey switched mid-flight
+      srBody.dataset.for = srCurrent;
+      renderSurveyResults(res);
+    } catch (err) {
+      if (firstView) srBody.innerHTML = `<div class="empty-state">${esc(err?.message || "Couldn't load results.")}</div>`;
+    } finally {
+      srBusy = false;
+    }
+  }
+
+  function renderSurveyResults(res) {
+    const bits = [];
+    if (res.submissionCount) bits.push(`${res.submissionCount} submission${res.submissionCount === 1 ? "" : "s"}`);
+    if (res.lastSubmission) bits.push(`last ${new Date(res.lastSubmission).toLocaleString()}`);
+    bits.push(`updated ${new Date().toLocaleTimeString()}`);
+    srMeta.textContent = bits.join(" · ");
+
+    if (!res.submissionCount) {
+      srBody.innerHTML = `<div class="empty-state">No submissions yet for “${esc(res.title)}”.</div>`;
+      return;
+    }
+    if (!res.questions.length) {
+      srBody.innerHTML = `<div class="empty-state">This survey has no chartable questions.</div>`;
+      return;
+    }
+    srBody.innerHTML = `<div class="chart-grid">${res.questions.map(chartCard).join("")}</div>`;
+  }
+
+  const sumOf = (data) => (data || []).reduce((s, d) => s + (d.value || 0), 0);
+  const miniEmpty = () => `<div class="chart-empty">No answers yet</div>`;
+
+  function chartCard(q) {
+    let body;
+    if (q.chart === "list") {
+      body = q.data.length
+        ? `<div class="chart-list">${q.data.map((a) => `<div class="chart-list-row">${esc(a)}</div>`).join("")}</div>`
+        : miniEmpty();
+    } else if (q.chart === "number") {
+      body = q.data
+        ? `<div class="chart-stats">
+             <div><b>${q.data.count}</b><span>responses</span></div>
+             <div><b>${q.data.mean}</b><span>average</span></div>
+             <div><b>${q.data.min}</b><span>lowest</span></div>
+             <div><b>${q.data.max}</b><span>highest</span></div>
+           </div>${barChart(q.data.histogram)}`
+        : miniEmpty();
+    } else if (q.chart === "donut") {
+      body = sumOf(q.data)
+        ? `<div class="chart-donut-wrap">${donutChart(q.data)}${legend(q.data)}</div>`
+        : miniEmpty();
+    } else {
+      body = sumOf(q.data) ? barChart(q.data) : miniEmpty();
+    }
+    return `<div class="chart-card">
+      <div class="chart-card-head"><b>${esc(q.label)}</b><span>${q.answered} answered</span></div>
+      ${body}
+    </div>`;
+  }
+
+  function barChart(data) {
+    const rows = data || [];
+    const max = Math.max(1, ...rows.map((d) => d.value || 0));
+    return `<div class="bar-chart">${rows.map((d) => `
+      <div class="bar-row">
+        <span class="bar-label" title="${esc(d.label)}">${esc(d.label)}</span>
+        <span class="bar-track"><span class="bar-fill" style="width:${((d.value || 0) / max) * 100}%"></span></span>
+        <span class="bar-num">${d.value || 0}</span>
+      </div>`).join("")}</div>`;
+  }
+
+  function donutChart(data) {
+    const rows = (data || []).filter((d) => d.value > 0);
+    const total = sumOf(rows) || 1;
+    let acc = 0;
+    const segs = rows.map((d, i) => {
+      const pct = (d.value / total) * 100;
+      const seg = `<circle class="donut-seg" r="15.915" cx="21" cy="21" fill="none"
+        stroke="var(--chart-${(i % 6) + 1})" stroke-width="6" pathLength="100"
+        stroke-dasharray="${pct.toFixed(2)} ${(100 - pct).toFixed(2)}"
+        stroke-dashoffset="${(-acc).toFixed(2)}"></circle>`;
+      acc += pct;
+      return seg;
+    }).join("");
+    return `<svg class="donut" viewBox="0 0 42 42" role="img" aria-label="Response breakdown">
+      <circle r="15.915" cx="21" cy="21" fill="none" stroke="var(--line)" stroke-width="6"></circle>
+      ${segs}
+      <text x="21" y="21" class="donut-total">${total}</text>
+    </svg>`;
+  }
+
+  function legend(data) {
+    return `<div class="chart-legend">${(data || []).filter((d) => d.value > 0).map((d, i) =>
+      `<span><i style="background:var(--chart-${(i % 6) + 1})"></i>${esc(d.label)} · ${d.value}</span>`).join("")}</div>`;
+  }
+
+  function startSrPolling() {
+    stopSrPolling();
+    srTimer = setInterval(() => {
+      if (document.visibilityState === "visible" && srCurrent) loadSurveyResults();
+    }, 45000);
+  }
+  function stopSrPolling() {
+    if (srTimer) { clearInterval(srTimer); srTimer = null; }
+  }
+
+  srPicker.addEventListener("change", () => {
+    srCurrent = srPicker.value;
+    srBody.dataset.for = "";
+    loadSurveyResults();
+  });
+  srRefresh.addEventListener("click", loadSurveyResults);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && srCurrent) loadSurveyResults();
   });
 
   renderStats();

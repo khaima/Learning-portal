@@ -14,6 +14,8 @@
   --success:#3E9C6E; --success-soft:#E1F3EA;
   --danger:#D64545; --danger-soft:#FBE4E2;
   --focus:#1E4C8A;
+  --chart-1:#1E4C8A; --chart-2:#D97A34; --chart-3:#3E9C6E;
+  --chart-4:#8A5CB0; --chart-5:#C6534E; --chart-6:#2E8FA8;
   /* Fixed brand-identity tokens: the logo mark, hero/sidebar panels and
      solid buttons keep one brand look regardless of theme (the same
      reason a real logo never recolors itself) — never redefined below. */
@@ -33,6 +35,8 @@
     --success:#5FC28C; --success-soft:#123527;
     --danger:#F0797A; --danger-soft:#3B1C1E;
     --focus:#8FB4E3;
+    --chart-1:#8FB4E3; --chart-2:#F0B27E; --chart-3:#5FC28C;
+    --chart-4:#BFA0DC; --chart-5:#F0797A; --chart-6:#79C6D8;
     color-scheme: dark;
   }
 }
@@ -45,6 +49,8 @@
   --success:#5FC28C; --success-soft:#123527;
   --danger:#F0797A; --danger-soft:#3B1C1E;
   --focus:#8FB4E3;
+  --chart-1:#8FB4E3; --chart-2:#F0B27E; --chart-3:#5FC28C;
+  --chart-4:#BFA0DC; --chart-5:#F0797A; --chart-6:#79C6D8;
   color-scheme: dark;
 }
 
@@ -378,3 +384,55 @@ a{ color:inherit; }
   background:var(--accent); color:#fff; border-radius:999px; padding:.4rem .9rem;
 }
 .kobo-open:hover{ background:var(--accent-hover); }
+
+/* ---- survey results (live charts) ---- */
+.chart-meta{ font-size:.78rem; color:var(--ink-soft); margin:0 0 .9rem; }
+.chart-grid{
+  display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:1rem;
+}
+.chart-card{
+  border:1px solid var(--line); border-radius:var(--radius-md);
+  padding:.9rem 1rem; background:var(--paper-raised); min-width:0;
+}
+.chart-card-head{
+  display:flex; align-items:baseline; justify-content:space-between; gap:.6rem; margin-bottom:.7rem;
+}
+.chart-card-head b{ font-size:.86rem; line-height:1.3; }
+.chart-card-head span{ font-size:.72rem; color:var(--ink-soft); flex:none; }
+.chart-empty{ font-size:.8rem; color:var(--ink-soft); padding:.4rem 0; }
+
+.bar-chart{ display:flex; flex-direction:column; gap:.45rem; }
+.bar-row{ display:grid; grid-template-columns:38% 1fr auto; align-items:center; gap:.5rem; padding:0; border:0; }
+.bar-label{
+  font-size:.76rem; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.bar-track{ height:9px; border-radius:999px; background:var(--paper-sunk); overflow:hidden; }
+.bar-fill{ display:block; height:100%; border-radius:999px; background:var(--chart-1); min-width:2px; }
+.bar-num{ font-size:.76rem; font-weight:700; color:var(--ink-soft); }
+
+.chart-stats{
+  display:grid; grid-template-columns:repeat(4,1fr); gap:.4rem; margin-bottom:.8rem;
+}
+.chart-stats div{
+  text-align:center; background:var(--paper-sunk); border-radius:var(--radius-sm); padding:.4rem .2rem;
+}
+.chart-stats b{ display:block; font-family:"Baloo 2",sans-serif; font-size:1.05rem; color:var(--brand-fg); }
+.chart-stats span{ font-size:.62rem; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.03em; }
+
+.chart-donut-wrap{ display:flex; align-items:center; gap:1rem; flex-wrap:wrap; }
+.donut{ width:104px; height:104px; flex:none; transform:rotate(-90deg); }
+.donut-seg{ transition:stroke-dasharray .4s ease; }
+.donut-total{
+  transform:rotate(90deg); transform-origin:21px 21px; text-anchor:middle;
+  dominant-baseline:central; font-family:"Baloo 2",sans-serif; font-size:9px; font-weight:700; fill:var(--ink);
+}
+.chart-legend{ display:flex; flex-direction:column; gap:.3rem; font-size:.76rem; color:var(--ink); min-width:0; }
+.chart-legend span{ display:flex; align-items:center; gap:.4rem; }
+.chart-legend i{ width:10px; height:10px; border-radius:3px; flex:none; }
+
+.chart-list{ max-height:220px; overflow-y:auto; display:flex; flex-direction:column; gap:.35rem; }
+.chart-list-row{
+  font-size:.8rem; color:var(--ink); background:var(--paper-sunk);
+  border-radius:8px; padding:.35rem .55rem; word-break:break-word;
+}
+@media (prefers-reduced-motion: reduce){ .donut-seg{ transition:none; } }

@@ -22,6 +22,7 @@ const HEADING_MATCH = {
   "field visits": ["recent field visits", "field visits"],
   "field reports": ["field report", "recent field reports", "new field report"],
   "field surveys": ["field surveys"],
+  "survey results": ["survey results"],
 };
 /* fallbacks for sections whose heading is dynamic or absent */
 const SELECTOR_FALLBACK = {

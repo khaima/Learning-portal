@@ -225,6 +225,13 @@ export async function markKoboSubmitted(id) {
   return apiSend("POST", `/kobo/my-surveys/${id}/submitted`);
 }
 
+/* Education Team: aggregated results for one attached survey — the API
+   pulls submissions + the form schema from KoboToolbox and tallies each
+   question into chart-ready data. */
+export async function koboResults(id) {
+  return apiGet(`/kobo/forms/${id}/results`);
+}
+
 /* ---------------------------------------------------------------- learner roster (teacher) */
 
 export async function getLearners() {

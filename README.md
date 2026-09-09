@@ -63,6 +63,13 @@ The Education Team's dashboard has a **Field surveys (KoboToolbox)** panel:
 - Submissions are detected automatically (on the officer's dashboard load
   and the Education Team's **Sync now**); officers also have a manual
   "I've submitted this" fallback.
+- **Survey results** — a panel on the Education Team dashboard picks one
+  attached survey and draws a live chart per question (bar / donut /
+  number summary / recent-answers list, plus a submissions-by-officer
+  breakdown) straight from the KoboToolbox submissions. It re-reads on
+  survey change, on **Refresh**, when the tab regains focus, and every
+  45 seconds while the tab is open. Answers are never stored in the
+  portal database — they are fetched from Kobo each time.
 
 ## The backend
 
