@@ -1,14 +1,40 @@
 import { $, $$ } from "./util.js";
-import { supabase } from "./supabase.js";
+import { supabase, setRememberMe, getRememberMe } from "./supabase.js";
 import {
-  DASHBOARD_PATH, registerStaff, signInWithPassword, learnerLogin,
-  getProfile, createProfile, signOut,
+  DASHBOARD_PATH, registerStaff, signInWithPassword, signInWithGoogle,
+  learnerLogin, getProfile, createProfile, signOut,
 } from "./auth.js";
 import { learnerToken } from "./api.js";
 import { ROLES } from "./data.js";
 
 const ROLE_LABEL = Object.fromEntries(ROLES.map((r) => [r.value, r.label]));
 const PENDING_ROLE_KEY = "hpf_pending_role";
+
+/* "Remember me": besides where the session token lives (supabase.js),
+   remember the last email/username used per role so a returning,
+   remembered visitor doesn't have to retype it. Never stores a password
+   or PIN. Cleared the moment someone signs in with the box unchecked. */
+const LAST_STAFF_KEY = "hpf_last_staff_login";
+const LAST_LEARNER_KEY = "hpf_last_learner_username";
+
+function loadLastStaffLogin() {
+  try { return JSON.parse(localStorage.getItem(LAST_STAFF_KEY) || "null"); } catch { return null; }
+}
+function saveLastStaffLogin(role, email) {
+  try { localStorage.setItem(LAST_STAFF_KEY, JSON.stringify({ role, email })); } catch { /* ignore */ }
+}
+function clearLastStaffLogin() {
+  try { localStorage.removeItem(LAST_STAFF_KEY); } catch { /* ignore */ }
+}
+function loadLastLearnerUsername() {
+  try { return localStorage.getItem(LAST_LEARNER_KEY) || ""; } catch { return ""; }
+}
+function saveLastLearnerUsername(username) {
+  try { localStorage.setItem(LAST_LEARNER_KEY, username); } catch { /* ignore */ }
+}
+function clearLastLearnerUsername() {
+  try { localStorage.removeItem(LAST_LEARNER_KEY); } catch { /* ignore */ }
+}
 
 const steps = {
   loading: $("#stepLoading"),
@@ -33,6 +59,21 @@ function goToDashboard(role) {
   location.href = DASHBOARD_PATH[role] || "index.html";
 }
 
+/* Exchange the ?code= Google leaves in the URL for a session (we run
+   with detectSessionInUrl:false so this doesn't happen automatically).
+   No-op for a plain visit or the password/learner flows. */
+async function consumeOAuthRedirect() {
+  const params = new URLSearchParams(location.search);
+  const code = params.get("code");
+  if (code || params.has("error")) history.replaceState({}, "", location.pathname);
+  if (!code) return;
+  try {
+    await supabase.auth.exchangeCodeForSession(code);
+  } catch (err) {
+    console.warn("Google sign-in failed:", err?.message);
+  }
+}
+
 /* ---- decide which step to show on load ---- */
 async function route() {
   const hasLearner = !!learnerToken();
@@ -42,11 +83,13 @@ async function route() {
   }
   const profile = await getProfile({ force: true });
   if (profile && !profile.needsOnboarding) {
+    if (profile.email && getRememberMe()) saveLastStaffLogin(profile.role, profile.email);
     goToDashboard(profile.role);
     return;
   }
   if (hasLearner) { show("role"); return; } // stale learner token, cleared by getProfile
-  // Staff signed in but not onboarded yet.
+  // Staff signed in but not onboarded yet (first Google sign-in lands here too).
+  if (profile?.email && getRememberMe()) saveLastStaffLogin(pendingRole(), profile.email);
   $("#onboardEmail").textContent = profile?.email || "you";
   setOnboardRole(pendingRole());
   show("onboard");
@@ -58,6 +101,7 @@ $$("#loginRoleGrid .role-card").forEach((card) =>
     const role = card.dataset.role;
     if (role === "learner") {
       $("#learnerError").hidden = true;
+      $("#ln_user").value = loadLastLearnerUsername();
       show("learner");
       $("#ln_user").focus();
       return;
@@ -65,6 +109,8 @@ $$("#loginRoleGrid .role-card").forEach((card) =>
     setPendingRole(role);
     $("#pwRoleLabel").textContent = ROLE_LABEL[role] || role;
     setPwMode(false);
+    const last = loadLastStaffLogin();
+    $("#pw_email").value = last && last.role === role ? last.email : "";
     show("password");
     $("#pw_email").focus();
   })
@@ -79,10 +125,13 @@ const learnerError = $("#learnerError");
 learnerForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   learnerError.hidden = true;
+  const username = $("#ln_user").value.trim().toLowerCase();
+  const remember = $("#ln_remember").checked;
+  setRememberMe(remember);
   const btn = learnerForm.querySelector("[type=submit]");
   btn.disabled = true;
   btn.textContent = "Signing in…";
-  const res = await learnerLogin($("#ln_user").value, $("#ln_pin").value);
+  const res = await learnerLogin(username, $("#ln_pin").value);
   btn.disabled = false;
   btn.textContent = "Sign in";
   if (res.error) {
@@ -91,6 +140,8 @@ learnerForm.addEventListener("submit", async (e) => {
     $("#ln_pin").value = "";
     return;
   }
+  if (remember) saveLastLearnerUsername(username);
+  else clearLastLearnerUsername();
   location.href = "learner.html";
 });
 
@@ -120,6 +171,8 @@ passwordForm.addEventListener("submit", async (e) => {
   pwError.hidden = true;
   const email = $("#pw_email").value.trim();
   const password = $("#pw_pass").value;
+  const remember = $("#pw_remember").checked;
+  setRememberMe(remember);
   const btn = $("#pwSubmit");
   btn.disabled = true;
   btn.textContent = pwSignupMode ? "Creating…" : "Signing in…";
@@ -142,11 +195,25 @@ passwordForm.addEventListener("submit", async (e) => {
       pwError.hidden = false;
       return;
     }
+    if (remember) saveLastStaffLogin(pendingRole(), email);
+    else clearLastStaffLogin();
     show("loading");
     route();
   } finally {
     btn.disabled = false;
     btn.textContent = pwSignupMode ? "Create account" : "Sign in";
+  }
+});
+
+// ---- staff step 2: Google ----
+$("#googleBtn").addEventListener("click", async () => {
+  pwError.hidden = true;
+  setRememberMe($("#pw_remember").checked);
+  try {
+    await signInWithGoogle();
+  } catch (err) {
+    pwError.textContent = err?.message || "Couldn't start Google sign-in.";
+    pwError.hidden = false;
   }
 });
 
@@ -189,4 +256,7 @@ $("#onboardSignOut").addEventListener("click", async () => {
   show("role");
 });
 
-route();
+(async () => {
+  await consumeOAuthRedirect();
+  route();
+})();

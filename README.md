@@ -78,14 +78,25 @@ Three parts, all in the project's own dedicated Supabase project
 from `HPF-digital-portal-2026`:
 
 1. **Auth** — two paths, **no email is ever sent**:
-   - **Staff** (teacher / school head / field officer / education team) use
-     an **email + password**. The API creates the account
-     already-confirmed, so sign-in is a plain Supabase Auth password
-     check. (Trade-off: no email means no self-service password reset.)
+   - **Staff** (teacher / school head / field officer / education team) sign
+     in with an **email + password**, or **Continue with Google**. The API
+     creates password accounts already-confirmed, so sign-in is a plain
+     Supabase Auth check (no self-service password reset, since no email is
+     sent). Google sign-in uses Supabase's own OAuth — first time through it
+     lands in the same onboarding step as a password sign-up (role + name);
+     after that it's a one-click return.
    - **Learners** use a **username + 4-digit PIN**. Their teacher creates
      the account from the teacher dashboard; the API verifies the PIN
      (scrypt-hashed, locks after 5 wrong tries) and issues its own session
      token.
+   - **Remember me** — every sign-in form (password, learner PIN) has a
+     "Remember me on this device" checkbox, checked by default. Checked, the
+     session/token is kept in `localStorage` (survives closing the browser)
+     and the last email/username used is remembered so the field is
+     pre-filled next time. Unchecked, it goes in `sessionStorage` instead —
+     gone the moment the tab or browser closes — and nothing is
+     remembered for next time. No password or PIN is ever stored, only the
+     identifier.
 2. **API** — one Edge Function, [`supabase/functions/api`](supabase/functions/api/index.ts)
    (Deno + Hono). Every read and write goes through it. It verifies the
    caller's JWT, loads their role from the `profiles` table (never trusts
@@ -103,6 +114,26 @@ only reach Supabase Auth, and the database ignores it entirely.
 See [`supabase-schema.sql`](supabase-schema.sql) for the full schema and
 the lock-down. Apply it to a fresh project, deploy the `api` function,
 point `config.js` at the new project, and the app works unmodified.
+
+### Turning on Google sign-in
+
+The **Continue with Google** button is already wired up on the frontend —
+it fails gracefully ("Google sign-in isn't set up yet") until three
+one-time, manual steps are done in the Google and Supabase dashboards
+(no code or MCP tool does this part):
+
+1. **Google Cloud Console** → APIs & Services → Credentials → Create
+   Credentials → OAuth client ID → Web application. Add this Authorized
+   redirect URI:
+   `https://fwpqytrdlmxymvegvgji.supabase.co/auth/v1/callback`
+2. **Supabase Dashboard** → Authentication → Sign In / Providers →
+   Google → enable it, paste the Client ID and Client Secret from step 1.
+3. **Supabase Dashboard** → Authentication → URL Configuration → set
+   Site URL to `https://khaima.github.io/Learning-portal/` and add it
+   (plus `http://localhost:*` for local dev) to Additional Redirect URLs.
+
+Once enabled, no frontend change is needed — the button starts working
+immediately for both new sign-ups and returning accounts.
 
 ## The content → form → feedback loop
 
@@ -171,7 +202,7 @@ used).
 | `leader.html` / `leader.js` | Head-of-institution dashboard |
 | `field.html` / `field.js` | Field Officer dashboard (county → school → visit report) |
 | `education.html` / `education.js` | Education Team dashboard (upload, form builder, results, stats) |
-| `supabase.js` | The Supabase Auth client — used only for staff email + password sign-in |
+| `supabase.js` | The Supabase Auth client (password + Google) and the "remember me" storage adapter |
 | `api.js` | Thin fetch wrapper over the `api` Edge Function; attaches the JWT |
 | `auth.js` | Sessions, the profile, `requireRole` for each dashboard |
 | `store.js` | Every data call — library, forms, responses, assignments, reports, stats |

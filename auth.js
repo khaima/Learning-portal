@@ -16,6 +16,7 @@
 
 import { supabase } from "./supabase.js";
 import { ApiError, rawRequest, learnerToken, setLearnerToken } from "./api.js";
+import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./config.js";
 
 export const DASHBOARD_PATH = {
   teacher: "teacher.html",
@@ -53,6 +54,39 @@ export async function signInWithPassword(email, password) {
     return { error: msg };
   }
   return { ok: true, session: data.session };
+}
+
+/** Whether Google is turned on in Supabase Auth — a public,
+    unauthenticated GoTrue endpoint. Checked before redirecting so an
+    unconfigured provider fails nicely on this page instead of sending
+    the visitor to a raw JSON error at supabase.co (signInWithOAuth
+    redirects immediately; it doesn't pre-validate). */
+async function googleProviderEnabled() {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/settings`, {
+      headers: { apikey: SUPABASE_PUBLISHABLE_KEY },
+    });
+    if (!res.ok) return true; // fail open — let Supabase be the source of truth
+    const settings = await res.json();
+    return !!settings?.external?.google;
+  } catch {
+    return true; // a network hiccup here shouldn't block a real attempt
+  }
+}
+
+/** Start a Google sign-in/sign-up. Redirects the whole page to Google.
+    On return, index.js finishes the flow (exchangeCodeForSession) and
+    routes as usual: a first-time Google account lands in onboarding, a
+    returning one goes straight to its dashboard. */
+export async function signInWithGoogle() {
+  if (!(await googleProviderEnabled())) {
+    throw new Error("Google sign-in isn't set up yet — use email and password instead.");
+  }
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: { redirectTo: window.location.origin + window.location.pathname },
+  });
+  if (error) throw error;
 }
 
 /* ---- learners: username + PIN ---- */

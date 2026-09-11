@@ -8,18 +8,19 @@
    ============================================================ */
 
 import { API_BASE } from "./config.js";
-import { supabase, accessToken } from "./supabase.js";
+import { supabase, accessToken, rememberableStorage } from "./supabase.js";
 
 export const LEARNER_TOKEN_KEY = "hpf_learner_token";
 
+/* Same "remember me" storage as the staff session (see supabase.js) —
+   set setRememberMe() before learnerLogin() so the token lands in the
+   right place. */
 export function learnerToken() {
-  try { return localStorage.getItem(LEARNER_TOKEN_KEY); } catch { return null; }
+  return rememberableStorage.getItem(LEARNER_TOKEN_KEY);
 }
 export function setLearnerToken(token) {
-  try {
-    if (token) localStorage.setItem(LEARNER_TOKEN_KEY, token);
-    else localStorage.removeItem(LEARNER_TOKEN_KEY);
-  } catch { /* ignore */ }
+  if (token) rememberableStorage.setItem(LEARNER_TOKEN_KEY, token);
+  else rememberableStorage.removeItem(LEARNER_TOKEN_KEY);
 }
 
 export class ApiError extends Error {
