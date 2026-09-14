@@ -17,10 +17,10 @@
         <span class="wordmark-text"><b>Human Practice</b><span>Digital Learning Portal</span></span>
       </a>
       <nav class="side-nav">
-        <a class="side-link active"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Dashboard</a>
-        <a class="side-link"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/></svg>Classes</a>
-        <a class="side-link"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>Termly Returns</a>
-        <a class="side-link"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s7-6.1 7-11.5A7 7 0 0 0 5 9.5C5 14.9 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg>Field Visits</a>
+        <a class="side-link" data-page="dashboard"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Dashboard</a>
+        <a class="side-link" data-page="classes"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/></svg>Classes</a>
+        <a class="side-link" data-page="termly-returns"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>Termly Returns</a>
+        <a class="side-link" data-page="field-visits"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s7-6.1 7-11.5A7 7 0 0 0 5 9.5C5 14.9 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg>Field Visits</a>
       </nav>
       <div class="side-user">
         <span class="side-avatar" id="sideAvatar">?</span>
@@ -42,39 +42,42 @@
         </div>
       </div>
 
-      <div class="stat-row" id="statRow"></div>
+      <section class="dash-page" data-page="dashboard">
+        <div class="stat-row" id="statRow"></div>
+      </section>
 
-      <div class="body-grid">
-        <div>
-          <div class="panel">
-            <div class="panel-head"><h2>Classes</h2></div>
-            <div id="classList"></div>
-          </div>
-          <div class="panel">
-            <div class="panel-head"><h2>Recent field visits</h2></div>
-            <div id="visitList"></div>
-          </div>
-          <div class="panel">
-            <div class="panel-head"><h2>Teacher Resources</h2></div>
-            <div id="resourceList"></div>
-          </div>
+      <section class="dash-page" data-page="classes" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Classes</h2></div>
+          <div id="classList"></div>
         </div>
+      </section>
 
-        <div>
-          <div class="panel">
-            <div class="panel-head"><h2>Termly returns</h2></div>
-            <div id="returnList"></div>
-          </div>
-          <div class="panel">
-            <div class="panel-head"><h2>Forms from the Education Team</h2></div>
-            <div id="formsList"></div>
-          </div>
-          <div class="panel">
-            <div class="panel-head"><h2>Digital Library</h2></div>
-            <div id="libraryList"></div>
-          </div>
+      <section class="dash-page" data-page="termly-returns" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Termly returns</h2></div>
+          <div id="returnList"></div>
         </div>
-      </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Forms from the Education Team</h2></div>
+          <div id="formsList"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Digital Library</h2></div>
+          <div id="libraryList"></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="field-visits" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Recent field visits</h2></div>
+          <div id="visitList"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Teacher Resources</h2></div>
+          <div id="resourceList"></div>
+        </div>
+      </section>
     </main>
   </div>
 
