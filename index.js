@@ -26,6 +26,21 @@ function saveLastStaffLogin(role, email) {
 function clearLastStaffLogin() {
   try { localStorage.removeItem(LAST_STAFF_KEY); } catch { /* ignore */ }
 }
+/* Ask the browser's own password manager to remember this login — what
+   actually makes it autofill email+password (or username+PIN) next time
+   instead of retyping it, on top of the "remember me" session/prefill
+   above. Chrome/Edge support the Credential Management API used here;
+   Safari/Firefox just don't have `PasswordCredential` and this quietly
+   no-ops there, same as any other site using this API. Only called when
+   "remember me" is checked, and always awaited before navigating away —
+   the browser needs a beat to store it. */
+async function offerToSaveCredential(id, password) {
+  if (typeof PasswordCredential === "undefined" || !navigator.credentials?.store) return;
+  try {
+    await navigator.credentials.store(new PasswordCredential({ id, password }));
+  } catch { /* not fatal — sign-in already succeeded either way */ }
+}
+
 function loadLastLearnerUsername() {
   try { return localStorage.getItem(LAST_LEARNER_KEY) || ""; } catch { return ""; }
 }
@@ -140,8 +155,12 @@ learnerForm.addEventListener("submit", async (e) => {
     $("#ln_pin").value = "";
     return;
   }
-  if (remember) saveLastLearnerUsername(username);
-  else clearLastLearnerUsername();
+  if (remember) {
+    saveLastLearnerUsername(username);
+    await offerToSaveCredential(username, $("#ln_pin").value);
+  } else {
+    clearLastLearnerUsername();
+  }
   location.href = "learner.html";
 });
 
@@ -195,8 +214,12 @@ passwordForm.addEventListener("submit", async (e) => {
       pwError.hidden = false;
       return;
     }
-    if (remember) saveLastStaffLogin(pendingRole(), email);
-    else clearLastStaffLogin();
+    if (remember) {
+      saveLastStaffLogin(pendingRole(), email);
+      await offerToSaveCredential(email, password);
+    } else {
+      clearLastStaffLogin();
+    }
     show("loading");
     route();
   } finally {
