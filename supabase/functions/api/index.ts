@@ -783,18 +783,35 @@ app.post("/field-reports", withProfile("field_officer"), async (c) => {
 
 // ---- education-team dashboard stats ----
 
+/** Count rows by a column, most-common first, blank/missing folded into "(not set)". */
+function tally(rows: Record<string, unknown>[], key: string): { label: string; value: number }[] {
+  const counts: Record<string, number> = {};
+  for (const r of rows) {
+    const label = String(r[key] ?? "").trim() || "(not set)";
+    counts[label] = (counts[label] ?? 0) + 1;
+  }
+  return Object.entries(counts)
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value);
+}
+
+const FORM_AUDIENCE_LABEL: Record<string, string> = {
+  teacher: "Teachers", school_leader: "School Leaders", field_officer: "Field Officers",
+};
+
 app.get("/stats", withProfile("education_team"), async (c) => {
-  const [profs, learners, asg, reports, forms, responses] = await Promise.all([
-    admin.from("profiles").select("role"),
-    admin.from("learners").select("id", { count: "exact", head: true }),
+  const [profs, learners, asg, reports, forms, responses, library] = await Promise.all([
+    admin.from("profiles").select("role, county"),
+    admin.from("learners").select("grade"),
     admin.from("assignments").select("done"),
-    admin.from("field_reports").select("id", { count: "exact", head: true }),
-    admin.from("forms").select("id"),
-    admin.from("responses").select("id", { count: "exact", head: true }),
+    admin.from("field_reports").select("county, visit_type"),
+    admin.from("forms").select("id, audience"),
+    admin.from("responses").select("form_id"),
+    admin.from("library_items").select("audience, subject"),
   ]);
   const byRole: Record<string, number> = {
     teacher: 0,
-    learner: learners.count ?? 0,
+    learner: (learners.data ?? []).length,
     school_leader: 0,
     field_officer: 0,
     education_team: 0,
@@ -803,14 +820,49 @@ app.get("/stats", withProfile("education_team"), async (c) => {
     if (p.role in byRole) byRole[p.role as string]++;
   }
   const assignments = asg.data ?? [];
+  const reportRows = reports.data ?? [];
+  const formRows = forms.data ?? [];
+  const libraryRows = library.data ?? [];
+
+  // Forms & feedback engagement: how many of each staff audience's forms
+  // have actually been answered, not just sent.
+  const formAudience: Record<string, string> = {};
+  const sentByAudience: Record<string, number> = {};
+  for (const f of formRows) {
+    formAudience[f.id as string] = f.audience as string;
+    sentByAudience[f.audience as string] = (sentByAudience[f.audience as string] ?? 0) + 1;
+  }
+  const respByAudience: Record<string, number> = {};
+  for (const r of responses.data ?? []) {
+    const aud = formAudience[r.form_id as string];
+    if (aud) respByAudience[aud] = (respByAudience[aud] ?? 0) + 1;
+  }
+  const formsEngagement = Object.keys(FORM_AUDIENCE_LABEL).map((k) => ({
+    label: FORM_AUDIENCE_LABEL[k], sent: sentByAudience[k] ?? 0, responses: respByAudience[k] ?? 0,
+  }));
+
+  // Content library: what the Education Team has actually put out, and to whom.
+  const libByDest = { "Teacher Resources": 0, "Digital Library": 0 };
+  for (const it of libraryRows) {
+    const dest = normalizeAudience(it.audience as string);
+    libByDest[dest === "staff" ? "Teacher Resources" : "Digital Library"]++;
+  }
+
   return c.json({
-    accounts: (profs.data ?? []).length + (learners.count ?? 0),
+    accounts: (profs.data ?? []).length + (learners.data ?? []).length,
     byRole,
     assignmentsTotal: assignments.length,
     assignmentsDone: assignments.filter((a) => a.done).length,
-    reportsFiled: reports.count ?? 0,
-    formsSent: (forms.data ?? []).length,
-    responsesReceived: responses.count ?? 0,
+    reportsFiled: reportRows.length,
+    formsSent: formRows.length,
+    responsesReceived: (responses.data ?? []).length,
+    // Impact breakdowns for the Overview charts.
+    learnersByGrade: tally(learners.data ?? [], "grade"),
+    fieldReportsByCounty: tally(reportRows, "county"),
+    fieldReportsByVisitType: tally(reportRows, "visit_type"),
+    libraryByDestination: Object.entries(libByDest).map(([label, value]) => ({ label, value })),
+    libraryBySubject: tally(libraryRows, "subject"),
+    formsEngagement,
   });
 });
 

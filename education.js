@@ -38,11 +38,13 @@ async function main() {
      changes these numbers on the next load, from any device. */
   async function renderStats() {
     $("#statRow").innerHTML = `<div class="empty-state">Loading…</div>`;
+    $("#impactBody").innerHTML = `<div class="empty-state">Loading…</div>`;
     let s;
     try {
       s = await getStats();
     } catch {
       $("#statRow").innerHTML = `<div class="empty-state">Couldn't load stats.</div>`;
+      $("#impactBody").innerHTML = `<div class="empty-state">Couldn't load impact data.</div>`;
       return;
     }
     const r = s.byRole || {};
@@ -56,6 +58,56 @@ async function main() {
       <div class="stat-tile"><div class="s-label">${svg(ICON.library)}Forms & responses</div><div class="s-num">${s.formsSent} / ${s.responsesReceived}</div>
         <div class="s-sub">sent / received</div></div>
     `;
+    renderImpact(s);
+  }
+
+  /* ------------------------------------------------------------ portal impact (Overview charts)
+     One chart per data source the portal actually collects, from all
+     four operational roles: teacher-created assignments (learner
+     completion), field officer visit reports (by type and county),
+     the forms/feedback loop each staff role engages with, the content
+     library the Education Team itself has built up, and the account mix
+     overall. All server-aggregated in /stats — reuses the same bar/donut/
+     legend renderers as Survey Results, defined further down this file. */
+  function renderImpact(s) {
+    const ROLE_LABELS = { teacher: "Teachers", learner: "Learners", school_leader: "School Leaders", field_officer: "Field Officers" };
+    const roleData = Object.entries(ROLE_LABELS).map(([k, label]) => ({ label, value: (s.byRole && s.byRole[k]) || 0 }));
+    const doneData = [
+      { label: "Completed", value: s.assignmentsDone || 0 },
+      { label: "Pending", value: Math.max(0, (s.assignmentsTotal || 0) - (s.assignmentsDone || 0)) },
+    ];
+    const eng = s.formsEngagement || [];
+    const sentData = eng.map((e) => ({ label: e.label, value: e.sent }));
+    const respData = eng.map((e) => ({ label: e.label, value: e.responses }));
+    const learnerTotal = (s.learnersByGrade || []).reduce((a, d) => a + d.value, 0);
+    const libraryTotal = (s.libraryByDestination || []).reduce((a, d) => a + d.value, 0);
+
+    const cards = [
+      impactCard("Accounts by role", `${s.accounts || 0} total · teachers, learners, leaders & field officers`,
+        sumOf(roleData) ? `<div class="chart-donut-wrap">${donutChart(roleData)}${legend(roleData)}</div>` : miniEmpty()),
+      impactCard("Assignment completion", `${s.assignmentsTotal || 0} assigned to learners`,
+        sumOf(doneData) ? `<div class="chart-donut-wrap">${donutChart(doneData)}${legend(doneData)}</div>` : miniEmpty()),
+      impactCard("Learners by grade", `${learnerTotal} learners`,
+        (s.learnersByGrade || []).length ? barChart(s.learnersByGrade) : miniEmpty()),
+      impactCard("Field visits by type", `${s.reportsFiled || 0} reports filed`,
+        (s.fieldReportsByVisitType || []).length ? barChart(s.fieldReportsByVisitType) : miniEmpty()),
+      impactCard("Field visits by county", `${s.reportsFiled || 0} reports filed`,
+        (s.fieldReportsByCounty || []).length ? barChart(s.fieldReportsByCounty) : miniEmpty()),
+      impactCard("Content library", `${libraryTotal} items uploaded`,
+        sumOf(s.libraryByDestination) ? `<div class="chart-donut-wrap">${donutChart(s.libraryByDestination)}${legend(s.libraryByDestination)}</div>` : miniEmpty()),
+      impactCard("Forms & feedback engagement", `${s.formsSent || 0} sent · ${s.responsesReceived || 0} responses`,
+        `<div class="chart-subhead">Sent</div>${sumOf(sentData) ? barChart(sentData) : miniEmpty()}<div class="chart-subhead">Responded</div>${sumOf(respData) ? barChart(respData) : miniEmpty()}`),
+    ];
+
+    $("#impactMeta").textContent = `updated ${new Date().toLocaleTimeString()}`;
+    $("#impactBody").innerHTML = `<div class="chart-grid">${cards.join("")}</div>`;
+  }
+
+  function impactCard(title, meta, body) {
+    return `<div class="chart-card">
+      <div class="chart-card-head"><b>${esc(title)}</b><span>${esc(meta)}</span></div>
+      ${body}
+    </div>`;
   }
 
   /* ------------------------------------------------------------ content library */

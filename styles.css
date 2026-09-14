@@ -451,4 +451,9 @@ a{ color:inherit; }
   font-size:.8rem; color:var(--ink); background:var(--paper-sunk);
   border-radius:8px; padding:.35rem .55rem; word-break:break-word;
 }
+.chart-subhead{
+  font-size:.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.03em;
+  color:var(--ink-soft); margin:.7rem 0 .35rem;
+}
+.chart-subhead:first-child{ margin-top:0; }
 @media (prefers-reduced-motion: reduce){ .donut-seg{ transition:none; } }
