@@ -247,6 +247,7 @@ function setOnboardRole(role) {
   selectedRole = role;
   roleCards.forEach((c) => c.setAttribute("aria-pressed", String(c.dataset.role === role)));
   $("#ob_grade_field").hidden = role !== "learner";
+  $("#ob_teacher_type_field").hidden = role !== "teacher";
 }
 roleCards.forEach((c) => c.addEventListener("click", () => setOnboardRole(c.dataset.role)));
 
@@ -265,6 +266,7 @@ onboardForm.addEventListener("submit", async (e) => {
       school: fd.get("school"),
       county: fd.get("county"),
       grade: fd.get("grade"),
+      teacherType: fd.get("teacherType"),
     });
     goToDashboard(profile.role);
   } catch (err) {

@@ -226,6 +226,13 @@
               <label for="ob_grade">Grade / class</label>
               <input id="ob_grade" name="grade" type="text" placeholder="e.g. Grade 5A">
             </div>
+            <div class="field" id="ob_teacher_type_field" hidden>
+              <label>Employment type <span style="color:var(--ink-soft);font-weight:500">— optional</span></label>
+              <div class="field-remember" style="gap:1.4rem">
+                <span class="field-remember"><input type="radio" name="teacherType" id="ob_tt_bom" value="BOM"><label for="ob_tt_bom">BOM</label></span>
+                <span class="field-remember"><input type="radio" name="teacherType" id="ob_tt_tsc" value="TSC"><label for="ob_tt_tsc">TSC</label></span>
+              </div>
+            </div>
             <div class="field-error" id="onboardError" hidden></div>
             <button class="btn btn-primary btn-block" type="submit">Continue to my dashboard</button>
           </form>

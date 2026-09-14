@@ -34,6 +34,10 @@ create table if not exists public.profiles (
   school text not null default '',
   county text not null default '',
   grade text not null default '',
+  -- Kenyan teacher employment type, self-declared at onboarding. Null for
+  -- non-teachers and for teachers who skipped it — the Portal impact
+  -- dashboard folds unset into "Not specified" rather than guessing.
+  teacher_type text check (teacher_type in ('BOM','TSC')),
   created_at timestamptz not null default now()
 );
 create index if not exists profiles_role_idx on public.profiles (role);

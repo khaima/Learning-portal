@@ -36,23 +36,26 @@ async function main() {
      they've produced (see the /stats route). A field report filed on the
      Field Officer dashboard, or an assignment marked done by a learner,
      changes these numbers on the next load, from any device. Optionally
-     scoped to one county — see renderImpact(). */
+     scoped to a county and/or a specific school — see renderImpact(). */
   let impactCounty = "";
+  let impactSchool = "";
+  let gpTopN = 0; // grade-performance ranking cap; 0 = show every grade
 
   async function renderStats() {
     $("#statRow").innerHTML = `<div class="empty-state">Loading…</div>`;
     $("#impactBody").innerHTML = `<div class="empty-state">Loading…</div>`;
     let s;
     try {
-      s = await getStats(impactCounty);
+      s = await getStats({ county: impactCounty, school: impactSchool, topGrades: gpTopN });
     } catch {
       $("#statRow").innerHTML = `<div class="empty-state">Couldn't load stats.</div>`;
       $("#impactBody").innerHTML = `<div class="empty-state">Couldn't load impact data.</div>`;
       return;
     }
-    populateCountyFilter(s.counties || []);
+    populateFilter($("#impactCounty"), s.counties || [], impactCounty);
+    populateFilter($("#impactSchool"), s.schools || [], impactSchool);
     const r = s.byRole || {};
-    const scoped = s.county ? ` in ${esc(s.county)}` : "";
+    const scoped = s.school ? ` at ${esc(s.school)}` : s.county ? ` in ${esc(s.county)}` : "";
     $("#statRow").innerHTML = `
       <div class="stat-tile"><div class="s-label">${svg(ICON.progress)}Accounts</div><div class="s-num">${s.accounts}</div>
         <div class="s-sub">${r.teacher || 0} teachers · ${r.learner || 0} learners · ${r.school_leader || 0} leaders · ${r.field_officer || 0} officers${scoped}</div></div>
@@ -61,36 +64,52 @@ async function main() {
       <div class="stat-tile"><div class="s-label">${svg(ICON.forms)}Field reports filed</div><div class="s-num">${s.reportsFiled}</div>
         <div class="s-sub">across all field officer accounts${scoped}</div></div>
       <div class="stat-tile"><div class="s-label">${svg(ICON.library)}Forms & responses</div><div class="s-num">${s.formsSent} / ${s.responsesReceived}</div>
-        <div class="s-sub">sent / received${s.county ? " · portal-wide" : ""}</div></div>
+        <div class="s-sub">sent / received${scoped ? " · portal-wide" : ""}</div></div>
     `;
     renderImpact(s);
   }
 
-  /* County filter — repopulated on every load (the list can grow as new
-     schools come on board) but never fights the visitor's current pick. */
-  function populateCountyFilter(counties) {
-    const sel = $("#impactCounty");
-    sel.innerHTML = `<option value="">All counties</option>` +
-      counties.map((county) => `<option value="${esc(county)}">${esc(county)}</option>`).join("");
-    sel.value = impactCounty;
+  /* County/school filters — repopulated on every load (the lists can grow
+     as new schools come on board) but never fight the visitor's current
+     pick. The school list already narrows to the selected county. */
+  function populateFilter(sel, options, current) {
+    const fallback = sel.id === "impactSchool" ? "All schools" : "All counties";
+    sel.innerHTML = `<option value="">${fallback}</option>` +
+      options.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("");
+    sel.value = current;
   }
   $("#impactCounty").addEventListener("change", (e) => {
     impactCounty = e.target.value;
+    impactSchool = ""; // a school from the old county may not exist in the new one
     renderStats();
+  });
+  $("#impactSchool").addEventListener("change", (e) => {
+    impactSchool = e.target.value;
+    renderStats();
+  });
+
+  /* Top-N control lives inside the grade-performance card itself, which is
+     rebuilt on every render — one delegated listener survives that. */
+  $("#impactBody").addEventListener("change", (e) => {
+    if (e.target.id === "gpTopN") {
+      gpTopN = Number(e.target.value) || 0;
+      renderStats();
+    }
   });
 
   /* ------------------------------------------------------------ portal impact (Overview charts)
      One chart per data source the portal actually collects, from all
      four operational roles: teacher-created assignments (learner
-     completion), field officer visit reports (by type and, once a
-     county is picked, by school), the forms/feedback loop each staff
-     role engages with, the content library the Education Team itself
-     has built up, and the account mix overall. All server-aggregated in
-     /stats, already scoped to the selected county where that makes
-     sense — reuses the same bar/donut/legend renderers as Survey
-     Results, defined further down this file. */
+     completion) and the grades behind them, teacher employment type,
+     new-learner intake by term, field officer visit reports (by type
+     and, once a county is picked, by school), the forms/feedback loop
+     each staff role engages with, the content library the Education
+     Team itself has built up, and the account mix overall. All
+     server-aggregated in /stats, already scoped to the selected county/
+     school where that makes sense — reuses the same bar/donut/legend
+     renderers as Survey Results, defined further down this file. */
   function renderImpact(s) {
-    const scope = s.county ? ` — ${s.county}` : "";
+    const scope = s.school ? ` — ${s.school}` : s.county ? ` — ${s.county}` : "";
     const ROLE_LABELS = { teacher: "Teachers", learner: "Learners", school_leader: "School Leaders", field_officer: "Field Officers" };
     const roleData = Object.entries(ROLE_LABELS).map(([k, label]) => ({ label, value: (s.byRole && s.byRole[k]) || 0 }));
     const doneData = [
@@ -102,6 +121,7 @@ async function main() {
     const respData = eng.map((e) => ({ label: e.label, value: e.responses }));
     const learnerTotal = (s.learnersByGrade || []).reduce((a, d) => a + d.value, 0);
     const libraryTotal = (s.libraryByDestination || []).reduce((a, d) => a + d.value, 0);
+    const teacherTypeData = (s.teachersByType || []).map((d) => ({ ...d, label: d.label === "(not set)" ? "Not specified" : d.label }));
 
     const cards = [
       impactCard(`Accounts by role${scope}`, `${s.accounts || 0} total · teachers, learners, leaders & field officers`,
@@ -111,10 +131,16 @@ async function main() {
       impactCard(`Learners by grade${scope}`, `${learnerTotal} learners`,
         (s.learnersByGrade || []).length ? barChart(s.learnersByGrade) : miniEmpty()),
     ];
-    if (s.county) {
+    if (s.county && !s.school) {
       cards.push(impactCard(`Learners by school${scope}`, `${learnerTotal} learners`,
         (s.learnersBySchool || []).length ? barChart(s.learnersBySchool) : miniEmpty()));
     }
+    cards.push(
+      impactCard(`New learners by term${scope}`, `based on when each account was created`,
+        (s.newLearnersByTerm || []).length ? barChart(s.newLearnersByTerm) : miniEmpty()),
+      impactCard(`Teachers by type${scope}`, `BOM vs TSC · self-declared at sign-up`,
+        sumOf(teacherTypeData) ? `<div class="chart-donut-wrap">${donutChart(teacherTypeData)}${legend(teacherTypeData)}</div>` : miniEmpty()),
+    );
     cards.push(
       impactCard(`Field visits by type${scope}`, `${s.reportsFiled || 0} reports filed`,
         (s.fieldReportsByVisitType || []).length ? barChart(s.fieldReportsByVisitType) : miniEmpty()),
@@ -132,6 +158,26 @@ async function main() {
       impactCard("Forms & feedback engagement", `${s.formsSent || 0} sent · ${s.responsesReceived || 0} responses · portal-wide`,
         `<div class="chart-subhead">Sent</div>${sumOf(sentData) ? barChart(sentData) : miniEmpty()}<div class="chart-subhead">Responded</div>${sumOf(respData) ? barChart(respData) : miniEmpty()}`),
     );
+
+    // Grade "performance": the one real, comparable signal the portal
+    // records today is assignment completion rate — there's no gradebook/
+    // exam-results feature yet, so this isn't an academic score (flagged
+    // to Patrick separately). Ranked highest-first, capped by the Top-N
+    // picker embedded in the card.
+    const gp = s.gradePerformance || [];
+    const gpHead = `<div class="chart-card-head"><b>Grade performance${scope}</b>
+      <select id="gpTopN" style="font-size:.74rem;padding:.2rem .4rem;border-radius:6px;border:1px solid var(--line);background:var(--paper-raised);color:var(--ink)">
+        <option value="0"${gpTopN === 0 ? " selected" : ""}>All grades</option>
+        <option value="5"${gpTopN === 5 ? " selected" : ""}>Top 5</option>
+        <option value="10"${gpTopN === 10 ? " selected" : ""}>Top 10</option>
+      </select></div>`;
+    const gpBody = gp.length
+      ? barChart(gp.map((g) => ({ label: `${g.label} (${g.total})`, value: g.value })))
+      : miniEmpty();
+    cards.push(`<div class="chart-card">${gpHead}
+      <div class="chart-empty" style="margin:-.3rem 0 .5rem">% of assignments completed, by grade — ranked, not an exam score</div>
+      ${gpBody}
+    </div>`);
 
     $("#impactMeta").textContent = `updated ${new Date().toLocaleTimeString()}`;
     $("#impactBody").innerHTML = `<div class="chart-grid">${cards.join("")}</div>`;

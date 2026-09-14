@@ -43,7 +43,34 @@ Edge Function API in front of a locked-down Postgres database. Six pages:
   heads). Build and send a form (1–5 rating and short-answer questions) to
   Teachers, School Leaders, or Field Officers, watch responses roll in
   with live rating averages, connect **KoboToolbox** to publish field
-  surveys (see below), and see org-wide stats aggregated server-side.
+  surveys (see below), and see a **Portal impact** dashboard (see below).
+
+### Portal impact dashboard
+
+The Education Team's Overview page charts what the portal has actually
+collected, from all four operational roles, with a **Filter by county**
+and **Filter by school** picker that rescopes everything at once — stat
+tiles and charts alike — and updates every chart's title so it's never
+ambiguous what you're looking at:
+
+- **Accounts by role**, **assignment completion**, **learners by grade**
+  (and, once a county's picked, **by school**), **new learners by term**
+  (Kenya's Jan–Apr / May–Aug / Sep–Dec school year, bucketed from each
+  account's sign-up date), **teachers by employment type** (BOM vs TSC,
+  self-declared once at onboarding), **field visits** by type and county/
+  school, **content library** makeup, and **forms & feedback engagement**
+  (sent vs. actually answered, per role).
+- **Grade performance** is ranked highest-first with a **Top 5 / Top 10 /
+  All** picker. It measures **assignment completion rate**, the one
+  real signal the portal currently records that's comparable across
+  grades — **not an academic score**. There's no gradebook/exam-results
+  feature yet, so this chart is honest about what it's actually showing.
+- Forms & feedback engagement and the content library aren't tied to a
+  school, so they stay portal-wide and say so rather than silently
+  ignoring the filter.
+- Every number is computed server-side in `GET /api/stats` (education-
+  team only) from the live tables — nothing here is seeded or fabricated;
+  an empty chart says "No answers yet" rather than faking a shape.
 
 ### KoboToolbox field surveys
 
@@ -176,6 +203,14 @@ same data everywhere, because the database is the source of truth.
   needs an invite / approval step.
 - **No "create class" / "assign homework" UI.** A fresh teacher or learner
   account has an honest empty dashboard until those exist.
+- **No gradebook / exam-results feature.** The portal has nowhere to
+  record a learner's actual score on a subject or exam, only whether an
+  assignment was marked done. "Grade performance" on the Portal impact
+  dashboard is completion rate as a proxy, clearly labelled as such —
+  it is not academic performance.
+- **Removing a learner is permanent — no drop-out tracking.** A teacher's
+  "Remove" hard-deletes the row; there's no record of who left, when, or
+  why, so the portal cannot report enrolment/drop-out trends over time.
 
 ## Try it
 

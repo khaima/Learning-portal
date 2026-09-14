@@ -172,14 +172,20 @@ export async function addFieldReport({ school, county, visitType }) {
 
 /* ---------------------------------------------------------------- stats */
 
-/* Pass a county to scope the whole Overview page — accounts, assignment
-   completion, field visits — to schools in that county; omit it (or
-   pass "") for the portal-wide view. Forms/feedback and the content
+/* Pass a county and/or school to scope the whole Overview page —
+   accounts, assignment completion, field visits, grade breakdowns — to
+   that region or that one school; omit both for the portal-wide view.
+   topGrades caps the "grade performance" ranking to the top N grades
+   (0 or omitted = show every grade). Forms/feedback and the content
    library aren't school-specific, so those numbers stay portal-wide
-   either way. */
-export async function getStats(county) {
-  const qs = county ? `?county=${encodeURIComponent(county)}` : "";
-  return apiGet(`/stats${qs}`);
+   regardless. */
+export async function getStats({ county, school, topGrades } = {}) {
+  const params = new URLSearchParams();
+  if (county) params.set("county", county);
+  if (school) params.set("school", school);
+  if (topGrades) params.set("topGrades", String(topGrades));
+  const qs = params.toString();
+  return apiGet(`/stats${qs ? `?${qs}` : ""}`);
 }
 
 /* ---------------------------------------------------------------- KoboToolbox */

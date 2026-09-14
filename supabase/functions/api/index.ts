@@ -173,6 +173,7 @@ const mapProfile = (r: Record<string, unknown>) => ({
   school: r.school,
   county: r.county,
   grade: r.grade,
+  teacherType: r.teacher_type ?? null,
 });
 const mapLearnerSelf = (r: Record<string, unknown>) => ({
   id: r.id,
@@ -447,6 +448,10 @@ app.post("/me", async (c) => {
   if (!String(b.fullName ?? "").trim()) {
     return c.json({ error: "Full name is required" }, 400);
   }
+  const teacherType = String(b.teacherType ?? "").trim().toUpperCase();
+  if (teacherType && !["BOM", "TSC"].includes(teacherType)) {
+    return c.json({ error: "Teacher type must be BOM or TSC" }, 400);
+  }
   const { data, error } = await admin
     .from("profiles")
     .insert({
@@ -457,6 +462,7 @@ app.post("/me", async (c) => {
       school: String(b.school ?? "").trim(),
       county: String(b.county ?? "").trim(),
       grade: String(b.grade ?? "").trim(),
+      teacher_type: b.role === "teacher" && teacherType ? teacherType : null,
     })
     .select()
     .single();
@@ -799,13 +805,36 @@ const FORM_AUDIENCE_LABEL: Record<string, string> = {
   teacher: "Teachers", school_leader: "School Leaders", field_officer: "Field Officers",
 };
 
+/** Kenya's 3-term school year, derived from a signup timestamp — Jan-Apr,
+    May-Aug, Sep-Dec. Not an official calendar lookup, just a fixed rule;
+    chronological (not count) order matters for this one. */
+function schoolTermOf(dateStr: unknown): string {
+  const d = new Date(String(dateStr ?? ""));
+  if (Number.isNaN(d.getTime())) return "(not set)";
+  const term = d.getMonth() <= 3 ? 1 : d.getMonth() <= 7 ? 2 : 3;
+  return `${d.getFullYear()} Term ${term}`;
+}
+function tallyChronological(rows: Record<string, unknown>[], toKey: (r: Record<string, unknown>) => string) {
+  const counts: Record<string, number> = {};
+  for (const r of rows) {
+    const label = toKey(r);
+    counts[label] = (counts[label] ?? 0) + 1;
+  }
+  return Object.entries(counts)
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => a.label.localeCompare(b.label)); // "2026 Term 1" < "2026 Term 2" sorts correctly as text
+}
+
 app.get("/stats", withProfile("education_team"), async (c) => {
   const county = String(c.req.query("county") ?? "").trim();
+  const school = String(c.req.query("school") ?? "").trim();
   const inCounty = !!county;
+  const inSchool = !!school;
+  const topN = Math.max(0, Math.min(50, Number(c.req.query("topGrades")) || 0)); // 0 = no cap
 
   const [profs, learnersRaw, asg, reportsRaw, forms, responses, library] = await Promise.all([
-    admin.from("profiles").select("id, role, county"),
-    admin.from("learners").select("id, teacher_id, grade, school"),
+    admin.from("profiles").select("id, role, county, school, teacher_type"),
+    admin.from("learners").select("id, teacher_id, grade, school, created_at"),
     admin.from("assignments").select("learner_id, done"),
     admin.from("field_reports").select("county, visit_type, school"),
     admin.from("forms").select("id, audience"),
@@ -824,21 +853,35 @@ app.get("/stats", withProfile("education_team"), async (c) => {
   for (const r of allReports) if (r.county) countySet.add(r.county as string);
   const counties = [...countySet].sort();
 
-  // A learner has no county of their own — they inherit their teacher's.
+  // A learner has no county (or school, in principle) of their own — they
+  // inherit their teacher's, same as they inherit teacher.school at signup.
   const teacherCounty: Record<string, string> = {};
   for (const p of allProfiles) teacherCounty[p.id as string] = (p.county as string) || "";
 
-  const staffRows = inCounty ? allProfiles.filter((p) => (p.county || "") === county) : allProfiles;
-  const learnerRows = inCounty
+  let staffRows = inCounty ? allProfiles.filter((p) => (p.county || "") === county) : allProfiles;
+  let learnerRows = inCounty
     ? allLearners.filter((l) => teacherCounty[l.teacher_id as string] === county)
     : allLearners;
+  let reportRows = inCounty ? allReports.filter((r) => r.county === county) : allReports;
+
+  // Schools available in the current (county-scoped) view, for the school
+  // filter dropdown — computed before the school filter itself narrows further.
+  const schoolSet = new Set<string>();
+  for (const p of staffRows) if (p.school) schoolSet.add(p.school as string);
+  for (const l of learnerRows) if (l.school) schoolSet.add(l.school as string);
+  for (const r of reportRows) if (r.school) schoolSet.add(r.school as string);
+  const schools = [...schoolSet].sort();
+
+  if (inSchool) {
+    staffRows = staffRows.filter((p) => (p.school || "") === school);
+    learnerRows = learnerRows.filter((l) => (l.school || "") === school);
+    reportRows = reportRows.filter((r) => r.school === school);
+  }
+
   const learnerIdSet = new Set(learnerRows.map((l) => l.id));
-  const assignmentRows = inCounty
+  const assignmentRows = (inCounty || inSchool)
     ? (asg.data ?? []).filter((a) => learnerIdSet.has(a.learner_id))
     : (asg.data ?? []);
-  // Field visits filter on where the visit happened, not the officer's
-  // home county — an officer can cover more than one.
-  const reportRows = inCounty ? allReports.filter((r) => r.county === county) : allReports;
 
   const byRole: Record<string, number> = {
     teacher: 0,
@@ -850,6 +893,24 @@ app.get("/stats", withProfile("education_team"), async (c) => {
   for (const p of staffRows) {
     if (p.role in byRole) byRole[p.role as string]++;
   }
+  const teachersByType = tally(staffRows.filter((p) => p.role === "teacher"), "teacher_type");
+
+  // Grade "performance" — the one real, comparable-across-grades signal the
+  // portal actually records is assignment completion. Ranked, capped to the
+  // requested top N (0 = show every grade). Not an academic score: there is
+  // no gradebook/exam-results feature yet (see reply to Patrick).
+  const gradeOfLearner: Record<string, string> = {};
+  for (const l of learnerRows) gradeOfLearner[l.id as string] = (l.grade as string)?.trim() || "(not set)";
+  const gradeAgg: Record<string, { total: number; done: number }> = {};
+  for (const a of assignmentRows) {
+    const g = gradeOfLearner[a.learner_id as string] ?? "(not set)";
+    (gradeAgg[g] ??= { total: 0, done: 0 }).total++;
+    if (a.done) gradeAgg[g].done++;
+  }
+  let gradePerformance = Object.entries(gradeAgg)
+    .map(([label, v]) => ({ label, value: v.total ? Math.round((v.done / v.total) * 100) : 0, total: v.total }))
+    .sort((a, b) => b.value - a.value || b.total - a.total);
+  if (topN) gradePerformance = gradePerformance.slice(0, topN);
 
   const formRows = forms.data ?? [];
   const libraryRows = library.data ?? [];
@@ -880,18 +941,23 @@ app.get("/stats", withProfile("education_team"), async (c) => {
 
   return c.json({
     county: inCounty ? county : null,
+    school: inSchool ? school : null,
     counties,
+    schools,
     accounts: staffRows.length + learnerRows.length,
     byRole,
+    teachersByType,
     assignmentsTotal: assignmentRows.length,
     assignmentsDone: assignmentRows.filter((a) => a.done).length,
     reportsFiled: reportRows.length,
     formsSent: formRows.length,
     responsesReceived: (responses.data ?? []).length,
-    // Impact breakdowns for the Overview charts — county-scoped when a
-    // county is selected, portal-wide otherwise.
+    // Impact breakdowns for the Overview charts — county/school-scoped
+    // when picked, portal-wide otherwise.
     learnersByGrade: tally(learnerRows, "grade"),
     learnersBySchool: tally(learnerRows, "school"),
+    newLearnersByTerm: tallyChronological(learnerRows, (l) => schoolTermOf(l.created_at)),
+    gradePerformance,
     fieldReportsByCounty: tally(allReports, "county"), // always portal-wide: the "pick a county" overview
     fieldReportsBySchool: tally(reportRows, "school"),
     fieldReportsByVisitType: tally(reportRows, "visit_type"),

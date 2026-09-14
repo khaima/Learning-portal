@@ -50,9 +50,15 @@
             <h2>Portal impact</h2>
             <span class="chart-meta" id="impactMeta" style="margin:0"></span>
           </div>
-          <div class="field" id="impactFilterField" style="max-width:18rem;margin-bottom:1.1rem">
-            <label for="impactCounty">Filter by county</label>
-            <select id="impactCounty"><option value="">All counties</option></select>
+          <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:.9rem;max-width:32rem;margin-bottom:1.1rem">
+            <div class="field" style="margin-bottom:0">
+              <label for="impactCounty">Filter by county</label>
+              <select id="impactCounty"><option value="">All counties</option></select>
+            </div>
+            <div class="field" style="margin-bottom:0">
+              <label for="impactSchool">Filter by school</label>
+              <select id="impactSchool"><option value="">All schools</option></select>
+            </div>
           </div>
           <div id="impactBody"><div class="empty-state">Loading…</div></div>
         </div>
