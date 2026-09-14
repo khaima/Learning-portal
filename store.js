@@ -172,8 +172,14 @@ export async function addFieldReport({ school, county, visitType }) {
 
 /* ---------------------------------------------------------------- stats */
 
-export async function getStats() {
-  return apiGet("/stats");
+/* Pass a county to scope the whole Overview page — accounts, assignment
+   completion, field visits — to schools in that county; omit it (or
+   pass "") for the portal-wide view. Forms/feedback and the content
+   library aren't school-specific, so those numbers stay portal-wide
+   either way. */
+export async function getStats(county) {
+  const qs = county ? `?county=${encodeURIComponent(county)}` : "";
+  return apiGet(`/stats${qs}`);
 }
 
 /* ---------------------------------------------------------------- KoboToolbox */

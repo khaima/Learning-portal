@@ -800,32 +800,63 @@ const FORM_AUDIENCE_LABEL: Record<string, string> = {
 };
 
 app.get("/stats", withProfile("education_team"), async (c) => {
-  const [profs, learners, asg, reports, forms, responses, library] = await Promise.all([
-    admin.from("profiles").select("role, county"),
-    admin.from("learners").select("grade"),
-    admin.from("assignments").select("done"),
-    admin.from("field_reports").select("county, visit_type"),
+  const county = String(c.req.query("county") ?? "").trim();
+  const inCounty = !!county;
+
+  const [profs, learnersRaw, asg, reportsRaw, forms, responses, library] = await Promise.all([
+    admin.from("profiles").select("id, role, county"),
+    admin.from("learners").select("id, teacher_id, grade, school"),
+    admin.from("assignments").select("learner_id, done"),
+    admin.from("field_reports").select("county, visit_type, school"),
     admin.from("forms").select("id, audience"),
     admin.from("responses").select("form_id"),
     admin.from("library_items").select("audience, subject"),
   ]);
+
+  const allProfiles = profs.data ?? [];
+  const allLearners = learnersRaw.data ?? [];
+  const allReports = reportsRaw.data ?? [];
+
+  // Every county with data anywhere, for the filter dropdown — a staff
+  // member's own county, or a county a field visit was logged in.
+  const countySet = new Set<string>();
+  for (const p of allProfiles) if (p.county) countySet.add(p.county as string);
+  for (const r of allReports) if (r.county) countySet.add(r.county as string);
+  const counties = [...countySet].sort();
+
+  // A learner has no county of their own — they inherit their teacher's.
+  const teacherCounty: Record<string, string> = {};
+  for (const p of allProfiles) teacherCounty[p.id as string] = (p.county as string) || "";
+
+  const staffRows = inCounty ? allProfiles.filter((p) => (p.county || "") === county) : allProfiles;
+  const learnerRows = inCounty
+    ? allLearners.filter((l) => teacherCounty[l.teacher_id as string] === county)
+    : allLearners;
+  const learnerIdSet = new Set(learnerRows.map((l) => l.id));
+  const assignmentRows = inCounty
+    ? (asg.data ?? []).filter((a) => learnerIdSet.has(a.learner_id))
+    : (asg.data ?? []);
+  // Field visits filter on where the visit happened, not the officer's
+  // home county — an officer can cover more than one.
+  const reportRows = inCounty ? allReports.filter((r) => r.county === county) : allReports;
+
   const byRole: Record<string, number> = {
     teacher: 0,
-    learner: (learners.data ?? []).length,
+    learner: learnerRows.length,
     school_leader: 0,
     field_officer: 0,
     education_team: 0,
   };
-  for (const p of profs.data ?? []) {
+  for (const p of staffRows) {
     if (p.role in byRole) byRole[p.role as string]++;
   }
-  const assignments = asg.data ?? [];
-  const reportRows = reports.data ?? [];
+
   const formRows = forms.data ?? [];
   const libraryRows = library.data ?? [];
 
-  // Forms & feedback engagement: how many of each staff audience's forms
-  // have actually been answered, not just sent.
+  // Forms & feedback engagement, and the content library: neither is tied
+  // to a school or county, so these stay portal-wide regardless of the
+  // filter (the frontend labels them as such).
   const formAudience: Record<string, string> = {};
   const sentByAudience: Record<string, number> = {};
   for (const f of formRows) {
@@ -841,7 +872,6 @@ app.get("/stats", withProfile("education_team"), async (c) => {
     label: FORM_AUDIENCE_LABEL[k], sent: sentByAudience[k] ?? 0, responses: respByAudience[k] ?? 0,
   }));
 
-  // Content library: what the Education Team has actually put out, and to whom.
   const libByDest = { "Teacher Resources": 0, "Digital Library": 0 };
   for (const it of libraryRows) {
     const dest = normalizeAudience(it.audience as string);
@@ -849,16 +879,21 @@ app.get("/stats", withProfile("education_team"), async (c) => {
   }
 
   return c.json({
-    accounts: (profs.data ?? []).length + (learners.data ?? []).length,
+    county: inCounty ? county : null,
+    counties,
+    accounts: staffRows.length + learnerRows.length,
     byRole,
-    assignmentsTotal: assignments.length,
-    assignmentsDone: assignments.filter((a) => a.done).length,
+    assignmentsTotal: assignmentRows.length,
+    assignmentsDone: assignmentRows.filter((a) => a.done).length,
     reportsFiled: reportRows.length,
     formsSent: formRows.length,
     responsesReceived: (responses.data ?? []).length,
-    // Impact breakdowns for the Overview charts.
-    learnersByGrade: tally(learners.data ?? [], "grade"),
-    fieldReportsByCounty: tally(reportRows, "county"),
+    // Impact breakdowns for the Overview charts — county-scoped when a
+    // county is selected, portal-wide otherwise.
+    learnersByGrade: tally(learnerRows, "grade"),
+    learnersBySchool: tally(learnerRows, "school"),
+    fieldReportsByCounty: tally(allReports, "county"), // always portal-wide: the "pick a county" overview
+    fieldReportsBySchool: tally(reportRows, "school"),
     fieldReportsByVisitType: tally(reportRows, "visit_type"),
     libraryByDestination: Object.entries(libByDest).map(([label, value]) => ({ label, value })),
     libraryBySubject: tally(libraryRows, "subject"),

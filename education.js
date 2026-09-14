@@ -35,41 +35,62 @@ async function main() {
      Real aggregation, computed server-side from every account and everything
      they've produced (see the /stats route). A field report filed on the
      Field Officer dashboard, or an assignment marked done by a learner,
-     changes these numbers on the next load, from any device. */
+     changes these numbers on the next load, from any device. Optionally
+     scoped to one county — see renderImpact(). */
+  let impactCounty = "";
+
   async function renderStats() {
     $("#statRow").innerHTML = `<div class="empty-state">Loading…</div>`;
     $("#impactBody").innerHTML = `<div class="empty-state">Loading…</div>`;
     let s;
     try {
-      s = await getStats();
+      s = await getStats(impactCounty);
     } catch {
       $("#statRow").innerHTML = `<div class="empty-state">Couldn't load stats.</div>`;
       $("#impactBody").innerHTML = `<div class="empty-state">Couldn't load impact data.</div>`;
       return;
     }
+    populateCountyFilter(s.counties || []);
     const r = s.byRole || {};
+    const scoped = s.county ? ` in ${esc(s.county)}` : "";
     $("#statRow").innerHTML = `
       <div class="stat-tile"><div class="s-label">${svg(ICON.progress)}Accounts</div><div class="s-num">${s.accounts}</div>
-        <div class="s-sub">${r.teacher || 0} teachers · ${r.learner || 0} learners · ${r.school_leader || 0} leaders · ${r.field_officer || 0} officers</div></div>
+        <div class="s-sub">${r.teacher || 0} teachers · ${r.learner || 0} learners · ${r.school_leader || 0} leaders · ${r.field_officer || 0} officers${scoped}</div></div>
       <div class="stat-tile"><div class="s-label">${svg(ICON.responses)}Assignments done</div><div class="s-num">${s.assignmentsDone}/${s.assignmentsTotal}</div>
-        <div class="s-sub">across all learner accounts</div></div>
+        <div class="s-sub">across all learner accounts${scoped}</div></div>
       <div class="stat-tile"><div class="s-label">${svg(ICON.forms)}Field reports filed</div><div class="s-num">${s.reportsFiled}</div>
-        <div class="s-sub">across all field officer accounts</div></div>
+        <div class="s-sub">across all field officer accounts${scoped}</div></div>
       <div class="stat-tile"><div class="s-label">${svg(ICON.library)}Forms & responses</div><div class="s-num">${s.formsSent} / ${s.responsesReceived}</div>
-        <div class="s-sub">sent / received</div></div>
+        <div class="s-sub">sent / received${s.county ? " · portal-wide" : ""}</div></div>
     `;
     renderImpact(s);
   }
 
+  /* County filter — repopulated on every load (the list can grow as new
+     schools come on board) but never fights the visitor's current pick. */
+  function populateCountyFilter(counties) {
+    const sel = $("#impactCounty");
+    sel.innerHTML = `<option value="">All counties</option>` +
+      counties.map((county) => `<option value="${esc(county)}">${esc(county)}</option>`).join("");
+    sel.value = impactCounty;
+  }
+  $("#impactCounty").addEventListener("change", (e) => {
+    impactCounty = e.target.value;
+    renderStats();
+  });
+
   /* ------------------------------------------------------------ portal impact (Overview charts)
      One chart per data source the portal actually collects, from all
      four operational roles: teacher-created assignments (learner
-     completion), field officer visit reports (by type and county),
-     the forms/feedback loop each staff role engages with, the content
-     library the Education Team itself has built up, and the account mix
-     overall. All server-aggregated in /stats — reuses the same bar/donut/
-     legend renderers as Survey Results, defined further down this file. */
+     completion), field officer visit reports (by type and, once a
+     county is picked, by school), the forms/feedback loop each staff
+     role engages with, the content library the Education Team itself
+     has built up, and the account mix overall. All server-aggregated in
+     /stats, already scoped to the selected county where that makes
+     sense — reuses the same bar/donut/legend renderers as Survey
+     Results, defined further down this file. */
   function renderImpact(s) {
+    const scope = s.county ? ` — ${s.county}` : "";
     const ROLE_LABELS = { teacher: "Teachers", learner: "Learners", school_leader: "School Leaders", field_officer: "Field Officers" };
     const roleData = Object.entries(ROLE_LABELS).map(([k, label]) => ({ label, value: (s.byRole && s.byRole[k]) || 0 }));
     const doneData = [
@@ -83,21 +104,34 @@ async function main() {
     const libraryTotal = (s.libraryByDestination || []).reduce((a, d) => a + d.value, 0);
 
     const cards = [
-      impactCard("Accounts by role", `${s.accounts || 0} total · teachers, learners, leaders & field officers`,
+      impactCard(`Accounts by role${scope}`, `${s.accounts || 0} total · teachers, learners, leaders & field officers`,
         sumOf(roleData) ? `<div class="chart-donut-wrap">${donutChart(roleData)}${legend(roleData)}</div>` : miniEmpty()),
-      impactCard("Assignment completion", `${s.assignmentsTotal || 0} assigned to learners`,
+      impactCard(`Assignment completion${scope}`, `${s.assignmentsTotal || 0} assigned to learners`,
         sumOf(doneData) ? `<div class="chart-donut-wrap">${donutChart(doneData)}${legend(doneData)}</div>` : miniEmpty()),
-      impactCard("Learners by grade", `${learnerTotal} learners`,
+      impactCard(`Learners by grade${scope}`, `${learnerTotal} learners`,
         (s.learnersByGrade || []).length ? barChart(s.learnersByGrade) : miniEmpty()),
-      impactCard("Field visits by type", `${s.reportsFiled || 0} reports filed`,
-        (s.fieldReportsByVisitType || []).length ? barChart(s.fieldReportsByVisitType) : miniEmpty()),
-      impactCard("Field visits by county", `${s.reportsFiled || 0} reports filed`,
-        (s.fieldReportsByCounty || []).length ? barChart(s.fieldReportsByCounty) : miniEmpty()),
-      impactCard("Content library", `${libraryTotal} items uploaded`,
-        sumOf(s.libraryByDestination) ? `<div class="chart-donut-wrap">${donutChart(s.libraryByDestination)}${legend(s.libraryByDestination)}</div>` : miniEmpty()),
-      impactCard("Forms & feedback engagement", `${s.formsSent || 0} sent · ${s.responsesReceived || 0} responses`,
-        `<div class="chart-subhead">Sent</div>${sumOf(sentData) ? barChart(sentData) : miniEmpty()}<div class="chart-subhead">Responded</div>${sumOf(respData) ? barChart(respData) : miniEmpty()}`),
     ];
+    if (s.county) {
+      cards.push(impactCard(`Learners by school${scope}`, `${learnerTotal} learners`,
+        (s.learnersBySchool || []).length ? barChart(s.learnersBySchool) : miniEmpty()));
+    }
+    cards.push(
+      impactCard(`Field visits by type${scope}`, `${s.reportsFiled || 0} reports filed`,
+        (s.fieldReportsByVisitType || []).length ? barChart(s.fieldReportsByVisitType) : miniEmpty()),
+    );
+    cards.push(
+      s.county
+        ? impactCard(`Field visits by school${scope}`, `${s.reportsFiled || 0} reports filed`,
+            (s.fieldReportsBySchool || []).length ? barChart(s.fieldReportsBySchool) : miniEmpty())
+        : impactCard("Field visits by county", `${s.reportsFiled || 0} reports filed · pick a county above to drill in`,
+            (s.fieldReportsByCounty || []).length ? barChart(s.fieldReportsByCounty) : miniEmpty()),
+    );
+    cards.push(
+      impactCard("Content library", `${libraryTotal} items uploaded · portal-wide`,
+        sumOf(s.libraryByDestination) ? `<div class="chart-donut-wrap">${donutChart(s.libraryByDestination)}${legend(s.libraryByDestination)}</div>` : miniEmpty()),
+      impactCard("Forms & feedback engagement", `${s.formsSent || 0} sent · ${s.responsesReceived || 0} responses · portal-wide`,
+        `<div class="chart-subhead">Sent</div>${sumOf(sentData) ? barChart(sentData) : miniEmpty()}<div class="chart-subhead">Responded</div>${sumOf(respData) ? barChart(respData) : miniEmpty()}`),
+    );
 
     $("#impactMeta").textContent = `updated ${new Date().toLocaleTimeString()}`;
     $("#impactBody").innerHTML = `<div class="chart-grid">${cards.join("")}</div>`;
