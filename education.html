@@ -17,11 +17,11 @@
         <span class="wordmark-text"><b>Human Practice</b><span>Digital Learning Portal</span></span>
       </a>
       <nav class="side-nav">
-        <a class="side-link active"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Overview</a>
-        <a class="side-link"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>Digital Library</a>
-        <a class="side-link"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>Forms & Feedback</a>
-        <a class="side-link"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>Field Surveys</a>
-        <a class="side-link"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="7"/><rect x="12" y="6" width="3" height="11"/><rect x="17" y="13" width="3" height="4"/></svg>Survey Results</a>
+        <a class="side-link" data-page="overview"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Overview</a>
+        <a class="side-link" data-page="digital-library"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>Digital Library</a>
+        <a class="side-link" data-page="forms-feedback"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>Forms & Feedback</a>
+        <a class="side-link" data-page="field-surveys"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>Field Surveys</a>
+        <a class="side-link" data-page="survey-results"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="7"/><rect x="12" y="6" width="3" height="11"/><rect x="17" y="13" width="3" height="4"/></svg>Survey Results</a>
       </nav>
       <div class="side-user">
         <span class="side-avatar" id="sideAvatar">?</span>
@@ -43,147 +43,163 @@
         </div>
       </div>
 
-      <div class="stat-row" id="statRow"></div>
+      <section class="dash-page" data-page="overview">
+        <div class="stat-row" id="statRow"></div>
+      </section>
 
-      <div class="body-grid">
-        <div>
-          <div class="panel">
-            <div class="panel-head"><h2>Upload content</h2></div>
-            <form id="uploadForm">
-              <div class="field">
-                <label for="up_title">Title</label>
-                <input id="up_title" type="text" placeholder="e.g. Fractions — visual walkthrough" required>
-              </div>
-              <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:.9rem">
+      <section class="dash-page" data-page="digital-library" hidden>
+        <div class="body-grid">
+          <div>
+            <div class="panel">
+              <div class="panel-head"><h2>Upload content</h2></div>
+              <form id="uploadForm">
                 <div class="field">
-                  <label for="up_subject">Subject</label>
-                  <select id="up_subject" required></select>
+                  <label for="up_title">Title</label>
+                  <input id="up_title" type="text" placeholder="e.g. Fractions — visual walkthrough" required>
                 </div>
-                <div class="field">
-                  <label for="up_type">Type</label>
-                  <select id="up_type" required></select>
-                </div>
-              </div>
-              <div class="field">
-                <label for="up_audience">Destination</label>
-                <select id="up_audience" required></select>
-              </div>
-              <div class="field">
-                <label for="up_desc">Description</label>
-                <input id="up_desc" type="text" placeholder="What is this, and who is it for?">
-              </div>
-              <div class="field">
-                <label>File <span style="color:var(--ink-soft);font-weight:500">— optional</span></label>
-                <div class="upload-drop" id="uploadDrop">
-                  <input id="up_file" type="file" multiple hidden>
-                  <div class="upload-choices">
-                    <button type="button" class="btn btn-outline" id="pickFileBtn">Choose a file</button>
-                    <button type="button" class="btn btn-outline" id="pickFolderBtn">Choose a folder</button>
+                <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:.9rem">
+                  <div class="field">
+                    <label for="up_subject">Subject</label>
+                    <select id="up_subject" required></select>
                   </div>
-                  <p class="upload-hint" id="uploadHint">Drag a file here, or pick one from your computer. Folders upload every file inside.</p>
-                  <ul class="upload-list" id="uploadList" hidden></ul>
+                  <div class="field">
+                    <label for="up_type">Type</label>
+                    <select id="up_type" required></select>
+                  </div>
                 </div>
-              </div>
-              <button class="btn btn-primary btn-block" type="submit">Add to library</button>
-            </form>
-          </div>
-
-          <div class="panel">
-            <div class="panel-head"><h2>Create a form</h2></div>
-            <form id="formBuilder">
-              <div class="field">
-                <label for="fb_title">Title</label>
-                <input id="fb_title" type="text" placeholder="e.g. Term 2 curriculum feedback" required>
-              </div>
-              <div class="field">
-                <label for="fb_desc">Description</label>
-                <input id="fb_desc" type="text" placeholder="What is this form for?">
-              </div>
-              <div class="field">
-                <label for="fb_audience">Send to</label>
-                <select id="fb_audience" required></select>
-              </div>
-              <div class="field">
-                <label>Questions</label>
-                <div id="questionRows"></div>
-                <button class="btn btn-outline" type="button" id="addQuestion" style="margin-top:.3rem">+ Add question</button>
-              </div>
-              <button class="btn btn-primary btn-block" type="submit" style="margin-top:.9rem">Send form</button>
-            </form>
-          </div>
-
-          <div class="panel">
-            <div class="panel-head">
-              <h2>Field surveys (KoboToolbox)</h2>
-              <button type="button" id="koboSyncBtn" hidden>Sync now</button>
-            </div>
-
-            <form id="koboConnectForm" hidden>
-              <p class="kobo-note">
-                Connect the KoboToolbox account that hosts your field surveys.
-                Each survey must include a <b>hidden</b> question whose data
-                column name is <code id="koboFieldEcho">officer_ref</code> — the
-                portal fills it with the field officer's ID so submissions match
-                back automatically.
-              </p>
-              <div class="field">
-                <label for="kb_url">KoboToolbox server</label>
-                <input id="kb_url" type="url" value="https://eu.kobotoolbox.org" required>
-              </div>
-              <div class="field">
-                <label for="kb_token">API token</label>
-                <input id="kb_token" type="password" placeholder="Paste your KoboToolbox API token" autocomplete="off" required>
-              </div>
-              <div class="field">
-                <label for="kb_field">Hidden question name</label>
-                <input id="kb_field" type="text" value="officer_ref" required>
-              </div>
-              <button class="btn btn-primary btn-block" type="submit">Connect</button>
-            </form>
-
-            <div id="koboManage" hidden>
-              <form id="koboAttachForm" class="field" style="margin-bottom:1rem">
-                <label for="kb_asset">Add a deployed survey</label>
-                <div style="display:flex;gap:.5rem;align-items:stretch">
-                  <select id="kb_asset" style="flex:1"><option value="">Loading surveys…</option></select>
-                  <button class="btn btn-outline" type="submit" style="flex:none">Attach</button>
+                <div class="field">
+                  <label for="up_audience">Destination</label>
+                  <select id="up_audience" required></select>
                 </div>
-                <p class="kobo-note" style="margin-bottom:0">
-                  Connected to <b id="koboServerEcho">—</b> · hidden question
-                  <code id="koboFieldEcho2">officer_ref</code>.
-                  <button type="button" id="koboReconnect" style="background:none;border:0;color:var(--brand);font-weight:600;cursor:pointer;font-family:inherit;font-size:inherit;padding:0">Change</button>
-                </p>
+                <div class="field">
+                  <label for="up_desc">Description</label>
+                  <input id="up_desc" type="text" placeholder="What is this, and who is it for?">
+                </div>
+                <div class="field">
+                  <label>File <span style="color:var(--ink-soft);font-weight:500">— optional</span></label>
+                  <div class="upload-drop" id="uploadDrop">
+                    <input id="up_file" type="file" multiple hidden>
+                    <div class="upload-choices">
+                      <button type="button" class="btn btn-outline" id="pickFileBtn">Choose a file</button>
+                      <button type="button" class="btn btn-outline" id="pickFolderBtn">Choose a folder</button>
+                    </div>
+                    <p class="upload-hint" id="uploadHint">Drag a file here, or pick one from your computer. Folders upload every file inside.</p>
+                    <ul class="upload-list" id="uploadList" hidden></ul>
+                  </div>
+                </div>
+                <button class="btn btn-primary btn-block" type="submit">Add to library</button>
               </form>
-              <div id="koboFormList"></div>
+            </div>
+          </div>
+
+          <div>
+            <div class="panel">
+              <div class="panel-head"><h2>Content Library</h2></div>
+              <div id="libraryList"></div>
             </div>
           </div>
         </div>
+      </section>
 
-        <div>
-          <div class="panel">
-            <div class="panel-head"><h2>Content Library</h2></div>
-            <div id="libraryList"></div>
+      <section class="dash-page" data-page="forms-feedback" hidden>
+        <div class="body-grid">
+          <div>
+            <div class="panel">
+              <div class="panel-head"><h2>Create a form</h2></div>
+              <form id="formBuilder">
+                <div class="field">
+                  <label for="fb_title">Title</label>
+                  <input id="fb_title" type="text" placeholder="e.g. Term 2 curriculum feedback" required>
+                </div>
+                <div class="field">
+                  <label for="fb_desc">Description</label>
+                  <input id="fb_desc" type="text" placeholder="What is this form for?">
+                </div>
+                <div class="field">
+                  <label for="fb_audience">Send to</label>
+                  <select id="fb_audience" required></select>
+                </div>
+                <div class="field">
+                  <label>Questions</label>
+                  <div id="questionRows"></div>
+                  <button class="btn btn-outline" type="button" id="addQuestion" style="margin-top:.3rem">+ Add question</button>
+                </div>
+                <button class="btn btn-primary btn-block" type="submit" style="margin-top:.9rem">Send form</button>
+              </form>
+            </div>
           </div>
 
-          <div class="panel">
-            <div class="panel-head"><h2>Your forms & feedback</h2></div>
-            <div id="formsList"></div>
+          <div>
+            <div class="panel">
+              <div class="panel-head"><h2>Your forms & feedback</h2></div>
+              <div id="formsList"></div>
+            </div>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div class="panel" id="surveyResultsPanel">
-        <div class="panel-head">
-          <h2>Survey results</h2>
-          <button type="button" id="srRefresh" hidden>Refresh</button>
+      <section class="dash-page" data-page="field-surveys" hidden>
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Field surveys (KoboToolbox)</h2>
+            <button type="button" id="koboSyncBtn" hidden>Sync now</button>
+          </div>
+
+          <form id="koboConnectForm" hidden>
+            <p class="kobo-note">
+              Connect the KoboToolbox account that hosts your field surveys.
+              Each survey must include a <b>hidden</b> question whose data
+              column name is <code id="koboFieldEcho">officer_ref</code> — the
+              portal fills it with the field officer's ID so submissions match
+              back automatically.
+            </p>
+            <div class="field">
+              <label for="kb_url">KoboToolbox server</label>
+              <input id="kb_url" type="url" value="https://eu.kobotoolbox.org" required>
+            </div>
+            <div class="field">
+              <label for="kb_token">API token</label>
+              <input id="kb_token" type="password" placeholder="Paste your KoboToolbox API token" autocomplete="off" required>
+            </div>
+            <div class="field">
+              <label for="kb_field">Hidden question name</label>
+              <input id="kb_field" type="text" value="officer_ref" required>
+            </div>
+            <button class="btn btn-primary btn-block" type="submit">Connect</button>
+          </form>
+
+          <div id="koboManage" hidden>
+            <form id="koboAttachForm" class="field" style="margin-bottom:1rem">
+              <label for="kb_asset">Add a deployed survey</label>
+              <div style="display:flex;gap:.5rem;align-items:stretch">
+                <select id="kb_asset" style="flex:1"><option value="">Loading surveys…</option></select>
+                <button class="btn btn-outline" type="submit" style="flex:none">Attach</button>
+              </div>
+              <p class="kobo-note" style="margin-bottom:0">
+                Connected to <b id="koboServerEcho">—</b> · hidden question
+                <code id="koboFieldEcho2">officer_ref</code>.
+                <button type="button" id="koboReconnect" style="background:none;border:0;color:var(--brand);font-weight:600;cursor:pointer;font-family:inherit;font-size:inherit;padding:0">Change</button>
+              </p>
+            </form>
+            <div id="koboFormList"></div>
+          </div>
         </div>
-        <div class="field" id="srPickerField" hidden style="margin-bottom:.6rem">
-          <label for="srPicker">Survey / questionnaire</label>
-          <select id="srPicker"></select>
+      </section>
+
+      <section class="dash-page" data-page="survey-results" hidden>
+        <div class="panel" id="surveyResultsPanel">
+          <div class="panel-head">
+            <h2>Survey results</h2>
+            <button type="button" id="srRefresh" hidden>Refresh</button>
+          </div>
+          <div class="field" id="srPickerField" hidden style="margin-bottom:.6rem">
+            <label for="srPicker">Survey / questionnaire</label>
+            <select id="srPicker"></select>
+          </div>
+          <p class="chart-meta" id="srMeta"></p>
+          <div id="srBody"><div class="empty-state">Loading…</div></div>
         </div>
-        <p class="chart-meta" id="srMeta"></p>
-        <div id="srBody"><div class="empty-state">Loading…</div></div>
-      </div>
+      </section>
     </main>
   </div>
 

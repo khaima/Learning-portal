@@ -1,12 +1,50 @@
 /* ============================================================
    HPF Digital Learning Portal — dashboard side-nav + top bar.
 
-   The dashboards are single scrolling pages. This makes the sidebar
-   links jump to (and highlight) their matching section, and gives the
-   notification bell something to do. Imported by every dashboard JS.
+   Two nav styles, picked automatically per dashboard:
+
+   - "Paged" (opt-in): the side-nav links and top-level sections carry
+     matching data-page attributes. Clicking a link shows only that
+     section — a real separate view, not a scroll position — and the
+     choice lives in the URL hash (#digital-library) so reload/back/
+     forward and sharing a link to a specific page all work. The
+     Education Team dashboard uses this.
+   - Classic scroll+flash (everyone else, unchanged): the dashboards are
+     one continuous scrolling page and a sidebar click jumps to (and
+     briefly highlights) the matching section by heading text.
+
+   Either way this also gives the notification bell something to do.
+   Imported by every dashboard JS.
    ============================================================ */
 
 import { $, $$, toast } from "./util.js";
+
+/* ---------------------------------------------------------------- paged dashboards */
+
+const pageLinks = $$(".side-nav .side-link[data-page]");
+
+if (pageLinks.length) {
+  const pages = $$(".app-main .dash-page[data-page]");
+  const validPages = new Set(pageLinks.map((l) => l.dataset.page));
+
+  function showPage(page) {
+    if (!validPages.has(page)) page = pageLinks[0].dataset.page;
+    pages.forEach((p) => { p.hidden = p.dataset.page !== page; });
+    pageLinks.forEach((l) => l.classList.toggle("active", l.dataset.page === page));
+    window.scrollTo(0, 0);
+  }
+
+  pageLinks.forEach((link) => {
+    link.setAttribute("href", "#" + link.dataset.page);
+    link.setAttribute("role", "link");
+  });
+
+  window.addEventListener("hashchange", () => showPage((location.hash || "").slice(1)));
+  showPage((location.hash || "").slice(1));
+}
+
+/* ---------------------------------------------------------------- classic scroll+flash dashboards */
+if (!pageLinks.length) {
 
 /* nav label (lowercased) -> heading substrings to look for in a section */
 const HEADING_MATCH = {
@@ -74,6 +112,8 @@ links.forEach((link) => {
     if (e.key === "Enter" || e.key === " ") { e.preventDefault(); goTo(link); }
   });
 });
+
+} // !pageLinks.length
 
 /* notification bell — nothing to notify about yet, but it responds */
 const bell = $(".app-top-actions .icon-btn");
