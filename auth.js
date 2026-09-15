@@ -89,6 +89,20 @@ export async function signInWithGoogle() {
   if (error) throw error;
 }
 
+/** Education-team action: email a staff member a "set a new password"
+    link — the standard Supabase Auth password-recovery flow, same
+    mechanism as a self-service "forgot password". redirectTo points at
+    index.html with a `flow=recovery` flag so it reuses the exact origin +
+    path already allow-listed for Google sign-in (Supabase's redirect-URL
+    allow list ignores the query string, so this needs no extra Supabase
+    dashboard configuration). index.js detects the flag on load and shows
+    the "set a new password" step instead of routing to a dashboard. */
+export async function sendPasswordResetLink(email) {
+  const redirectTo = new URL("index.html?flow=recovery", window.location.href).href;
+  const { error } = await supabase.auth.resetPasswordForEmail((email || "").trim(), { redirectTo });
+  if (error) throw error;
+}
+
 /* ---- learners: username + PIN ---- */
 
 export async function learnerLogin(username, pin) {

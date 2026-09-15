@@ -90,6 +90,7 @@ const steps = {
   role: $("#stepRole"),
   learner: $("#stepLearner"),
   password: $("#stepPassword"),
+  resetPassword: $("#stepResetPassword"),
   onboard: $("#stepOnboard"),
 };
 function show(name) {
@@ -120,6 +121,58 @@ async function consumeOAuthRedirect() {
     await supabase.auth.exchangeCodeForSession(code);
   } catch (err) {
     console.warn("Google sign-in failed:", err?.message);
+  }
+}
+
+/* Land here from an emailed "reset password" link (education team →
+   Users → Send reset link, see auth.js sendPasswordResetLink). Supabase
+   delivers recovery tokens as a #access_token/#refresh_token hash
+   fragment (not the ?code= that Google OAuth uses — recovery links are
+   commonly opened on a different device/browser than the one that
+   requested them, so they carry the full proof instead of a PKCE code
+   tied to this browser), but a ?code= is also handled defensively in
+   case that ever changes. Shows the "set a new password" step instead of
+   routing normally. Returns true whenever this load IS a recovery link —
+   success or an expired/already-used one — so the caller skips route(). */
+async function consumePasswordRecovery() {
+  const params = new URLSearchParams(location.search);
+  if (params.get("flow") !== "recovery") return false;
+
+  const hash = new URLSearchParams(location.hash.replace(/^#/, ""));
+  const code = params.get("code");
+  history.replaceState({}, "", location.pathname);
+
+  try {
+    let session = null;
+    const accessToken = hash.get("access_token");
+    const refreshToken = hash.get("refresh_token");
+    if (accessToken && refreshToken) {
+      const { data, error } = await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      });
+      if (error) throw error;
+      session = data.session;
+    } else if (code) {
+      const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+      if (error) throw error;
+      session = data.session;
+    } else {
+      throw new Error(hash.get("error_description") || "Missing recovery token");
+    }
+    $("#rpEmail").textContent = session?.user?.email || "your account";
+    show("resetPassword");
+    return true;
+  } catch {
+    $("#rpHeading").textContent = "Link expired";
+    $("#rpSub").hidden = true;
+    $("#rpLinkError").textContent =
+      "This link is invalid or has expired. Ask your Education Team admin to send a new one.";
+    $("#rpLinkErrorField").hidden = false;
+    $("#resetPasswordForm").hidden = true;
+    $("#rpBack").hidden = false;
+    show("resetPassword");
+    return true;
   }
 }
 
@@ -315,7 +368,44 @@ $("#onboardSignOut").addEventListener("click", async () => {
   show("role");
 });
 
+// ---- set a new password (from an emailed reset link) ----
+$("#rpBack").addEventListener("click", async () => {
+  await signOut().catch(() => {});
+  show("role");
+});
+
+$("#resetPasswordForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const err = $("#resetPasswordError");
+  err.hidden = true;
+  const p1 = $("#rp_pass").value;
+  const p2 = $("#rp_pass2").value;
+  if (p1.length < 8) {
+    err.textContent = "Password must be at least 8 characters.";
+    err.hidden = false;
+    return;
+  }
+  if (p1 !== p2) {
+    err.textContent = "Passwords don't match.";
+    err.hidden = false;
+    return;
+  }
+  const btn = $("#rpSubmit");
+  btn.disabled = true;
+  try {
+    const { error } = await supabase.auth.updateUser({ password: p1 });
+    if (error) throw error;
+    // Already signed in as the recovered account — straight to their dashboard.
+    await route();
+  } catch (e2) {
+    err.textContent = e2?.message || "Could not update the password.";
+    err.hidden = false;
+    btn.disabled = false;
+  }
+});
+
 (async () => {
+  if (await consumePasswordRecovery()) return;
   await consumeOAuthRedirect();
   route();
 })();

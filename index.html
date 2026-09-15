@@ -145,6 +145,32 @@
           </div>
         </div>
 
+        <!-- landed here from an emailed "reset password" link -->
+        <div id="stepResetPassword" hidden>
+          <div class="login-eyebrow">Reset password</div>
+          <h2 id="rpHeading">Set a new password</h2>
+          <p class="login-sub" id="rpSub">Choose a new password for <b id="rpEmail">your account</b>.</p>
+
+          <div class="field" id="rpLinkErrorField" hidden>
+            <div class="field-error" id="rpLinkError"></div>
+          </div>
+
+          <form id="resetPasswordForm">
+            <div class="field">
+              <label for="rp_pass">New password</label>
+              <input id="rp_pass" name="password" type="password" autocomplete="new-password" minlength="8" placeholder="••••••••" required>
+            </div>
+            <div class="field">
+              <label for="rp_pass2">Confirm new password</label>
+              <input id="rp_pass2" name="password2" type="password" autocomplete="new-password" minlength="8" placeholder="••••••••" required>
+              <div class="field-error" id="resetPasswordError" hidden></div>
+            </div>
+            <button class="btn btn-primary btn-block" type="submit" id="rpSubmit">Set new password</button>
+          </form>
+
+          <button class="btn btn-outline btn-block" type="button" id="rpBack" style="margin-top:.8rem" hidden>← Back to sign in</button>
+        </div>
+
         <!-- first sign-in: create the profile -->
         <div id="stepOnboard" hidden>
           <div class="login-eyebrow">Almost there</div>

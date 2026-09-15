@@ -1,6 +1,6 @@
 import "./nav.js";
 import { $, $$, esc, initials, toast } from "./util.js";
-import { requireRole, signOut } from "./auth.js";
+import { requireRole, signOut, sendPasswordResetLink } from "./auth.js";
 import {
   CONTENT_TYPES, LIBRARY_SUBJECTS, LIBRARY_AUDIENCES, FORM_AUDIENCES, QUESTION_TYPES, ROLES,
   normalizeLibraryAudience,
@@ -770,7 +770,8 @@ async function main() {
         </div>
         <div class="roster-actions">
           <button type="button" data-act="edit">Edit</button>
-          <button type="button" data-act="password">Reset password</button>
+          <button type="button" data-act="resetlink">Send reset link</button>
+          <button type="button" data-act="password">Set new password</button>
         </div>
       </div>`;
   }
@@ -877,6 +878,10 @@ async function main() {
         await updateUser(id, patch);
         toast("Account updated", "");
         renderUsers();
+      } else if (btn.dataset.act === "resetlink") {
+        if (!confirm(`Email a "set a new password" link to ${row.dataset.email}?`)) return;
+        await sendPasswordResetLink(row.dataset.email);
+        toast("Reset link sent", `${row.dataset.email} can follow it to set their own new password.`);
       } else if (btn.dataset.act === "password") {
         const password = prompt(`New password for ${row.dataset.email} — at least 8 characters`);
         if (!password) return;
