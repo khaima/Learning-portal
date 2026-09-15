@@ -51,16 +51,37 @@ function clearLastLearnerUsername() {
   try { localStorage.removeItem(LAST_LEARNER_KEY); } catch { /* ignore */ }
 }
 
-/* Decorative hero background: cross-fades between colour-wash slides
-   every 3s, purely visual — left alone for prefers-reduced-motion. */
+/* Same rotating taglines as the main HPF portal's hero. */
+const HERO_QUOTES = [
+  "When actions flow from the heart.",
+  "When word inspires but only action counts.",
+  "When compassion is lived, not just felt.",
+  "Change the future. Build the school.",
+];
+
+/* Decorative hero background: cross-fades between photo slides and
+   swaps the tagline every 3s, purely visual — left alone for
+   prefers-reduced-motion. */
 (function wireHeroBackground() {
   const slides = $$(".hero-bg-slide");
-  if (slides.length < 2) return;
+  const quoteEl = $("[data-hero-quote]");
+  if (slides.length < 2 && !quoteEl) return;
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   let i = 0;
+  let qi = 0;
   setInterval(() => {
-    i = (i + 1) % slides.length;
-    slides.forEach((s, k) => s.classList.toggle("is-active", k === i));
+    if (slides.length > 1) {
+      i = (i + 1) % slides.length;
+      slides.forEach((s, k) => s.classList.toggle("is-active", k === i));
+    }
+    if (quoteEl) {
+      qi = (qi + 1) % HERO_QUOTES.length;
+      quoteEl.classList.add("is-swapping");
+      setTimeout(() => {
+        quoteEl.textContent = HERO_QUOTES[qi];
+        quoteEl.classList.remove("is-swapping");
+      }, 350);
+    }
   }, 3000);
 })();
 
