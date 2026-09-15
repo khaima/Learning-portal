@@ -2,7 +2,7 @@ import { $, $$ } from "./util.js";
 import { supabase, setRememberMe, getRememberMe } from "./supabase.js";
 import {
   DASHBOARD_PATH, registerStaff, signInWithPassword, signInWithGoogle,
-  learnerLogin, getProfile, createProfile, signOut,
+  learnerLogin, getProfile, createProfile, signOut, sendPasswordResetLink,
 } from "./auth.js";
 import { learnerToken } from "./api.js";
 import { ROLES } from "./data.js";
@@ -260,7 +260,7 @@ function setPwMode(signup) {
   pwSignupMode = signup;
   $("#pwHeadVerb").textContent = signup ? "Create an account" : "Sign in";
   $("#pwSub").textContent = signup
-    ? "Pick a password you'll remember — there's no email reset."
+    ? "Pick a password you'll remember."
     : "Enter your email and password.";
   $("#pwSubmit").textContent = signup ? "Create account" : "Sign in";
   $("#pw_pass").setAttribute("autocomplete", signup ? "new-password" : "current-password");
@@ -268,9 +268,53 @@ function setPwMode(signup) {
     ? "Already have an account? Sign in"
     : "New here? Create an account";
   pwError.hidden = true;
+  setForgotMode(false);
 }
 
 $("#pwToggleMode").addEventListener("click", () => setPwMode(!pwSignupMode));
+
+// ---- self-service password reset (emails a link) ----
+const forgotForm = $("#forgotForm");
+const forgotError = $("#forgotError");
+
+function setForgotMode(on) {
+  passwordForm.hidden = on;
+  $("#pwFootLinks").hidden = on;
+  forgotForm.hidden = !on;
+  $("#forgotSent").hidden = true;
+  forgotError.hidden = true;
+  $("#forgotFootLinks").hidden = !on;
+  if (on) {
+    $("#fp_email").value = $("#pw_email").value.trim();
+    $("#fp_email").focus();
+  }
+}
+
+$("#pwForgotLink").addEventListener("click", () => setForgotMode(true));
+$("#forgotBack").addEventListener("click", () => setForgotMode(false));
+
+forgotForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  forgotError.hidden = true;
+  const email = $("#fp_email").value.trim();
+  const btn = $("#forgotSubmit");
+  btn.disabled = true;
+  btn.textContent = "Sending…";
+  try {
+    await sendPasswordResetLink(email);
+    forgotForm.hidden = true;
+    $("#forgotFootLinks").hidden = false;
+    const sent = $("#forgotSent");
+    sent.textContent = `If an account exists for ${email}, a reset link is on its way — check your inbox.`;
+    sent.hidden = false;
+  } catch (err) {
+    forgotError.textContent = err?.message || "Could not send the reset link.";
+    forgotError.hidden = false;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Send reset link";
+  }
+});
 
 passwordForm.addEventListener("submit", async (e) => {
   e.preventDefault();

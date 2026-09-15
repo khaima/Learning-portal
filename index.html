@@ -133,15 +133,36 @@
               <input id="pw_pass" name="password" type="password" autocomplete="current-password" minlength="8" placeholder="••••••••" required>
               <div class="field-error" id="pwError" hidden></div>
             </div>
+            <p style="text-align:right;margin:-.7rem 0 .9rem">
+              <button type="button" class="link-btn" id="pwForgotLink">Forgot password?</button>
+            </p>
             <div class="field-remember">
               <input id="pw_remember" type="checkbox" checked>
               <label for="pw_remember">Remember me on this device</label>
             </div>
             <button class="btn btn-primary btn-block" type="submit" id="pwSubmit">Sign in</button>
           </form>
-          <div class="login-foot" style="margin-top:1rem">
+
+          <!-- self-service password reset: emails a link, same mechanism as
+               the Education Team's "Send reset link" -->
+          <form id="forgotForm" hidden>
+            <p class="login-sub" style="margin-top:0">Enter your email and we'll send a link to set a new password.</p>
+            <div class="field">
+              <label for="fp_email">Email address</label>
+              <input id="fp_email" name="email" type="email" autocomplete="email" placeholder="you@example.org" required>
+              <div class="field-error" id="forgotError" hidden></div>
+            </div>
+            <button class="btn btn-primary btn-block" type="submit" id="forgotSubmit">Send reset link</button>
+          </form>
+          <p class="login-sub" id="forgotSent" hidden style="margin-top:0"></p>
+
+          <div class="login-foot" style="margin-top:1rem" id="pwFootLinks">
             <button type="button" id="pwToggleMode">New here? Create an account</button>
             <button type="button" id="changeRole">← Different role</button>
+          </div>
+          <div class="login-foot" style="margin-top:1rem" id="forgotFootLinks" hidden>
+            <span></span>
+            <button type="button" id="forgotBack">← Back to sign in</button>
           </div>
         </div>
 
