@@ -139,14 +139,19 @@ function canSeeLibrary(audience: string | null | undefined, role: Role): boolean
 
 type LibFile = { name: string; path: string; size: number };
 
+/* Signed URLs with no `download` option: the object is served with its
+   real content-type and no attachment disposition, so a browser opens
+   a PDF/image/text/video right in the tab instead of saving it to disk.
+   (`download: true` — used until now — forces "Content-Disposition:
+   attachment", which is exactly what made every open a download.) The
+   field is still called downloadUrl for the frontend, but it's a "view
+   this in the portal" link now. */
 async function signFiles(files: LibFile[]) {
   return await Promise.all(
     (files ?? []).map(async (f) => {
       const { data } = await admin.storage
         .from(LIBRARY_BUCKET)
-        .createSignedUrl(f.path, DOWNLOAD_TTL, {
-          download: f.name.split("/").pop() || true,
-        });
+        .createSignedUrl(f.path, DOWNLOAD_TTL);
       return { ...f, downloadUrl: data?.signedUrl ?? null };
     }),
   );

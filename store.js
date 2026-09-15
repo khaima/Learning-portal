@@ -97,16 +97,20 @@ export function formatBytes(n = 0) {
   return `${n.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-/* Download affordance for a library item, shared by every dashboard.
-   The API already put a signed `downloadUrl` on each file. */
+/* "Open to read" affordance for a library item, shared by every
+   dashboard. The API puts a signed, view-in-browser URL (no forced
+   download — PDFs, images, text and video render right in the tab) on
+   each file as `downloadUrl`, despite the name; the browser only saves
+   it to disk if the visitor explicitly chooses to, or if it's a file
+   type the browser can't display inline (e.g. Word/Excel). */
 export function libraryFilesHtml(item) {
   const files = item.files || [];
   if (!files.length) return "";
   if (files.length === 1) {
     const f = files[0];
-    return `<a class="lib-download" href="${esc(f.downloadUrl || "#")}" target="_blank" rel="noopener">
-      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg>
-      Download${f.size ? ` <span class="lib-size">${esc(formatBytes(f.size))}</span>` : ""}</a>`;
+    return `<a class="lib-open" href="${esc(f.downloadUrl || "#")}" target="_blank" rel="noopener">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3h7v7M21 3l-9 9M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg>
+      Open to read${f.size ? ` <span class="lib-size">${esc(formatBytes(f.size))}</span>` : ""}</a>`;
   }
   const rows = files.map((f) => `<li><a href="${esc(f.downloadUrl || "#")}" target="_blank" rel="noopener">${esc(f.name)}</a>${
     f.size ? ` <span class="lib-size">${esc(formatBytes(f.size))}</span>` : ""}</li>`).join("");

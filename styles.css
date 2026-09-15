@@ -346,15 +346,15 @@ a{ color:inherit; }
   width:1.5rem; height:1.5rem; flex:none; cursor:pointer; font-size:1rem; font-weight:700; line-height:1;
 }
 
-/* ---- download affordance shared by every dashboard's library list ---- */
-.lib-download{
+/* ---- "open to read" affordance shared by every dashboard's library list ---- */
+.lib-open{
   display:inline-flex; align-items:center; gap:.35rem; margin-top:.4rem;
   font-size:.78rem; font-weight:600; color:var(--brand-fg);
   background:var(--brand-soft); border-radius:var(--radius-sm);
   padding:.3rem .6rem; text-decoration:none;
 }
-.lib-download:hover{ text-decoration:underline; }
-.lib-download .icon{ width:14px; height:14px; }
+.lib-open:hover{ text-decoration:underline; }
+.lib-open .icon{ width:14px; height:14px; }
 .lib-size{ color:var(--ink-soft); font-weight:500; }
 .lib-folder{ margin-top:.4rem; font-size:.78rem; }
 .lib-folder summary{
