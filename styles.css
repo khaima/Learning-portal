@@ -107,28 +107,52 @@ a{ color:inherit; }
 .toast.error{ background:var(--danger); }
 
 /* ================================================================ LANDING / SIGN-IN */
-.login-screen{ min-height:100vh; display:grid; grid-template-columns: 1.05fr 1fr; }
-@media (max-width: 900px){ .login-screen{ grid-template-columns: 1fr; } .login-art{ min-height:280px; } }
+.login-page{ min-height:100vh; display:flex; flex-direction:column; }
 
-.login-art{
-  position:relative; background:linear-gradient(175deg, var(--panel-deep), var(--panel) 78%);
-  color:#fff; padding:2.6rem 3rem; overflow:hidden; display:flex; flex-direction:column; justify-content:space-between;
+.login-topbar{
+  display:flex; align-items:center; justify-content:space-between; gap:1rem;
+  padding:1.3rem clamp(1.1rem,4vw,3rem); position:relative; z-index:3;
 }
-.login-art .wordmark-text span{ color:rgba(255,255,255,.75); }
-.login-art .wordmark-text b{ color:#fff; }
-.login-art .badge-mark{ background:#fff; color:var(--panel); }
-.art-copy{ position:relative; z-index:2; max-width:26rem; margin-top:2.5rem; }
-.art-copy h1{ font-size:2.15rem; color:#fff; line-height:1.12; margin-bottom:.6rem; }
-.art-copy p{ color:rgba(255,255,255,.82); font-size:1rem; line-height:1.55; margin:0; }
+.login-topbar .wordmark-text b{ color:#fff; }
+.login-topbar .wordmark-text span{ color:rgba(255,255,255,.75); }
+.login-topbar .badge-mark{ background:#fff; color:var(--panel); }
+.login-home-link{
+  display:inline-flex; align-items:center; gap:.4rem; text-decoration:none; white-space:nowrap;
+  font-size:.86rem; font-weight:600; color:#fff; padding:.55rem .95rem;
+  border:1.5px solid rgba(255,255,255,.35); border-radius:999px;
+}
+.login-home-link:hover{ background:rgba(255,255,255,.14); border-color:rgba(255,255,255,.6); }
+.login-home-link span{ display:inline-block; transition:transform .15s; }
+.login-home-link:hover span{ transform:translateX(3px); }
+
+.login-hero{
+  position:relative; flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:2.2rem; padding:1rem clamp(1.1rem,4vw,3rem) 4rem; overflow:hidden; text-align:center;
+  background:linear-gradient(175deg, var(--panel-deep), var(--panel) 78%);
+}
+.art-copy{ position:relative; z-index:2; max-width:34rem; }
+.art-copy h1{ font-size:2.1rem; color:#fff; line-height:1.15; margin-bottom:.6rem; }
+.art-copy p{ color:rgba(255,255,255,.85); font-size:1rem; line-height:1.55; margin:0 0 1.3rem; }
 .art-scene{ position:absolute; inset:auto 0 0 0; height:42%; z-index:1; }
-.art-stats{ position:relative; z-index:2; display:flex; gap:1.6rem; margin-top:2rem; flex-wrap:wrap; }
-.art-stat b{ display:block; font-family:"Baloo 2",sans-serif; font-size:1.5rem; font-variant-numeric:tabular-nums; }
+.art-stats{ position:relative; z-index:2; display:flex; gap:1.6rem; justify-content:center; flex-wrap:wrap; }
+.art-stat b{ display:block; font-family:"Baloo 2",sans-serif; font-size:1.5rem; color:#fff; font-variant-numeric:tabular-nums; }
 .art-stat span{ font-size:.76rem; color:rgba(255,255,255,.72); }
 
-.login-panel{ display:flex; align-items:center; justify-content:center; padding:2.5rem 2rem; }
-.login-inner{ width:100%; max-width:23.5rem; }
-.login-inner > .wordmark{ display:none; }
-@media (max-width:900px){ .login-inner > .wordmark{ display:flex; margin-bottom:1.4rem; } }
+.login-card{
+  position:relative; z-index:2; width:100%; max-width:25.5rem; background:var(--paper-raised);
+  border-radius:var(--radius-lg); box-shadow:0 30px 70px -24px rgba(6,16,38,.55), var(--shadow);
+  padding:2.2rem 2rem;
+}
+.login-inner{ width:100%; }
+@media (max-width:640px){
+  .login-topbar{ padding:1.1rem 1rem; }
+  .login-topbar .wordmark-text{ display:none; }
+  .login-home-link{ font-size:.78rem; padding:.5rem .8rem; }
+  .login-hero{ padding:.5rem 1rem 2.5rem; gap:1.6rem; }
+  .art-copy h1{ font-size:1.6rem; }
+  .art-stats{ display:none; }
+  .login-card{ padding:1.6rem 1.3rem; }
+}
 .login-eyebrow{ font-size:.78rem; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--accent-fg); margin-bottom:.4rem; }
 .login-inner h2{ font-size:1.5rem; margin-bottom:.35rem; }
 .login-sub{ color:var(--ink-soft); font-size:.92rem; margin:0 0 1.4rem; }

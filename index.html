@@ -12,21 +12,16 @@
   <link rel="icon" href="data:,">
 </head>
 <body>
-  <div class="login-screen">
-    <div class="login-art">
+  <div class="login-page">
+    <header class="login-topbar">
       <a class="wordmark" href="index.html">
         <span class="badge-mark">HPF</span>
         <span class="wordmark-text"><b>Human Practice Foundation</b><span>Digital Learning Portal</span></span>
       </a>
-      <div class="art-copy">
-        <h1>Karibu — welcome back.</h1>
-        <p>One home for every classroom HPF supports: assignments, results, and learning resources, kept current by the people who use them.</p>
-        <div class="art-stats">
-          <div class="art-stat"><b>340+</b><span>schools reached</span></div>
-          <div class="art-stat"><b>27</b><span>counties active</span></div>
-          <div class="art-stat"><b>12k</b><span>learners enrolled</span></div>
-        </div>
-      </div>
+      <a class="login-home-link" href="https://humanpractice.org" target="_blank" rel="noopener">Back to main website <span aria-hidden="true">→</span></a>
+    </header>
+
+    <div class="login-hero">
       <svg class="art-scene" viewBox="0 0 800 300" preserveAspectRatio="none" role="img" aria-label="Sunrise over hills, with a stack of books, an open book, a graduation cap and a pencil in the foreground">
         <circle cx="660" cy="66" r="54" fill="#F0A05C" opacity=".9"/>
         <path d="M0,190 C160,120 260,230 420,150 C560,90 660,190 800,140 L800,300 L0,300 Z" fill="#12315A" opacity=".55"/>
@@ -61,14 +56,19 @@
           <path d="M560,140 l4,10 l10,4 l-10,4 l-4,10 l-4,-10 l-10,-4 l10,-4 Z" fill="#FAF6EF" opacity=".8"/>
         </g>
       </svg>
-    </div>
 
-    <div class="login-panel">
-      <div class="login-inner">
-        <a class="wordmark" href="index.html">
-          <span class="badge-mark">HPF</span>
-          <span class="wordmark-text"><b>Human Practice Foundation</b><span>Digital Learning Portal</span></span>
-        </a>
+      <div class="art-copy">
+        <h1>Karibu — welcome back.</h1>
+        <p>One home for every classroom HPF supports: assignments, results, and learning resources, kept current by the people who use them.</p>
+        <div class="art-stats">
+          <div class="art-stat"><b>340+</b><span>schools reached</span></div>
+          <div class="art-stat"><b>27</b><span>counties active</span></div>
+          <div class="art-stat"><b>12k</b><span>learners enrolled</span></div>
+        </div>
+      </div>
+
+      <div class="login-card">
+        <div class="login-inner">
 
         <!-- checking for an existing session -->
         <div id="stepLoading">
@@ -240,6 +240,8 @@
             <span></span>
             <button type="button" id="onboardSignOut">Sign out</button>
           </div>
+        </div>
+
         </div>
       </div>
     </div>
