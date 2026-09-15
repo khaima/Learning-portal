@@ -972,6 +972,107 @@ app.get("/stats", withProfile("education_team"), async (c) => {
   });
 });
 
+// ---- education-team: manage staff accounts ----
+// Passwords are one-way hashed in auth.users — never readable, by anyone,
+// including this service-role key. So "editable" here means: edit the
+// profile fields, and set a *new* password/PIN — never view the old one.
+
+const mapUserRow = (r: Record<string, unknown>) => ({
+  id: r.id,
+  role: r.role,
+  fullName: r.full_name,
+  email: r.email,
+  school: r.school,
+  county: r.county,
+  teacherType: r.teacher_type ?? null,
+  createdAt: r.created_at,
+});
+
+app.get("/users", withProfile("education_team"), async (c) => {
+  const { data, error } = await admin
+    .from("profiles")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ users: (data ?? []).map(mapUserRow) });
+});
+
+app.patch("/users/:id", withProfile("education_team"), async (c) => {
+  const id = c.req.param("id");
+  const { data: existing } = await admin
+    .from("profiles").select("id, role").eq("id", id).maybeSingle();
+  if (!existing) return c.json({ error: "User not found" }, 404);
+
+  const b = await c.req.json().catch(() => ({}));
+  const patch: Record<string, unknown> = {};
+
+  if (b.fullName !== undefined) {
+    const fn = String(b.fullName).trim();
+    if (!fn) return c.json({ error: "Full name is required" }, 400);
+    patch.full_name = fn;
+  }
+  const nextRole = b.role !== undefined ? b.role : existing.role;
+  if (b.role !== undefined) {
+    if (!STAFF_ROLES.includes(b.role)) return c.json({ error: "Invalid role" }, 400);
+    patch.role = b.role;
+  }
+  if (b.school !== undefined) patch.school = String(b.school).trim();
+  if (b.county !== undefined) patch.county = String(b.county).trim();
+  if (b.teacherType !== undefined) {
+    const tt = String(b.teacherType ?? "").trim().toUpperCase();
+    if (tt && !["BOM", "TSC"].includes(tt)) {
+      return c.json({ error: "Teacher type must be BOM or TSC" }, 400);
+    }
+    patch.teacher_type = tt || null;
+  }
+  if (nextRole !== "teacher") patch.teacher_type = null; // only teachers carry BOM/TSC
+
+  let newEmail: string | null = null;
+  if (b.email !== undefined) {
+    const email = String(b.email).trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) return c.json({ error: "Enter a valid email address" }, 400);
+    newEmail = email;
+  }
+
+  if (!Object.keys(patch).length && !newEmail) return c.json({ error: "Nothing to update" }, 400);
+
+  if (newEmail) {
+    const { error: authErr } = await admin.auth.admin.updateUserById(id, {
+      email: newEmail,
+      email_confirm: true,
+    });
+    if (authErr) {
+      const msg = authErr.message || "";
+      return c.json({
+        error: /registered|already exists|duplicate/i.test(msg)
+          ? "That email already has an account"
+          : msg || "Could not update the email",
+      }, 400);
+    }
+    patch.email = newEmail;
+  }
+
+  const { data, error } = await admin
+    .from("profiles").update(patch).eq("id", id).select().single();
+  if (error) return c.json({ error: error.message }, 400);
+  return c.json({ user: mapUserRow(data) });
+});
+
+app.post("/users/:id/reset-password", withProfile("education_team"), async (c) => {
+  const id = c.req.param("id");
+  const { data: existing } = await admin
+    .from("profiles").select("id").eq("id", id).maybeSingle();
+  if (!existing) return c.json({ error: "User not found" }, 404);
+  const b = await c.req.json().catch(() => ({}));
+  const password = String(b.password ?? "");
+  if (password.length < 8) {
+    return c.json({ error: "Password must be at least 8 characters" }, 400);
+  }
+  const { error } = await admin.auth.admin.updateUserById(id, { password });
+  if (error) return c.json({ error: error.message || "Could not set the new password" }, 400);
+  return c.json({ ok: true });
+});
+
 // ---- KoboToolbox: education-team config + attached surveys ----
 
 app.get("/kobo/config", withProfile("education_team"), async (c) => {

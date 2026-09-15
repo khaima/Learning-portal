@@ -2,7 +2,7 @@ import "./nav.js";
 import { $, $$, esc, initials, toast } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import {
-  CONTENT_TYPES, LIBRARY_SUBJECTS, LIBRARY_AUDIENCES, FORM_AUDIENCES, QUESTION_TYPES,
+  CONTENT_TYPES, LIBRARY_SUBJECTS, LIBRARY_AUDIENCES, FORM_AUDIENCES, QUESTION_TYPES, ROLES,
   normalizeLibraryAudience,
 } from "./data.js";
 import {
@@ -10,9 +10,12 @@ import {
   uploadLibraryFiles, libraryFilesHtml,
   koboConfig, saveKoboConfig, koboAssets, koboForms, attachKoboForm,
   removeKoboForm, syncKobo, koboResults,
+  getUsers, updateUser, resetUserPassword,
 } from "./store.js";
 
 const AUDIENCE_LABEL = Object.fromEntries(FORM_AUDIENCES.map((a) => [a.value, a.label]));
+const STAFF_ROLES = ROLES.filter((r) => r.value !== "learner");
+const ROLE_LABEL = Object.fromEntries(ROLES.map((r) => [r.value, r.label]));
 
 const ICON = {
   library: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/>',
@@ -738,10 +741,111 @@ async function main() {
     if (document.visibilityState === "visible" && srCurrent) loadSurveyResults();
   });
 
+  /* ------------------------------------------------------------ staff accounts
+     Every teacher / school leader / field officer / education team
+     sign-in — editable here. Passwords are one-way hashed server-side and
+     never come back to the browser, so "Reset password" sets a brand-new
+     one instead of ever showing the old one. */
+  function userRow(u) {
+    const meta = [
+      esc(u.email),
+      `<span class="pill">${esc(ROLE_LABEL[u.role] || u.role)}</span>`,
+      u.county ? esc(u.county) : "",
+      u.school ? esc(u.school) : "",
+      u.teacherType ? esc(u.teacherType) : "",
+    ].filter(Boolean).join(" · ");
+    return `
+      <div class="task-row" data-user="${esc(u.id)}"
+           data-fullname="${esc(u.fullName || "")}" data-email="${esc(u.email || "")}"
+           data-role="${esc(u.role)}" data-county="${esc(u.county || "")}"
+           data-school="${esc(u.school || "")}" data-teachertype="${esc(u.teacherType || "")}">
+        <div style="flex:1">
+          <b>${esc(u.fullName || "(no name)")}</b>
+          <span>${meta}</span>
+        </div>
+        <div class="roster-actions">
+          <button type="button" data-act="edit">Edit</button>
+          <button type="button" data-act="password">Reset password</button>
+        </div>
+      </div>`;
+  }
+
+  async function renderUsers() {
+    const list = $("#usersList");
+    list.innerHTML = `<div class="empty-state">Loading…</div>`;
+    let users = [];
+    try { users = await getUsers(); } catch { /* shown as empty */ }
+    $("#usersMeta").textContent = users.length ? `${users.length} account${users.length === 1 ? "" : "s"}` : "";
+    list.innerHTML = users.length
+      ? users.map(userRow).join("")
+      : `<div class="empty-state">No staff accounts yet.</div>`;
+  }
+
+  /* Returns a role value, undefined for an out-of-range pick, or null if
+     the admin cancelled — the caller tells those apart. */
+  function pickRole(current) {
+    const lines = STAFF_ROLES.map((r, i) => `${i + 1}) ${r.label}`).join("\n");
+    const defaultIdx = STAFF_ROLES.findIndex((r) => r.value === current);
+    const input = prompt(`Role — enter a number:\n${lines}`, String(defaultIdx >= 0 ? defaultIdx + 1 : 1));
+    if (input === null) return null;
+    const idx = Number(input.trim()) - 1;
+    return STAFF_ROLES[idx] ? STAFF_ROLES[idx].value : undefined;
+  }
+
+  $("#usersList").addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-act]");
+    if (!btn) return;
+    const row = btn.closest("[data-user]");
+    const id = row.dataset.user;
+
+    try {
+      if (btn.dataset.act === "edit") {
+        const fullName = prompt("Full name", row.dataset.fullname);
+        if (fullName === null) return;
+        const email = prompt("Email address", row.dataset.email);
+        if (email === null) return;
+        const role = pickRole(row.dataset.role);
+        if (role === null) return;
+        if (role === undefined) {
+          toast("Couldn't do that", "Pick a number from the list.", "error");
+          return;
+        }
+        const county = prompt("County", row.dataset.county);
+        if (county === null) return;
+        const school = prompt("School / institution", row.dataset.school);
+        if (school === null) return;
+        const patch = {
+          fullName: fullName.trim(), email: email.trim(), role,
+          county: county.trim(), school: school.trim(),
+        };
+        if (role === "teacher") {
+          const tt = prompt("Employment type — BOM, TSC, or leave blank", row.dataset.teachertype);
+          if (tt === null) return;
+          patch.teacherType = tt.trim();
+        }
+        await updateUser(id, patch);
+        toast("Account updated", "");
+        renderUsers();
+      } else if (btn.dataset.act === "password") {
+        const password = prompt(`New password for ${row.dataset.email} — at least 8 characters`);
+        if (!password) return;
+        if (password.trim().length < 8) {
+          toast("Couldn't do that", "Password must be at least 8 characters.", "error");
+          return;
+        }
+        await resetUserPassword(id, password.trim());
+        toast("Password reset", "Tell them their new password.");
+      }
+    } catch (err) {
+      toast("Couldn't do that", err?.body?.error || err?.message || "", "error");
+    }
+  });
+
   renderStats();
   renderLibrary();
   renderForms();
   renderKobo();
+  renderUsers();
 }
 main();
 

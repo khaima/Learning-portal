@@ -192,6 +192,27 @@ export async function getStats({ county, school, topGrades } = {}) {
   return apiGet(`/stats${qs ? `?${qs}` : ""}`);
 }
 
+/* ---------------------------------------------------------------- staff accounts (education team) */
+
+/* Every staff account (teacher, school leader, field officer, education
+   team) — email, role, school, county. Passwords/PINs are one-way hashed
+   server-side and never come back here; see resetUserPassword(). */
+export async function getUsers() {
+  const { users } = await apiGet("/users");
+  return users || [];
+}
+
+export async function updateUser(id, patch) {
+  const { user } = await apiSend("PATCH", `/users/${id}`, patch);
+  return user;
+}
+
+/* Sets a brand-new password for a staff account — the old one is never
+   readable, so this is the only way to "reset" it. */
+export async function resetUserPassword(id, password) {
+  return apiSend("POST", `/users/${id}/reset-password`, { password });
+}
+
 /* ---------------------------------------------------------------- KoboToolbox */
 
 /* Education Team: connection state (never returns the API token). */
