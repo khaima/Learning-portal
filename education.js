@@ -743,13 +743,18 @@ async function main() {
 
   /* ------------------------------------------------------------ staff accounts
      Every teacher / school leader / field officer / education team
-     sign-in — editable here. Passwords are one-way hashed server-side and
-     never come back to the browser, so "Reset password" sets a brand-new
-     one instead of ever showing the old one. */
+     sign-in — editable here, grouped under a title per role. Passwords are
+     one-way hashed server-side and never come back to the browser, so
+     "Reset password" sets a brand-new one instead of ever showing the old
+     one. The list is "smart": one search box filters name/email/county/
+     school/role live, and a sort control reorders every role group at
+     once by name, county, or school — all client-side against the one
+     fetch, so it's instant. */
+  let allUsers = [];
+
   function userRow(u) {
     const meta = [
       esc(u.email),
-      `<span class="pill">${esc(ROLE_LABEL[u.role] || u.role)}</span>`,
       u.county ? esc(u.county) : "",
       u.school ? esc(u.school) : "",
       u.teacherType ? esc(u.teacherType) : "",
@@ -770,16 +775,62 @@ async function main() {
       </div>`;
   }
 
-  async function renderUsers() {
-    const list = $("#usersList");
-    list.innerHTML = `<div class="empty-state">Loading…</div>`;
-    let users = [];
-    try { users = await getUsers(); } catch { /* shown as empty */ }
-    $("#usersMeta").textContent = users.length ? `${users.length} account${users.length === 1 ? "" : "s"}` : "";
-    list.innerHTML = users.length
-      ? users.map(userRow).join("")
-      : `<div class="empty-state">No staff accounts yet.</div>`;
+  function userMatchesSearch(u, q) {
+    if (!q) return true;
+    const hay = [u.fullName, u.email, u.county, u.school, u.teacherType, ROLE_LABEL[u.role]]
+      .filter(Boolean).join(" ").toLowerCase();
+    return hay.includes(q);
   }
+
+  function sortUsers(list, sortBy) {
+    const key = sortBy === "county" ? "county" : sortBy === "school" ? "school" : "fullName";
+    return [...list].sort((a, b) => {
+      const av = (a[key] || "").trim();
+      const bv = (b[key] || "").trim();
+      if (!av !== !bv) return av ? -1 : 1; // blank values sort last
+      return av.localeCompare(bv) || (a.fullName || "").localeCompare(b.fullName || "");
+    });
+  }
+
+  function renderUsersList() {
+    const list = $("#usersList");
+    if (!allUsers.length) {
+      list.innerHTML = `<div class="empty-state">No staff accounts yet.</div>`;
+      $("#usersMeta").textContent = "";
+      return;
+    }
+    const q = $("#usersSearch").value.trim().toLowerCase();
+    const sortBy = $("#usersSort").value;
+    const filtered = allUsers.filter((u) => userMatchesSearch(u, q));
+
+    $("#usersMeta").textContent = filtered.length === allUsers.length
+      ? `${allUsers.length} account${allUsers.length === 1 ? "" : "s"}`
+      : `${filtered.length} of ${allUsers.length} accounts`;
+
+    if (!filtered.length) {
+      list.innerHTML = `<div class="empty-state">No accounts match your search.</div>`;
+      return;
+    }
+
+    list.innerHTML = STAFF_ROLES.map((r) => {
+      const rows = sortUsers(filtered.filter((u) => u.role === r.value), sortBy);
+      if (!rows.length) return "";
+      return `
+        <div class="list-group">
+          <div class="list-group-title">${esc(r.label)}<span class="count">${rows.length}</span></div>
+          ${rows.map(userRow).join("")}
+        </div>`;
+    }).join("");
+  }
+
+  async function renderUsers() {
+    $("#usersList").innerHTML = `<div class="empty-state">Loading…</div>`;
+    try { allUsers = await getUsers(); } catch { allUsers = []; }
+    renderUsersList();
+  }
+
+  $("#usersSearch").addEventListener("input", renderUsersList);
+  $("#usersSort").addEventListener("change", renderUsersList);
 
   /* Returns a role value, undefined for an out-of-range pick, or null if
      the admin cancelled — the caller tells those apart. */

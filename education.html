@@ -227,10 +227,24 @@
           </div>
           <p class="kobo-note">
             Every teacher, school leader, field officer and education team
-            sign-in. Passwords are one-way hashed and can't be viewed by
-            anyone — including this dashboard — so "Reset password" sets a
-            brand-new one instead of showing the old one.
+            sign-in, grouped by role. Passwords are one-way hashed and can't
+            be viewed by anyone — including this dashboard — so "Reset
+            password" sets a brand-new one instead of showing the old one.
           </p>
+          <div class="form-row" style="display:grid;grid-template-columns:2fr 1fr;gap:.9rem;max-width:36rem;margin-bottom:.3rem">
+            <div class="field" style="margin-bottom:0">
+              <label for="usersSearch">Search</label>
+              <input id="usersSearch" type="text" placeholder="Name, email, county, school…">
+            </div>
+            <div class="field" style="margin-bottom:0">
+              <label for="usersSort">Sort by</label>
+              <select id="usersSort">
+                <option value="name">Name (A–Z)</option>
+                <option value="county">County (A–Z)</option>
+                <option value="school">School (A–Z)</option>
+              </select>
+            </div>
+          </div>
           <div id="usersList"><div class="empty-state">Loading…</div></div>
         </div>
       </section>
