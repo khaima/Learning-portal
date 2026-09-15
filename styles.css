@@ -130,34 +130,25 @@ a{ color:inherit; }
   gap:2.2rem; padding:1rem clamp(1.1rem,4vw,3rem) 4rem; overflow:hidden; text-align:center;
 }
 
-/* Decorative background carousel: four colour washes cross-fade every 3s
-   (wired in index.js), echoing the main portal's hero carousel. The first
-   slide is the flat gradient this page always had, so it still looks right
-   with JS disabled or prefers-reduced-motion. */
+/* Background carousel: real HPF programme photos cross-fade every 3s
+   (wired in index.js), echoing the main portal's hero carousel. Each
+   slide's image comes from an inline style in index.html; a fixed brand-
+   blue scrim sits on top so the heading and card stay legible over any
+   photo, in light or dark mode. */
 .hero-bg{ position:absolute; inset:0; z-index:0; }
-.hero-bg-slide{ position:absolute; inset:0; opacity:0; transition:opacity 1.6s ease; }
+.hero-bg-slide{
+  position:absolute; inset:0; opacity:0; transition:opacity 1.6s ease;
+  background-size:cover; background-position:center;
+}
 .hero-bg-slide.is-active{ opacity:1; }
-.hero-bg-slide:nth-child(1){ background:linear-gradient(175deg, var(--panel-deep), var(--panel) 78%); }
-.hero-bg-slide:nth-child(2){
-  background:
-    radial-gradient(60% 55% at 85% 12%, rgba(217,122,52,.35), transparent 60%),
-    linear-gradient(200deg, var(--panel-deep), var(--panel) 72%);
-}
-.hero-bg-slide:nth-child(3){
-  background:
-    radial-gradient(55% 55% at 15% 85%, rgba(62,143,168,.4), transparent 60%),
-    linear-gradient(155deg, var(--panel), var(--panel-deep) 75%);
-}
-.hero-bg-slide:nth-child(4){
-  background:
-    radial-gradient(55% 55% at 80% 85%, rgba(138,92,176,.35), transparent 60%),
-    linear-gradient(190deg, var(--panel-deep), var(--panel) 80%);
+.hero-bg-overlay{
+  position:absolute; inset:0; z-index:1;
+  background:linear-gradient(180deg, rgba(11,32,64,.8) 0%, rgba(15,44,82,.5) 38%, rgba(15,44,82,.4) 62%, rgba(11,32,64,.72) 100%);
 }
 @media (prefers-reduced-motion: reduce){ .hero-bg-slide{ transition:none; } }
 .art-copy{ position:relative; z-index:2; max-width:34rem; }
 .art-copy h1{ font-size:2.1rem; color:#fff; line-height:1.15; margin-bottom:.6rem; }
 .art-copy p{ color:rgba(255,255,255,.85); font-size:1rem; line-height:1.55; margin:0 0 1.3rem; }
-.art-scene{ position:absolute; inset:auto 0 0 0; height:42%; z-index:1; }
 .art-stats{ position:relative; z-index:2; display:flex; gap:1.6rem; justify-content:center; flex-wrap:wrap; }
 .art-stat b{ display:block; font-family:"Baloo 2",sans-serif; font-size:1.5rem; color:#fff; font-variant-numeric:tabular-nums; }
 .art-stat span{ font-size:.76rem; color:rgba(255,255,255,.72); }
