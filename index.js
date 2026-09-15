@@ -51,6 +51,19 @@ function clearLastLearnerUsername() {
   try { localStorage.removeItem(LAST_LEARNER_KEY); } catch { /* ignore */ }
 }
 
+/* Decorative hero background: cross-fades between colour-wash slides
+   every 3s, purely visual — left alone for prefers-reduced-motion. */
+(function wireHeroBackground() {
+  const slides = $$(".hero-bg-slide");
+  if (slides.length < 2) return;
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  let i = 0;
+  setInterval(() => {
+    i = (i + 1) % slides.length;
+    slides.forEach((s, k) => s.classList.toggle("is-active", k === i));
+  }, 3000);
+})();
+
 const steps = {
   loading: $("#stepLoading"),
   role: $("#stepRole"),
