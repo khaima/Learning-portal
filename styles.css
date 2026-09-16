@@ -117,10 +117,10 @@ a{ color:inherit; }
 .login-home-link{
   display:inline-flex; align-items:center; gap:.4rem; text-decoration:none; white-space:nowrap;
   font-size:.86rem; font-weight:700; color:#fff; padding:.6rem 1.05rem;
-  background:var(--panel); border:1.5px solid var(--panel); border-radius:999px;
+  background:var(--panel-deep); border:1.5px solid var(--panel-deep); border-radius:999px;
   box-shadow:0 4px 14px -4px rgba(0,0,0,.4);
 }
-.login-home-link:hover{ background:var(--panel-deep); border-color:var(--panel-deep); }
+.login-home-link:hover{ background:var(--panel); border-color:var(--panel); }
 .login-home-link span{ display:inline-block; transition:transform .15s; }
 .login-home-link:hover span{ transform:translateX(3px); }
 
