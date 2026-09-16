@@ -80,7 +80,7 @@ const HERO_QUOTES = [
       setTimeout(() => {
         quoteEl.textContent = HERO_QUOTES[qi];
         quoteEl.classList.remove("is-swapping");
-      }, 350);
+      }, 600);
     }
   }, 4000);
 })();
