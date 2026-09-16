@@ -113,15 +113,14 @@ a{ color:inherit; }
   display:flex; align-items:center; justify-content:space-between; gap:1rem;
   padding:1.3rem clamp(1.1rem,4vw,3rem); position:relative; z-index:3;
 }
-.login-topbar .wordmark-text b{ color:#fff; }
-.login-topbar .wordmark-text span{ color:rgba(255,255,255,.75); }
-.login-topbar .badge-mark{ background:#fff; color:var(--panel); }
+.wordmark-logo{ display:block; height:42px; width:auto; border-radius:8px; }
 .login-home-link{
   display:inline-flex; align-items:center; gap:.4rem; text-decoration:none; white-space:nowrap;
-  font-size:.86rem; font-weight:600; color:#fff; padding:.55rem .95rem;
-  border:1.5px solid rgba(255,255,255,.35); border-radius:999px;
+  font-size:.86rem; font-weight:700; color:#fff; padding:.6rem 1.05rem;
+  background:var(--panel); border:1.5px solid var(--panel); border-radius:999px;
+  box-shadow:0 4px 14px -4px rgba(0,0,0,.4);
 }
-.login-home-link:hover{ background:rgba(255,255,255,.14); border-color:rgba(255,255,255,.6); }
+.login-home-link:hover{ background:var(--panel-deep); border-color:var(--panel-deep); }
 .login-home-link span{ display:inline-block; transition:transform .15s; }
 .login-home-link:hover span{ transform:translateX(3px); }
 
@@ -165,7 +164,7 @@ a{ color:inherit; }
 .login-inner{ width:100%; }
 @media (max-width:640px){
   .login-topbar{ padding:1.1rem 1rem; }
-  .login-topbar .wordmark-text{ display:none; }
+  .wordmark-logo{ height:34px; }
   .login-home-link{ font-size:.78rem; padding:.5rem .8rem; }
   .login-hero{ padding:.5rem 1rem 2.5rem; gap:1.6rem; }
   .art-copy h1{ font-size:1.6rem; }
