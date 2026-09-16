@@ -49,10 +49,11 @@ create table if not exists public.library_items (
   subject text not null,
   type text not null,
   -- where this content goes:
-  --   'staff'   -> Teacher Resources: teachers + head of institution only
-  --   'library' -> Digital Library: for learners, also visible to
-  --                teachers + head of institution
-  audience text not null default 'library' check (audience in ('staff','library')),
+  --   'staff'         -> Teacher Resources: teachers + head of institution only
+  --   'school_leader' -> For School Head: head of institution only, not teachers
+  --   'library'       -> Digital Library: for learners, also visible to
+  --                      teachers + head of institution
+  audience text not null default 'library' check (audience in ('staff','library','school_leader')),
   description text not null default '',
   uploaded_by text not null default '',
   uploaded_at timestamptz not null default now(),
@@ -64,6 +65,27 @@ create table if not exists public.library_items (
   is_folder boolean not null default false,
   files jsonb not null default '[]'::jsonb
 );
+
+-- One row per "someone opened a resource". `completed_at`/`duration_seconds`
+-- fill in only if they come back to this tab (see nav.js) — "Open to read"
+-- launches a signed URL in a NEW tab, often a PDF/image/video the browser
+-- renders natively, so there is no way to observe what happens in it. This
+-- is an honest wall-clock proxy for engagement, not literal reading time.
+create table if not exists public.library_interactions (
+  id text primary key,
+  library_item_id text not null references public.library_items(id) on delete cascade,
+  actor_kind text not null check (actor_kind in ('staff','learner')),
+  actor_id uuid not null,
+  role text not null,
+  full_name text not null default '',
+  school text not null default '',
+  started_at timestamptz not null default now(),
+  completed_at timestamptz,
+  duration_seconds integer
+);
+create index if not exists library_interactions_item_idx on public.library_interactions (library_item_id);
+create index if not exists library_interactions_actor_idx on public.library_interactions (actor_id);
+create index if not exists library_interactions_school_idx on public.library_interactions (school);
 
 -- ---------------------------------------------------------------- forms & responses
 create table if not exists public.forms (
@@ -195,6 +217,7 @@ alter table public.profiles         enable row level security;
 alter table public.learners         enable row level security;
 alter table public.learner_sessions enable row level security;
 alter table public.library_items    enable row level security;
+alter table public.library_interactions enable row level security;
 alter table public.forms            enable row level security;
 alter table public.responses        enable row level security;
 alter table public.assignments      enable row level security;

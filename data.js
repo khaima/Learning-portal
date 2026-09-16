@@ -116,30 +116,38 @@ export const SUBJECT_ICON_PATHS = {
 export const CONTENT_TYPES = ["Video", "Worksheet", "Reading", "Lesson plan", "Assessment"];
 export const LIBRARY_SUBJECTS = ["Mathematics", "English", "Science"];
 
-/* Where a piece of content goes. Two destinations:
+/* Where a piece of content goes. Three destinations:
 
-     staff   — "Teacher Resources": teachers and the head of institution
-               (school leader) only. Never shown to learners.
-     library — "Digital Library": for learners, and also visible to
-               teachers and the head of institution.
+     staff         — "Teacher Resources": teachers and the head of
+                     institution (school leader) only. Never shown to learners.
+     school_leader — "For School Head": the head of institution only —
+                     not teachers, not learners. For things addressed
+                     specifically to school leadership (e.g. a leadership
+                     memo) that teachers shouldn't see mixed into their
+                     own resources.
+     library       — "Digital Library": for learners, and also visible to
+                     teachers and the head of institution.
 
    Distinct from FORM_AUDIENCES below — content and forms are addressed
    independently. */
 export const LIBRARY_AUDIENCES = [
   { value: "library", label: "Digital Library — for learners (teachers & head of institution see it too)" },
   { value: "staff", label: "Teacher Resources — teachers & head of institution only" },
+  { value: "school_leader", label: "For School Head — head of institution only" },
 ];
 
 /* Legacy rows used ('both' | 'teacher' | 'learner'); map them onto the
-   two current destinations. 'learner' ("learners only") folds into the
+   current destinations. 'learner' ("learners only") folds into the
    Digital Library, which teachers and heads can now see as well. */
 export function normalizeLibraryAudience(audience) {
+  if (audience === "school_leader") return "school_leader";
   return audience === "staff" || audience === "teacher" ? "staff" : "library";
 }
 
 /* Can this role open this library item? */
 export function canSeeLibraryItem(item, role) {
   const dest = normalizeLibraryAudience(item && item.audience);
+  if (dest === "school_leader") return role === "school_leader";
   if (dest === "staff") return role === "teacher" || role === "school_leader";
   return role === "teacher" || role === "school_leader" || role === "learner";
 }

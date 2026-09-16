@@ -1,8 +1,8 @@
 import "./nav.js";
-import { $, $$, esc, initials } from "./util.js";
+import { $, $$, esc, initials, formatDuration } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { LEADER_CONTENT, normalizeLibraryAudience } from "./data.js";
-import { getForms, getResponses, addResponse, getLibrary, libraryFilesHtml } from "./store.js";
+import { getForms, getResponses, addResponse, getLibrary, libraryFilesHtml, getMyLibraryUsage } from "./store.js";
 
 const ICON = {
   learners: '<path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/>',
@@ -57,24 +57,60 @@ async function main() {
       <div class="task-row"><div><b>${esc(v.label)}</b><span>${esc(v.detail)}</span></div></div>`).join("")
     : `<div class="empty-state">No field visits recorded yet.</div>`;
 
-  /* Content library. As head of institution, the school leader sees both
-     shelves: Teacher Resources (staff-only) and the learner-facing
-     Digital Library. */
+  /* Content library. As head of institution, the school leader sees all
+     three shelves: Teacher Resources (staff-only), the learner-facing
+     Digital Library, and anything addressed specifically to school
+     leadership. */
   $("#resourceList").innerHTML = `<div class="empty-state">Loading…</div>`;
   $("#libraryList").innerHTML = `<div class="empty-state">Loading…</div>`;
+  $("#headOnlyList").innerHTML = `<div class="empty-state">Loading…</div>`;
   getLibrary().then((library) => {
     const row = (l) => `
       <div class="task-row"><div><b>${esc(l.title)}</b><span>${esc(l.subject)} · ${esc(l.type)}${
         l.description ? " — " + esc(l.description) : ""}</span>${libraryFilesHtml(l)}</div></div>`;
     const resources = library.filter((l) => normalizeLibraryAudience(l.audience) === "staff");
     const shared = library.filter((l) => normalizeLibraryAudience(l.audience) === "library");
+    const headOnly = library.filter((l) => normalizeLibraryAudience(l.audience) === "school_leader");
     $("#resourceList").innerHTML = resources.length
       ? resources.map(row).join("")
       : `<div class="empty-state">No teacher resources uploaded yet.</div>`;
     $("#libraryList").innerHTML = shared.length
       ? shared.map(row).join("")
       : `<div class="empty-state">Nothing in the library yet.</div>`;
+    $("#headOnlyList").innerHTML = headOnly.length
+      ? headOnly.map(row).join("")
+      : `<div class="empty-state">Nothing addressed to school heads yet.</div>`;
   });
+
+  /* My learning activity — every "Open to read" click above (and on the
+     other shelves) is timed from open to return; see nav.js. */
+  renderUsageSummary();
+  async function renderUsageSummary() {
+    const el = $("#usageSummary");
+    el.innerHTML = `<div class="empty-state">Loading…</div>`;
+    let u;
+    try { u = await getMyLibraryUsage(); } catch {
+      el.innerHTML = `<div class="empty-state">Couldn't load your activity.</div>`;
+      return;
+    }
+    if (!u.interactions.length) {
+      el.innerHTML = `<div class="empty-state">Open something from the library to start tracking your activity here.</div>`;
+      return;
+    }
+    const rows = u.interactions.slice(0, 10).map((it) => `
+      <div class="task-row">
+        <div style="flex:1"><b>${esc(it.title || "Resource")}</b><span>Started ${new Date(it.startedAt).toLocaleString()}${
+          it.completedAt ? " · Finished " + new Date(it.completedAt).toLocaleString() : " · In progress"}</span></div>
+        <span class="bar-num">${it.durationSeconds != null ? formatDuration(it.durationSeconds) : "—"}</span>
+      </div>`).join("");
+    el.innerHTML = `
+      <div class="chart-stats" style="grid-template-columns:repeat(2,1fr)">
+        <div><b>${formatDuration(u.totalSeconds)}</b><span>Time spent</span></div>
+        <div><b>${u.resourcesOpened}</b><span>Resources opened</span></div>
+      </div>
+      ${rows}
+    `;
+  }
 
   /* Forms the Education Team has sent to school heads — same
      create-once-fill-once loop as the teacher dashboard. */

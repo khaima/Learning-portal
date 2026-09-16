@@ -18,6 +18,33 @@
    ============================================================ */
 
 import { $, $$, toast } from "./util.js";
+import { startLibraryInteraction, completeLibraryInteraction } from "./store.js";
+
+/* ---------------------------------------------------------------- content-library usage tracking
+   Delegated here so every dashboard gets it for free instead of wiring
+   it per page: any link marked data-track-item (see libraryFilesHtml()
+   in store.js) starts a timer the moment it's clicked — the resource
+   opens in a new tab, target="_blank", so this tab's click still fires
+   and the navigation is untouched. The visit is "completed" the next
+   time THIS tab regains focus, since a signed Storage URL for a PDF/
+   image/video gives no way to see what happens inside it — that return
+   trip is the only honest signal available, not a literal measurement
+   of reading time. */
+const pendingInteractions = [];
+
+document.addEventListener("click", (e) => {
+  const link = e.target.closest("[data-track-item]");
+  if (!link) return;
+  startLibraryInteraction(link.dataset.trackItem)
+    .then((interaction) => { if (interaction) pendingInteractions.push(interaction.id); })
+    .catch(() => {}); // tracking must never block or break the actual link
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible" || !pendingInteractions.length) return;
+  pendingInteractions.splice(0, pendingInteractions.length)
+    .forEach((id) => completeLibraryInteraction(id).catch(() => {}));
+});
 
 /* ---------------------------------------------------------------- paged dashboards */
 

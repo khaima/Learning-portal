@@ -1,5 +1,5 @@
 import "./nav.js";
-import { $, $$, esc, initials, toast } from "./util.js";
+import { $, $$, esc, initials, toast, formatDuration } from "./util.js";
 import { requireRole, signOut, sendPasswordResetLink } from "./auth.js";
 import {
   CONTENT_TYPES, LIBRARY_SUBJECTS, LIBRARY_AUDIENCES, FORM_AUDIENCES, QUESTION_TYPES, ROLES,
@@ -7,7 +7,7 @@ import {
 } from "./data.js";
 import {
   getLibrary, addLibraryItem, getForms, addForm, getResponses, getStats,
-  uploadLibraryFiles, libraryFilesHtml,
+  uploadLibraryFiles, libraryFilesHtml, getLibraryUsage,
   koboConfig, saveKoboConfig, koboAssets, koboForms, attachKoboForm,
   removeKoboForm, syncKobo, koboResults,
   getUsers, updateUser, resetUserPassword,
@@ -198,12 +198,20 @@ async function main() {
   $("#up_type").innerHTML = CONTENT_TYPES.map((t) => `<option>${esc(t)}</option>`).join("");
   $("#up_audience").innerHTML = LIBRARY_AUDIENCES.map((a) => `<option value="${a.value}">${esc(a.label)}</option>`).join("");
 
+  const AUDIENCE_PILL = {
+    staff: { cls: "", label: "Teacher Resources" },
+    school_leader: { cls: " warm", label: "For School Head" },
+    library: { cls: " ok", label: "Digital Library" },
+  };
+
   async function renderLibrary() {
     $("#libraryList").innerHTML = `<div class="empty-state">Loading…</div>`;
     let items = [];
     try { items = await getLibrary(); } catch { /* shown as empty */ }
     $("#libraryList").innerHTML = items.length
-      ? items.map((it) => `
+      ? items.map((it) => {
+          const dest = AUDIENCE_PILL[normalizeLibraryAudience(it.audience)];
+          return `
         <div class="task-row">
           <span class="task-dot" style="background:var(--brand);margin-top:.55rem"></span>
           <div style="flex:1">
@@ -211,12 +219,72 @@ async function main() {
             <span>${esc(it.subject)} · ${esc(it.type)}${it.description ? " — " + esc(it.description) : ""}</span>
             ${libraryFilesHtml(it)}
           </div>
-          <span class="pill${normalizeLibraryAudience(it.audience) === "staff" ? "" : " ok"}">${
-            normalizeLibraryAudience(it.audience) === "staff" ? "Teacher Resources" : "Digital Library"
-          }</span>
-        </div>`).join("")
+          <span class="pill${dest.cls}">${dest.label}</span>
+        </div>`;
+        }).join("")
       : `<div class="empty-state">Nothing uploaded yet.</div>`;
   }
+
+  /* ------------------------------------------------------------ content usage report
+     Every "Open to read" click is timed (see nav.js) and rolls up here —
+     scoped to one school or every school combined, same county/school
+     filter pattern as the Portal impact dashboard above. */
+  function durationBarChart(rows) {
+    const max = Math.max(1, ...rows.map((d) => d.seconds || 0));
+    return `<div class="bar-chart">${rows.map((d) => `
+      <div class="bar-row">
+        <span class="bar-label" title="${esc(d.label)}">${esc(d.label)}</span>
+        <span class="bar-track"><span class="bar-fill" style="width:${((d.seconds || 0) / max) * 100}%"></span></span>
+        <span class="bar-num">${formatDuration(d.seconds)}</span>
+      </div>`).join("")}</div>`;
+  }
+
+  function schoolUsageRows(rows) {
+    return rows.map((r) => `
+      <div class="task-row">
+        <div style="flex:1"><b>${esc(r.school)}</b><span>${r.users} user${r.users === 1 ? "" : "s"} · ${r.sessions} session${r.sessions === 1 ? "" : "s"}</span></div>
+        <span class="bar-num">${formatDuration(r.totalSeconds)}</span>
+      </div>`).join("");
+  }
+
+  let usageSchool = "";
+
+  async function renderUsage() {
+    $("#usageBody").innerHTML = `<div class="empty-state">Loading…</div>`;
+    let u;
+    try {
+      u = await getLibraryUsage({ school: usageSchool });
+    } catch {
+      $("#usageBody").innerHTML = `<div class="empty-state">Couldn't load the usage report.</div>`;
+      return;
+    }
+    $("#usageSchool").innerHTML = `<option value="">All schools</option>` +
+      (u.schools || []).map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
+    $("#usageSchool").value = usageSchool;
+    $("#usageMeta").textContent = u.school ? `Scoped to ${u.school}` : "All schools";
+
+    const topResources = (u.byResource || []).slice(0, 8).map((r) => ({ label: r.title, seconds: r.totalSeconds }));
+
+    $("#usageBody").innerHTML = `
+      <div class="chart-stats">
+        <div><b>${formatDuration(u.totals.totalSeconds)}</b><span>Time spent</span></div>
+        <div><b>${u.totals.sessions}</b><span>Resources opened</span></div>
+        <div><b>${u.totals.completedSessions}</b><span>Timed sessions</span></div>
+        <div><b>${u.totals.users}</b><span>Active users</span></div>
+      </div>
+      <div class="chart-grid">
+        ${impactCard("Most-visited resources", `${(u.byResource || []).length} resources`,
+          topResources.length ? durationBarChart(topResources) : `<div class="chart-empty">Nothing opened yet</div>`)}
+        ${impactCard("By school", u.school ? "1 school (filtered)" : `${(u.bySchool || []).length} schools`,
+          (u.bySchool || []).length ? schoolUsageRows(u.bySchool) : `<div class="chart-empty">Nothing tracked yet</div>`)}
+      </div>
+    `;
+  }
+
+  $("#usageSchool").addEventListener("change", (e) => {
+    usageSchool = e.target.value;
+    renderUsage();
+  });
 
   /* ---- file / folder picker for "Upload content" ---- */
   const fileInput = $("#up_file");
@@ -899,6 +967,7 @@ async function main() {
 
   renderStats();
   renderLibrary();
+  renderUsage();
   renderForms();
   renderKobo();
   renderUsers();

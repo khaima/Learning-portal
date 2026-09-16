@@ -12,6 +12,16 @@ export const esc = (s = "") =>
 export const initials = (name = "") =>
   name.trim().split(/\s+/).slice(0, 2).map((p) => p[0] || "").join("").toUpperCase() || "?";
 
+/* "1h 24m" / "24m" / "45s" — used everywhere library-usage time is shown. */
+export function formatDuration(totalSeconds) {
+  const s = Math.max(0, Math.round(totalSeconds || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (h) return `${h}h ${m}m`;
+  if (m) return `${m}m`;
+  return `${s}s`;
+}
+
 let toastHost = null;
 export function toast(title, body = "", kind = "info") {
   if (!toastHost) {

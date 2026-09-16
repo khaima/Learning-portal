@@ -106,18 +106,47 @@ export function formatBytes(n = 0) {
 export function libraryFilesHtml(item) {
   const files = item.files || [];
   if (!files.length) return "";
+  // data-track-item marks every open link so the delegated listener in
+  // nav.js can time the visit (see startLibraryInteraction() below).
   if (files.length === 1) {
     const f = files[0];
-    return `<a class="lib-open" href="${esc(f.downloadUrl || "#")}" target="_blank" rel="noopener">
+    return `<a class="lib-open" data-track-item="${esc(item.id)}" href="${esc(f.downloadUrl || "#")}" target="_blank" rel="noopener">
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3h7v7M21 3l-9 9M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg>
       Open to read${f.size ? ` <span class="lib-size">${esc(formatBytes(f.size))}</span>` : ""}</a>`;
   }
-  const rows = files.map((f) => `<li><a href="${esc(f.downloadUrl || "#")}" target="_blank" rel="noopener">${esc(f.name)}</a>${
+  const rows = files.map((f) => `<li><a data-track-item="${esc(item.id)}" href="${esc(f.downloadUrl || "#")}" target="_blank" rel="noopener">${esc(f.name)}</a>${
     f.size ? ` <span class="lib-size">${esc(formatBytes(f.size))}</span>` : ""}</li>`).join("");
   return `<details class="lib-folder">
     <summary><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>
     ${files.length} files${item.fileSize ? ` <span class="lib-size">${esc(formatBytes(item.fileSize))}</span>` : ""}</summary>
     <ul>${rows}</ul></details>`;
+}
+
+/* ------------------------------------------------------------ content-library usage
+   Real, honest engagement tracking — see the long comment in the Edge
+   Function for exactly what "duration" does and doesn't mean here. */
+
+export async function startLibraryInteraction(itemId) {
+  const { interaction } = await apiSend("POST", `/library/${itemId}/interactions`, {});
+  return interaction;
+}
+
+export async function completeLibraryInteraction(interactionId) {
+  const { interaction } = await apiSend("PATCH", `/library/interactions/${interactionId}/complete`, {});
+  return interaction;
+}
+
+/* The signed-in actor's own reading history — used for the "My learning
+   activity" panel on every dashboard that has a library. */
+export async function getMyLibraryUsage() {
+  return apiGet("/library/interactions/mine");
+}
+
+/* Education team only: the portal-wide usage report, optionally scoped
+   to one school (omit for every school combined). */
+export async function getLibraryUsage({ school } = {}) {
+  const qs = school ? `?school=${encodeURIComponent(school)}` : "";
+  return apiGet(`/library/usage${qs}`);
 }
 
 /* ---------------------------------------------------------------- forms */

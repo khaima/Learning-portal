@@ -117,6 +117,24 @@
             </div>
           </div>
         </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Content usage report</h2>
+            <span class="chart-meta" id="usageMeta" style="margin:0"></span>
+          </div>
+          <p class="kobo-note">
+            "Time spent" is measured from when someone opens a resource to
+            when they come back to the portal tab — the honest signal
+            available once a file opens in its own tab, not a literal
+            reading-time measurement.
+          </p>
+          <div class="field" style="max-width:20rem;margin-bottom:1rem">
+            <label for="usageSchool">School</label>
+            <select id="usageSchool"><option value="">All schools</option></select>
+          </div>
+          <div id="usageBody"><div class="empty-state">Loading…</div></div>
+        </div>
       </section>
 
       <section class="dash-page" data-page="forms-feedback" hidden>

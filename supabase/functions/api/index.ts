@@ -126,13 +126,15 @@ function pinMatches(pin: string, salt: string, hash: string) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-/** Two content destinations; legacy values fold in. */
-function normalizeAudience(a: string | null | undefined): "staff" | "library" {
+/** Three content destinations; legacy values fold in. */
+function normalizeAudience(a: string | null | undefined): "staff" | "library" | "school_leader" {
+  if (a === "school_leader") return "school_leader";
   return a === "staff" || a === "teacher" ? "staff" : "library";
 }
 function canSeeLibrary(audience: string | null | undefined, role: Role): boolean {
   if (role === "education_team") return true;
   const dest = normalizeAudience(audience);
+  if (dest === "school_leader") return role === "school_leader";
   if (dest === "staff") return role === "teacher" || role === "school_leader";
   return role === "teacher" || role === "school_leader" || role === "learner";
 }
@@ -630,7 +632,7 @@ app.post("/library", withProfile("education_team"), async (c) => {
       title: String(b.title).trim(),
       subject: b.subject,
       type: b.type,
-      audience: b.audience === "staff" ? "staff" : "library",
+      audience: ["staff", "school_leader"].includes(b.audience) ? b.audience : "library",
       description: String(b.description ?? "").trim(),
       uploaded_by: c.get("actor").fullName,
       file_name: b.fileName ?? files[0]?.name ?? null,
@@ -656,6 +658,164 @@ app.delete("/library/:id", withProfile("education_team"), async (c) => {
   const { error } = await admin.from("library_items").delete().eq("id", id);
   if (error) return c.json({ error: error.message }, 400);
   return c.json({ ok: true });
+});
+
+// ---- content library: usage tracking ----
+// Honest measurement, not a fabricated number: "Open to read" launches a
+// signed URL in a new tab (often a PDF/image/video the browser renders
+// natively), so there is no way to see what happens inside it. What we
+// CAN measure is wall-clock time from the moment someone opens a resource
+// to the moment they come back to this tab (see the `visibilitychange`
+// listener wired in nav.js) — a reasonable proxy for "time spent", not a
+// literal reading-attention measurement. `completedAt`/`durationSeconds`
+// stay null until that return trip happens; they're never guessed.
+
+const mapInteraction = (r: Record<string, unknown>) => ({
+  id: r.id,
+  libraryItemId: r.library_item_id,
+  title: (r as any).library_items?.title ?? null,
+  role: r.role,
+  school: r.school,
+  startedAt: r.started_at,
+  completedAt: r.completed_at,
+  durationSeconds: r.duration_seconds,
+});
+
+app.post("/library/:id/interactions", withActor(), async (c) => {
+  const itemId = c.req.param("id");
+  const actor = c.get("actor");
+  const { data: item } = await admin
+    .from("library_items").select("id, audience").eq("id", itemId).maybeSingle();
+  if (!item || !canSeeLibrary(item.audience as string, actor.role)) {
+    return c.json({ error: "Resource not found" }, 404);
+  }
+  const { data, error } = await admin
+    .from("library_interactions")
+    .insert({
+      id: rid("li"),
+      library_item_id: itemId,
+      actor_kind: c.get("actorKind") === "learner" ? "learner" : "staff",
+      actor_id: actor.id,
+      role: actor.role,
+      full_name: actor.fullName,
+      school: actor.school ?? "",
+    })
+    .select()
+    .single();
+  if (error) return c.json({ error: error.message }, 400);
+  return c.json({ interaction: mapInteraction(data) });
+});
+
+app.patch("/library/interactions/:id/complete", withActor(), async (c) => {
+  const id = c.req.param("id");
+  const actor = c.get("actor");
+  const { data: existing } = await admin
+    .from("library_interactions").select("id, actor_id, started_at, completed_at")
+    .eq("id", id).maybeSingle();
+  if (!existing || existing.actor_id !== actor.id) {
+    return c.json({ error: "Interaction not found" }, 404);
+  }
+  if (existing.completed_at) {
+    return c.json({ interaction: mapInteraction(existing) }); // already completed — no-op
+  }
+  const completedAt = new Date();
+  const durationSeconds = Math.max(
+    0,
+    Math.round((completedAt.getTime() - new Date(existing.started_at as string).getTime()) / 1000),
+  );
+  const { data, error } = await admin
+    .from("library_interactions")
+    .update({ completed_at: completedAt.toISOString(), duration_seconds: durationSeconds })
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) return c.json({ error: error.message }, 400);
+  return c.json({ interaction: mapInteraction(data) });
+});
+
+/* An actor's own reading history — surfaced on their own dashboard. */
+app.get("/library/interactions/mine", withActor(), async (c) => {
+  const actor = c.get("actor");
+  const { data, error } = await admin
+    .from("library_interactions")
+    .select("*, library_items(title)")
+    .eq("actor_id", actor.id)
+    .order("started_at", { ascending: false })
+    .limit(200);
+  if (error) return c.json({ error: error.message }, 500);
+  const rows = data ?? [];
+  const completed = rows.filter((r) => r.duration_seconds != null);
+  return c.json({
+    totalSeconds: completed.reduce((s, r) => s + (r.duration_seconds as number), 0),
+    resourcesOpened: new Set(rows.map((r) => r.library_item_id)).size,
+    interactions: rows.map(mapInteraction),
+  });
+});
+
+/* Education-team rollup: every school's engagement with the library,
+   scoped to one school or portal-wide, plus the ranked resource list and
+   a per-school breakdown so "this school" and "all schools" are both one
+   filter away — same pattern as the Portal impact dashboard's county/
+   school filters. */
+app.get("/library/usage", withProfile("education_team"), async (c) => {
+  const school = String(c.req.query("school") ?? "").trim();
+
+  const [itemsRes, interRes] = await Promise.all([
+    admin.from("library_items").select("id, title"),
+    admin.from("library_interactions").select("*"),
+  ]);
+  const items = itemsRes.data ?? [];
+  const titleOf: Record<string, string> = {};
+  for (const it of items) titleOf[it.id as string] = it.title as string;
+
+  const allRows = interRes.data ?? [];
+  const schoolSet = new Set<string>();
+  for (const r of allRows) if (r.school) schoolSet.add(r.school as string);
+  const schools = [...schoolSet].sort();
+
+  const rows = school ? allRows.filter((r) => (r.school || "") === school) : allRows;
+  const completedRows = rows.filter((r) => r.duration_seconds != null);
+
+  const secondsByItem: Record<string, number> = {};
+  const viewsByItem: Record<string, number> = {};
+  for (const r of rows) {
+    const id = r.library_item_id as string;
+    viewsByItem[id] = (viewsByItem[id] ?? 0) + 1;
+    if (r.duration_seconds != null) secondsByItem[id] = (secondsByItem[id] ?? 0) + (r.duration_seconds as number);
+  }
+  const byResource = Object.keys(viewsByItem)
+    .map((id) => ({
+      itemId: id,
+      title: titleOf[id] ?? "(deleted resource)",
+      views: viewsByItem[id],
+      totalSeconds: secondsByItem[id] ?? 0,
+    }))
+    .sort((a, b) => b.totalSeconds - a.totalSeconds || b.views - a.views);
+
+  const bySchoolAgg: Record<string, { users: Set<string>; sessions: number; seconds: number }> = {};
+  for (const r of allRows) {
+    const s = (r.school as string) || "(not set)";
+    const agg = (bySchoolAgg[s] ??= { users: new Set(), sessions: 0, seconds: 0 });
+    agg.users.add(r.actor_id as string);
+    agg.sessions++;
+    if (r.duration_seconds != null) agg.seconds += r.duration_seconds as number;
+  }
+  const bySchool = Object.entries(bySchoolAgg)
+    .map(([s, agg]) => ({ school: s, users: agg.users.size, sessions: agg.sessions, totalSeconds: agg.seconds }))
+    .sort((a, b) => b.totalSeconds - a.totalSeconds);
+
+  return c.json({
+    school: school || null,
+    schools,
+    totals: {
+      users: new Set(rows.map((r) => r.actor_id)).size,
+      sessions: rows.length,
+      completedSessions: completedRows.length,
+      totalSeconds: completedRows.reduce((s, r) => s + (r.duration_seconds as number), 0),
+    },
+    byResource,
+    bySchool,
+  });
 });
 
 // ---- forms & responses (staff only) ----

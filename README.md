@@ -20,14 +20,18 @@ Edge Function API in front of a locked-down Postgres database. Six pages:
   recent results, forms sent by the Education Team, Teacher Resources and
   the Digital Library, plus **My Learners**: an editable roster where the
   teacher adds learner accounts (name, username, grade, 4-digit PIN) and
-  can edit them, reset a PIN, unlock, or remove.
+  can edit them, reset a PIN, unlock, or remove. A **My learning activity**
+  panel shows their own content-library usage (see below).
 - **`learner.html`** — signed in with a username + PIN. A learner's
   classes, assignments (with a working "Mark done" that persists
-  server-side), and the Digital Library.
+  server-side), the Digital Library, and their own **My learning
+  activity** panel.
 - **`leader.html`** — a head of institution's enrolment/staffing snapshot,
   the termly return cycle, recent field visits, forms from the Education
-  Team, and **both** content shelves — Teacher Resources and the Digital
-  Library.
+  Team, **all three** content shelves — Teacher Resources, the Digital
+  Library, and **For School Head** (content addressed to school
+  leadership specifically, never mixed into teachers' own resources) —
+  and their own **My learning activity** panel.
 - **`field.html`** — a field officer's stats and the flagship flow: pick a
   county, the school list narrows, pick a visit type, submit — the report
   saves and appears immediately. Plus forms addressed to Field Officers,
@@ -37,13 +41,16 @@ Edge Function API in front of a locked-down Postgres database. Six pages:
   **Submitted** once the submission is detected.
 - **`education.html`** — the Education Team's dashboard: upload content —
   attach a real file or a whole folder from your computer (drag-and-drop
-  or the file/folder picker) — to one of two destinations:
-  **Teacher Resources** (teachers and the head of institution only) or the
+  or the file/folder picker) — to one of three destinations:
+  **Teacher Resources** (teachers and the head of institution only), the
   **Digital Library** (learner-facing, also visible to teachers and
-  heads). Build and send a form (1–5 rating and short-answer questions) to
-  Teachers, School Leaders, or Field Officers, watch responses roll in
-  with live rating averages, connect **KoboToolbox** to publish field
-  surveys (see below), and see a **Portal impact** dashboard (see below).
+  heads), or **For School Head** (head of institution only — for things
+  addressed specifically to school leadership). Build and send a form
+  (1–5 rating and short-answer questions) to Teachers, School Leaders, or
+  Field Officers, watch responses roll in with live rating averages,
+  connect **KoboToolbox** to publish field surveys (see below), see a
+  **Content usage report** (see below), and see a **Portal impact**
+  dashboard (see below).
 
 ### Portal impact dashboard
 
@@ -71,6 +78,31 @@ ambiguous what you're looking at:
 - Every number is computed server-side in `GET /api/stats` (education-
   team only) from the live tables — nothing here is seeded or fabricated;
   an empty chart says "No answers yet" rather than faking a shape.
+
+### Content usage tracking
+
+Every "Open to read" click on any dashboard is timed:
+
+- **On the reader's own dashboard** — Teacher, Learner, and School
+  Leader all get a **My learning activity** panel: total time spent,
+  resources opened, and a per-visit list with a start time and, once
+  they've come back to the tab, a finish time and duration.
+- **On the Education Team's dashboard** — the Digital Library page's
+  **Content usage report** rolls every account's activity up into one
+  view: total time spent, resources opened, timed sessions, and active
+  users; the most-visited resources ranked by time; and a per-school
+  breakdown. A **school filter** scopes the whole report to one school,
+  or leave it on "All schools" to see everything combined.
+- **Honesty about what "time spent" means**: "Open to read" launches a
+  signed Storage URL in a new tab — often a PDF, image, or video the
+  browser renders natively — so there is no way to see what happens
+  inside it. What's actually measured is wall-clock time from the click
+  to the moment the visitor comes back to the portal tab
+  (`visibilitychange`, wired once in `nav.js` for every dashboard). This
+  is a reasonable proxy for engagement, not a literal measurement of
+  reading attention; a visit that never gets a return trip (they close
+  the whole browser, say) simply stays open-ended with no completion
+  time or duration, rather than guessing one.
 
 ### KoboToolbox field surveys
 
@@ -167,9 +199,9 @@ immediately for both new sign-ups and returning accounts.
 Worth trying end to end:
 
 1. Create a staff account → onboard as **Education Team**.
-2. Upload content — attach a file or folder — to **Teacher Resources** or
-   the **Digital Library**, and/or send a form to Teachers, School
-   Leaders, or Field Officers.
+2. Upload content — attach a file or folder — to **Teacher Resources**,
+   the **Digital Library**, or **For School Head**, and/or send a form to
+   Teachers, School Leaders, or Field Officers.
 3. Sign out. Create another staff account → onboard as a **Teacher**. Add
    a learner from **My Learners**. Sign out, pick **Learner** on the
    sign-in screen, and sign in with that username + PIN — a Teacher
@@ -178,6 +210,11 @@ Worth trying end to end:
    appears as *Pending*; fill it in and submit.
 5. Back as Education Team — the response is there, with a live average for
    rating questions and the respondent's name against short answers.
+6. As the Teacher (or Learner, or School Leader), click **Open to read**
+   on something in the library, then come back to that tab — check **My
+   learning activity** on their dashboard for the timed visit. Back as
+   Education Team, the same visit shows up in the Digital Library page's
+   **Content usage report**, filterable by school.
 
 Do steps 3–5 on a different device to see what a real backend buys you:
 same data everywhere, because the database is the source of truth.

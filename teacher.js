@@ -1,10 +1,10 @@
 import "./nav.js";
-import { $, $$, esc, initials, toast } from "./util.js";
+import { $, $$, esc, initials, toast, formatDuration } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { TEACHER_CONTENT, normalizeLibraryAudience } from "./data.js";
 import {
   getLibrary, getForms, getResponses, addResponse, libraryFilesHtml,
-  getLearners, addLearner, updateLearner, deleteLearner,
+  getLearners, addLearner, updateLearner, deleteLearner, getMyLibraryUsage,
 } from "./store.js";
 
 const ICON = {
@@ -184,6 +184,36 @@ async function main() {
       ? shared.map(row).join("")
       : `<div class="empty-state">Nothing in the library yet.</div>`;
   });
+
+  /* My learning activity — every "Open to read" click above is timed
+     from open to return; see nav.js. */
+  renderUsageSummary();
+  async function renderUsageSummary() {
+    const el = $("#usageSummary");
+    el.innerHTML = `<div class="empty-state">Loading…</div>`;
+    let u;
+    try { u = await getMyLibraryUsage(); } catch {
+      el.innerHTML = `<div class="empty-state">Couldn't load your activity.</div>`;
+      return;
+    }
+    if (!u.interactions.length) {
+      el.innerHTML = `<div class="empty-state">Open something from the library to start tracking your activity here.</div>`;
+      return;
+    }
+    const rows = u.interactions.slice(0, 10).map((it) => `
+      <div class="task-row">
+        <div style="flex:1"><b>${esc(it.title || "Resource")}</b><span>Started ${new Date(it.startedAt).toLocaleString()}${
+          it.completedAt ? " · Finished " + new Date(it.completedAt).toLocaleString() : " · In progress"}</span></div>
+        <span class="bar-num">${it.durationSeconds != null ? formatDuration(it.durationSeconds) : "—"}</span>
+      </div>`).join("");
+    el.innerHTML = `
+      <div class="chart-stats" style="grid-template-columns:repeat(2,1fr)">
+        <div><b>${formatDuration(u.totalSeconds)}</b><span>Time spent</span></div>
+        <div><b>${u.resourcesOpened}</b><span>Resources opened</span></div>
+      </div>
+      ${rows}
+    `;
+  }
 
   /* Forms the Education Team has sent to teachers — same
      create-once-fill-once loop as the field officer's report form, just
