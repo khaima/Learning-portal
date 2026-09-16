@@ -60,7 +60,7 @@ const HERO_QUOTES = [
 ];
 
 /* Decorative hero background: cross-fades between photo slides and
-   swaps the tagline every 3s, purely visual — left alone for
+   swaps the tagline every 4s, purely visual — left alone for
    prefers-reduced-motion. */
 (function wireHeroBackground() {
   const slides = $$(".hero-bg-slide");
@@ -82,7 +82,7 @@ const HERO_QUOTES = [
         quoteEl.classList.remove("is-swapping");
       }, 350);
     }
-  }, 3000);
+  }, 4000);
 })();
 
 const steps = {

@@ -151,7 +151,7 @@ a{ color:inherit; }
 /* Rotating tagline, mirroring the main HPF portal's hero quotes — the
    lead half cross-fades every 3s (wired in index.js) while the closing
    line stays fixed. */
-.art-quote{ position:relative; z-index:2; margin:0; font-size:1.05rem; line-height:1.5; color:#fff; }
+.art-copy .art-quote{ position:relative; z-index:2; margin:0; font-size:1.3rem; line-height:1.5; color:#fff; }
 .art-quote-lead{ font-style:italic; color:rgba(255,255,255,.88); transition:opacity .35s ease; display:inline; }
 .art-quote-lead.is-swapping{ opacity:0; }
 .art-quote strong{ font-family:"Baloo 2",sans-serif; color:var(--accent); }
@@ -176,7 +176,7 @@ a{ color:inherit; }
   .login-home-link{ font-size:.78rem; padding:.5rem .8rem; }
   .login-hero{ padding:.5rem 1rem 2.5rem; gap:1.6rem; }
   .art-copy h1{ font-size:1.6rem; }
-  .art-quote{ font-size:.92rem; }
+  .art-copy .art-quote{ font-size:1.05rem; }
   .login-card{ padding:1.6rem 1.3rem; }
   #loginRoleGrid{ grid-template-columns:1fr; }
 }
