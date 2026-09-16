@@ -161,6 +161,14 @@ a{ color:inherit; }
   border-radius:var(--radius-lg); box-shadow:0 30px 70px -24px rgba(6,16,38,.55), var(--shadow);
   padding:2.2rem 2rem;
 }
+/* "Who's signing in?" spreads out into a landscape card so its five role
+   options sit three-across instead of stacking tall. Every other step
+   (learner PIN, email/password, onboarding) keeps the narrower default. */
+.login-card:has(#stepRole:not([hidden])){ max-width:46rem; }
+#loginRoleGrid{ grid-template-columns:repeat(3, 1fr); }
+@media (max-width:820px){
+  #loginRoleGrid{ grid-template-columns:1fr 1fr; }
+}
 .login-inner{ width:100%; }
 @media (max-width:640px){
   .login-topbar{ padding:1.1rem 1rem; }
@@ -170,6 +178,7 @@ a{ color:inherit; }
   .art-copy h1{ font-size:1.6rem; }
   .art-quote{ font-size:.92rem; }
   .login-card{ padding:1.6rem 1.3rem; }
+  #loginRoleGrid{ grid-template-columns:1fr; }
 }
 .login-eyebrow{ font-size:.78rem; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--accent-fg); margin-bottom:.4rem; }
 .login-inner h2{ font-size:1.5rem; margin-bottom:.35rem; }
