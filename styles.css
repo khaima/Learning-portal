@@ -136,7 +136,7 @@ a{ color:inherit; }
    photo, in light or dark mode. */
 .hero-bg{ position:absolute; inset:0; z-index:0; }
 .hero-bg-slide{
-  position:absolute; inset:0; opacity:0; transition:opacity 1.6s ease;
+  position:absolute; inset:0; opacity:0; transition:opacity 2.2s ease-in-out;
   background-size:cover; background-position:center;
 }
 .hero-bg-slide.is-active{ opacity:1; }
@@ -157,7 +157,12 @@ a{ color:inherit; }
 .art-quote strong{ font-family:"Baloo 2",sans-serif; color:var(--accent); }
 
 .login-card{
-  position:relative; z-index:2; width:100%; max-width:25.5rem; background:var(--paper-raised);
+  position:relative; z-index:2; width:100%; max-width:25.5rem;
+  /* Frosted-glass card: translucent enough that the hero slideshow shows
+     faintly through it, blurred so the form on top stays readable over a
+     busy photo. */
+  background:color-mix(in srgb, var(--paper-raised) 86%, transparent);
+  backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
   border-radius:var(--radius-lg); box-shadow:0 30px 70px -24px rgba(6,16,38,.55), var(--shadow);
   padding:2.2rem 2rem;
 }
