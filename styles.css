@@ -154,7 +154,7 @@ a{ color:inherit; }
 .art-copy .art-quote{ position:relative; z-index:2; margin:0; font-size:1.1rem; line-height:1.5; color:#fff; white-space:nowrap; }
 .art-quote-lead{ font-style:italic; color:rgba(255,255,255,.88); transition:opacity .6s ease; display:inline; }
 .art-quote-lead.is-swapping{ opacity:0; }
-.art-quote strong{ font-family:"Baloo 2",sans-serif; color:var(--accent); }
+.art-quote strong{ font-weight:700; color:var(--accent); }
 
 .login-card{
   position:relative; z-index:2; width:100%; max-width:25.5rem;
