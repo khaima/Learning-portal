@@ -19,23 +19,46 @@
 
 import { $, $$, toast } from "./util.js";
 import { startLibraryInteraction, completeLibraryInteraction } from "./store.js";
+import { openViewer, viewableKind } from "./viewer.js";
 
 /* ---------------------------------------------------------------- content-library usage tracking
    Delegated here so every dashboard gets it for free instead of wiring
    it per page: any link marked data-track-item (see libraryFilesHtml()
-   in store.js) starts a timer the moment it's clicked — the resource
-   opens in a new tab, target="_blank", so this tab's click still fires
-   and the navigation is untouched. The visit is "completed" the next
-   time THIS tab regains focus, since a signed Storage URL for a PDF/
-   image/video gives no way to see what happens inside it — that return
-   trip is the only honest signal available, not a literal measurement
-   of reading time. */
+   in store.js) starts a timer the moment it's clicked.
+
+   For a file type a browser can render on its own (PDF, image, video,
+   audio, text) it opens in the portal's own in-app viewer instead of a
+   new tab — "continue reading" without ever leaving the dashboard — and
+   the visit is completed the moment that viewer closes, an exact
+   boundary. Anything else (Word/Excel/PowerPoint, etc.) still opens in
+   a new tab, since a browser can't display those itself; for that case
+   the visit is "completed" the next time THIS tab regains focus — the
+   only honest signal available when we can't see what happens in the
+   new tab, not a literal measurement of reading time. */
 const pendingInteractions = [];
 
 document.addEventListener("click", (e) => {
   const link = e.target.closest("[data-track-item]");
   if (!link) return;
-  startLibraryInteraction(link.dataset.trackItem)
+  const itemId = link.dataset.trackItem;
+  const fileName = link.dataset.fileName || "";
+
+  if (viewableKind(fileName)) {
+    e.preventDefault();
+    startLibraryInteraction(itemId)
+      .then((interaction) => {
+        const id = interaction?.id;
+        const opened = openViewer(
+          { title: link.dataset.itemTitle || fileName, url: link.href, name: fileName },
+          () => { if (id) completeLibraryInteraction(id).catch(() => {}); },
+        );
+        if (!opened) window.open(link.href, "_blank", "noopener"); // shouldn't happen; safety net
+      })
+      .catch(() => window.open(link.href, "_blank", "noopener")); // tracking failed — still let them read it
+    return;
+  }
+
+  startLibraryInteraction(itemId)
     .then((interaction) => { if (interaction) pendingInteractions.push(interaction.id); })
     .catch(() => {}); // tracking must never block or break the actual link
 });

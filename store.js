@@ -102,19 +102,25 @@ export function formatBytes(n = 0) {
    download — PDFs, images, text and video render right in the tab) on
    each file as `downloadUrl`, despite the name; the browser only saves
    it to disk if the visitor explicitly chooses to, or if it's a file
-   type the browser can't display inline (e.g. Word/Excel). */
+   type the browser can't display inline (e.g. Word/Excel).
+
+   data-track-item / data-file-name / data-item-title mark every open
+   link so the delegated listener in nav.js can (a) time the visit and
+   (b) — for a file type a browser can render natively (PDF, image,
+   video, audio, text) — open it in the portal's own in-app viewer
+   instead of a new tab; see viewer.js. Anything else still opens in a
+   new tab, the one thing a browser can't be talked out of for a format
+   it can't display itself. */
 export function libraryFilesHtml(item) {
   const files = item.files || [];
   if (!files.length) return "";
-  // data-track-item marks every open link so the delegated listener in
-  // nav.js can time the visit (see startLibraryInteraction() below).
   if (files.length === 1) {
     const f = files[0];
-    return `<a class="lib-open" data-track-item="${esc(item.id)}" href="${esc(f.downloadUrl || "#")}" target="_blank" rel="noopener">
+    return `<a class="lib-open" data-track-item="${esc(item.id)}" data-file-name="${esc(f.name)}" data-item-title="${esc(item.title)}" href="${esc(f.downloadUrl || "#")}" target="_blank" rel="noopener">
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3h7v7M21 3l-9 9M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg>
       Open to read${f.size ? ` <span class="lib-size">${esc(formatBytes(f.size))}</span>` : ""}</a>`;
   }
-  const rows = files.map((f) => `<li><a data-track-item="${esc(item.id)}" href="${esc(f.downloadUrl || "#")}" target="_blank" rel="noopener">${esc(f.name)}</a>${
+  const rows = files.map((f) => `<li><a data-track-item="${esc(item.id)}" data-file-name="${esc(f.name)}" data-item-title="${esc(item.title)}" href="${esc(f.downloadUrl || "#")}" target="_blank" rel="noopener">${esc(f.name)}</a>${
     f.size ? ` <span class="lib-size">${esc(formatBytes(f.size))}</span>` : ""}</li>`).join("");
   return `<details class="lib-folder">
     <summary><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>
