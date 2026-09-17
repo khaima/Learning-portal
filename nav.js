@@ -26,15 +26,16 @@ import { openViewer, openYouTubeViewer, viewableKind } from "./viewer.js";
    it per page: any link marked data-track-item (see libraryFilesHtml()
    in store.js) starts a timer the moment it's clicked.
 
-   For a file type a browser can render on its own (PDF, image, video,
-   audio, text) it opens in the portal's own in-app viewer instead of a
-   new tab — "continue reading" without ever leaving the dashboard — and
-   the visit is completed the moment that viewer closes, an exact
-   boundary. Anything else (Word/Excel/PowerPoint, etc.) still opens in
-   a new tab, since a browser can't display those itself; for that case
-   the visit is "completed" the next time THIS tab regains focus — the
-   only honest signal available when we can't see what happens in the
-   new tab, not a literal measurement of reading time. */
+   For a file type this portal knows how to render — PDF, image, video,
+   audio, text directly, Word/Excel/PowerPoint via Microsoft's viewer —
+   it opens in the portal's own in-app viewer instead of a new tab —
+   "continue reading" without ever leaving the dashboard — and the visit
+   is completed the moment that viewer closes, an exact boundary.
+   Anything else still opens in a new tab, since neither a browser nor
+   that viewer can display it; for that case the visit is "completed"
+   the next time THIS tab regains focus — the only honest signal
+   available when we can't see what happens in the new tab, not a
+   literal measurement of reading time. */
 const pendingInteractions = [];
 
 document.addEventListener("click", (e) => {

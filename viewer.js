@@ -4,13 +4,14 @@
    "Open to read" should stay inside the portal, not bounce the visitor
    out to a download or an external app. This opens a full-screen
    overlay and renders the file inline for every type a browser can
-   actually display on its own — PDF, images, video, audio, plain
-   text. Word/Excel/PowerPoint (and anything else) has no way to
-   render in a browser without a server-side conversion this build
-   doesn't have, so those still open in a new tab exactly as before;
-   viewableKind() below is the one place that decision gets made, and
-   nav.js checks it before deciding how to time the visit.
-   ============================================================ */
+   display directly — PDF, images, video, audio, plain text — plus
+   Word/Excel/PowerPoint via Microsoft's Office viewer service (it needs
+   a URL it can fetch itself, which is exactly what a signed Storage URL
+   is; nothing about the file's content is private to begin with once
+   it's shared through the library). Only a handful of formats this
+   build has no way to render at all (zip, generic binaries, …) still
+   open in a new tab; viewableKind() is the one place that decision gets
+   made, and nav.js checks it before deciding how to time the visit. */
 
 const VIEWABLE_EXT = {
   pdf: "pdf",
@@ -18,6 +19,7 @@ const VIEWABLE_EXT = {
   mp4: "video", webm: "video", ogv: "video", mov: "video",
   mp3: "audio", wav: "audio", m4a: "audio", oga: "audio",
   txt: "text", md: "text", csv: "text", log: "text",
+  doc: "office", docx: "office", xls: "office", xlsx: "office", ppt: "office", pptx: "office",
 };
 
 function extOf(name) {
@@ -25,7 +27,7 @@ function extOf(name) {
   return m ? m[1].toLowerCase() : "";
 }
 
-/** "pdf" | "image" | "video" | "audio" | "text" | null (not inline-viewable). */
+/** "pdf" | "image" | "video" | "audio" | "text" | "office" | null (not inline-viewable). */
 export function viewableKind(name) {
   return VIEWABLE_EXT[extOf(name)] || null;
 }
@@ -92,6 +94,10 @@ export function openViewer({ title, url, name }, onClose) {
   if (kind === "pdf" || kind === "text") {
     node = document.createElement("iframe");
     node.src = url;
+    node.title = title || name || "";
+  } else if (kind === "office") {
+    node = document.createElement("iframe");
+    node.src = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
     node.title = title || name || "";
   } else if (kind === "image") {
     node = document.createElement("img");

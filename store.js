@@ -106,15 +106,15 @@ export function formatBytes(n = 0) {
    download — PDFs, images, text and video render right in the tab) on
    each file as `downloadUrl`, despite the name; the browser only saves
    it to disk if the visitor explicitly chooses to, or if it's a file
-   type the browser can't display inline (e.g. Word/Excel).
+   type the in-app viewer doesn't handle (see below).
 
    data-track-item / data-file-name / data-item-title mark every open
    link so the delegated listener in nav.js can (a) time the visit and
-   (b) — for a file type a browser can render natively (PDF, image,
-   video, audio, text) — open it in the portal's own in-app viewer
-   instead of a new tab; see viewer.js. Anything else still opens in a
-   new tab, the one thing a browser can't be talked out of for a format
-   it can't display itself. An item pointing at an external link (see
+   (b) — for a file type this portal knows how to render (PDF, image,
+   video, audio, text directly; Word/Excel/PowerPoint via Microsoft's
+   viewer) — open it in the portal's own in-app viewer instead of a new
+   tab; see viewer.js. Anything else still opens in a new tab. An item
+   pointing at an external link (see
    addLibraryItem) has no files at all; a YouTube link gets the same
    in-app treatment via data-yt-embed, anything else just opens in a
    new tab since most sites block being framed. */
