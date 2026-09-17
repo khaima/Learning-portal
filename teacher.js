@@ -211,11 +211,15 @@ async function main() {
           it.completedAt ? " · Finished " + new Date(it.completedAt).toLocaleString() : " · In progress"}</span></div>
         <span class="bar-num">${it.durationSeconds != null ? formatDuration(it.durationSeconds) : "—"}</span>
       </div>`).join("");
+    const badgeChips = (u.badges || []).slice(0, 6).map((b) => `
+      <span class="pill" style="display:inline-flex;align-items:center;gap:.3rem;margin:0 .3rem .3rem 0">&#127942; ${esc(b.title || "Resource")}</span>`).join("");
     el.innerHTML = `
-      <div class="chart-stats" style="grid-template-columns:repeat(2,1fr)">
+      <div class="chart-stats" style="grid-template-columns:repeat(3,1fr)">
         <div><b>${formatDuration(u.totalSeconds)}</b><span>Time spent</span></div>
         <div><b>${u.resourcesOpened}</b><span>Resources opened</span></div>
+        <div><b>${u.badgesEarned || 0}</b><span>Badges earned</span></div>
       </div>
+      ${badgeChips ? `<div style="margin:.7rem 0 .1rem">${badgeChips}</div>` : ""}
       ${rows}
     `;
   }

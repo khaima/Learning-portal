@@ -11,7 +11,15 @@
    it's shared through the library). Only a handful of formats this
    build has no way to render at all (zip, generic binaries, …) still
    open in a new tab; viewableKind() is the one place that decision gets
-   made, and nav.js checks it before deciding how to time the visit. */
+   made, and nav.js checks it before deciding how to time the visit.
+
+   The frame sizes itself per content kind (see styles.css) — full and
+   roomy for something you read, snug and centered for an image or an
+   audio track — rather than one fixed box for everything. nav.js also
+   uses currentOpenId()/isViewerOpen() here to award a reading badge (see
+   showBadgeCelebration()) once a session has stayed open a while. */
+
+import { esc } from "./util.js";
 
 const VIEWABLE_EXT = {
   pdf: "pdf",
@@ -48,6 +56,7 @@ export function youTubeEmbedUrl(url) {
 
 let overlay = null;
 let onCloseCb = null;
+let openSeq = 0;
 
 function ensureOverlay() {
   if (overlay) return overlay;
@@ -70,15 +79,31 @@ function ensureOverlay() {
   return overlay;
 }
 
-function showOverlay(title, node, onClose) {
+function showOverlay(title, node, onClose, kind) {
   const el = ensureOverlay();
   onCloseCb = onClose || null;
+  openSeq += 1;
   el.querySelector(".viewer-title").textContent = title || "";
+  el.querySelector(".viewer-frame").dataset.kind = kind || "";
   const body = el.querySelector(".viewer-body");
   body.innerHTML = "";
   body.appendChild(node);
   el.classList.add("is-open");
   document.body.classList.add("viewer-locked");
+}
+
+/** True while a viewer session is on screen — nav.js checks this before
+    awarding a reading badge, so a stale timer from a resource the
+    visitor already left never fires for whatever's open now. */
+export function isViewerOpen() {
+  return !!overlay && overlay.classList.contains("is-open");
+}
+
+/** Identifies the current viewer session; changes every time something
+    new opens. Pair with isViewerOpen() to confirm a badge timer still
+    refers to the same open session, not a later one. */
+export function currentOpenId() {
+  return openSeq;
 }
 
 /** Opens {title, url, name} inline if the file type allows it; returns
@@ -109,12 +134,16 @@ export function openViewer({ title, url, name }, onClose) {
     node.controls = true;
     node.autoplay = true;
   } else if (kind === "audio") {
-    node = document.createElement("audio");
-    node.src = url;
-    node.controls = true;
-    node.autoplay = true;
+    node = document.createElement("div");
+    node.className = "viewer-audio-card";
+    const audio = document.createElement("audio");
+    audio.src = url;
+    audio.controls = true;
+    audio.autoplay = true;
+    node.innerHTML = `<div class="viewer-audio-icon">&#127925;</div><b>${esc(title || name || "Audio")}</b>`;
+    node.appendChild(audio);
   }
-  showOverlay(title || name, node, onClose);
+  showOverlay(title || name, node, onClose, kind);
   return true;
 }
 
@@ -126,7 +155,7 @@ export function openYouTubeViewer({ title, embedUrl }, onClose) {
   node.title = title || "";
   node.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
   node.allowFullscreen = true;
-  showOverlay(title, node, onClose);
+  showOverlay(title, node, onClose, "video");
 }
 
 /** Opens any already-embeddable URL inline (e.g. a KoboToolbox survey's
@@ -138,6 +167,31 @@ export function openIframeViewer({ title, url }, onClose) {
   node.src = url;
   node.title = title || "";
   showOverlay(title, node, onClose);
+}
+
+let badgeEl = null;
+
+/** A one-off congratulatory popup for a freshly-earned reading badge —
+    layered above the viewer so the celebration doesn't interrupt or
+    close whatever's being read. Dismisses itself, or on click. */
+export function showBadgeCelebration({ title } = {}) {
+  if (!badgeEl) {
+    badgeEl = document.createElement("div");
+    badgeEl.className = "badge-toast";
+    document.body.appendChild(badgeEl);
+    badgeEl.addEventListener("click", () => badgeEl.classList.remove("is-open"));
+  }
+  badgeEl.innerHTML = `
+    <div class="badge-toast-card">
+      <div class="badge-toast-icon">&#127942;</div>
+      <div>
+        <b>Badge earned — Focused Reader!</b>
+        <p>You've spent real time with <em>${esc(title || "this resource")}</em>. Keep it up.</p>
+      </div>
+    </div>`;
+  badgeEl.classList.add("is-open");
+  clearTimeout(badgeEl._dismissTimer);
+  badgeEl._dismissTimer = setTimeout(() => badgeEl.classList.remove("is-open"), 9000);
 }
 
 export function closeViewer() {

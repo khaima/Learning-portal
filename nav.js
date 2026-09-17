@@ -18,8 +18,30 @@
    ============================================================ */
 
 import { $, $$, toast } from "./util.js";
-import { startLibraryInteraction, completeLibraryInteraction } from "./store.js";
-import { openViewer, openYouTubeViewer, viewableKind } from "./viewer.js";
+import { startLibraryInteraction, completeLibraryInteraction, awardLibraryBadge } from "./store.js";
+import { openViewer, openYouTubeViewer, viewableKind, isViewerOpen, currentOpenId, showBadgeCelebration } from "./viewer.js";
+
+/* ---------------------------------------------------------------- reading-badge celebration
+   A real "you've been at this a while" moment, not a claim about what
+   was learned: once a viewer session on one resource stays open past
+   this threshold, award the (one-time-per-resource) badge and pop the
+   celebration — but only if the visitor is still looking at THAT same
+   session, not a stale timer left over from something they already
+   moved on from (see currentOpenId()). Only fires for content this
+   portal actually renders in its own viewer — an external new tab
+   can't be watched, so it can't honestly earn one. */
+const BADGE_THRESHOLD_MS = 60 * 1000;
+
+function scheduleBadgeCheck(itemId, title) {
+  const openId = currentOpenId();
+  setTimeout(async () => {
+    if (!isViewerOpen() || currentOpenId() !== openId) return;
+    try {
+      const res = await awardLibraryBadge(itemId, Math.round(BADGE_THRESHOLD_MS / 1000));
+      if (res?.awarded) showBadgeCelebration({ title });
+    } catch { /* badges are a bonus — never let a failure disturb reading */ }
+  }, BADGE_THRESHOLD_MS);
+}
 
 /* ---------------------------------------------------------------- content-library usage tracking
    Delegated here so every dashboard gets it for free instead of wiring
@@ -47,13 +69,15 @@ document.addEventListener("click", (e) => {
 
   if (ytEmbed) {
     e.preventDefault();
+    const title = link.dataset.itemTitle || "";
     startLibraryInteraction(itemId)
       .then((interaction) => {
         const id = interaction?.id;
         openYouTubeViewer(
-          { title: link.dataset.itemTitle || "", embedUrl: ytEmbed },
+          { title, embedUrl: ytEmbed },
           () => { if (id) completeLibraryInteraction(id).catch(() => {}); },
         );
+        scheduleBadgeCheck(itemId, title);
       })
       .catch(() => window.open(link.href, "_blank", "noopener"));
     return;
@@ -61,14 +85,16 @@ document.addEventListener("click", (e) => {
 
   if (viewableKind(fileName)) {
     e.preventDefault();
+    const title = link.dataset.itemTitle || fileName;
     startLibraryInteraction(itemId)
       .then((interaction) => {
         const id = interaction?.id;
         const opened = openViewer(
-          { title: link.dataset.itemTitle || fileName, url: link.href, name: fileName },
+          { title, url: link.href, name: fileName },
           () => { if (id) completeLibraryInteraction(id).catch(() => {}); },
         );
         if (!opened) window.open(link.href, "_blank", "noopener"); // shouldn't happen; safety net
+        else scheduleBadgeCheck(itemId, title);
       })
       .catch(() => window.open(link.href, "_blank", "noopener")); // tracking failed — still let them read it
     return;

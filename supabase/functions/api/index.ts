@@ -747,19 +747,74 @@ app.patch("/library/interactions/:id/complete", withActor(), async (c) => {
 /* An actor's own reading history — surfaced on their own dashboard. */
 app.get("/library/interactions/mine", withActor(), async (c) => {
   const actor = c.get("actor");
-  const { data, error } = await admin
-    .from("library_interactions")
-    .select("*, library_items(title)")
-    .eq("actor_id", actor.id)
-    .order("started_at", { ascending: false })
-    .limit(200);
+  const [{ data, error }, { data: badgeRows }] = await Promise.all([
+    admin
+      .from("library_interactions")
+      .select("*, library_items(title)")
+      .eq("actor_id", actor.id)
+      .order("started_at", { ascending: false })
+      .limit(200),
+    admin
+      .from("library_badges")
+      .select("id, badge, awarded_at, library_items(title)")
+      .eq("actor_id", actor.id)
+      .order("awarded_at", { ascending: false }),
+  ]);
   if (error) return c.json({ error: error.message }, 500);
   const rows = data ?? [];
   const completed = rows.filter((r) => r.duration_seconds != null);
+  const badges = badgeRows ?? [];
   return c.json({
     totalSeconds: completed.reduce((s, r) => s + (r.duration_seconds as number), 0),
     resourcesOpened: new Set(rows.map((r) => r.library_item_id)).size,
     interactions: rows.map(mapInteraction),
+    badgesEarned: badges.length,
+    badges: badges.map((b: any) => ({
+      id: b.id,
+      badge: b.badge,
+      title: b.library_items?.title ?? "",
+      awardedAt: b.awarded_at,
+    })),
+  });
+});
+
+/* Awarded client-side, once, the moment a single viewer session on one
+   resource stays open past the engagement threshold (see nav.js) — a
+   real celebration for a real stretch of attention, not a claim about
+   comprehension. The unique index makes a repeat call for the same
+   resource a harmless no-op instead of a duplicate badge. */
+app.post("/library/:id/badge", withActor(), async (c) => {
+  const itemId = c.req.param("id");
+  const actor = c.get("actor");
+  const b = await c.req.json().catch(() => ({}));
+  const secondsEngaged = Math.max(0, Math.round(Number(b.secondsEngaged) || 0));
+
+  const { data: item } = await admin
+    .from("library_items").select("id, audience, title").eq("id", itemId).maybeSingle();
+  if (!item || !canSeeLibrary(item.audience as string, actor.role)) {
+    return c.json({ error: "Resource not found" }, 404);
+  }
+
+  const { data, error } = await admin
+    .from("library_badges")
+    .insert({
+      id: rid("bdg"),
+      library_item_id: itemId,
+      actor_kind: c.get("actorKind") === "learner" ? "learner" : "staff",
+      actor_id: actor.id,
+      seconds_engaged: secondsEngaged,
+    })
+    .select()
+    .single();
+  if (error) {
+    if ((error as { code?: string }).code === "23505") {
+      return c.json({ awarded: false, alreadyAwarded: true });
+    }
+    return c.json({ error: error.message }, 400);
+  }
+  return c.json({
+    awarded: true,
+    badge: { id: data.id, badge: data.badge, title: item.title as string, awardedAt: data.awarded_at },
   });
 });
 

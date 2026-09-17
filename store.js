@@ -157,6 +157,14 @@ export async function completeLibraryInteraction(interactionId) {
   return interaction;
 }
 
+/* Called once, client-side, when a viewer session on one resource has
+   stayed open past the celebration threshold — see nav.js. The server
+   is the one that decides whether this is actually the first time (a
+   repeat call just comes back {awarded:false, alreadyAwarded:true}). */
+export async function awardLibraryBadge(itemId, secondsEngaged) {
+  return apiSend("POST", `/library/${itemId}/badge`, { secondsEngaged });
+}
+
 /* The signed-in actor's own reading history — used for the "My learning
    activity" panel on every dashboard that has a library. */
 export async function getMyLibraryUsage() {

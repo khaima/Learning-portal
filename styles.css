@@ -427,7 +427,12 @@ a{ color:inherit; }
 .lib-folder li{ padding:.2rem 0; }
 .lib-folder li a{ color:var(--brand-fg); }
 
-/* ---- in-portal content viewer (viewer.js) ---- */
+/* ---- in-portal content viewer (viewer.js) ----
+   The frame fits itself to what's actually open: full and roomy for
+   something meant to be read (PDF/Office/text — reading benefits from
+   every extra inch), a bounded, centered card for an image, video, or
+   audio track (those have their own natural size and just look lost
+   stretched edge-to-edge). data-kind on .viewer-frame drives which. */
 .viewer-overlay{
   display:none; position:fixed; inset:0; z-index:500;
   background:rgba(10,16,32,.78); padding:2.2rem; align-items:center; justify-content:center;
@@ -435,9 +440,14 @@ a{ color:inherit; }
 .viewer-overlay.is-open{ display:flex; }
 body.viewer-locked{ overflow:hidden; }
 .viewer-frame{
-  display:flex; flex-direction:column; width:100%; height:100%; max-width:64rem;
+  display:flex; flex-direction:column; width:100%; height:100%; max-width:72rem;
   background:var(--paper-raised); border-radius:var(--radius-lg); box-shadow:var(--shadow); overflow:hidden;
+  animation:viewer-pop .22s ease-out;
 }
+@keyframes viewer-pop{ from{ opacity:0; transform:scale(.97); } to{ opacity:1; transform:scale(1); } }
+.viewer-frame[data-kind="image"],
+.viewer-frame[data-kind="audio"]{ max-width:44rem; height:auto; max-height:90%; }
+.viewer-frame[data-kind="video"]{ max-width:64rem; max-height:44rem; }
 .viewer-bar{
   display:flex; align-items:center; justify-content:space-between; gap:1rem;
   padding:.8rem 1.1rem; border-bottom:1px solid var(--line); flex:none;
@@ -451,12 +461,38 @@ body.viewer-locked{ overflow:hidden; }
 .viewer-body{ flex:1; min-height:0; display:flex; align-items:center; justify-content:center; background:var(--paper-sunk); }
 .viewer-body iframe{ width:100%; height:100%; border:0; background:#fff; }
 .viewer-body img{ max-width:100%; max-height:100%; object-fit:contain; }
-.viewer-body video{ width:100%; height:100%; }
-.viewer-body audio{ width:80%; }
+.viewer-body video{ width:100%; height:100%; max-height:100%; object-fit:contain; background:#0b0f1a; }
+.viewer-audio-card{
+  display:flex; flex-direction:column; align-items:center; gap:.7rem;
+  padding:2.4rem 1.5rem; text-align:center; width:100%;
+}
+.viewer-audio-icon{ font-size:2.6rem; }
+.viewer-audio-card b{ font-family:"Baloo 2",sans-serif; color:var(--ink); }
+.viewer-audio-card audio{ width:min(26rem,90%); }
 @media (max-width:640px){
   .viewer-overlay{ padding:0; }
-  .viewer-frame{ border-radius:0; }
+  .viewer-frame,
+  .viewer-frame[data-kind="image"],
+  .viewer-frame[data-kind="audio"],
+  .viewer-frame[data-kind="video"]{ border-radius:0; max-width:none; max-height:none; height:100%; }
 }
+
+/* ---- reading-badge celebration popup (viewer.js showBadgeCelebration) ---- */
+.badge-toast{
+  position:fixed; left:50%; bottom:1.6rem; transform:translate(-50%,1.2rem);
+  z-index:600; opacity:0; pointer-events:none; transition:opacity .25s ease, transform .25s ease;
+  max-width:min(26rem,92vw); cursor:pointer;
+}
+.badge-toast.is-open{ opacity:1; transform:translate(-50%,0); pointer-events:auto; }
+.badge-toast-card{
+  display:flex; align-items:center; gap:.8rem; background:var(--paper-raised);
+  border:1px solid var(--line); border-radius:var(--radius-lg); box-shadow:var(--shadow);
+  padding:.9rem 1.1rem;
+}
+.badge-toast-icon{ font-size:1.8rem; flex:none; }
+.badge-toast-card b{ font-family:"Baloo 2",sans-serif; color:var(--ink); font-size:.92rem; }
+.badge-toast-card p{ margin:.15rem 0 0; font-size:.82rem; color:var(--ink-soft); }
+.badge-toast-card em{ font-style:normal; color:var(--brand-fg); font-weight:600; }
 
 /* ---- teacher's learner roster ---- */
 .roster-actions{ display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; flex:none; }

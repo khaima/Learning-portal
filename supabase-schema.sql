@@ -92,6 +92,22 @@ create index if not exists library_interactions_item_idx on public.library_inter
 create index if not exists library_interactions_actor_idx on public.library_interactions (actor_id);
 create index if not exists library_interactions_school_idx on public.library_interactions (school);
 
+-- Earned once a viewer session on one resource crosses the engagement
+-- threshold (see nav.js) while still open — a real, one-time celebration
+-- per resource per person, not a repeatable farm. `badge` is a slug so
+-- more kinds can be added later without a schema change.
+create table if not exists public.library_badges (
+  id text primary key,
+  library_item_id text not null references public.library_items(id) on delete cascade,
+  actor_kind text not null check (actor_kind in ('staff','learner')),
+  actor_id uuid not null,
+  badge text not null default 'focused_reader',
+  seconds_engaged integer not null default 0,
+  awarded_at timestamptz not null default now(),
+  unique (library_item_id, actor_id, badge)
+);
+create index if not exists library_badges_actor_idx on public.library_badges (actor_id);
+
 -- ---------------------------------------------------------------- forms & responses
 create table if not exists public.forms (
   id text primary key,
@@ -223,6 +239,7 @@ alter table public.learners         enable row level security;
 alter table public.learner_sessions enable row level security;
 alter table public.library_items    enable row level security;
 alter table public.library_interactions enable row level security;
+alter table public.library_badges   enable row level security;
 alter table public.forms            enable row level security;
 alter table public.responses        enable row level security;
 alter table public.assignments      enable row level security;
