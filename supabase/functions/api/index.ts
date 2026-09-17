@@ -171,6 +171,7 @@ const mapLibrary = async (r: Record<string, unknown>) => ({
   fileSize: r.file_size ?? 0,
   isFolder: !!r.is_folder,
   files: await signFiles((r.files as LibFile[]) ?? []),
+  externalUrl: r.external_url ?? null,
 });
 const mapProfile = (r: Record<string, unknown>) => ({
   id: r.id,
@@ -248,6 +249,9 @@ app.use(
       if (!origin) return origin;
       if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return origin;
       if (origin === "https://khaima.github.io") return origin;
+      // The Vercel mirror of this same site, plus its preview deployments
+      // (e.g. learning-portal-<hash>-<user>.vercel.app for each branch/PR).
+      if (/^https:\/\/learning-portal[\w-]*\.vercel\.app$/.test(origin)) return origin;
       return null;
     },
     allowHeaders: ["authorization", "content-type"],
@@ -602,9 +606,15 @@ app.get("/library", withActor(), async (c) => {
   return c.json({ items });
 });
 
+const URL_RE = /^https?:\/\/[^\s]+$/i;
+
 app.post("/library", withProfile("education_team"), async (c) => {
   const b = await c.req.json().catch(() => ({}));
   if (!String(b.title ?? "").trim()) return c.json({ error: "Title is required" }, 400);
+  const externalUrl = String(b.externalUrl ?? "").trim();
+  if (externalUrl && !URL_RE.test(externalUrl)) {
+    return c.json({ error: "Link must start with http:// or https://" }, 400);
+  }
   const id = rid("lib");
 
   const files: LibFile[] = [];
@@ -639,6 +649,7 @@ app.post("/library", withProfile("education_team"), async (c) => {
       file_size: files.reduce((s, f) => s + (f.size || 0), 0),
       is_folder: isFolder,
       files,
+      external_url: externalUrl || null,
     })
     .select()
     .single();

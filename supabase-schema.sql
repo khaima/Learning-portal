@@ -63,7 +63,12 @@ create table if not exists public.library_items (
   file_name text,
   file_size bigint not null default 0,
   is_folder boolean not null default false,
-  files jsonb not null default '[]'::jsonb
+  files jsonb not null default '[]'::jsonb,
+  -- An item can point at an external site instead of an uploaded file —
+  -- a YouTube video, an article, another platform's course page. Mutually
+  -- exclusive with `files` in practice (the upload form offers one or the
+  -- other), but nothing at the DB layer forces that.
+  external_url text
 );
 
 -- One row per "someone opened a resource". `completed_at`/`duration_seconds`
