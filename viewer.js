@@ -129,6 +129,17 @@ export function openYouTubeViewer({ title, embedUrl }, onClose) {
   showOverlay(title, node, onClose);
 }
 
+/** Opens any already-embeddable URL inline (e.g. a KoboToolbox survey's
+    iframe-friendly form link) — for content that isn't a library file at
+    all, just a page this portal is allowed to frame. Same contract as
+    openViewer(). */
+export function openIframeViewer({ title, url }, onClose) {
+  const node = document.createElement("iframe");
+  node.src = url;
+  node.title = title || "";
+  showOverlay(title, node, onClose);
+}
+
 export function closeViewer() {
   if (!overlay || !overlay.classList.contains("is-open")) return;
   overlay.classList.remove("is-open");

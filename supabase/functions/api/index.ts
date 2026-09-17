@@ -1361,6 +1361,30 @@ app.post("/kobo/forms", withProfile("education_team"), async (c) => {
   return c.json({ form: { id: data.id, title: data.title, assetUid: data.asset_uid } });
 });
 
+/* An in-portal look at the actual survey questions before deciding to
+   attach it — the iframe-friendly Enketo webform link, never KoboToolbox's
+   own web app (which refuses to be framed and needs a separate Kobo
+   login anyway). Nothing here notifies or reaches a field officer: that
+   only happens once "Attach" turns the survey into a fillable link. */
+app.get("/kobo/assets/:uid/preview", withProfile("education_team"), async (c) => {
+  const cfg = await loadKoboConfig();
+  if (!cfg) return c.json({ error: "Connect KoboToolbox first" }, 400);
+  const uid = c.req.param("uid");
+  let asset;
+  try {
+    asset = await koboJson(cfg, `/api/v2/assets/${uid}/?format=json`);
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 502);
+  }
+  if (!asset.deployment__active) {
+    return c.json({ error: "That survey isn't deployed in KoboToolbox yet" }, 400);
+  }
+  const links = asset.deployment__links ?? {};
+  const previewUrl = links.iframe_url || links.offline_url || links.url || null;
+  if (!previewUrl) return c.json({ error: "KoboToolbox didn't provide a preview link for this survey" }, 502);
+  return c.json({ previewUrl, title: asset.name || "(untitled survey)" });
+});
+
 app.delete("/kobo/forms/:id", withProfile("education_team"), async (c) => {
   const { error } = await admin.from("kobo_forms").delete().eq("id", c.req.param("id"));
   if (error) return c.json({ error: error.message }, 400);

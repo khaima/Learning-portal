@@ -282,6 +282,13 @@ export async function koboAssets() {
   return assets || [];
 }
 
+/* Education Team: an in-portal preview link for one deployed survey
+   (its actual questions), fetched on demand — kept out of koboAssets()
+   above since it's only needed for the one being previewed right now. */
+export async function koboAssetPreview(uid) {
+  return apiGet(`/kobo/assets/${encodeURIComponent(uid)}/preview`);
+}
+
 /* Education Team: surveys attached to the portal, with submission counts. */
 export async function koboForms() {
   const { forms } = await apiGet("/kobo/forms");

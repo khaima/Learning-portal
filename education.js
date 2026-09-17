@@ -8,10 +8,11 @@ import {
 import {
   getLibrary, addLibraryItem, getForms, addForm, getResponses, getStats,
   uploadLibraryFiles, libraryFilesHtml, getLibraryUsage,
-  koboConfig, saveKoboConfig, koboAssets, koboForms, attachKoboForm,
+  koboConfig, saveKoboConfig, koboAssets, koboAssetPreview, koboForms, attachKoboForm,
   removeKoboForm, syncKobo, koboResults,
   getUsers, updateUser, resetUserPassword,
 } from "./store.js";
+import { openIframeViewer } from "./viewer.js";
 
 const AUDIENCE_LABEL = Object.fromEntries(FORM_AUDIENCES.map((a) => [a.value, a.label]));
 const STAFF_ROLES = ROLES.filter((r) => r.value !== "learner");
@@ -625,20 +626,31 @@ async function main() {
 
   $("#koboReconnect").addEventListener("click", showKoboConnect);
 
-  /* Opens the survey in KoboToolbox's own web app — a look at the actual
-     questions before deciding to send it out. This is separate from the
-     field officer's fillable link (built from enketo_url, only created
-     once a survey is attached), so viewing never reaches, notifies, or
-     counts as anything for a field officer — nobody's dashboard changes
-     until "Attach" is used. */
-  $("#koboViewBtn").addEventListener("click", () => {
+  /* Opens the survey inline, in the portal's own viewer — a look at the
+     actual questions before deciding to send it out. Not KoboToolbox's
+     web app (that needs a separate Kobo login and refuses to be framed
+     anyway); not the field officer's fillable link either, so viewing
+     never reaches, notifies, or counts as anything for a field officer —
+     nobody's dashboard changes until "Attach" is used. */
+  $("#koboViewBtn").addEventListener("click", async () => {
     const uid = koboAssetSel.value;
     if (!uid) {
       toast("Pick a survey first", "Choose one from the list, then View.", "error");
       return;
     }
-    const base = (koboState.baseUrl || "https://eu.kobotoolbox.org").replace(/\/+$/, "");
-    window.open(`${base}/#/forms/${uid}`, "_blank", "noopener");
+    const btn = $("#koboViewBtn");
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Loading…";
+    try {
+      const { previewUrl, title } = await koboAssetPreview(uid);
+      openIframeViewer({ title, url: previewUrl });
+    } catch (err) {
+      toast("Couldn't load the preview", err?.message || "", "error");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
   });
 
   $("#koboAttachForm").addEventListener("submit", async (e) => {
