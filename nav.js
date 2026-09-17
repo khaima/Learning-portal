@@ -19,7 +19,7 @@
 
 import { $, $$, toast } from "./util.js";
 import { startLibraryInteraction, completeLibraryInteraction } from "./store.js";
-import { openViewer, viewableKind } from "./viewer.js";
+import { openViewer, openYouTubeViewer, viewableKind } from "./viewer.js";
 
 /* ---------------------------------------------------------------- content-library usage tracking
    Delegated here so every dashboard gets it for free instead of wiring
@@ -42,6 +42,21 @@ document.addEventListener("click", (e) => {
   if (!link) return;
   const itemId = link.dataset.trackItem;
   const fileName = link.dataset.fileName || "";
+  const ytEmbed = link.dataset.ytEmbed || "";
+
+  if (ytEmbed) {
+    e.preventDefault();
+    startLibraryInteraction(itemId)
+      .then((interaction) => {
+        const id = interaction?.id;
+        openYouTubeViewer(
+          { title: link.dataset.itemTitle || "", embedUrl: ytEmbed },
+          () => { if (id) completeLibraryInteraction(id).catch(() => {}); },
+        );
+      })
+      .catch(() => window.open(link.href, "_blank", "noopener"));
+    return;
+  }
 
   if (viewableKind(fileName)) {
     e.preventDefault();

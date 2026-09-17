@@ -1,5 +1,5 @@
 import "./nav.js";
-import { $, $$, esc, initials, toast, formatDuration } from "./util.js";
+import { $, $$, esc, initials, toast, formatDuration, groupByType } from "./util.js";
 import { requireRole, signOut, sendPasswordResetLink } from "./auth.js";
 import {
   CONTENT_TYPES, LIBRARY_SUBJECTS, LIBRARY_AUDIENCES, FORM_AUDIENCES, QUESTION_TYPES, ROLES,
@@ -204,24 +204,30 @@ async function main() {
     library: { cls: " ok", label: "Digital Library" },
   };
 
+  function libraryRow(it) {
+    const dest = AUDIENCE_PILL[normalizeLibraryAudience(it.audience)];
+    return `
+      <div class="task-row">
+        <span class="task-dot" style="background:var(--brand);margin-top:.55rem"></span>
+        <div style="flex:1">
+          <b>${esc(it.title)}</b>
+          <span>${esc(it.subject)}${it.description ? " — " + esc(it.description) : ""}</span>
+          ${libraryFilesHtml(it)}
+        </div>
+        <span class="pill${dest.cls}">${dest.label}</span>
+      </div>`;
+  }
+
   async function renderLibrary() {
     $("#libraryList").innerHTML = `<div class="empty-state">Loading…</div>`;
     let items = [];
     try { items = await getLibrary(); } catch { /* shown as empty */ }
     $("#libraryList").innerHTML = items.length
-      ? items.map((it) => {
-          const dest = AUDIENCE_PILL[normalizeLibraryAudience(it.audience)];
-          return `
-        <div class="task-row">
-          <span class="task-dot" style="background:var(--brand);margin-top:.55rem"></span>
-          <div style="flex:1">
-            <b>${esc(it.title)}</b>
-            <span>${esc(it.subject)} · ${esc(it.type)}${it.description ? " — " + esc(it.description) : ""}</span>
-            ${libraryFilesHtml(it)}
-          </div>
-          <span class="pill${dest.cls}">${dest.label}</span>
-        </div>`;
-        }).join("")
+      ? groupByType(items, CONTENT_TYPES).map(({ type, items: rows }) => `
+        <div class="list-group">
+          <div class="list-group-title">${esc(type)}<span class="count">${rows.length}</span></div>
+          ${rows.map(libraryRow).join("")}
+        </div>`).join("")
       : `<div class="empty-state">Nothing uploaded yet.</div>`;
   }
 
@@ -291,7 +297,15 @@ async function main() {
   const uploadList = $("#uploadList");
   const uploadHint = $("#uploadHint");
   const uploadDrop = $("#uploadDrop");
+  const linkInput = $("#up_link");
+  const fileField = $("#up_file_field");
   let picked = [];
+
+  // A link and a file are mutually exclusive — once a link is typed,
+  // fold away the file picker rather than let both sit there ambiguously.
+  linkInput.addEventListener("input", () => {
+    fileField.hidden = !!linkInput.value.trim();
+  });
 
   function setFolderMode(on) {
     // webkitdirectory turns the same input into a folder picker.
@@ -369,16 +383,21 @@ async function main() {
     const submitBtn = e.target.querySelector("[type=submit]");
     submitBtn.disabled = true;
 
+    const link = linkInput.value.trim();
     const meta = {
       title,
       subject: $("#up_subject").value,
       type: $("#up_type").value,
       audience: $("#up_audience").value,
       description: $("#up_desc").value.trim(),
+      externalUrl: link || undefined,
     };
 
     try {
-      if (picked.length) {
+      if (link) {
+        await addLibraryItem(meta);
+        toast("Added to library", "Link added.");
+      } else if (picked.length) {
         submitBtn.textContent = `Uploading 0/${picked.length}…`;
         await uploadLibraryFiles(meta, picked, (done, n) => {
           submitBtn.textContent = `Uploading ${done}/${n}…`;
@@ -390,6 +409,7 @@ async function main() {
       }
       e.target.reset();
       clearPicked();
+      fileField.hidden = false;
       $("#up_subject").value = LIBRARY_SUBJECTS[0];
       $("#up_type").value = CONTENT_TYPES[0];
       $("#up_audience").value = LIBRARY_AUDIENCES[0].value;

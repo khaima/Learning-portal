@@ -10,6 +10,7 @@
 import { esc } from "./util.js";
 import { supabase } from "./supabase.js";
 import { apiGet, apiSend } from "./api.js";
+import { youTubeEmbedUrl } from "./viewer.js";
 
 const LIBRARY_BUCKET = "library";
 
@@ -22,7 +23,9 @@ export async function getLibrary() {
 
 /* Create a library item. `files` is the manifest [{ name, size }] the
    caller intends to upload; the API returns a signed upload URL per
-   file, which uploadLibraryFiles() then PUTs to. */
+   file, which uploadLibraryFiles() then PUTs to. `externalUrl` is the
+   other way in — a link to a YouTube video, an article, another site —
+   used instead of a file, not alongside one. */
 export async function addLibraryItem(item) {
   const { item: saved } = await apiSend("POST", "/library", {
     title: item.title,
@@ -33,6 +36,7 @@ export async function addLibraryItem(item) {
     fileName: item.fileName || null,
     isFolder: !!item.isFolder,
     files: (item.files || []).map((f) => ({ name: f.name, size: f.size })),
+    externalUrl: item.externalUrl || null,
   });
   return saved;
 }
@@ -110,8 +114,19 @@ export function formatBytes(n = 0) {
    video, audio, text) — open it in the portal's own in-app viewer
    instead of a new tab; see viewer.js. Anything else still opens in a
    new tab, the one thing a browser can't be talked out of for a format
-   it can't display itself. */
+   it can't display itself. An item pointing at an external link (see
+   addLibraryItem) has no files at all; a YouTube link gets the same
+   in-app treatment via data-yt-embed, anything else just opens in a
+   new tab since most sites block being framed. */
 export function libraryFilesHtml(item) {
+  if (item.externalUrl) {
+    const embed = youTubeEmbedUrl(item.externalUrl);
+    return `<a class="lib-open" data-track-item="${esc(item.id)}" data-item-title="${esc(item.title)}"${
+      embed ? ` data-yt-embed="${esc(embed)}"` : ""
+    } href="${esc(item.externalUrl)}" target="_blank" rel="noopener">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14 21 3"/></svg>
+      ${embed ? "Watch video" : "Open link"}</a>`;
+  }
   const files = item.files || [];
   if (!files.length) return "";
   if (files.length === 1) {

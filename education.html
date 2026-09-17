@@ -93,7 +93,7 @@
                   <label for="up_desc">Description</label>
                   <input id="up_desc" type="text" placeholder="What is this, and who is it for?">
                 </div>
-                <div class="field">
+                <div class="field" id="up_file_field">
                   <label>File <span style="color:var(--ink-soft);font-weight:500">— optional</span></label>
                   <div class="upload-drop" id="uploadDrop">
                     <input id="up_file" type="file" multiple hidden>
@@ -104,6 +104,11 @@
                     <p class="upload-hint" id="uploadHint">Drag a file here, or pick one from your computer. Folders upload every file inside.</p>
                     <ul class="upload-list" id="uploadList" hidden></ul>
                   </div>
+                </div>
+                <div class="login-divider" style="margin:.9rem 0"><span>or</span></div>
+                <div class="field">
+                  <label for="up_link">Link to another site <span style="color:var(--ink-soft);font-weight:500">— YouTube plays right in the portal; anything else opens in a new tab</span></label>
+                  <input id="up_link" type="url" placeholder="https://youtube.com/watch?v=… or any other link">
                 </div>
                 <button class="btn btn-primary btn-block" type="submit">Add to library</button>
               </form>

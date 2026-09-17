@@ -1,7 +1,7 @@
 import "./nav.js";
-import { $, $$, esc, initials, formatDuration } from "./util.js";
+import { $, $$, esc, initials, formatDuration, groupByType } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
-import { LEARNER_CONTENT, SUBJECT_ICON_PATHS, normalizeLibraryAudience } from "./data.js";
+import { LEARNER_CONTENT, SUBJECT_ICON_PATHS, normalizeLibraryAudience, CONTENT_TYPES } from "./data.js";
 import {
   getLibrary, libraryFilesHtml, getAssignments, markAssignmentDone, getMyLibraryUsage,
 } from "./store.js";
@@ -105,12 +105,17 @@ async function main() {
   $("#libraryStrip").innerHTML = `<div class="empty-state">Loading…</div>`;
   getLibrary().then((library) => {
     const forLearners = library.filter((l) => normalizeLibraryAudience(l.audience) === "library");
-    $("#libraryStrip").innerHTML = forLearners.length
-      ? forLearners.map((l) => `
+    const card = (l) => `
         <div class="lib-item">
           <span class="li-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${SUBJECT_ICON_PATHS[l.subject] || ""}</svg></span>
-          <b>${esc(l.title)}</b><span>${esc(l.subject)} · ${esc(l.type)}</span>
+          <b>${esc(l.title)}</b><span>${esc(l.subject)}</span>
           ${libraryFilesHtml(l)}
+        </div>`;
+    $("#libraryStrip").innerHTML = forLearners.length
+      ? groupByType(forLearners, CONTENT_TYPES).map(({ type, items }) => `
+        <div class="list-group">
+          <div class="list-group-title">${esc(type)}<span class="count">${items.length}</span></div>
+          <div class="lib-strip">${items.map(card).join("")}</div>
         </div>`).join("")
       : `<div class="empty-state">Nothing in the library yet.</div>`;
   });

@@ -22,6 +22,23 @@ export function formatDuration(totalSeconds) {
   return `${s}s`;
 }
 
+/* Buckets library items into "folders" by content type — Video, Reading,
+   etc. — in a fixed order (unrecognized/blank types trail at the end as
+   "Other"), skipping any type with nothing in it. Every dashboard that
+   lists the content library uses this so the folders line up the same
+   way everywhere. */
+export function groupByType(items, order) {
+  const buckets = new Map();
+  for (const it of items) {
+    const key = (it.type || "").trim() || "Other";
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(it);
+  }
+  const known = order.filter((k) => buckets.has(k));
+  const rest = [...buckets.keys()].filter((k) => !order.includes(k)).sort();
+  return [...known, ...rest].map((type) => ({ type, items: buckets.get(type) }));
+}
+
 let toastHost = null;
 export function toast(title, body = "", kind = "info") {
   if (!toastHost) {

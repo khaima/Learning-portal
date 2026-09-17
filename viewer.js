@@ -30,6 +30,20 @@ export function viewableKind(name) {
   return VIEWABLE_EXT[extOf(name)] || null;
 }
 
+/* YouTube is the one external site worth special-casing: unlike most
+   sites, its embed player is explicitly designed to be framed, so a
+   pasted watch/share link can actually play inline instead of just
+   linking out. Anything else external opens in a new tab — most sites
+   send X-Frame-Options/CSP specifically to block this, so attempting it
+   generally would just show a broken frame. */
+const YOUTUBE_RE = /(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/)|youtu\.be\/)([\w-]{11})/i;
+
+/** The embeddable player URL for a YouTube link, or null. */
+export function youTubeEmbedUrl(url) {
+  const m = YOUTUBE_RE.exec(url || "");
+  return m ? `https://www.youtube.com/embed/${m[1]}` : null;
+}
+
 let overlay = null;
 let onCloseCb = null;
 
@@ -54,6 +68,17 @@ function ensureOverlay() {
   return overlay;
 }
 
+function showOverlay(title, node, onClose) {
+  const el = ensureOverlay();
+  onCloseCb = onClose || null;
+  el.querySelector(".viewer-title").textContent = title || "";
+  const body = el.querySelector(".viewer-body");
+  body.innerHTML = "";
+  body.appendChild(node);
+  el.classList.add("is-open");
+  document.body.classList.add("viewer-locked");
+}
+
 /** Opens {title, url, name} inline if the file type allows it; returns
     true if it did. `onClose` fires once, whenever the viewer closes
     (X, Esc, backdrop click) — the caller uses it to mark the visit
@@ -62,12 +87,6 @@ function ensureOverlay() {
 export function openViewer({ title, url, name }, onClose) {
   const kind = viewableKind(name);
   if (!kind) return false;
-
-  const el = ensureOverlay();
-  onCloseCb = onClose || null;
-  el.querySelector(".viewer-title").textContent = title || name || "";
-  const body = el.querySelector(".viewer-body");
-  body.innerHTML = "";
 
   let node;
   if (kind === "pdf" || kind === "text") {
@@ -89,10 +108,19 @@ export function openViewer({ title, url, name }, onClose) {
     node.controls = true;
     node.autoplay = true;
   }
-  body.appendChild(node);
-  el.classList.add("is-open");
-  document.body.classList.add("viewer-locked");
+  showOverlay(title || name, node, onClose);
   return true;
+}
+
+/** Opens a YouTube video inline given its embed URL (see
+    youTubeEmbedUrl()). Same open/close contract as openViewer(). */
+export function openYouTubeViewer({ title, embedUrl }, onClose) {
+  const node = document.createElement("iframe");
+  node.src = embedUrl;
+  node.title = title || "";
+  node.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
+  node.allowFullscreen = true;
+  showOverlay(title, node, onClose);
 }
 
 export function closeViewer() {

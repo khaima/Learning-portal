@@ -1,7 +1,7 @@
 import "./nav.js";
-import { $, $$, esc, initials, toast, formatDuration } from "./util.js";
+import { $, $$, esc, initials, toast, formatDuration, groupByType } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
-import { TEACHER_CONTENT, normalizeLibraryAudience } from "./data.js";
+import { TEACHER_CONTENT, normalizeLibraryAudience, CONTENT_TYPES } from "./data.js";
 import {
   getLibrary, getForms, getResponses, addResponse, libraryFilesHtml,
   getLearners, addLearner, updateLearner, deleteLearner, getMyLibraryUsage,
@@ -173,15 +173,20 @@ async function main() {
   $("#teacherResourceList").innerHTML = `<div class="empty-state">Loading…</div>`;
   $("#libraryList").innerHTML = `<div class="empty-state">Loading…</div>`;
   getLibrary().then((library) => {
+    const row = (l) => `
+        <div class="task-row"><div><b>${esc(l.title)}</b><span>${esc(l.subject)}${l.description ? " — " + esc(l.description) : ""}</span>${libraryFilesHtml(l)}</div></div>`;
+    const folders = (list) => groupByType(list, CONTENT_TYPES).map(({ type, items }) => `
+      <div class="list-group">
+        <div class="list-group-title">${esc(type)}<span class="count">${items.length}</span></div>
+        ${items.map(row).join("")}
+      </div>`).join("");
     const resources = library.filter((l) => normalizeLibraryAudience(l.audience) === "staff");
     const shared = library.filter((l) => normalizeLibraryAudience(l.audience) === "library");
-    const row = (l) => `
-        <div class="task-row"><div><b>${esc(l.title)}</b><span>${esc(l.subject)} · ${esc(l.type)}${l.description ? " — " + esc(l.description) : ""}</span>${libraryFilesHtml(l)}</div></div>`;
     $("#teacherResourceList").innerHTML = resources.length
-      ? resources.map(row).join("")
+      ? folders(resources)
       : `<div class="empty-state">No teacher resources uploaded yet.</div>`;
     $("#libraryList").innerHTML = shared.length
-      ? shared.map(row).join("")
+      ? folders(shared)
       : `<div class="empty-state">Nothing in the library yet.</div>`;
   });
 

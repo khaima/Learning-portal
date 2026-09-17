@@ -1,7 +1,7 @@
 import "./nav.js";
-import { $, $$, esc, initials, formatDuration } from "./util.js";
+import { $, $$, esc, initials, formatDuration, groupByType } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
-import { LEADER_CONTENT, normalizeLibraryAudience } from "./data.js";
+import { LEADER_CONTENT, normalizeLibraryAudience, CONTENT_TYPES } from "./data.js";
 import { getForms, getResponses, addResponse, getLibrary, libraryFilesHtml, getMyLibraryUsage } from "./store.js";
 
 const ICON = {
@@ -66,19 +66,24 @@ async function main() {
   $("#headOnlyList").innerHTML = `<div class="empty-state">Loading…</div>`;
   getLibrary().then((library) => {
     const row = (l) => `
-      <div class="task-row"><div><b>${esc(l.title)}</b><span>${esc(l.subject)} · ${esc(l.type)}${
+      <div class="task-row"><div><b>${esc(l.title)}</b><span>${esc(l.subject)}${
         l.description ? " — " + esc(l.description) : ""}</span>${libraryFilesHtml(l)}</div></div>`;
+    const folders = (list) => groupByType(list, CONTENT_TYPES).map(({ type, items }) => `
+      <div class="list-group">
+        <div class="list-group-title">${esc(type)}<span class="count">${items.length}</span></div>
+        ${items.map(row).join("")}
+      </div>`).join("");
     const resources = library.filter((l) => normalizeLibraryAudience(l.audience) === "staff");
     const shared = library.filter((l) => normalizeLibraryAudience(l.audience) === "library");
     const headOnly = library.filter((l) => normalizeLibraryAudience(l.audience) === "school_leader");
     $("#resourceList").innerHTML = resources.length
-      ? resources.map(row).join("")
+      ? folders(resources)
       : `<div class="empty-state">No teacher resources uploaded yet.</div>`;
     $("#libraryList").innerHTML = shared.length
-      ? shared.map(row).join("")
+      ? folders(shared)
       : `<div class="empty-state">Nothing in the library yet.</div>`;
     $("#headOnlyList").innerHTML = headOnly.length
-      ? headOnly.map(row).join("")
+      ? folders(headOnly)
       : `<div class="empty-state">Nothing addressed to school heads yet.</div>`;
   });
 
