@@ -625,6 +625,22 @@ async function main() {
 
   $("#koboReconnect").addEventListener("click", showKoboConnect);
 
+  /* Opens the survey in KoboToolbox's own web app — a look at the actual
+     questions before deciding to send it out. This is separate from the
+     field officer's fillable link (built from enketo_url, only created
+     once a survey is attached), so viewing never reaches, notifies, or
+     counts as anything for a field officer — nobody's dashboard changes
+     until "Attach" is used. */
+  $("#koboViewBtn").addEventListener("click", () => {
+    const uid = koboAssetSel.value;
+    if (!uid) {
+      toast("Pick a survey first", "Choose one from the list, then View.", "error");
+      return;
+    }
+    const base = (koboState.baseUrl || "https://eu.kobotoolbox.org").replace(/\/+$/, "");
+    window.open(`${base}/#/forms/${uid}`, "_blank", "noopener");
+  });
+
   $("#koboAttachForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const uid = koboAssetSel.value;
@@ -824,7 +840,13 @@ async function main() {
     srBody.dataset.for = "";
     loadSurveyResults();
   });
-  srRefresh.addEventListener("click", loadSurveyResults);
+  srRefresh.addEventListener("click", async () => {
+    srRefresh.disabled = true;
+    srRefresh.textContent = "Refreshing…";
+    await loadSurveyResults();
+    srRefresh.disabled = false;
+    srRefresh.textContent = "Refresh";
+  });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && srCurrent) loadSurveyResults();
   });

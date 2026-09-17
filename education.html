@@ -214,8 +214,14 @@
               <label for="kb_asset">Add a deployed survey</label>
               <div style="display:flex;gap:.5rem;align-items:stretch">
                 <select id="kb_asset" style="flex:1"><option value="">Loading surveys…</option></select>
+                <button class="btn btn-outline" type="button" id="koboViewBtn" style="flex:none">View</button>
                 <button class="btn btn-outline" type="submit" style="flex:none">Attach</button>
               </div>
+              <p class="kobo-note" style="margin-bottom:0">
+                <b>View</b> opens the survey in KoboToolbox for a look — nothing
+                is sent to field officers. <b>Attach</b> is what puts it on
+                every field officer's dashboard.
+              </p>
               <p class="kobo-note" style="margin-bottom:0">
                 Connected to <b id="koboServerEcho">—</b> · hidden question
                 <code id="koboFieldEcho2">officer_ref</code>.
@@ -231,7 +237,7 @@
         <div class="panel" id="surveyResultsPanel">
           <div class="panel-head">
             <h2>Survey results</h2>
-            <button type="button" id="srRefresh" hidden>Refresh</button>
+            <button type="button" class="btn btn-outline" id="srRefresh" hidden>Refresh</button>
           </div>
           <div class="field" id="srPickerField" hidden style="margin-bottom:.6rem">
             <label for="srPicker">Survey / questionnaire</label>
