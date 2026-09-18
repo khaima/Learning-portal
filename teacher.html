@@ -67,10 +67,7 @@
               <div class="field"><label for="nl_user">Username</label><input id="nl_user" type="text" autocapitalize="none" spellcheck="false" placeholder="e.g. naomi.k" required></div>
               <div class="field"><label for="nl_pin">4-digit PIN</label><input id="nl_pin" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="0000" required></div>
             </div>
-            <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:.9rem">
-              <div class="field"><label for="nl_school">School <span style="font-weight:400;color:var(--ink-soft)">— optional</span></label><input id="nl_school" type="text" placeholder="Leave blank to use your own school"></div>
-              <div class="field"><label for="nl_county">County <span style="font-weight:400;color:var(--ink-soft)">— optional</span></label><input id="nl_county" type="text" placeholder="Leave blank to use your own county"></div>
-            </div>
+            <p class="hint">Placed automatically in your own school and county.</p>
             <div class="field-error" id="addLearnerError" hidden></div>
             <div style="display:flex;gap:.6rem">
               <button class="btn btn-primary" type="submit">Create learner</button>
@@ -84,7 +81,7 @@
               <span style="font-size:.82rem;color:var(--ink-soft)">fill it in, then upload it back:</span>
               <input type="file" id="learnerCsvInput" accept=".csv,text/csv" style="max-width:14rem">
             </div>
-            <p class="hint">One learner per row: full name is required; school, county, username, grade, and PIN are optional — leave school/county blank to use your own, and we'll generate a username/PIN for anything else left blank, then show you the result.</p>
+            <p class="hint">One learner per row: full name is required; username, grade, and PIN are optional — left blank, we'll generate them for you and show you the result. Every learner is placed automatically in your own school and county.</p>
             <div id="bulkLearnerResult"></div>
           </div>
           <div id="learnerRoster"></div>

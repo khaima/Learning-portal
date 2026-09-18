@@ -71,16 +71,11 @@ async function main() {
   let learnerCache = [];
 
   function learnerRow(l) {
-    // Only called out when it's not just "my own school" — the common
-    // case stays uncluttered; a teacher covering several schools sees
-    // which is which.
-    const elsewhere = (l.school && l.school !== user.school) || (l.county && l.county !== user.county);
     return `
-      <div class="task-row" data-learner="${esc(l.id)}" data-username="${esc(l.username)}" data-grade="${esc(l.grade || "")}" data-school="${esc(l.school || "")}" data-county="${esc(l.county || "")}">
+      <div class="task-row" data-learner="${esc(l.id)}" data-username="${esc(l.username)}" data-grade="${esc(l.grade || "")}">
         <div style="flex:1">
           <button type="button" data-act="view" style="background:none;border:0;padding:0;font:inherit;cursor:pointer;color:var(--brand-fg);text-align:left"><b>${esc(l.fullName)}</b></button>
           <span>@${esc(l.username)}${l.grade ? " · " + esc(l.grade) : ""}${l.locked ? ' · <span class="pill warm">Locked</span>' : ""}</span>
-          ${elsewhere ? `<span><br>${esc([l.school, l.county].filter(Boolean).join(" · "))}</span>` : ""}
         </div>
         <div class="roster-actions">
           <button type="button" data-act="view">View activity</button>
@@ -149,8 +144,6 @@ async function main() {
         username: $("#nl_user").value.trim().toLowerCase(),
         grade: $("#nl_grade").value.trim(),
         pin: $("#nl_pin").value.trim(),
-        school: $("#nl_school").value.trim(),
-        county: $("#nl_county").value.trim(),
       });
       addForm.reset();
       addForm.hidden = true;
@@ -168,7 +161,7 @@ async function main() {
   // A blank template to fill in offline and bring back — matches exactly
   // what the parser below reads, so a filled-in copy round-trips cleanly.
   $("#downloadLearnerTemplate").addEventListener("click", () => {
-    const csv = "﻿Full name,School,County,Username,Grade,PIN\r\n";
+    const csv = "﻿Full name,Username,Grade,PIN\r\n";
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     a.download = "learners-template.csv";
@@ -195,9 +188,8 @@ async function main() {
       .filter(Boolean)
       .map((line) => line.split(",").map((cell) => cell.trim().replace(/^"|"$/g, "")))
       .filter((cells) => cells[0] && cells[0].toLowerCase() !== "full name")
-      .map(([fullName, school, county, username, grade, pin]) => ({
-        fullName, school: school || "", county: county || "",
-        username: (username || "").toLowerCase(), grade: grade || "", pin: pin || "",
+      .map(([fullName, username, grade, pin]) => ({
+        fullName, username: (username || "").toLowerCase(), grade: grade || "", pin: pin || "",
       }));
   }
 
@@ -223,7 +215,7 @@ async function main() {
       const username = row.username && !taken.has(row.username) ? row.username : suggestUsername(row.fullName || "learner", taken);
       const pin = /^\d{4}$/.test(row.pin) ? row.pin : randomPin();
       try {
-        await addLearner({ fullName: row.fullName, username, grade: row.grade, pin, school: row.school, county: row.county });
+        await addLearner({ fullName: row.fullName, username, grade: row.grade, pin });
         taken.add(username);
         created.push({ fullName: row.fullName, username, pin });
       } catch (err) {

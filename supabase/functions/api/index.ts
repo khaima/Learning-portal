@@ -462,6 +462,8 @@ app.post("/me", async (c) => {
   if (!String(b.fullName ?? "").trim()) {
     return c.json({ error: "Full name is required" }, 400);
   }
+  if (!String(b.school ?? "").trim()) return c.json({ error: "School / institution is required" }, 400);
+  if (!String(b.county ?? "").trim()) return c.json({ error: "County is required" }, 400);
   const teacherType = String(b.teacherType ?? "").trim().toUpperCase();
   if (teacherType && !["BOM", "TSC"].includes(teacherType)) {
     return c.json({ error: "Teacher type must be BOM or TSC" }, 400);
@@ -513,11 +515,8 @@ app.post("/learners", withProfile("teacher"), async (c) => {
 
   const salt = randomBytes(16).toString("hex");
   const teacher = c.get("actor");
-  // A learner defaults to the teacher's own school/county — the common
-  // case — but a teacher covering more than one school can name a
-  // different one per learner (e.g. from the bulk CSV import).
-  const school = String(b.school ?? "").trim() || teacher.school || "";
-  const county = String(b.county ?? "").trim() || teacher.county || "";
+  // Always the teacher's own school/county — placed there automatically,
+  // never a free-text field a client could set to something else.
   const { data, error } = await admin
     .from("learners")
     .insert({
@@ -527,8 +526,8 @@ app.post("/learners", withProfile("teacher"), async (c) => {
       pin_salt: salt,
       full_name: fullName,
       grade: String(b.grade ?? "").trim(),
-      school,
-      county,
+      school: teacher.school || "",
+      county: teacher.county || "",
     })
     .select("id, username, full_name, grade, school, county, created_at, locked_until")
     .single();
@@ -552,8 +551,8 @@ app.patch("/learners/:id", withProfile("teacher"), async (c) => {
     patch.full_name = fn;
   }
   if (b.grade !== undefined) patch.grade = String(b.grade).trim();
-  if (b.school !== undefined) patch.school = String(b.school).trim();
-  if (b.county !== undefined) patch.county = String(b.county).trim();
+  // school/county are not editable here — a learner is always placed in
+  // their teacher's own school/county, set once at creation.
   if (b.username !== undefined) {
     const u = String(b.username).trim().toLowerCase();
     if (!USERNAME_RE.test(u)) {

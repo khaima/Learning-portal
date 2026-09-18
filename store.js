@@ -341,8 +341,8 @@ export async function getLearners() {
   return learners || [];
 }
 
-export async function addLearner({ fullName, username, grade, pin, school, county }) {
-  const { learner } = await apiSend("POST", "/learners", { fullName, username, grade, pin, school, county });
+export async function addLearner({ fullName, username, grade, pin }) {
+  const { learner } = await apiSend("POST", "/learners", { fullName, username, grade, pin });
   return learner;
 }
 
