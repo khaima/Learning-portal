@@ -354,3 +354,9 @@ export async function updateLearner(id, patch) {
 export async function deleteLearner(id) {
   return apiSend("DELETE", `/learners/${id}`);
 }
+
+/* Read-only: this learner's real assignments + library usage/badges, for
+   the teacher's "view a learner's activity" panel. */
+export async function getLearnerActivity(id) {
+  return apiGet(`/learners/${id}/activity`);
+}

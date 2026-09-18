@@ -169,6 +169,18 @@ export function openIframeViewer({ title, url }, onClose) {
   showOverlay(title, node, onClose);
 }
 
+/** Opens plain, already-built HTML in the same overlay chrome — for a
+    data view rather than a file (e.g. a teacher checking one learner's
+    activity), not something viewableKind() would ever classify. Caller
+    owns the markup and any wiring inside it; this just hosts it. */
+export function openContentPanel({ title, html }, onClose) {
+  const node = document.createElement("div");
+  node.className = "viewer-html-panel";
+  node.innerHTML = html;
+  showOverlay(title, node, onClose);
+  return node;
+}
+
 let badgeEl = null;
 
 /** A one-off congratulatory popup for a freshly-earned reading badge —

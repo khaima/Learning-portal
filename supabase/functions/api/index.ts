@@ -601,6 +601,41 @@ app.delete("/learners/:id", withProfile("teacher"), async (c) => {
   return c.json({ ok: true });
 });
 
+/* A teacher's read-only look at one of their own learners' real activity —
+   the same assignments-done and library-usage/badges data the learner
+   sees on their own dashboard, so a teacher can check in on a learner
+   remotely without needing the learner's device or PIN. Never exposes
+   the PIN itself; "Reset PIN" (PATCH above) is the only way a teacher
+   acts on a learner's account, and this route changes nothing. */
+app.get("/learners/:id/activity", withProfile("teacher"), async (c) => {
+  const id = c.req.param("id");
+  const { data: learner } = await admin
+    .from("learners")
+    .select("id, full_name, username, grade, school, county, teacher_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (!learner || learner.teacher_id !== c.get("actor").id) {
+    return c.json({ error: "Learner not found" }, 404);
+  }
+  try {
+    const [{ data: assignments, error: aErr }, library] = await Promise.all([
+      admin.from("assignments").select("*").eq("learner_id", id).order("id"),
+      loadLibraryUsage(id),
+    ]);
+    if (aErr) throw new Error(aErr.message);
+    return c.json({
+      learner: {
+        id: learner.id, fullName: learner.full_name, username: learner.username,
+        grade: learner.grade, school: learner.school, county: learner.county,
+      },
+      assignments: (assignments ?? []).map(mapAssignment),
+      library,
+    });
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
 // ---- content library ----
 
 app.get("/library", withActor(), async (c) => {
@@ -755,27 +790,28 @@ app.patch("/library/interactions/:id/complete", withActor(), async (c) => {
   return c.json({ interaction: mapInteraction(data) });
 });
 
-/* An actor's own reading history — surfaced on their own dashboard. */
-app.get("/library/interactions/mine", withActor(), async (c) => {
-  const actor = c.get("actor");
+/* Shared by "my own activity" (below) and the teacher's read-only view of
+   one of their learners (/learners/:id/activity) — same shape either way,
+   just a different actorId. */
+async function loadLibraryUsage(actorId: string) {
   const [{ data, error }, { data: badgeRows }] = await Promise.all([
     admin
       .from("library_interactions")
       .select("*, library_items(title)")
-      .eq("actor_id", actor.id)
+      .eq("actor_id", actorId)
       .order("started_at", { ascending: false })
       .limit(200),
     admin
       .from("library_badges")
       .select("id, badge, awarded_at, library_items(title)")
-      .eq("actor_id", actor.id)
+      .eq("actor_id", actorId)
       .order("awarded_at", { ascending: false }),
   ]);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) throw new Error(error.message);
   const rows = data ?? [];
   const completed = rows.filter((r) => r.duration_seconds != null);
   const badges = badgeRows ?? [];
-  return c.json({
+  return {
     totalSeconds: completed.reduce((s, r) => s + (r.duration_seconds as number), 0),
     resourcesOpened: new Set(rows.map((r) => r.library_item_id)).size,
     interactions: rows.map(mapInteraction),
@@ -786,7 +822,16 @@ app.get("/library/interactions/mine", withActor(), async (c) => {
       title: b.library_items?.title ?? "",
       awardedAt: b.awarded_at,
     })),
-  });
+  };
+}
+
+/* An actor's own reading history — surfaced on their own dashboard. */
+app.get("/library/interactions/mine", withActor(), async (c) => {
+  try {
+    return c.json(await loadLibraryUsage(c.get("actor").id));
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
 });
 
 /* Awarded client-side, once, the moment a single viewer session on one

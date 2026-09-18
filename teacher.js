@@ -4,8 +4,9 @@ import { requireRole, signOut } from "./auth.js";
 import { TEACHER_CONTENT, normalizeLibraryAudience, CONTENT_TYPES } from "./data.js";
 import {
   getLibrary, getForms, getResponses, addResponse, libraryFilesHtml,
-  getLearners, addLearner, updateLearner, deleteLearner, getMyLibraryUsage,
+  getLearners, addLearner, updateLearner, deleteLearner, getMyLibraryUsage, getLearnerActivity,
 } from "./store.js";
+import { openContentPanel } from "./viewer.js";
 
 const ICON = {
   classes: '<path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/>',
@@ -77,11 +78,12 @@ async function main() {
     return `
       <div class="task-row" data-learner="${esc(l.id)}" data-username="${esc(l.username)}" data-grade="${esc(l.grade || "")}" data-school="${esc(l.school || "")}" data-county="${esc(l.county || "")}">
         <div style="flex:1">
-          <b>${esc(l.fullName)}</b>
+          <button type="button" data-act="view" style="background:none;border:0;padding:0;font:inherit;cursor:pointer;color:var(--brand-fg);text-align:left"><b>${esc(l.fullName)}</b></button>
           <span>@${esc(l.username)}${l.grade ? " · " + esc(l.grade) : ""}${l.locked ? ' · <span class="pill warm">Locked</span>' : ""}</span>
           ${elsewhere ? `<span><br>${esc([l.school, l.county].filter(Boolean).join(" · "))}</span>` : ""}
         </div>
         <div class="roster-actions">
+          <button type="button" data-act="view">View activity</button>
           <button type="button" data-act="edit">Edit</button>
           <button type="button" data-act="pin">Reset PIN</button>
           ${l.locked ? '<button type="button" data-act="unlock">Unlock</button>' : ""}
@@ -247,6 +249,7 @@ async function main() {
     const id = rowEl.dataset.learner;
     const nameEl = rowEl.querySelector("b");
     const act = btn.dataset.act;
+    if (act === "view") return openLearnerActivity(id, nameEl.textContent);
 
     try {
       if (act === "edit") {
@@ -280,6 +283,63 @@ async function main() {
       toast("Couldn't do that", err?.body?.error || err?.message || "", "error");
     }
   });
+
+  /* "View activity" — a read-only look at what this specific learner has
+     actually done (their real assignments and library usage/badges),
+     the same data they'd see on their own dashboard. Nothing here can be
+     edited; changing a PIN or details stays in the roster row itself. */
+  async function openLearnerActivity(id, fallbackName) {
+    const panel = openContentPanel({
+      title: fallbackName || "Learner activity",
+      html: `<div class="empty-state">Loading…</div>`,
+    });
+    let data;
+    try {
+      data = await getLearnerActivity(id);
+    } catch (err) {
+      panel.innerHTML = `<div class="empty-state">Couldn't load their activity — ${esc(err?.body?.error || err?.message || "")}</div>`;
+      return;
+    }
+    const { learner, assignments, library } = data;
+    const done = assignments.filter((a) => a.done).length;
+
+    const assignmentRows = assignments.length
+      ? assignments.map((a) => `
+        <div class="task-row">
+          <span class="task-dot"></span>
+          <div><b>${esc(a.title)}</b><span>${esc(a.subject)} · due ${esc(a.due)}</span></div>
+          <span class="pill ${a.done ? "ok" : "warm"}">${a.done ? "Done" : "Not yet"}</span>
+        </div>`).join("")
+      : `<div class="empty-state">No assignments yet.</div>`;
+
+    const usageRows = library.interactions.length
+      ? library.interactions.slice(0, 10).map((it) => `
+        <div class="task-row">
+          <div style="flex:1"><b>${esc(it.title || "Resource")}</b><span>Started ${new Date(it.startedAt).toLocaleString()}${
+            it.completedAt ? " · Finished " + new Date(it.completedAt).toLocaleString() : " · In progress"}</span></div>
+          <span class="bar-num">${it.durationSeconds != null ? formatDuration(it.durationSeconds) : "—"}</span>
+        </div>`).join("")
+      : `<div class="empty-state">Nothing opened from the library yet.</div>`;
+    const badgeChips = (library.badges || []).slice(0, 6).map((b) => `
+      <span class="pill" style="display:inline-flex;align-items:center;gap:.3rem;margin:0 .3rem .3rem 0">&#127942; ${esc(b.title || "Resource")}</span>`).join("");
+
+    panel.innerHTML = `
+      <p class="hint" style="margin-top:0">${esc(learner.school || "")}${learner.grade ? " · " + esc(learner.grade) : ""} · @${esc(learner.username)}</p>
+      <div class="chart-stats" style="grid-template-columns:repeat(2,1fr)">
+        <div><b>${done}/${assignments.length}</b><span>Assignments done</span></div>
+        <div><b>${formatDuration(library.totalSeconds)}</b><span>Library time</span></div>
+      </div>
+      <h3 style="margin:1rem 0 .4rem">Assignments</h3>
+      ${assignmentRows}
+      <h3 style="margin:1.1rem 0 .4rem">Digital Library activity</h3>
+      <div class="chart-stats" style="grid-template-columns:repeat(2,1fr);margin-bottom:.6rem">
+        <div><b>${library.resourcesOpened}</b><span>Resources opened</span></div>
+        <div><b>${library.badgesEarned || 0}</b><span>Badges earned</span></div>
+      </div>
+      ${badgeChips ? `<div style="margin-bottom:.6rem">${badgeChips}</div>` : ""}
+      ${usageRows}
+    `;
+  }
 
   renderRoster();
 
