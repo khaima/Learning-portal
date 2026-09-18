@@ -61,8 +61,13 @@ async function main() {
      Learners sign in with a username + 4-digit PIN. This teacher creates
      and manages the accounts; the roster below is the whole editable list. */
   const roster = $("#learnerRoster");
+  const pager = $("#learnerRosterPager");
   const addForm = $("#addLearnerForm");
   const addError = $("#addLearnerError");
+
+  const LEARNER_PAGE_SIZE = 8;
+  let learnerPage = 0;
+  let learnerCache = [];
 
   function learnerRow(l) {
     return `
@@ -80,13 +85,40 @@ async function main() {
       </div>`;
   }
 
+  // The roster is fully loaded already (getLearners() has no server paging),
+  // so "next page" here is just a compact client-side slice — a class of 30
+  // shows 8 at a time instead of one long scroll.
+  function renderRosterPage() {
+    const totalPages = Math.max(1, Math.ceil(learnerCache.length / LEARNER_PAGE_SIZE));
+    if (learnerPage > totalPages - 1) learnerPage = totalPages - 1;
+    if (learnerPage < 0) learnerPage = 0;
+    const start = learnerPage * LEARNER_PAGE_SIZE;
+    const pageItems = learnerCache.slice(start, start + LEARNER_PAGE_SIZE);
+
+    roster.innerHTML = learnerCache.length
+      ? pageItems.map(learnerRow).join("")
+      : `<div class="empty-state">No learners yet. Add one to give them a sign-in.</div>`;
+
+    pager.innerHTML = learnerCache.length > LEARNER_PAGE_SIZE
+      ? `<span>${start + 1}–${Math.min(learnerCache.length, start + LEARNER_PAGE_SIZE)} of ${learnerCache.length}</span>
+         <div style="display:flex;gap:.4rem">
+           <button type="button" class="btn btn-outline" data-learner-page="prev" style="padding:.25rem .7rem;font-size:.8rem" ${learnerPage <= 0 ? "disabled" : ""}>← Prev</button>
+           <button type="button" class="btn btn-outline" data-learner-page="next" style="padding:.25rem .7rem;font-size:.8rem" ${learnerPage >= totalPages - 1 ? "disabled" : ""}>Next →</button>
+         </div>`
+      : "";
+  }
+
+  pager.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-learner-page]");
+    if (!btn) return;
+    learnerPage += btn.dataset.learnerPage === "next" ? 1 : -1;
+    renderRosterPage();
+  });
+
   async function renderRoster() {
     roster.innerHTML = `<div class="empty-state">Loading…</div>`;
-    let list = [];
-    try { list = await getLearners(); } catch { /* shown as empty */ }
-    roster.innerHTML = list.length
-      ? list.map(learnerRow).join("")
-      : `<div class="empty-state">No learners yet. Add one to give them a sign-in.</div>`;
+    try { learnerCache = await getLearners(); } catch { learnerCache = []; }
+    renderRosterPage();
   }
 
   $("#addLearnerBtn").addEventListener("click", () => {
@@ -121,6 +153,81 @@ async function main() {
     } finally {
       btn.disabled = false;
     }
+  });
+
+  // ---------------------------------------------------------------- bulk add (CSV)
+  // A blank template to fill in offline and bring back — matches exactly
+  // what the parser below reads, so a filled-in copy round-trips cleanly.
+  $("#downloadLearnerTemplate").addEventListener("click", () => {
+    const csv = "﻿Full name,Username,Grade,PIN\r\n";
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    a.download = "learners-template.csv";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  });
+
+  function suggestUsername(fullName, taken) {
+    const base = fullName.toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "")
+      .replace(/[^a-z0-9\s]/g, "").trim().split(/\s+/).filter(Boolean);
+    const stem = base.length > 1 ? `${base[0]}.${base[1][0]}` : (base[0] || "learner");
+    let candidate = stem.slice(0, 28);
+    let n = 1;
+    while (taken.has(candidate)) candidate = `${stem.slice(0, 26)}${++n}`;
+    taken.add(candidate);
+    return candidate;
+  }
+  const randomPin = () => String(Math.floor(1000 + Math.random() * 9000));
+
+  function parseLearnerCsv(text) {
+    return text
+      .split(/\r?\n/)
+      .map((line) => line.replace(/^﻿/, "").trim())
+      .filter(Boolean)
+      .map((line) => line.split(",").map((cell) => cell.trim().replace(/^"|"$/g, "")))
+      .filter((cells) => cells[0] && cells[0].toLowerCase() !== "full name")
+      .map(([fullName, username, grade, pin]) => ({ fullName, username: (username || "").toLowerCase(), grade: grade || "", pin: pin || "" }));
+  }
+
+  $("#learnerCsvInput").addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const resultEl = $("#bulkLearnerResult");
+    resultEl.innerHTML = `<div class="empty-state">Reading file…</div>`;
+
+    const text = await file.text().catch(() => "");
+    const rows = parseLearnerCsv(text);
+    e.target.value = "";
+    if (!rows.length) {
+      resultEl.innerHTML = `<div class="field-error">That file had no learners in it — the first column of each row should be a full name.</div>`;
+      return;
+    }
+
+    resultEl.innerHTML = `<div class="empty-state">Adding ${rows.length} learner(s)…</div>`;
+    const taken = new Set(learnerCache.map((l) => l.username));
+    const created = []; // { fullName, username, pin }
+    const failed = []; // { fullName, error }
+    for (const row of rows) {
+      const username = row.username && !taken.has(row.username) ? row.username : suggestUsername(row.fullName || "learner", taken);
+      const pin = /^\d{4}$/.test(row.pin) ? row.pin : randomPin();
+      try {
+        await addLearner({ fullName: row.fullName, username, grade: row.grade, pin });
+        taken.add(username);
+        created.push({ fullName: row.fullName, username, pin });
+      } catch (err) {
+        failed.push({ fullName: row.fullName, error: err?.body?.error || err?.message || "Could not add" });
+      }
+    }
+
+    resultEl.innerHTML = `
+      ${created.length ? `<p class="hint" style="margin-bottom:.3rem"><b>${created.length} learner(s) added.</b> Sign-ins generated for anyone who didn't have one — write these down:</p>
+        <div style="max-height:12rem;overflow:auto;border:1px solid var(--line);border-radius:.5rem;padding:.5rem .7rem;font-size:.85rem">
+          ${created.map((c) => `<div>${esc(c.fullName)} — <b>@${esc(c.username)}</b> · PIN ${esc(c.pin)}</div>`).join("")}
+        </div>` : ""}
+      ${failed.length ? `<p class="field-error" style="margin-top:.5rem">${failed.length} row(s) couldn't be added: ${failed.map((f) => `${esc(f.fullName)} (${esc(f.error)})`).join(", ")}</p>` : ""}
+    `;
+    toast("Bulk add finished", `${created.length} added${failed.length ? `, ${failed.length} failed` : ""}.`, failed.length ? "error" : "success");
+    renderRoster();
   });
 
   roster.addEventListener("click", async (e) => {

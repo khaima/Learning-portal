@@ -73,7 +73,18 @@
               <button class="btn btn-ghost" type="button" id="cancelLearnerBtn">Cancel</button>
             </div>
           </form>
+          <div class="field" style="margin-top:.9rem;padding-top:.9rem;border-top:1px solid var(--line)">
+            <label>Add many at once</label>
+            <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-bottom:.4rem">
+              <button type="button" class="btn btn-outline" id="downloadLearnerTemplate" style="padding:.35rem .8rem;font-size:.85rem">Download template (CSV)</button>
+              <span style="font-size:.82rem;color:var(--ink-soft)">fill it in, then upload it back:</span>
+              <input type="file" id="learnerCsvInput" accept=".csv,text/csv" style="max-width:14rem">
+            </div>
+            <p class="hint">One learner per row: full name is required; username, grade, and PIN are optional — left blank, we'll generate them for you and show you the result.</p>
+            <div id="bulkLearnerResult"></div>
+          </div>
           <div id="learnerRoster"></div>
+          <div id="learnerRosterPager" style="display:flex;justify-content:space-between;align-items:center;margin-top:.6rem;font-size:.82rem;color:var(--ink-soft)"></div>
         </div>
         <div class="panel">
           <div class="panel-head"><h2>My classes</h2></div>
