@@ -5,6 +5,7 @@ import { TEACHER_CONTENT, normalizeLibraryAudience, CONTENT_TYPES } from "./data
 import {
   getLibrary, getForms, getResponses, addResponse, libraryFilesHtml,
   getLearners, addLearner, updateLearner, deleteLearner, getMyLibraryUsage, getLearnerActivity,
+  setAssignmentDone,
 } from "./store.js";
 import { openContentPanel } from "./viewer.js";
 
@@ -285,52 +286,73 @@ async function main() {
       title: fallbackName || "Learner activity",
       html: `<div class="empty-state">Loading…</div>`,
     });
-    let data;
+    let learner, assignments, library;
     try {
-      data = await getLearnerActivity(id);
+      ({ learner, assignments, library } = await getLearnerActivity(id));
     } catch (err) {
       panel.innerHTML = `<div class="empty-state">Couldn't load their activity — ${esc(err?.body?.error || err?.message || "")}</div>`;
       return;
     }
-    const { learner, assignments, library } = data;
-    const done = assignments.filter((a) => a.done).length;
 
-    const assignmentRows = assignments.length
-      ? assignments.map((a) => `
-        <div class="task-row">
-          <span class="task-dot"></span>
-          <div><b>${esc(a.title)}</b><span>${esc(a.subject)} · due ${esc(a.due)}</span></div>
-          <span class="pill ${a.done ? "ok" : "warm"}">${a.done ? "Done" : "Not yet"}</span>
-        </div>`).join("")
-      : `<div class="empty-state">No assignments yet.</div>`;
+    function render() {
+      const done = assignments.filter((a) => a.done).length;
 
-    const usageRows = library.interactions.length
-      ? library.interactions.slice(0, 10).map((it) => `
-        <div class="task-row">
-          <div style="flex:1"><b>${esc(it.title || "Resource")}</b><span>Started ${new Date(it.startedAt).toLocaleString()}${
-            it.completedAt ? " · Finished " + new Date(it.completedAt).toLocaleString() : " · In progress"}</span></div>
-          <span class="bar-num">${it.durationSeconds != null ? formatDuration(it.durationSeconds) : "—"}</span>
-        </div>`).join("")
-      : `<div class="empty-state">Nothing opened from the library yet.</div>`;
-    const badgeChips = (library.badges || []).slice(0, 6).map((b) => `
-      <span class="pill" style="display:inline-flex;align-items:center;gap:.3rem;margin:0 .3rem .3rem 0">&#127942; ${esc(b.title || "Resource")}</span>`).join("");
+      const assignmentRows = assignments.length
+        ? assignments.map((a) => `
+          <div class="task-row">
+            <span class="task-dot"></span>
+            <div><b>${esc(a.title)}</b><span>${esc(a.subject)} · due ${esc(a.due)}</span></div>
+            <button type="button" class="pill ${a.done ? "ok" : "warm"}" style="border:0;cursor:pointer" data-toggle-assign="${esc(a.id)}" data-done="${a.done ? "1" : "0"}">${a.done ? "Done" : "Not yet"}</button>
+          </div>`).join("")
+        : `<div class="empty-state">No assignments yet.</div>`;
 
-    panel.innerHTML = `
-      <p class="hint" style="margin-top:0">${esc(learner.school || "")}${learner.grade ? " · " + esc(learner.grade) : ""} · @${esc(learner.username)}</p>
-      <div class="chart-stats" style="grid-template-columns:repeat(2,1fr)">
-        <div><b>${done}/${assignments.length}</b><span>Assignments done</span></div>
-        <div><b>${formatDuration(library.totalSeconds)}</b><span>Library time</span></div>
-      </div>
-      <h3 style="margin:1rem 0 .4rem">Assignments</h3>
-      ${assignmentRows}
-      <h3 style="margin:1.1rem 0 .4rem">Digital Library activity</h3>
-      <div class="chart-stats" style="grid-template-columns:repeat(2,1fr);margin-bottom:.6rem">
-        <div><b>${library.resourcesOpened}</b><span>Resources opened</span></div>
-        <div><b>${library.badgesEarned || 0}</b><span>Badges earned</span></div>
-      </div>
-      ${badgeChips ? `<div style="margin-bottom:.6rem">${badgeChips}</div>` : ""}
-      ${usageRows}
-    `;
+      const usageRows = library.interactions.length
+        ? library.interactions.slice(0, 10).map((it) => `
+          <div class="task-row">
+            <div style="flex:1"><b>${esc(it.title || "Resource")}</b><span>Started ${new Date(it.startedAt).toLocaleString()}${
+              it.completedAt ? " · Finished " + new Date(it.completedAt).toLocaleString() : " · In progress"}</span></div>
+            <span class="bar-num">${it.durationSeconds != null ? formatDuration(it.durationSeconds) : "—"}</span>
+          </div>`).join("")
+        : `<div class="empty-state">Nothing opened from the library yet.</div>`;
+      const badgeChips = (library.badges || []).slice(0, 6).map((b) => `
+        <span class="pill" style="display:inline-flex;align-items:center;gap:.3rem;margin:0 .3rem .3rem 0">&#127942; ${esc(b.title || "Resource")}</span>`).join("");
+
+      panel.innerHTML = `
+        <p class="hint" style="margin-top:0">${esc(learner.school || "")}${learner.county ? " · " + esc(learner.county) : ""}${learner.grade ? " · " + esc(learner.grade) : ""} · @${esc(learner.username)}</p>
+        <div class="chart-stats" style="grid-template-columns:repeat(2,1fr)">
+          <div><b>${done}/${assignments.length}</b><span>Assignments done</span></div>
+          <div><b>${formatDuration(library.totalSeconds)}</b><span>Library time</span></div>
+        </div>
+        <h3 style="margin:1rem 0 .4rem">Assignments</h3>
+        <p class="hint" style="margin:0 0 .4rem">Tap the status pill to mark something done or not yet, on their behalf.</p>
+        ${assignmentRows}
+        <h3 style="margin:1.1rem 0 .4rem">Digital Library activity</h3>
+        <div class="chart-stats" style="grid-template-columns:repeat(2,1fr);margin-bottom:.6rem">
+          <div><b>${library.resourcesOpened}</b><span>Resources opened</span></div>
+          <div><b>${library.badgesEarned || 0}</b><span>Badges earned</span></div>
+        </div>
+        ${badgeChips ? `<div style="margin-bottom:.6rem">${badgeChips}</div>` : ""}
+        ${usageRows}
+      `;
+    }
+    render();
+
+    panel.addEventListener("click", async (e) => {
+      const btn = e.target.closest("[data-toggle-assign]");
+      if (!btn) return;
+      const assignId = btn.dataset.toggleAssign;
+      const nextDone = btn.dataset.done !== "1";
+      btn.disabled = true;
+      try {
+        await setAssignmentDone(assignId, nextDone);
+        assignments = assignments.map((a) => (a.id === assignId ? { ...a, done: nextDone } : a));
+        render();
+        toast(nextDone ? "Marked done" : "Marked not yet done", "");
+      } catch (err) {
+        btn.disabled = false;
+        toast("Couldn't update that", err?.body?.error || err?.message || "", "error");
+      }
+    });
   }
 
   renderRoster();

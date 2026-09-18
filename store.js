@@ -220,6 +220,13 @@ export async function markAssignmentDone(id) {
   return assignment;
 }
 
+/* Same endpoint, either direction — used by a teacher toggling one of
+   their own learners' assignments from the "view a learner" panel. */
+export async function setAssignmentDone(id, done) {
+  const { assignment } = await apiSend("PATCH", `/assignments/${id}`, { done });
+  return assignment;
+}
+
 /* ---------------------------------------------------------------- field reports */
 
 export async function getFieldReports() {

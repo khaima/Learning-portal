@@ -1021,16 +1021,27 @@ app.get("/assignments", withActor(), async (c) => {
   return c.json({ assignments: (data ?? []).map(mapAssignment) });
 });
 
-app.patch("/assignments/:id", withActor("learner"), async (c) => {
+/* A learner marks their own assignment done — or their teacher does it
+   for them, from the "view a learner's activity" panel (helping remotely
+   when a learner reports something's finished but couldn't do it
+   themselves). Either way the write is scoped: a learner only ever
+   touches their own row; a teacher only ever touches a row belonging to
+   one of their own learners, checked here rather than assumed. */
+app.patch("/assignments/:id", withActor("learner", "teacher"), async (c) => {
   const a = c.get("actor");
   const b = await c.req.json().catch(() => ({}));
-  const { data, error } = await admin
-    .from("assignments")
-    .update({ done: b.done !== false })
-    .eq("id", c.req.param("id"))
-    .eq("learner_id", a.id)
-    .select()
-    .maybeSingle();
+  const id = c.req.param("id");
+
+  if (a.role === "teacher") {
+    const { data: assignment } = await admin.from("assignments").select("learner_id").eq("id", id).maybeSingle();
+    if (!assignment) return c.json({ error: "Assignment not found" }, 404);
+    const { data: learner } = await admin.from("learners").select("teacher_id").eq("id", assignment.learner_id).maybeSingle();
+    if (!learner || learner.teacher_id !== a.id) return c.json({ error: "Assignment not found" }, 404);
+  }
+
+  let query = admin.from("assignments").update({ done: b.done !== false }).eq("id", id);
+  if (a.role !== "teacher") query = query.eq("learner_id", a.id);
+  const { data, error } = await query.select().maybeSingle();
   if (error) return c.json({ error: error.message }, 400);
   if (!data) return c.json({ error: "Assignment not found" }, 404);
   return c.json({ assignment: mapAssignment(data) });
