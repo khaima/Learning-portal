@@ -196,6 +196,8 @@ const mapRosterLearner = (r: Record<string, unknown>) => ({
   username: r.username,
   fullName: r.full_name,
   grade: r.grade,
+  school: r.school,
+  county: r.county,
   createdAt: r.created_at,
   locked: !!(r.locked_until && new Date(r.locked_until as string) > new Date()),
 });
@@ -231,7 +233,7 @@ const mapReport = (r: Record<string, unknown>) => ({
 
 // ---------------------------------------------------------------- app
 
-type Actor = { id: string; role: Role; fullName: string; grade: string; school: string };
+type Actor = { id: string; role: Role; fullName: string; grade: string; school: string; county: string };
 type Vars = {
   actorKind: "staff" | "learner";
   userId: string;
@@ -408,6 +410,7 @@ function withProfile(...roles: Role[]) {
       fullName: profile.full_name,
       grade: profile.grade,
       school: profile.school,
+      county: profile.county,
     });
     return next();
   };
@@ -486,7 +489,7 @@ app.post("/me", async (c) => {
 app.get("/learners", withProfile("teacher"), async (c) => {
   const { data, error } = await admin
     .from("learners")
-    .select("id, username, full_name, grade, created_at, locked_until")
+    .select("id, username, full_name, grade, school, county, created_at, locked_until")
     .eq("teacher_id", c.get("actor").id)
     .order("full_name");
   if (error) return c.json({ error: error.message }, 500);
@@ -510,6 +513,11 @@ app.post("/learners", withProfile("teacher"), async (c) => {
 
   const salt = randomBytes(16).toString("hex");
   const teacher = c.get("actor");
+  // A learner defaults to the teacher's own school/county — the common
+  // case — but a teacher covering more than one school can name a
+  // different one per learner (e.g. from the bulk CSV import).
+  const school = String(b.school ?? "").trim() || teacher.school || "";
+  const county = String(b.county ?? "").trim() || teacher.county || "";
   const { data, error } = await admin
     .from("learners")
     .insert({
@@ -519,9 +527,10 @@ app.post("/learners", withProfile("teacher"), async (c) => {
       pin_salt: salt,
       full_name: fullName,
       grade: String(b.grade ?? "").trim(),
-      school: teacher.school ?? "",
+      school,
+      county,
     })
-    .select("id, username, full_name, grade, created_at, locked_until")
+    .select("id, username, full_name, grade, school, county, created_at, locked_until")
     .single();
   if (error) return c.json({ error: error.message }, 400);
   return c.json({ learner: mapRosterLearner(data) });
@@ -543,6 +552,8 @@ app.patch("/learners/:id", withProfile("teacher"), async (c) => {
     patch.full_name = fn;
   }
   if (b.grade !== undefined) patch.grade = String(b.grade).trim();
+  if (b.school !== undefined) patch.school = String(b.school).trim();
+  if (b.county !== undefined) patch.county = String(b.county).trim();
   if (b.username !== undefined) {
     const u = String(b.username).trim().toLowerCase();
     if (!USERNAME_RE.test(u)) {
@@ -572,7 +583,7 @@ app.patch("/learners/:id", withProfile("teacher"), async (c) => {
     .from("learners")
     .update(patch)
     .eq("id", id)
-    .select("id, username, full_name, grade, created_at, locked_until")
+    .select("id, username, full_name, grade, school, county, created_at, locked_until")
     .single();
   if (error) return c.json({ error: error.message }, 400);
   return c.json({ learner: mapRosterLearner(data) });

@@ -147,6 +147,7 @@ create table if not exists public.learners (
   full_name text not null default '',
   grade text not null default '',
   school text not null default '',
+  county text not null default '',
   failed_attempts int not null default 0,
   locked_until timestamptz,
   created_at timestamptz not null default now()
