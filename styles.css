@@ -3,6 +3,35 @@
    Static, no build step, vanilla CSS custom properties.
    Palette/type evolve Human Practice Foundation's existing blue
    identity (see README.md) paired with a warm terracotta accent.
+
+   One system, six pages (index/teacher/learner/leader/field/
+   education) — every page links this one file and nav.js; nothing
+   below is page-specific unless its comment says so. Extend an
+   existing class before inventing a new one.
+
+   ---- type scale ----
+   Baloo 2 (display/headings) + Work Sans (everything else, incl. all
+   UI chrome). Sizes step down with how much a reader scans vs. reads:
+     1.5rem   .app-top h1 / .login-inner h2   page title
+     1.15rem  .hero-progress h2               hero/callout heading
+     1.05rem  .panel-head h2                  section heading
+     .92rem   .form-card h3                   card sub-heading
+     .86-.9rem  body copy inside cards/rows
+     .74-.8rem  meta/caption text (timestamps, counts, hints)
+
+   ---- component index ----
+   Layout    .app-shell .app-side .app-main .app-top .body-grid
+   Nav       .side-nav .side-link .menu-btn .side-backdrop (mobile)
+   Cards     .panel .stat-tile .learn-card .form-card .chart-card
+   Rows      .task-row .class-row .result-row .kobo-row (a "table" —
+             see note above .task-row — is deliberately a row-list,
+             not an HTML <table>, so it reflows on a phone instead of
+             needing horizontal scroll)
+   Buttons   .btn .btn-primary .btn-outline .btn-ghost .btn-google
+   Forms     .field .field-error .fill-form
+   Status    .pill (.warm/.ok/.danger) .alert (.info/.warm/.danger/.ok)
+   Feedback  .empty-state (.is-error) .toast .badge-toast
+   Charts    .chart-stats .bar-chart .donut .chart-legend
    ============================================================ */
 
 :root{
@@ -85,6 +114,7 @@ a{ color:inherit; }
 }
 .pill.warm{ background:var(--accent-soft); color:var(--accent-fg); }
 .pill.ok{ background:var(--success-soft); color:var(--success); }
+.pill.danger{ background:var(--danger-soft); color:var(--danger); }
 .icon{ width:1em; height:1em; display:inline-block; vertical-align:-.14em; }
 .btn{
   border:0; border-radius:999px; font-weight:700; font-size:.92rem; cursor:pointer; font-family:inherit;
@@ -248,8 +278,26 @@ a{ color:inherit; }
 
 /* ================================================================ APP SHELL (teacher + learner) */
 .app-shell{ min-height:100vh; display:grid; grid-template-columns:15.5rem 1fr; }
-@media (max-width:860px){ .app-shell{ grid-template-columns:1fr; } .app-side{ display:none; } }
 .app-side{ background:var(--panel-deep); color:#fff; padding:1.3rem 1.1rem; display:flex; flex-direction:column; gap:1.6rem; }
+
+/* ---- mobile nav: the sidebar becomes an off-canvas drawer instead of
+   just vanishing — menu-btn/side-backdrop are inserted by nav.js on
+   every dashboard, so this is one implementation shared by all five,
+   not five separate mobile menus. */
+.menu-btn{ display:none; }
+@media (max-width:860px){
+  .app-shell{ grid-template-columns:1fr; }
+  .menu-btn{ display:inline-flex; }
+  .app-side{
+    position:fixed; inset:0 auto 0 0; z-index:410; width:15.5rem; max-width:82vw;
+    transform:translateX(-100%); transition:transform .22s ease; box-shadow:var(--shadow);
+  }
+  .app-side.is-open{ transform:translateX(0); }
+  .side-backdrop{
+    display:none; position:fixed; inset:0; z-index:400; background:rgba(10,16,32,.45);
+  }
+  .side-backdrop.is-open{ display:block; }
+}
 .app-side .wordmark-text b{ color:#fff; }
 .app-side .wordmark-text span{ color:rgba(255,255,255,.65); }
 .app-side .badge-mark{ background:#fff; color:var(--panel-deep); }
@@ -289,6 +337,10 @@ a{ color:inherit; }
   display:flex; align-items:center; justify-content:center; color:var(--ink-soft); cursor:pointer; position:relative;
 }
 .icon-btn .dot{ position:absolute; top:6px; right:7px; width:7px; height:7px; border-radius:50%; background:var(--accent); }
+.menu-btn{
+  width:38px; height:38px; border-radius:50%; border:1.5px solid var(--line); background:var(--paper-raised);
+  align-items:center; justify-content:center; color:var(--ink); cursor:pointer; flex:none; margin-right:.9rem;
+}
 
 .stat-row{ display:grid; grid-template-columns:repeat(auto-fit,minmax(11.5rem,1fr)); gap:.9rem; margin-bottom:1.6rem; }
 .stat-tile{ background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius-md); padding:1rem 1.1rem; box-shadow:var(--shadow); }
@@ -357,6 +409,27 @@ a{ color:inherit; }
 .lib-item span{ font-size:.74rem; color:var(--ink-soft); }
 
 .empty-state{ text-align:center; padding:2rem 1rem; color:var(--ink-soft); font-size:.88rem; }
+/* A load that failed reads differently from a list that's simply empty —
+   same layout, a small tinted marker so "nothing here yet" (calm) and
+   "something went wrong" (worth a retry) don't look identical. */
+.empty-state.is-error{ color:var(--danger); }
+.empty-state.is-error::before{ content:"⚠ "; }
+
+/* ---- alert / callout — an inline message a panel needs to surface
+   (a connection status, a validation summary, a heads-up) without
+   reaching for a toast (transient) or a field-error (one input).
+   Kept calm on purpose: a tinted card, no icon animation, no auto-
+   dismiss — the reader decides when they're done with it. */
+.alert{
+  display:flex; align-items:flex-start; gap:.6rem; border-radius:var(--radius-md);
+  padding:.75rem .9rem; font-size:.85rem; line-height:1.45; margin-bottom:.9rem;
+}
+.alert:last-child{ margin-bottom:0; }
+.alert b{ display:block; margin-bottom:.15rem; }
+.alert-info{ background:var(--brand-soft); color:var(--brand-fg); }
+.alert-warn{ background:var(--accent-soft); color:var(--accent-fg); }
+.alert-danger{ background:var(--danger-soft); color:var(--danger); }
+.alert-ok{ background:var(--success-soft); color:var(--success); }
 
 /* ---- education team: content upload, form builder, results ---- */
 .qrow{ display:flex; gap:.5rem; align-items:flex-start; margin-bottom:.6rem; }

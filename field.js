@@ -160,7 +160,7 @@ async function main() {
       renderKoboSurveys(await myKoboSurveys());
     } catch (err) {
       console.warn("could not load field surveys:", err.message);
-      koboList.innerHTML = `<div class="empty-state">Couldn't load field surveys.</div>`;
+      koboList.innerHTML = `<div class="empty-state is-error">Couldn't load field surveys.</div>`;
     }
   }
 

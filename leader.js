@@ -95,7 +95,7 @@ async function main() {
     el.innerHTML = `<div class="empty-state">Loading…</div>`;
     let u;
     try { u = await getMyLibraryUsage(); } catch {
-      el.innerHTML = `<div class="empty-state">Couldn't load your activity.</div>`;
+      el.innerHTML = `<div class="empty-state is-error">Couldn't load your activity.</div>`;
       return;
     }
     if (!u.interactions.length) {

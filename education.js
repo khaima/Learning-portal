@@ -52,8 +52,8 @@ async function main() {
     try {
       s = await getStats({ county: impactCounty, school: impactSchool, topGrades: gpTopN });
     } catch {
-      $("#statRow").innerHTML = `<div class="empty-state">Couldn't load stats.</div>`;
-      $("#impactBody").innerHTML = `<div class="empty-state">Couldn't load impact data.</div>`;
+      $("#statRow").innerHTML = `<div class="empty-state is-error">Couldn't load stats.</div>`;
+      $("#impactBody").innerHTML = `<div class="empty-state is-error">Couldn't load impact data.</div>`;
       return;
     }
     populateFilter($("#impactCounty"), s.counties || [], impactCounty);
@@ -262,7 +262,7 @@ async function main() {
     try {
       u = await getLibraryUsage({ school: usageSchool });
     } catch {
-      $("#usageBody").innerHTML = `<div class="empty-state">Couldn't load the usage report.</div>`;
+      $("#usageBody").innerHTML = `<div class="empty-state is-error">Couldn't load the usage report.</div>`;
       return;
     }
     $("#usageSchool").innerHTML = `<option value="">All schools</option>` +
@@ -534,7 +534,7 @@ async function main() {
     try {
       koboState = await koboConfig();
     } catch {
-      $("#koboFormList").innerHTML = `<div class="empty-state">Couldn't load KoboToolbox settings.</div>`;
+      $("#koboFormList").innerHTML = `<div class="empty-state is-error">Couldn't load KoboToolbox settings.</div>`;
       return;
     }
     $("#kb_url").value = koboState.baseUrl || "https://eu.kobotoolbox.org";

@@ -290,7 +290,7 @@ async function main() {
     try {
       ({ learner, assignments, library } = await getLearnerActivity(id));
     } catch (err) {
-      panel.innerHTML = `<div class="empty-state">Couldn't load their activity — ${esc(err?.body?.error || err?.message || "")}</div>`;
+      panel.innerHTML = `<div class="empty-state is-error">Couldn't load their activity — ${esc(err?.body?.error || err?.message || "")}</div>`;
       return;
     }
 
@@ -389,7 +389,7 @@ async function main() {
     el.innerHTML = `<div class="empty-state">Loading…</div>`;
     let u;
     try { u = await getMyLibraryUsage(); } catch {
-      el.innerHTML = `<div class="empty-state">Couldn't load your activity.</div>`;
+      el.innerHTML = `<div class="empty-state is-error">Couldn't load your activity.</div>`;
       return;
     }
     if (!u.interactions.length) {

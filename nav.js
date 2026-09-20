@@ -215,3 +215,47 @@ if (bell) {
     toast("You're all caught up", "No new notifications.");
   });
 }
+
+/* ---------------------------------------------------------------- mobile nav drawer
+   Below 860px the sidebar (.app-side, styles.css) goes off-canvas rather
+   than just disappearing — this is the one place that's wired, so every
+   dashboard's mobile menu is the same implementation, not five copies.
+   Built here instead of in each HTML file: .app-top's own layout
+   (title block, then .app-top-actions, space-between) is untouched —
+   the button is inserted as a sibling in front of the title block, and
+   stays display:none above 860px (styles.css), so nothing shifts on
+   desktop. */
+const appShell = $(".app-shell");
+const appTop = $(".app-top");
+const appSide = $(".app-side");
+if (appShell && appTop && appSide) {
+  const titleBlock = appTop.firstElementChild;
+  const menuBtn = document.createElement("button");
+  menuBtn.type = "button";
+  menuBtn.className = "menu-btn";
+  menuBtn.setAttribute("aria-label", "Open menu");
+  menuBtn.innerHTML = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/></svg>`;
+
+  const wrap = document.createElement("div");
+  wrap.style.cssText = "display:flex;align-items:flex-start";
+  titleBlock.replaceWith(wrap);
+  wrap.append(menuBtn, titleBlock);
+
+  const backdrop = document.createElement("div");
+  backdrop.className = "side-backdrop";
+  appShell.appendChild(backdrop);
+
+  const closeMenu = () => {
+    appSide.classList.remove("is-open");
+    backdrop.classList.remove("is-open");
+  };
+  menuBtn.addEventListener("click", () => {
+    appSide.classList.add("is-open");
+    backdrop.classList.add("is-open");
+  });
+  backdrop.addEventListener("click", closeMenu);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
+  // Picking a section closes the drawer instead of leaving it open over
+  // the page it just navigated to.
+  $$(".side-nav .side-link").forEach((link) => link.addEventListener("click", closeMenu));
+}
