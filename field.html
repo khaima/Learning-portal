@@ -47,6 +47,57 @@
 
       <section class="dash-page" data-page="dashboard">
         <div class="stat-row" id="statRow"></div>
+
+        <div class="panel">
+          <!-- Stage: idle — the one obvious primary action -->
+          <div id="visitIdle">
+            <button type="button" class="btn btn-primary btn-block visit-cta" id="startVisitCta">Start School Visit</button>
+            <p class="hint" style="text-align:center;margin-top:.6rem">County → school → visit type → done, in a few taps.</p>
+          </div>
+
+          <!-- Stage: pick county / school / visit type, revealed one at a time -->
+          <div id="visitSelect" hidden>
+            <div class="panel-head"><h2>New school visit</h2><button type="button" id="cancelSelectBtn">Cancel</button></div>
+            <div class="field">
+              <label for="fr_county">1 · County</label>
+              <select id="fr_county">
+                <option value="" disabled selected>Select county</option>
+              </select>
+            </div>
+            <div class="field" id="schoolField" hidden>
+              <label for="fr_school">2 · School</label>
+              <select id="fr_school">
+                <option value="" disabled selected>Select a school</option>
+              </select>
+            </div>
+            <div class="field" id="visitTypeField" hidden>
+              <label for="fr_visit">3 · Visit type</label>
+              <select id="fr_visit">
+                <option value="" disabled selected>Select visit type</option>
+              </select>
+            </div>
+            <button type="button" class="btn btn-primary btn-block" id="startVisitBtn" hidden>4 · Start visit</button>
+          </div>
+
+          <!-- Stage: visit under way -->
+          <div id="visitActive" hidden>
+            <div class="panel-head"><h2>Visit in progress</h2></div>
+            <div class="alert alert-info" id="activeVisitSummary"></div>
+            <button type="button" class="btn btn-primary btn-block" id="completeVisitBtn">5 · Complete &amp; submit visit report</button>
+            <button type="button" class="btn btn-ghost btn-block" id="cancelActiveBtn" style="margin-top:.5rem">Cancel visit</button>
+          </div>
+
+          <!-- Stage: confirmation -->
+          <div id="visitConfirmed" hidden>
+            <div class="alert alert-ok" id="confirmedSummary"></div>
+            <button type="button" class="btn btn-primary btn-block" id="logAnotherBtn">Log another visit</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Recent visits</h2><a href="#visits">View all</a></div>
+          <div id="homeReportList"></div>
+        </div>
       </section>
 
       <section class="dash-page" data-page="schools" hidden>
@@ -57,39 +108,9 @@
       </section>
 
       <section class="dash-page" data-page="visits" hidden>
-        <div class="body-grid">
-          <div>
-            <div class="panel">
-              <div class="panel-head"><h2>New field report</h2></div>
-              <form id="reportForm">
-                <div class="field">
-                  <label for="fr_county">County</label>
-                  <select id="fr_county" required>
-                    <option value="" disabled selected>Select county</option>
-                  </select>
-                </div>
-                <div class="field">
-                  <label for="fr_school">School</label>
-                  <select id="fr_school" required disabled>
-                    <option value="" disabled selected>Select a county first</option>
-                  </select>
-                </div>
-                <div class="field">
-                  <label for="fr_visit">Visit type</label>
-                  <select id="fr_visit" required>
-                    <option value="" disabled selected>Select visit type</option>
-                  </select>
-                </div>
-                <button class="btn btn-primary btn-block" type="submit">Submit field report</button>
-              </form>
-            </div>
-          </div>
-          <div>
-            <div class="panel">
-              <div class="panel-head"><h2>Recent field reports</h2></div>
-              <div id="reportList"></div>
-            </div>
-          </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Recent visits</h2><a href="#dashboard">+ Start a visit</a></div>
+          <div id="reportList"></div>
         </div>
       </section>
 
@@ -99,6 +120,7 @@
             <h2>Field surveys</h2>
             <button type="button" id="koboRefresh">Refresh</button>
           </div>
+          <p class="hint" style="margin-top:0">Assigned · in progress (opened, not yet submitted on this device) · submitted.</p>
           <div id="koboSurveyList"></div>
         </div>
       </section>

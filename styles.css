@@ -125,6 +125,9 @@ a{ color:inherit; }
 .btn-primary:hover{ background:var(--accent-hover); }
 .btn-outline{ background:var(--paper-raised); color:var(--ink); border:1.5px solid var(--line); }
 .btn-ghost{ background:transparent; color:var(--brand); }
+/* Field Officer dashboard: the one primary action on the page, sized for
+   a thumb on a tablet rather than a mouse on a desktop. */
+.visit-cta{ font-size:1.05rem; padding:1.1rem 1.3rem; }
 .demo-banner{
   background:var(--accent-soft); color:var(--accent-fg); text-align:center; font-size:.8rem;
   font-weight:600; padding:.5rem 1rem;
