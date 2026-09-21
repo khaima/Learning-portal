@@ -1,5 +1,5 @@
 import "./nav.js";
-import { $, $$, esc, initials, toast, formatDuration, groupByType } from "./util.js";
+import { $, $$, esc, initials, toast, formatDuration, groupByType, skeleton, errorState, friendlyError } from "./util.js";
 import { requireRole, signOut, sendPasswordResetLink } from "./auth.js";
 import {
   CONTENT_TYPES, LIBRARY_SUBJECTS, LIBRARY_AUDIENCES, FORM_AUDIENCES, QUESTION_TYPES, ROLES,
@@ -158,16 +158,18 @@ async function main() {
      global filters above — county/school/role throughout, date range only
      where a real date exists (new-learner intake, field visits). */
   async function renderStats() {
-    $("#statRow").innerHTML = `<div class="empty-state">Loading…</div>`;
-    $("#impactBody").innerHTML = `<div class="empty-state">Loading…</div>`;
-    $("#schoolsBody").innerHTML = `<div class="empty-state">Loading…</div>`;
+    $("#statRow").innerHTML = skeleton(4, { avatar: false });
+    $("#impactBody").innerHTML = skeleton(4);
+    $("#schoolsBody").innerHTML = skeleton(4);
     let s;
     try {
       s = await getStats({ county: gf.county, school: gf.school, from: gf.from, to: gf.to, topGrades: gpTopN });
-    } catch {
-      $("#statRow").innerHTML = `<div class="empty-state is-error">${emptyMsg("Couldn't load stats.")}</div>`;
-      $("#impactBody").innerHTML = `<div class="empty-state is-error">${emptyMsg("Couldn't load impact data.")}</div>`;
-      $("#schoolsBody").innerHTML = `<div class="empty-state is-error">${emptyMsg("Couldn't load schools.")}</div>`;
+    } catch (err) {
+      console.error("could not load stats:", err);
+      const msg = errorState(friendlyError(err, "Couldn't load this data."), renderStats);
+      $("#statRow").innerHTML = msg;
+      $("#impactBody").innerHTML = msg;
+      $("#schoolsBody").innerHTML = msg;
       return;
     }
     lastStats = s;
@@ -458,9 +460,15 @@ async function main() {
   }
 
   async function renderLibrary() {
-    $("#libraryList").innerHTML = `<div class="empty-state">Loading…</div>`;
-    let items = [];
-    try { items = await getLibrary(); } catch { /* shown as empty */ }
+    $("#libraryList").innerHTML = skeleton(4);
+    let items;
+    try {
+      items = await getLibrary();
+    } catch (err) {
+      console.error("could not load library:", err);
+      $("#libraryList").innerHTML = errorState(friendlyError(err), renderLibrary);
+      return;
+    }
     $("#libraryList").innerHTML = items.length
       ? groupByType(items, CONTENT_TYPES).map(({ type, items: rows }) => `
         <div class="list-group">
@@ -493,12 +501,13 @@ async function main() {
   }
 
   async function renderUsage() {
-    $("#usageBody").innerHTML = `<div class="empty-state">Loading…</div>`;
+    $("#usageBody").innerHTML = skeleton(3);
     let u;
     try {
       u = await getLibraryUsage({ school: gf.school });
-    } catch {
-      $("#usageBody").innerHTML = `<div class="empty-state is-error">${emptyMsg("Couldn't load the usage report.")}</div>`;
+    } catch (err) {
+      console.error("could not load usage report:", err);
+      $("#usageBody").innerHTML = errorState(friendlyError(err, "Couldn't load the usage report."), renderUsage);
       return;
     }
     $("#usageMeta").textContent = u.school ? `Scoped to ${u.school}` : "All schools";
@@ -622,19 +631,20 @@ async function main() {
       externalUrl: link || undefined,
     };
 
+    submitBtn.classList.add("is-saving");
     try {
       if (link) {
         await addLibraryItem(meta);
-        toast("Added to library", "Link added.");
+        toast("Added to library successfully.", "Link added.", "success");
       } else if (picked.length) {
         submitBtn.textContent = `Uploading 0/${picked.length}…`;
         await uploadLibraryFiles(meta, picked, (done, n) => {
           submitBtn.textContent = `Uploading ${done}/${n}…`;
         });
-        toast("Added to library", `${picked.length} file(s) uploaded`);
+        toast("Added to library successfully.", `${picked.length} file(s) uploaded`, "success");
       } else {
         await addLibraryItem(meta);
-        toast("Added to library", "");
+        toast("Added to library successfully.", "", "success");
       }
       e.target.reset();
       clearPicked();
@@ -644,9 +654,10 @@ async function main() {
       $("#up_audience").value = LIBRARY_AUDIENCES[0].value;
       renderLibrary();
     } catch (err) {
-      toast("Upload failed", err?.message || "Could not save the content.", "error");
+      toast("Upload failed", friendlyError(err, "Could not save the content. Check your connection and try again."), "error");
     } finally {
       submitBtn.disabled = false;
+      submitBtn.classList.remove("is-saving");
       submitBtn.textContent = "Add to library";
     }
   });
@@ -686,6 +697,9 @@ async function main() {
 
     const submitBtn = e.target.querySelector("[type=submit]");
     submitBtn.disabled = true;
+    submitBtn.classList.add("is-saving");
+    const originalLabel = submitBtn.textContent;
+    submitBtn.textContent = "Saving…";
     try {
       await addForm({
         title,
@@ -693,24 +707,32 @@ async function main() {
         audience: $("#fb_audience").value,
         questions,
       });
+      toast("Form sent successfully.", "", "success");
       e.target.reset();
       questionRows.innerHTML = "";
       addQuestionRow();
       renderForms();
       renderStats();
     } catch (err) {
-      toast("Couldn't send the form", err?.message || "", "error");
+      toast("Couldn't send the form", friendlyError(err), "error");
     } finally {
       submitBtn.disabled = false;
+      submitBtn.classList.remove("is-saving");
+      submitBtn.textContent = originalLabel;
     }
   });
 
   /* ------------------------------------------------------------ forms & feedback */
   async function renderForms() {
-    $("#formsList").innerHTML = `<div class="empty-state">Loading…</div>`;
+    $("#formsList").innerHTML = skeleton(3, { avatar: false });
     try {
       [formsCache, responsesCache] = await Promise.all([getForms(), getResponses()]);
-    } catch { formsCache = []; responsesCache = []; }
+    } catch (err) {
+      console.error("could not load forms:", err);
+      formsCache = []; responsesCache = [];
+      $("#formsList").innerHTML = errorState(friendlyError(err), renderForms);
+      return;
+    }
     const forms = formsCache;
     const responses = responsesCache;
     renderAttention();
@@ -761,8 +783,9 @@ async function main() {
   async function renderKobo() {
     try {
       koboState = await koboConfig();
-    } catch {
-      $("#koboFormList").innerHTML = `<div class="empty-state is-error">Couldn't load KoboToolbox settings.</div>`;
+    } catch (err) {
+      console.error("could not load KoboToolbox settings:", err);
+      $("#koboFormList").innerHTML = errorState(friendlyError(err, "Couldn't load KoboToolbox settings."), renderKobo);
       return;
     }
     $("#kb_url").value = koboState.baseUrl || "https://eu.kobotoolbox.org";
@@ -787,7 +810,7 @@ async function main() {
     koboAssetSel.innerHTML = `<option value="">Loading surveys…</option>`;
     let assets = [];
     try { assets = await koboAssets(); } catch (err) {
-      koboAssetSel.innerHTML = `<option value="">${esc(err?.message || "Couldn't reach KoboToolbox")}</option>`;
+      koboAssetSel.innerHTML = `<option value="">${esc(friendlyError(err, "Couldn't reach KoboToolbox"))}</option>`;
       return;
     }
     const deployed = assets.filter((a) => a.deployed);
@@ -798,9 +821,15 @@ async function main() {
   }
 
   async function renderKoboForms() {
-    $("#koboFormList").innerHTML = `<div class="empty-state">Loading…</div>`;
-    let forms = [];
-    try { forms = await koboForms(); } catch { /* shown as empty */ }
+    $("#koboFormList").innerHTML = skeleton(2, { avatar: false });
+    let forms;
+    try {
+      forms = await koboForms();
+    } catch (err) {
+      console.error("could not load attached Kobo forms:", err);
+      $("#koboFormList").innerHTML = errorState(friendlyError(err), renderKoboForms);
+      return;
+    }
     $("#koboFormList").innerHTML = forms.length
       ? forms.map((f) => `
         <div class="form-card">
@@ -825,7 +854,7 @@ async function main() {
         renderKoboForms();
         refreshSurveyPicker();
       } catch (err) {
-        toast("Couldn't remove it", err?.message || "", "error");
+        toast("Couldn't remove it", friendlyError(err), "error");
         btn.disabled = false;
       }
     }));
@@ -846,7 +875,7 @@ async function main() {
       toast("KoboToolbox connected", "");
       renderKobo();
     } catch (err) {
-      toast("Couldn't connect", err?.message || "Check the server URL and token.", "error");
+      toast("Couldn't connect", friendlyError(err, "Check the server URL and token."), "error");
     } finally {
       btn.disabled = false;
       btn.textContent = "Connect";
@@ -875,7 +904,7 @@ async function main() {
       const { previewUrl, title } = await koboAssetPreview(uid);
       openIframeViewer({ title, url: previewUrl });
     } catch (err) {
-      toast("Couldn't load the preview", err?.message || "", "error");
+      toast("Couldn't load the preview", friendlyError(err), "error");
     } finally {
       btn.disabled = false;
       btn.textContent = original;
@@ -894,7 +923,7 @@ async function main() {
       renderKoboForms();
       refreshSurveyPicker();
     } catch (err) {
-      toast("Couldn't attach that survey", err?.message || "", "error");
+      toast("Couldn't attach that survey", friendlyError(err), "error");
     } finally {
       btn.disabled = false;
     }
@@ -909,7 +938,7 @@ async function main() {
       renderKoboForms();
       refreshSurveyPicker();
     } catch (err) {
-      toast("Sync failed", err?.message || "", "error");
+      toast("Sync failed", friendlyError(err), "error");
     } finally {
       koboSyncBtn.disabled = false;
       koboSyncBtn.textContent = "Sync now";
@@ -968,14 +997,15 @@ async function main() {
     srBusy = true;
     const wanted = srCurrent;
     const firstView = srBody.dataset.for !== wanted;
-    if (firstView) srBody.innerHTML = `<div class="empty-state">Loading…</div>`;
+    if (firstView) srBody.innerHTML = skeleton(3);
     try {
       const res = await koboResults(wanted);
       if (res.id !== srCurrent) return; // survey switched mid-flight
       srBody.dataset.for = srCurrent;
       renderSurveyResults(res);
     } catch (err) {
-      if (firstView) srBody.innerHTML = `<div class="empty-state">${esc(err?.message || "Couldn't load results.")}</div>`;
+      console.error("could not load survey results:", err);
+      if (firstView) srBody.innerHTML = errorState(friendlyError(err, "Couldn't load results."), loadSurveyResults);
     } finally {
       srBusy = false;
     }
@@ -1149,6 +1179,11 @@ async function main() {
 
   function renderUsersList() {
     const list = $("#usersList");
+    if (usersFailed) {
+      list.innerHTML = errorState("Couldn't load staff accounts — check your connection and try again.", renderUsers);
+      $("#usersMeta").textContent = "";
+      return;
+    }
     if (!allUsers.length) {
       list.innerHTML = `<div class="empty-state">No staff accounts yet.</div>`;
       $("#usersMeta").textContent = "";
@@ -1186,9 +1221,17 @@ async function main() {
     }).join("");
   }
 
+  let usersFailed = false;
   async function renderUsers() {
-    $("#usersList").innerHTML = `<div class="empty-state">Loading…</div>`;
-    try { allUsers = await getUsers(); } catch { allUsers = []; }
+    $("#usersList").innerHTML = skeleton(4);
+    try {
+      allUsers = await getUsers();
+      usersFailed = false;
+    } catch (err) {
+      console.error("could not load staff accounts:", err);
+      usersFailed = true;
+      allUsers = [];
+    }
     renderUsersList();
   }
 
@@ -1238,12 +1281,12 @@ async function main() {
           patch.teacherType = tt.trim();
         }
         await updateUser(id, patch);
-        toast("Account updated", "");
+        toast("Account updated successfully.", "", "success");
         renderUsers();
       } else if (btn.dataset.act === "resetlink") {
         if (!confirm(`Email a "set a new password" link to ${row.dataset.email}?`)) return;
         await sendPasswordResetLink(row.dataset.email);
-        toast("Reset link sent", `${row.dataset.email} can follow it to set their own new password.`);
+        toast("Reset link sent successfully.", `${row.dataset.email} can follow it to set their own new password.`, "success");
       } else if (btn.dataset.act === "password") {
         const password = prompt(`New password for ${row.dataset.email} — at least 8 characters`);
         if (!password) return;
@@ -1252,10 +1295,10 @@ async function main() {
           return;
         }
         await resetUserPassword(id, password.trim());
-        toast("Password reset", "Tell them their new password.");
+        toast("Password reset successfully.", "Tell them their new password.", "success");
       }
     } catch (err) {
-      toast("Couldn't do that", err?.body?.error || err?.message || "", "error");
+      toast("Couldn't do that", friendlyError(err), "error");
     }
   });
 

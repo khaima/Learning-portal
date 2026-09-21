@@ -1,5 +1,5 @@
 import "./nav.js";
-import { $, $$, esc, initials, formatDuration, groupByType } from "./util.js";
+import { $, $$, esc, initials, formatDuration, groupByType, skeleton, emptyState, errorState, friendlyError, toast } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { LEARNER_CONTENT, SUBJECT_ICON_PATHS, normalizeLibraryAudience, CONTENT_TYPES } from "./data.js";
 import {
@@ -46,11 +46,15 @@ async function main() {
      honestly, rather than borrowed demo content). One state, rendered
      into both the full Assignments page and the Home teaser, so marking
      something done anywhere updates everywhere. */
+  let assignmentsFailed = false;
   async function loadAssignments() {
     try {
-      return await getAssignments();
+      const data = await getAssignments();
+      assignmentsFailed = false;
+      return data;
     } catch (err) {
-      console.warn("could not load assignments:", err.message);
+      assignmentsFailed = true;
+      console.error("could not load assignments:", err);
       return [];
     }
   }
@@ -58,7 +62,8 @@ async function main() {
     try {
       await markAssignmentDone(id);
     } catch (err) {
-      console.warn("could not save assignment:", err.message);
+      console.error("could not save assignment:", err);
+      toast("Couldn't save that", friendlyError(err, "Check your connection and try again."), "error");
     }
   }
 
@@ -79,17 +84,24 @@ async function main() {
     );
   }
 
-  function renderAssignments(assignments, onMarkDone) {
+  function renderAssignments(assignments, onMarkDone, onRetry) {
+    if (assignmentsFailed) {
+      const msg = errorState("Check your connection and try again.", onRetry);
+      $("#assignmentList").innerHTML = msg;
+      $("#homeAssignments").innerHTML = msg;
+      return;
+    }
+
     $("#assignmentList").innerHTML = assignments.length
       ? assignments.map(assignmentRow).join("")
-      : `<div class="empty-state">No assignments yet.</div>`;
+      : emptyState("No assignments yet", "Your teacher hasn't assigned anything here.");
 
     const outstanding = assignments.filter((a) => !a.done);
     $("#homeAssignments").innerHTML = outstanding.length
       ? outstanding.slice(0, HOME_TEASER_LIMIT).map(assignmentRow).join("")
       : assignments.length
       ? `<div class="empty-state">Nothing outstanding — nice work! 🎉</div>`
-      : `<div class="empty-state">No assignments yet.</div>`;
+      : emptyState("No assignments yet", "Your teacher hasn't assigned anything here.");
 
     wireMarkDone(onMarkDone);
   }
@@ -109,6 +121,8 @@ async function main() {
       ? `${outstanding.length} left, starting with "${outstanding[0].title}" (${outstanding[0].subject}), due ${outstanding[0].due}.`
       : total
       ? "Everything's done — nice work."
+      : assignmentsFailed
+      ? "Couldn't load your assignments — check your connection."
       : "Your teacher hasn't set any assignments yet.";
 
     const pct = total ? Math.round(fraction * 100) : 0;
@@ -129,14 +143,38 @@ async function main() {
      thing Home can point at. Falls back to the next outstanding
      assignment, then to a plain "you're caught up" state — never a
      guess, only what's actually true. */
+  let libraryFailed = false;
   async function loadLibrary() {
-    try { return await getLibrary(); } catch { return []; }
+    try {
+      const data = await getLibrary();
+      libraryFailed = false;
+      return data;
+    } catch (err) {
+      libraryFailed = true;
+      console.error("could not load library:", err);
+      return [];
+    }
   }
+  let usageFailed = false;
   async function loadUsage() {
-    try { return await getMyLibraryUsage(); } catch { return null; }
+    try {
+      const data = await getMyLibraryUsage();
+      usageFailed = false;
+      return data;
+    } catch (err) {
+      usageFailed = true;
+      console.error("could not load usage:", err);
+      return null;
+    }
   }
 
-  function renderResources(library) {
+  function renderResources(library, onRetry) {
+    if (libraryFailed) {
+      const msg = errorState("Check your connection and try again.", onRetry);
+      $("#libraryStrip").innerHTML = msg;
+      $("#homeResources").innerHTML = msg;
+      return;
+    }
     const forLearners = library.filter((l) => normalizeLibraryAudience(l.audience) === "library");
     const card = (l) => `
         <div class="lib-item">
@@ -158,11 +196,18 @@ async function main() {
       : `<div class="empty-state">Nothing in the library yet.</div>`;
   }
 
-  function renderActivity(usage) {
+  function renderActivity(usage, onRetry) {
     const el = $("#usageSummary");
+    if (usageFailed) {
+      const msg = errorState("Check your connection and try again.", onRetry);
+      el.innerHTML = msg;
+      $("#homeActivity").innerHTML = msg;
+      return;
+    }
     if (!usage) {
-      el.innerHTML = `<div class="empty-state is-error">Couldn't load your activity.</div>`;
-      $("#homeActivity").innerHTML = `<div class="empty-state is-error">Couldn't load your activity.</div>`;
+      const msg = emptyState("Nothing to show yet", "Open something from the library to start tracking your activity here.");
+      el.innerHTML = msg;
+      $("#homeActivity").innerHTML = msg;
       return;
     }
     if (!usage.interactions.length) {
@@ -236,17 +281,21 @@ async function main() {
      marking an assignment done, for instance, re-renders the full list,
      the Home teaser, the progress ring/stats and the Continue card
      together, never leaving one of them stale. */
-  $("#assignmentList").innerHTML = `<div class="empty-state">Loading…</div>`;
-  $("#homeAssignments").innerHTML = `<div class="empty-state">Loading…</div>`;
-  $("#libraryStrip").innerHTML = `<div class="empty-state">Loading…</div>`;
-  $("#homeResources").innerHTML = `<div class="empty-state">Loading…</div>`;
-  $("#usageSummary").innerHTML = `<div class="empty-state">Loading…</div>`;
-  $("#homeActivity").innerHTML = `<div class="empty-state">Loading…</div>`;
+  $("#assignmentList").innerHTML = skeleton(3);
+  $("#homeAssignments").innerHTML = skeleton(2, { avatar: false });
+  $("#libraryStrip").innerHTML = skeleton(3, { avatar: false });
+  $("#homeResources").innerHTML = skeleton(2, { avatar: false });
+  $("#usageSummary").innerHTML = skeleton(3);
+  $("#homeActivity").innerHTML = skeleton(2);
   $("#continueCard").innerHTML = `<p class="continue-eyebrow">Continue learning</p><h2>Loading…</h2>`;
 
   let assignments = [];
   let library = [];
   let usage = null;
+
+  async function retryAssignments() { assignments = await loadAssignments(); renderAll(); }
+  async function retryLibrary() { library = await loadLibrary(); renderAll(); }
+  async function retryUsage() { usage = await loadUsage(); renderAll(); }
 
   function renderAll() {
     renderProgress(assignments);
@@ -254,9 +303,9 @@ async function main() {
       await markDone(id);
       assignments = assignments.map((a) => (a.id === id ? { ...a, done: true } : a));
       renderAll();
-    });
-    renderResources(library);
-    renderActivity(usage);
+    }, retryAssignments);
+    renderResources(library, retryLibrary);
+    renderActivity(usage, retryUsage);
     renderContinueCard({ library, usage, assignments });
   }
 

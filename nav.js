@@ -212,3 +212,24 @@ if (userBtn && userMenu) {
   });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeUserMenu(); });
 }
+
+/* ---------------------------------------------------------------- offline banner
+   The one network state worth interrupting every dashboard for — once
+   the connection drops, actions (save, submit, sign in) start failing,
+   so say so up front rather than leaving each one to fail silently and
+   separately. Plain document flow at the very top of <body>, so it
+   pushes the page down instead of overlapping it; appears the instant
+   the browser goes offline (or immediately on load, if it already is)
+   and disappears the instant it's back. Nothing to wire per page. */
+const offlineBanner = document.createElement("div");
+offlineBanner.className = "offline-banner";
+offlineBanner.hidden = true;
+offlineBanner.innerHTML = `<span class="dot"></span> You're offline — some actions won't work until you reconnect.`;
+document.body.prepend(offlineBanner);
+
+function updateOnlineState() {
+  offlineBanner.hidden = navigator.onLine;
+}
+window.addEventListener("online", updateOnlineState);
+window.addEventListener("offline", updateOnlineState);
+updateOnlineState();

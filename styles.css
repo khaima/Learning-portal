@@ -30,7 +30,9 @@
    Buttons   .btn .btn-primary .btn-outline .btn-ghost .btn-google
    Forms     .field .field-error .fill-form .panel-search (row-list filter)
    Status    .pill (.warm/.ok/.danger) .alert (.info/.warm/.danger/.ok)
-   Feedback  .empty-state (.is-error) .toast .badge-toast
+   Feedback  .empty-state (.is-error) .toast (.success) .badge-toast
+   States    .skeleton-row .state-error/.state-retry .offline-banner .btn.is-saving
+             — see util.js: skeleton()/emptyState()/errorState()/friendlyError()
    Charts    .chart-stats .bar-chart .donut .chart-legend
    ============================================================ */
 
@@ -138,6 +140,7 @@ a{ color:inherit; }
   font-size:.85rem; box-shadow:var(--shadow); max-width:20rem;
 }
 .toast.error{ background:var(--danger); }
+.toast.success{ background:var(--success); }
 
 /* ================================================================ LANDING / SIGN-IN */
 .login-page{ min-height:100vh; display:flex; flex-direction:column; }
@@ -452,11 +455,65 @@ a{ color:inherit; }
 .lib-item span{ font-size:.74rem; color:var(--ink-soft); }
 
 .empty-state{ text-align:center; padding:2rem 1rem; color:var(--ink-soft); font-size:.88rem; }
+.empty-state b{ display:block; color:var(--ink); font-size:.92rem; margin-bottom:.25rem; }
 /* A load that failed reads differently from a list that's simply empty —
    same layout, a small tinted marker so "nothing here yet" (calm) and
    "something went wrong" (worth a retry) don't look identical. */
 .empty-state.is-error{ color:var(--danger); }
 .empty-state.is-error::before{ content:"⚠ "; }
+
+/* ---- state kit: loading / error+retry / offline / saving ----
+   One consistent vocabulary for "what's happening with this data" across
+   every dashboard — built via util.js (skeleton/emptyState/errorState/
+   friendlyError) so call sites don't hand-roll their own copy or, worse,
+   print a raw API/JS error straight at someone. */
+
+/* Loading skeleton — a placeholder shaped like the rows it's about to
+   become, not a spinner, so the layout doesn't jump when data lands. */
+.skeleton-list{ display:flex; flex-direction:column; }
+.skeleton-row{ display:flex; align-items:center; gap:.7rem; padding:.62rem 0; }
+.skeleton-block{
+  background:linear-gradient(100deg, var(--paper-sunk) 30%, var(--line) 50%, var(--paper-sunk) 70%);
+  background-size:250% 100%; animation:skeleton-shimmer 1.3s ease-in-out infinite;
+  border-radius:6px; flex:none;
+}
+.skeleton-row .skeleton-avatar{ width:2.1rem; height:2.1rem; border-radius:50%; }
+.skeleton-row .skeleton-lines{ flex:1; display:flex; flex-direction:column; gap:.4rem; min-width:0; }
+.skeleton-row .skeleton-lines .skeleton-block{ height:.68rem; width:100%; }
+.skeleton-row .skeleton-lines .skeleton-block:last-child{ width:55%; }
+@keyframes skeleton-shimmer{ 0%{ background-position:200% 0; } 100%{ background-position:-50% 0; } }
+@media (prefers-reduced-motion: reduce){ .skeleton-block{ animation:none; } }
+
+/* Error state — never the raw error; see friendlyError() in util.js. */
+.state-error{ text-align:center; padding:2rem 1rem; }
+.state-error .state-title{ color:var(--danger); font-weight:700; font-size:.9rem; margin-bottom:.3rem; }
+.state-error .state-detail{ color:var(--ink-soft); font-size:.82rem; line-height:1.5; margin-bottom:1rem; }
+.state-retry{
+  background:var(--danger-soft); color:var(--danger); border:0; border-radius:999px;
+  padding:.45rem 1.15rem; font-size:.82rem; font-weight:700; cursor:pointer; font-family:inherit;
+}
+.state-retry:hover{ background:var(--danger); color:#fff; }
+
+/* Offline banner — plain document flow at the top of <body> (see
+   nav.js), so it pushes the page down rather than overlapping it, and
+   disappears the instant the connection returns. */
+.offline-banner{
+  background:var(--ink); color:var(--paper); text-align:center; font-size:.82rem; font-weight:600;
+  padding:.55rem 1rem; display:flex; align-items:center; justify-content:center; gap:.5rem;
+}
+.offline-banner .dot{ width:7px; height:7px; border-radius:50%; background:var(--danger); flex:none; }
+
+/* Saving state — a spinner glyph on the button already doing the work;
+   pairs with "Saving…"/"Submitting…"/"Uploading…" button text, not a
+   replacement for it. */
+.btn.is-saving{ opacity:.8; cursor:progress; pointer-events:none; }
+.btn.is-saving::before{
+  content:""; display:inline-block; width:.85em; height:.85em; margin-right:.5em;
+  border:2px solid currentColor; border-right-color:transparent; border-radius:50%;
+  animation:btn-spin .6s linear infinite; vertical-align:-.15em;
+}
+@keyframes btn-spin{ to{ transform:rotate(360deg); } }
+@media (prefers-reduced-motion: reduce){ .btn.is-saving::before{ animation:none; } }
 
 /* ---- alert / callout — an inline message a panel needs to surface
    (a connection status, a validation summary, a heads-up) without

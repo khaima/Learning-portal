@@ -17,6 +17,7 @@
 import { supabase } from "./supabase.js";
 import { ApiError, rawRequest, learnerToken, setLearnerToken } from "./api.js";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./config.js";
+import { friendlyError } from "./util.js";
 
 export const DASHBOARD_PATH = {
   teacher: "teacher.html",
@@ -35,7 +36,7 @@ export async function registerStaff(email, password) {
     return { ok: true };
   } catch (err) {
     return {
-      error: err?.body?.error || err?.message || "Could not create the account.",
+      error: friendlyError(err, "Could not create the account. Check your connection and try again."),
       exists: err instanceof ApiError && err.status === 409,
     };
   }
@@ -115,7 +116,7 @@ export async function learnerLogin(username, pin) {
     cachedProfile = res.learner;
     return { ok: true, learner: res.learner };
   } catch (err) {
-    return { error: err?.body?.error || err?.message || "Could not sign in." };
+    return { error: friendlyError(err, "Could not sign in. Check your connection and try again.") };
   }
 }
 

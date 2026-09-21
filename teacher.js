@@ -1,5 +1,5 @@
 import "./nav.js";
-import { $, $$, esc, initials, toast, formatDuration, groupByType } from "./util.js";
+import { $, $$, esc, initials, toast, formatDuration, groupByType, skeleton, emptyState, errorState, friendlyError } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { TEACHER_CONTENT, normalizeLibraryAudience, CONTENT_TYPES } from "./data.js";
 import {
@@ -66,6 +66,7 @@ async function main() {
      recent results — shared between Home and the Assignments page so a
      status change made from either place shows up everywhere at once. */
   let assignCache = [];
+  let assignmentsFailed = false;
   let learnerCache = [];
   let usageCache = null;
 
@@ -102,16 +103,26 @@ async function main() {
   function renderQueueInto(targetId, searchInputId) {
     const el = $(targetId);
     if (!el) return;
+    if (assignmentsFailed) {
+      el.innerHTML = errorState("Couldn't load assignments — check your connection and try again.", loadAssignments);
+      return;
+    }
     const queue = assignCache.filter((a) => !a.done);
     const filtered = filterAssignments(queue, ($(searchInputId)?.value || "").trim());
     el.innerHTML = filtered.length
       ? filtered.map(assignRow).join("")
       : queue.length
         ? `<div class="empty-state">No matches for that search.</div>`
-        : `<div class="empty-state">Nothing needs grading right now.</div>`;
+        : emptyState("Nothing needs grading", "Nothing is waiting on you right now.");
   }
 
   function renderRecentResults() {
+    if (assignmentsFailed) {
+      const msg = errorState("Couldn't load assignments — check your connection and try again.", loadAssignments);
+      $("#resultList").innerHTML = msg;
+      $("#homeResultList").innerHTML = msg;
+      return;
+    }
     const done = assignCache.filter((a) => a.done)
       .slice().sort((x, y) => (y.due || "").localeCompare(x.due || ""));
     const html = done.length
@@ -144,7 +155,7 @@ async function main() {
       toast(nextDone ? "Marked done" : "Marked not yet done", "");
     } catch (err) {
       btn.disabled = false;
-      toast("Couldn't update that", err?.body?.error || err?.message || "", "error");
+      toast("Couldn't update that", friendlyError(err), "error");
     }
   }
   $("#gradingQueue").addEventListener("click", handleAssignToggleClick);
@@ -153,7 +164,14 @@ async function main() {
   $("#assignSearch")?.addEventListener("input", () => renderQueueInto("#taskList", "#assignSearch"));
 
   async function loadAssignments() {
-    try { assignCache = await getTeacherAssignments(); } catch { assignCache = []; }
+    try {
+      assignCache = await getTeacherAssignments();
+      assignmentsFailed = false;
+    } catch (err) {
+      assignmentsFailed = true;
+      assignCache = [];
+      console.error("could not load teacher assignments:", err);
+    }
     renderAllAssignmentViews();
   }
 
@@ -191,6 +209,11 @@ async function main() {
   // so "next page" here is just a compact client-side slice — a class of 30
   // shows 8 at a time instead of one long scroll.
   function renderRosterPage() {
+    if (learnersFailed) {
+      roster.innerHTML = errorState("Couldn't load your learners — check your connection and try again.", renderRoster);
+      pager.innerHTML = "";
+      return;
+    }
     const totalPages = Math.max(1, Math.ceil(learnerCache.length / LEARNER_PAGE_SIZE));
     if (learnerPage > totalPages - 1) learnerPage = totalPages - 1;
     if (learnerPage < 0) learnerPage = 0;
@@ -199,7 +222,7 @@ async function main() {
 
     roster.innerHTML = learnerCache.length
       ? pageItems.map(learnerRow).join("")
-      : `<div class="empty-state">No learners yet. Add one to give them a sign-in.</div>`;
+      : emptyState("No learners yet", "Add one to give them a sign-in.");
 
     pager.innerHTML = learnerCache.length > LEARNER_PAGE_SIZE
       ? `<span>${start + 1}–${Math.min(learnerCache.length, start + LEARNER_PAGE_SIZE)} of ${learnerCache.length}</span>
@@ -217,9 +240,17 @@ async function main() {
     renderRosterPage();
   });
 
+  let learnersFailed = false;
   async function renderRoster() {
-    roster.innerHTML = `<div class="empty-state">Loading…</div>`;
-    try { learnerCache = await getLearners(); } catch { learnerCache = []; }
+    roster.innerHTML = skeleton(LEARNER_PAGE_SIZE);
+    try {
+      learnerCache = await getLearners();
+      learnersFailed = false;
+    } catch (err) {
+      learnersFailed = true;
+      learnerCache = [];
+      console.error("could not load learners:", err);
+    }
     renderRosterPage();
     renderHomeLearnerActivity();
     renderKpis();
@@ -241,6 +272,10 @@ async function main() {
   function renderHomeLearnerActivity() {
     const el = $("#learnerActivityList");
     if (!el) return;
+    if (learnersFailed) {
+      el.innerHTML = errorState("Couldn't load your learners — check your connection and try again.", renderRoster);
+      return;
+    }
     const q = ($("#learnerActivitySearch")?.value || "").trim().toLowerCase();
     const filtered = q
       ? learnerCache.filter((l) => `${l.fullName} ${l.username} ${l.grade || ""}`.toLowerCase().includes(q))
@@ -286,7 +321,7 @@ async function main() {
       toast("Learner added", `They can sign in with @${$("#nl_user").value.trim().toLowerCase()}`);
       renderRoster();
     } catch (err) {
-      addError.textContent = err?.body?.error || err?.message || "Could not add the learner.";
+      addError.textContent = friendlyError(err, "Could not add the learner. Check your connection and try again.");
       addError.hidden = false;
     } finally {
       btn.disabled = false;
@@ -355,7 +390,7 @@ async function main() {
         taken.add(username);
         created.push({ fullName: row.fullName, username, pin });
       } catch (err) {
-        failed.push({ fullName: row.fullName, error: err?.body?.error || err?.message || "Could not add" });
+        failed.push({ fullName: row.fullName, error: friendlyError(err, "Could not add") });
       }
     }
 
@@ -408,7 +443,7 @@ async function main() {
       }
       renderRoster();
     } catch (err) {
-      toast("Couldn't do that", err?.body?.error || err?.message || "", "error");
+      toast("Couldn't do that", friendlyError(err), "error");
     }
   });
 
@@ -419,13 +454,14 @@ async function main() {
   async function openLearnerActivity(id, fallbackName) {
     const panel = openContentPanel({
       title: fallbackName || "Learner activity",
-      html: `<div class="empty-state">Loading…</div>`,
+      html: skeleton(4),
     });
     let learner, assignments, library;
     try {
       ({ learner, assignments, library } = await getLearnerActivity(id));
     } catch (err) {
-      panel.innerHTML = `<div class="empty-state is-error">Couldn't load their activity — ${esc(err?.body?.error || err?.message || "")}</div>`;
+      console.error("could not load learner activity:", err);
+      panel.innerHTML = errorState(friendlyError(err), () => openLearnerActivity(id, fallbackName));
       return;
     }
 
@@ -487,7 +523,7 @@ async function main() {
         toast(nextDone ? "Marked done" : "Marked not yet done", "");
       } catch (err) {
         btn.disabled = false;
-        toast("Couldn't update that", err?.body?.error || err?.message || "", "error");
+        toast("Couldn't update that", friendlyError(err), "error");
       }
     });
   }
@@ -500,11 +536,23 @@ async function main() {
      never the Learner dashboard; the Digital Library is the learner-facing
      shelf, which teachers and heads can see too. Home gets a short preview
      of each with a link to the full folder-grouped view here. */
-  $("#teacherResourceList").innerHTML = `<div class="empty-state">Loading…</div>`;
-  $("#libraryList").innerHTML = `<div class="empty-state">Loading…</div>`;
-  $("#homeTeacherResources").innerHTML = `<div class="empty-state">Loading…</div>`;
-  $("#homeLibrary").innerHTML = `<div class="empty-state">Loading…</div>`;
-  getLibrary().then((library) => {
+  $("#teacherResourceList").innerHTML = skeleton(3);
+  $("#libraryList").innerHTML = skeleton(3);
+  $("#homeTeacherResources").innerHTML = skeleton(2, { avatar: false });
+  $("#homeLibrary").innerHTML = skeleton(2, { avatar: false });
+  async function renderLibraryShelves() {
+    let library;
+    try {
+      library = await getLibrary();
+    } catch (err) {
+      console.error("could not load library:", err);
+      const msg = errorState(friendlyError(err), renderLibraryShelves);
+      $("#teacherResourceList").innerHTML = msg;
+      $("#libraryList").innerHTML = msg;
+      $("#homeTeacherResources").innerHTML = msg;
+      $("#homeLibrary").innerHTML = msg;
+      return;
+    }
     const row = (l) => `
         <div class="task-row"><div><b>${esc(l.title)}</b><span>${esc(l.subject)}${l.description ? " — " + esc(l.description) : ""}</span>${libraryFilesHtml(l)}</div></div>`;
     const folders = (list) => groupByType(list, CONTENT_TYPES).map(({ type, items }) => `
@@ -525,7 +573,8 @@ async function main() {
       : `<div class="empty-state">Nothing in the library yet.</div>`;
     $("#homeTeacherResources").innerHTML = preview(resources, "No teacher resources uploaded yet.");
     $("#homeLibrary").innerHTML = preview(shared, "Nothing in the library yet.");
-  });
+  }
+  renderLibraryShelves();
 
   /* My learning activity — every "Open to read" click above is timed
      from open to return; see nav.js. Home gets the summary tiles only;
@@ -534,12 +583,14 @@ async function main() {
   async function renderUsageSummary() {
     const el = $("#usageSummary");
     const homeEl = $("#homeUsageSummary");
-    el.innerHTML = `<div class="empty-state">Loading…</div>`;
-    if (homeEl) homeEl.innerHTML = `<div class="empty-state">Loading…</div>`;
+    el.innerHTML = skeleton(3);
+    if (homeEl) homeEl.innerHTML = skeleton(2);
     let u;
-    try { u = await getMyLibraryUsage(); } catch {
-      el.innerHTML = `<div class="empty-state is-error">Couldn't load your activity.</div>`;
-      if (homeEl) homeEl.innerHTML = `<div class="empty-state is-error">Couldn't load your activity.</div>`;
+    try { u = await getMyLibraryUsage(); } catch (err) {
+      console.error("could not load usage:", err);
+      const msg = errorState(friendlyError(err), renderUsageSummary);
+      el.innerHTML = msg;
+      if (homeEl) homeEl.innerHTML = msg;
       return;
     }
     usageCache = u;
@@ -581,8 +632,15 @@ async function main() {
      addressed at this account instead of built into it. */
   renderForms();
   async function renderForms() {
-    $("#formsList").innerHTML = `<div class="empty-state">Loading…</div>`;
-    const [forms, responses] = await Promise.all([getForms(), getResponses()]);
+    $("#formsList").innerHTML = skeleton(2, { avatar: false });
+    let forms, responses;
+    try {
+      [forms, responses] = await Promise.all([getForms(), getResponses()]);
+    } catch (err) {
+      console.error("could not load forms:", err);
+      $("#formsList").innerHTML = errorState(friendlyError(err), renderForms);
+      return;
+    }
     const teacherForms = forms.filter((f) => f.audience === "teacher");
     const answeredFormIds = new Set(responses.filter((r) => r.respondentId === user.id).map((r) => r.formId));
 
@@ -597,7 +655,7 @@ async function main() {
                 <div class="fill-form" id="fill-${esc(f.id)}" hidden></div>`}
             </div>`;
         }).join("")
-      : `<div class="empty-state">No forms from the Education Team yet.</div>`;
+      : emptyState("No forms yet", "The Education Team hasn't sent anything here.");
 
     $$("[data-fill-form]").forEach((btn) =>
       btn.addEventListener("click", () => openFormFill(btn.dataset.fillForm, teacherForms, btn))
@@ -622,20 +680,30 @@ async function main() {
     $("#submit-" + formId).addEventListener("click", async () => {
       const submitBtn = $("#submit-" + formId);
       submitBtn.disabled = true;
-      submitBtn.textContent = "Submitting…";
+      submitBtn.classList.add("is-saving");
+      submitBtn.textContent = "Saving…";
       const answers = form.questions.map((q) => ({
         questionId: q.id,
         value: box.querySelector(`[data-q="${q.id}"]`).value,
       }));
-      await addResponse({
-        id: "resp_" + Date.now().toString(36),
-        formId: form.id,
-        respondentId: user.id,
-        respondentName: user.fullName,
-        respondentRole: "teacher",
-        answers,
-      });
-      renderForms();
+      try {
+        await addResponse({
+          id: "resp_" + Date.now().toString(36),
+          formId: form.id,
+          respondentId: user.id,
+          respondentName: user.fullName,
+          respondentRole: "teacher",
+          answers,
+        });
+        toast("Feedback submitted successfully.", "", "success");
+        renderForms();
+      } catch (err) {
+        console.error("could not submit form response:", err);
+        toast("Couldn't submit that", friendlyError(err), "error");
+        submitBtn.disabled = false;
+        submitBtn.classList.remove("is-saving");
+        submitBtn.textContent = "Submit feedback";
+      }
     });
   }
 }

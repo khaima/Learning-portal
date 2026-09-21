@@ -1,5 +1,5 @@
 import "./nav.js";
-import { $, $$, esc, initials, formatDuration, groupByType } from "./util.js";
+import { $, $$, esc, initials, formatDuration, groupByType, skeleton, emptyState, errorState, friendlyError, toast } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { normalizeLibraryAudience, CONTENT_TYPES } from "./data.js";
 import {
@@ -147,20 +147,43 @@ async function main() {
       : `<div class="empty-state">Nothing needs your attention right now.</div>`;
   }
 
+  // Every panel below reads from the one `overview` object, so a single
+  // failed fetch would otherwise silently render as "0 learners, no
+  // grades yet" — indistinguishable from a genuinely new school. One
+  // shared guard here, instead of six separate ones, replaces every
+  // overview-driven panel with the same error+retry when that happens;
+  // reporting status/attention (forms-derived) still render normally.
+  let overviewFailed = false;
+  const OVERVIEW_TARGETS = ["#statRow", "#learningActivity", "#learningByGrade", "#learnersByGrade", "#teacherStatRow", "#teacherTypeList", "#visitSummary", "#visitList"];
+
   function renderAllOverview() {
-    renderKpis();
-    renderLearningActivity();
-    renderLearningByGrade();
-    renderLearnersByGrade();
-    renderTeachers();
-    renderVisits();
+    if (overviewFailed) {
+      const msg = errorState("Couldn't load your school's data — check your connection and try again.", loadOverview);
+      OVERVIEW_TARGETS.forEach((sel) => { const el = $(sel); if (el) el.innerHTML = msg; });
+    } else {
+      renderKpis();
+      renderLearningActivity();
+      renderLearningByGrade();
+      renderLearnersByGrade();
+      renderTeachers();
+      renderVisits();
+    }
     renderReportingStatus();
     renderAttention();
   }
-  renderAllOverview();
+  OVERVIEW_TARGETS.forEach((sel) => { const el = $(sel); if (el) el.innerHTML = skeleton(3); });
+  $("#reportingStatus").innerHTML = skeleton(1, { avatar: false });
+  $("#attentionList").innerHTML = skeleton(2, { avatar: false });
 
   async function loadOverview() {
-    try { overview = await getSchoolOverview(); } catch { /* keep the honest zeroed defaults */ }
+    OVERVIEW_TARGETS.forEach((sel) => { const el = $(sel); if (el) el.innerHTML = skeleton(3); });
+    try {
+      overview = await getSchoolOverview();
+      overviewFailed = false;
+    } catch (err) {
+      overviewFailed = true;
+      console.error("could not load school overview:", err);
+    }
     renderAllOverview();
   }
   loadOverview();
@@ -171,10 +194,16 @@ async function main() {
      "Attention required" above are both derived from this same data. */
   renderForms();
   async function renderForms() {
-    $("#formsList").innerHTML = `<div class="empty-state">Loading…</div>`;
-    const [allForms, responses] = await Promise.all([getForms(), getResponses()]);
-    formsCache = allForms.filter((f) => f.audience === "school_leader");
-    responsesCache = responses;
+    $("#formsList").innerHTML = skeleton(2, { avatar: false });
+    try {
+      const [allForms, responses] = await Promise.all([getForms(), getResponses()]);
+      formsCache = allForms.filter((f) => f.audience === "school_leader");
+      responsesCache = responses;
+    } catch (err) {
+      console.error("could not load forms:", err);
+      $("#formsList").innerHTML = errorState(friendlyError(err), renderForms);
+      return;
+    }
     renderReportingStatus();
     renderAttention();
 
@@ -189,7 +218,7 @@ async function main() {
                 <div class="fill-form" id="fill-${esc(f.id)}" hidden></div>`}
             </div>`;
         }).join("")
-      : `<div class="empty-state">No forms from the Education Team yet.</div>`;
+      : emptyState("No forms yet", "The Education Team hasn't sent anything here.");
 
     $$("[data-fill-form]").forEach((btn) =>
       btn.addEventListener("click", () => openFormFill(btn.dataset.fillForm, formsCache, btn))
@@ -214,20 +243,30 @@ async function main() {
     $("#submit-" + formId).addEventListener("click", async () => {
       const submitBtn = $("#submit-" + formId);
       submitBtn.disabled = true;
-      submitBtn.textContent = "Submitting…";
+      submitBtn.classList.add("is-saving");
+      submitBtn.textContent = "Saving…";
       const answers = form.questions.map((q) => ({
         questionId: q.id,
         value: box.querySelector(`[data-q="${q.id}"]`).value,
       }));
-      await addResponse({
-        id: "resp_" + Date.now().toString(36),
-        formId: form.id,
-        respondentId: user.id,
-        respondentName: user.fullName,
-        respondentRole: "school_leader",
-        answers,
-      });
-      renderForms();
+      try {
+        await addResponse({
+          id: "resp_" + Date.now().toString(36),
+          formId: form.id,
+          respondentId: user.id,
+          respondentName: user.fullName,
+          respondentRole: "school_leader",
+          answers,
+        });
+        toast("Feedback submitted successfully.", "", "success");
+        renderForms();
+      } catch (err) {
+        console.error("could not submit form response:", err);
+        toast("Couldn't submit that", friendlyError(err), "error");
+        submitBtn.disabled = false;
+        submitBtn.classList.remove("is-saving");
+        submitBtn.textContent = "Submit feedback";
+      }
     });
   }
 
@@ -236,11 +275,23 @@ async function main() {
      Digital Library, and anything addressed specifically to school
      leadership — the last of which also gets a short preview on
      Overview, since that's the one most relevant to this role. */
-  $("#resourceList").innerHTML = `<div class="empty-state">Loading…</div>`;
-  $("#libraryList").innerHTML = `<div class="empty-state">Loading…</div>`;
-  $("#headOnlyList").innerHTML = `<div class="empty-state">Loading…</div>`;
-  $("#leadershipResources").innerHTML = `<div class="empty-state">Loading…</div>`;
-  getLibrary().then((library) => {
+  $("#resourceList").innerHTML = skeleton(3);
+  $("#libraryList").innerHTML = skeleton(3);
+  $("#headOnlyList").innerHTML = skeleton(2);
+  $("#leadershipResources").innerHTML = skeleton(2, { avatar: false });
+  async function renderLibraryShelves() {
+    let library;
+    try {
+      library = await getLibrary();
+    } catch (err) {
+      console.error("could not load library:", err);
+      const msg = errorState(friendlyError(err), renderLibraryShelves);
+      $("#resourceList").innerHTML = msg;
+      $("#libraryList").innerHTML = msg;
+      $("#headOnlyList").innerHTML = msg;
+      $("#leadershipResources").innerHTML = msg;
+      return;
+    }
     const row = (l) => `
       <div class="task-row"><div><b>${esc(l.title)}</b><span>${esc(l.subject)}${
         l.description ? " — " + esc(l.description) : ""}</span>${libraryFilesHtml(l)}</div></div>`;
@@ -264,7 +315,8 @@ async function main() {
     $("#leadershipResources").innerHTML = headOnly.length
       ? headOnly.slice(0, 5).map(row).join("") + (headOnly.length > 5 ? `<p class="hint" style="margin-top:.4rem">+${headOnly.length - 5} more — view all.</p>` : "")
       : `<div class="empty-state">Nothing addressed to school heads yet.</div>`;
-  });
+  }
+  renderLibraryShelves();
 
   /* My learning activity — every "Open to read" click above is timed
      from open to return; see nav.js. Personal, so it stays on the
@@ -272,14 +324,15 @@ async function main() {
   renderUsageSummary();
   async function renderUsageSummary() {
     const el = $("#usageSummary");
-    el.innerHTML = `<div class="empty-state">Loading…</div>`;
+    el.innerHTML = skeleton(3);
     let u;
-    try { u = await getMyLibraryUsage(); } catch {
-      el.innerHTML = `<div class="empty-state is-error">Couldn't load your activity.</div>`;
+    try { u = await getMyLibraryUsage(); } catch (err) {
+      console.error("could not load usage:", err);
+      el.innerHTML = errorState(friendlyError(err), renderUsageSummary);
       return;
     }
     if (!u.interactions.length) {
-      el.innerHTML = `<div class="empty-state">Open something from the library to start tracking your activity here.</div>`;
+      el.innerHTML = emptyState("Nothing to show yet", "Open something from the library to start tracking your activity here.");
       return;
     }
     const rows = u.interactions.slice(0, 10).map((it) => `

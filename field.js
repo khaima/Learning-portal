@@ -1,5 +1,5 @@
 import "./nav.js";
-import { $, $$, esc, initials } from "./util.js";
+import { $, $$, esc, initials, skeleton, emptyState, errorState, friendlyError, toast } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { FIELD_SCHOOLS_BY_COUNTY, VISIT_TYPES } from "./data.js";
 import {
@@ -54,7 +54,14 @@ async function main() {
     return `<div class="task-row"><div><b>${esc(r.school)}</b><span>${esc(r.county)} · ${esc(r.visitType)} · ${esc(r.detail)}</span></div></div>`;
   }
 
+  let reportsFailed = false;
   function renderReports() {
+    if (reportsFailed) {
+      const msg = errorState("Couldn't load your visits — check your connection and try again.", refreshReports);
+      $("#reportList").innerHTML = msg;
+      $("#homeReportList").innerHTML = msg;
+      return;
+    }
     $("#reportList").innerHTML = reportsCache.length
       ? reportsCache.map(reportRow).join("")
       : `<div class="empty-state">No field reports filed yet.</div>`;
@@ -65,22 +72,24 @@ async function main() {
   }
 
   async function refreshReports() {
+    $("#reportList").innerHTML = skeleton(3, { avatar: false });
+    $("#homeReportList").innerHTML = skeleton(2, { avatar: false });
     try {
       const reports = await getFieldReports();
       reportsCache = reports.map((r) => ({
         school: r.school, county: r.county, visitType: r.visitType, createdAt: r.createdAt,
         detail: new Date(r.createdAt).toLocaleDateString(),
       }));
+      reportsFailed = false;
     } catch (err) {
-      console.warn("could not load field reports:", err.message);
+      console.error("could not load field reports:", err);
+      reportsFailed = true;
       reportsCache = [];
     }
     renderReports();
     renderKpis();
   }
 
-  $("#reportList").innerHTML = `<div class="empty-state">Loading…</div>`;
-  $("#homeReportList").innerHTML = `<div class="empty-state">Loading…</div>`;
   renderKpis();
   refreshReports();
 
@@ -176,17 +185,22 @@ async function main() {
     if (!currentVisit) return;
     const btn = e.currentTarget;
     btn.disabled = true;
-    btn.textContent = "Submitting…";
+    btn.classList.add("is-saving");
+    btn.textContent = "Saving…";
     try {
       await addFieldReport({ school: currentVisit.school, county: currentVisit.county, visitType: currentVisit.visitType });
     } catch (err) {
-      console.warn("could not save field report:", err.message);
+      console.error("could not save field report:", err);
+      toast("Couldn't submit this visit", friendlyError(err), "error");
       btn.disabled = false;
+      btn.classList.remove("is-saving");
       btn.textContent = "5 · Complete & submit visit report";
       return;
     }
     btn.disabled = false;
+    btn.classList.remove("is-saving");
     btn.textContent = "5 · Complete & submit visit report";
+    toast("Visit report submitted successfully.", "", "success");
     $("#confirmedSummary").innerHTML =
       `<div><b>Visit report submitted</b><br>${esc(currentVisit.school)} · ${esc(currentVisit.county)} · ${esc(currentVisit.visitType)}</div>`;
     currentVisit = null;
@@ -268,21 +282,23 @@ async function main() {
       btn.disabled = true;
       try {
         await markKoboSubmitted(btn.dataset.koboDone);
+        toast("Marked as submitted.", "", "success");
         loadKoboSurveys();
       } catch (err) {
-        console.warn("could not mark submitted:", err.message);
+        console.error("could not mark submitted:", err);
+        toast("Couldn't update that", friendlyError(err), "error");
         btn.disabled = false;
       }
     }));
   }
 
   async function loadKoboSurveys() {
-    koboList.innerHTML = `<div class="empty-state">Loading…</div>`;
+    koboList.innerHTML = skeleton(2, { avatar: false });
     try {
       renderKoboSurveys(await myKoboSurveys());
     } catch (err) {
-      console.warn("could not load field surveys:", err.message);
-      koboList.innerHTML = `<div class="empty-state is-error">Couldn't load field surveys.</div>`;
+      console.error("could not load field surveys:", err);
+      koboList.innerHTML = errorState(friendlyError(err), loadKoboSurveys);
     }
   }
 
@@ -294,9 +310,16 @@ async function main() {
      dashboards. */
   renderForms();
   async function renderForms() {
-    $("#formsList").innerHTML = `<div class="empty-state">Loading…</div>`;
-    const [allForms, responses] = await Promise.all([getForms(), getResponses()]);
-    const forms = allForms.filter((f) => f.audience === "field_officer");
+    $("#formsList").innerHTML = skeleton(2, { avatar: false });
+    let forms, responses;
+    try {
+      [forms, responses] = await Promise.all([getForms(), getResponses()]);
+    } catch (err) {
+      console.error("could not load forms:", err);
+      $("#formsList").innerHTML = errorState(friendlyError(err), renderForms);
+      return;
+    }
+    forms = forms.filter((f) => f.audience === "field_officer");
     const answeredFormIds = new Set(responses.filter((r) => r.respondentId === user.id).map((r) => r.formId));
 
     $("#formsList").innerHTML = forms.length
@@ -310,7 +333,7 @@ async function main() {
                 <div class="fill-form" id="fill-${esc(f.id)}" hidden></div>`}
             </div>`;
         }).join("")
-      : `<div class="empty-state">No forms from the Education Team yet.</div>`;
+      : emptyState("No forms yet", "The Education Team hasn't sent anything here.");
 
     $$("[data-fill-form]").forEach((btn) =>
       btn.addEventListener("click", () => openFormFill(btn.dataset.fillForm, forms, btn))
@@ -335,20 +358,30 @@ async function main() {
     $("#submit-" + formId).addEventListener("click", async () => {
       const submitBtn = $("#submit-" + formId);
       submitBtn.disabled = true;
-      submitBtn.textContent = "Submitting…";
+      submitBtn.classList.add("is-saving");
+      submitBtn.textContent = "Saving…";
       const answers = form.questions.map((q) => ({
         questionId: q.id,
         value: box.querySelector(`[data-q="${q.id}"]`).value,
       }));
-      await addResponse({
-        id: "resp_" + Date.now().toString(36),
-        formId: form.id,
-        respondentId: user.id,
-        respondentName: user.fullName,
-        respondentRole: "field_officer",
-        answers,
-      });
-      renderForms();
+      try {
+        await addResponse({
+          id: "resp_" + Date.now().toString(36),
+          formId: form.id,
+          respondentId: user.id,
+          respondentName: user.fullName,
+          respondentRole: "field_officer",
+          answers,
+        });
+        toast("Feedback submitted successfully.", "", "success");
+        renderForms();
+      } catch (err) {
+        console.error("could not submit form response:", err);
+        toast("Couldn't submit that", friendlyError(err), "error");
+        submitBtn.disabled = false;
+        submitBtn.classList.remove("is-saving");
+        submitBtn.textContent = "Submit feedback";
+      }
     });
   }
 }

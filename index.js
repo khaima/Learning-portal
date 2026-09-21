@@ -1,4 +1,4 @@
-import { $, $$ } from "./util.js";
+import { $, $$, friendlyError } from "./util.js";
 import { supabase, setRememberMe, getRememberMe } from "./supabase.js";
 import {
   DASHBOARD_PATH, registerStaff, signInWithPassword, signInWithGoogle,
@@ -308,7 +308,7 @@ forgotForm.addEventListener("submit", async (e) => {
     sent.textContent = `If an account exists for ${email}, a reset link is on its way — check your inbox.`;
     sent.hidden = false;
   } catch (err) {
-    forgotError.textContent = err?.message || "Could not send the reset link.";
+    forgotError.textContent = friendlyError(err, "Could not send the reset link. Check your connection and try again.");
     forgotError.hidden = false;
   } finally {
     btn.disabled = false;
@@ -366,7 +366,7 @@ $("#googleBtn").addEventListener("click", async () => {
   try {
     await signInWithGoogle();
   } catch (err) {
-    pwError.textContent = err?.message || "Couldn't start Google sign-in.";
+    pwError.textContent = friendlyError(err, "Couldn't start Google sign-in. Check your connection and try again.");
     pwError.hidden = false;
   }
 });
@@ -402,7 +402,7 @@ onboardForm.addEventListener("submit", async (e) => {
     goToDashboard(profile.role);
   } catch (err) {
     btn.disabled = false;
-    onboardError.textContent = err?.message || "Could not create your account.";
+    onboardError.textContent = friendlyError(err, "Could not create your account. Check your connection and try again.");
     onboardError.hidden = false;
   }
 });
