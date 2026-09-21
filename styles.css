@@ -310,11 +310,21 @@ a{ color:inherit; }
 .side-link:hover:not(.active){ background:rgba(255,255,255,.07); color:#fff; }
 .side-link:focus-visible{ outline:2px solid rgba(255,255,255,.55); outline-offset:1px; }
 .side-link.active{ background:rgba(255,255,255,.14); color:#fff; }
-.side-user{ display:flex; align-items:center; gap:.6rem; padding-top:1rem; border-top:1px solid rgba(255,255,255,.14); }
+/* ---- profile / account menu ----
+   .side-user is the click target (nav.js); .side-menu is the popover it
+   reveals — kept to one action today (Sign out) on purpose, since a
+   menu with one honest destination beats one padded out to look fuller. */
+.side-user{
+  display:flex; align-items:center; gap:.6rem; padding-top:1rem; border-top:1px solid rgba(255,255,255,.14);
+  cursor:pointer; border-radius:10px; margin:0 -.3rem; padding-left:.3rem; padding-right:.3rem;
+}
+.side-user:hover{ background:rgba(255,255,255,.06); }
+.side-user:focus-visible{ outline:2px solid rgba(255,255,255,.55); outline-offset:1px; }
 .side-avatar{ width:34px; height:34px; border-radius:50%; background:var(--panel); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:.82rem; flex:none; }
 .side-user div{ line-height:1.25; min-width:0; }
 .side-user b{ display:block; font-size:.84rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .side-user span{ font-size:.72rem; color:rgba(255,255,255,.65); }
+.side-menu{ display:flex; flex-direction:column; gap:.2rem; }
 .side-signout{
   margin-top:.4rem; background:rgba(255,255,255,.08); border:0; color:#fff; border-radius:10px;
   padding:.5rem .7rem; font-size:.82rem; font-weight:600; cursor:pointer; text-align:left;
@@ -326,8 +336,6 @@ a{ color:inherit; }
 .app-main .hero-progress,
 .app-main .card-grid,
 .app-main .stat-row{ scroll-margin-top:1.2rem; }
-@keyframes navFlash{ from{ box-shadow:0 0 0 3px var(--brand-soft); } to{ box-shadow:var(--shadow); } }
-.nav-flash{ animation:navFlash 1.1s ease-out; }
 .app-top{ display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; margin-bottom:1.5rem; flex-wrap:wrap; }
 .app-top h1{ font-size:1.5rem; margin-bottom:.25rem; }
 .app-top p{ margin:0; color:var(--ink-soft); font-size:.9rem; }

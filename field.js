@@ -62,6 +62,18 @@ async function main() {
   countySelect.innerHTML =
     `<option value="" disabled selected>Select county</option>` +
     Object.keys(FIELD_SCHOOLS_BY_COUNTY).map((c) => `<option>${esc(c)}</option>`).join("");
+
+  // "Schools" page — the same county→school directory the report form
+  // already uses, surfaced as its own read-only view instead of only
+  // living inside a dropdown.
+  const counties = Object.keys(FIELD_SCHOOLS_BY_COUNTY);
+  $("#schoolsDirectory").innerHTML = counties.length
+    ? counties.map((c) => `
+      <div class="list-group">
+        <div class="list-group-title">${esc(c)}<span class="count">${FIELD_SCHOOLS_BY_COUNTY[c].length}</span></div>
+        ${FIELD_SCHOOLS_BY_COUNTY[c].map((s) => `<div class="task-row"><div><b>${esc(s)}</b></div></div>`).join("")}
+      </div>`).join("")
+    : `<div class="empty-state">No schools assigned yet.</div>`;
   visitSelect.innerHTML =
     `<option value="" disabled selected>Select visit type</option>` +
     VISIT_TYPES.map((v) => `<option>${esc(v)}</option>`).join("");

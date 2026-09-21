@@ -55,6 +55,15 @@ async function main() {
       : total
       ? "Everything's done — nice work."
       : "Your teacher hasn't set any assignments yet.";
+
+    // "My Progress" page — same numbers as the Home ring, just at a
+    // glance in stat-tile form for whoever navigates there specifically.
+    const pct = total ? Math.round(fraction * 100) : 0;
+    $("#progressStats").innerHTML = `
+      <div class="stat-tile"><div class="s-label">Completed</div><div class="s-num">${done}</div><div class="s-sub">of ${total} assignments</div></div>
+      <div class="stat-tile"><div class="s-label">Outstanding</div><div class="s-num">${outstanding.length}</div><div class="s-sub">still to do</div></div>
+      <div class="stat-tile"><div class="s-label">Completion</div><div class="s-num">${pct}%</div><div class="s-sub">this week</div></div>
+    `;
   }
 
   function renderAssignments(assignments, onMarkDone) {

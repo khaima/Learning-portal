@@ -17,16 +17,19 @@
         <span class="wordmark-text"><b>Human Practice</b><span>Digital Learning Portal</span></span>
       </a>
       <nav class="side-nav">
-        <a class="side-link active"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Dashboard</a>
-        <a class="side-link"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s7-6.1 7-11.5A7 7 0 0 0 5 9.5C5 14.9 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg>Field Reports</a>
-        <a class="side-link"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>Field Surveys</a>
-        <a class="side-link"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>Forms & Feedback</a>
+        <a class="side-link" data-page="dashboard"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Dashboard</a>
+        <a class="side-link" data-page="schools"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21V8l8-5 8 5v13"/><path d="M9 21v-6h6v6"/></svg>Schools</a>
+        <a class="side-link" data-page="visits"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s7-6.1 7-11.5A7 7 0 0 0 5 9.5C5 14.9 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg>Visits</a>
+        <a class="side-link" data-page="kobo-surveys"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>Kobo Surveys</a>
+        <a class="side-link" data-page="reports"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>Reports</a>
       </nav>
-      <div class="side-user">
+      <div class="side-user" id="sideUserBtn" tabindex="0" role="button" aria-haspopup="true" aria-expanded="false">
         <span class="side-avatar" id="sideAvatar">?</span>
         <div><b id="sideName">—</b><span id="sideMeta">—</span></div>
       </div>
-      <button class="side-signout" id="signOutBtn">Sign out</button>
+      <div class="side-menu" id="sideMenu" hidden>
+        <button class="side-signout" id="signOutBtn">Sign out</button>
+      </div>
     </aside>
 
     <main class="app-main">
@@ -42,56 +45,70 @@
         </div>
       </div>
 
-      <div class="stat-row" id="statRow"></div>
+      <section class="dash-page" data-page="dashboard">
+        <div class="stat-row" id="statRow"></div>
+      </section>
 
-      <div class="body-grid">
-        <div>
-          <div class="panel">
-            <div class="panel-head"><h2>New field report</h2></div>
-            <form id="reportForm">
-              <div class="field">
-                <label for="fr_county">County</label>
-                <select id="fr_county" required>
-                  <option value="" disabled selected>Select county</option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="fr_school">School</label>
-                <select id="fr_school" required disabled>
-                  <option value="" disabled selected>Select a county first</option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="fr_visit">Visit type</label>
-                <select id="fr_visit" required>
-                  <option value="" disabled selected>Select visit type</option>
-                </select>
-              </div>
-              <button class="btn btn-primary btn-block" type="submit">Submit field report</button>
-            </form>
-          </div>
+      <section class="dash-page" data-page="schools" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Assigned schools</h2></div>
+          <div id="schoolsDirectory"></div>
         </div>
+      </section>
 
-        <div>
-          <div class="panel">
-            <div class="panel-head"><h2>Recent field reports</h2></div>
-            <div id="reportList"></div>
-          </div>
-
-          <div class="panel">
-            <div class="panel-head">
-              <h2>Field surveys</h2>
-              <button type="button" id="koboRefresh">Refresh</button>
+      <section class="dash-page" data-page="visits" hidden>
+        <div class="body-grid">
+          <div>
+            <div class="panel">
+              <div class="panel-head"><h2>New field report</h2></div>
+              <form id="reportForm">
+                <div class="field">
+                  <label for="fr_county">County</label>
+                  <select id="fr_county" required>
+                    <option value="" disabled selected>Select county</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="fr_school">School</label>
+                  <select id="fr_school" required disabled>
+                    <option value="" disabled selected>Select a county first</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="fr_visit">Visit type</label>
+                  <select id="fr_visit" required>
+                    <option value="" disabled selected>Select visit type</option>
+                  </select>
+                </div>
+                <button class="btn btn-primary btn-block" type="submit">Submit field report</button>
+              </form>
             </div>
-            <div id="koboSurveyList"></div>
           </div>
-
-          <div class="panel">
-            <div class="panel-head"><h2>Forms from the Education Team</h2></div>
-            <div id="formsList"></div>
+          <div>
+            <div class="panel">
+              <div class="panel-head"><h2>Recent field reports</h2></div>
+              <div id="reportList"></div>
+            </div>
           </div>
         </div>
-      </div>
+      </section>
+
+      <section class="dash-page" data-page="kobo-surveys" hidden>
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Field surveys</h2>
+            <button type="button" id="koboRefresh">Refresh</button>
+          </div>
+          <div id="koboSurveyList"></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="reports" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Forms from the Education Team</h2></div>
+          <div id="formsList"></div>
+        </div>
+      </section>
     </main>
   </div>
 

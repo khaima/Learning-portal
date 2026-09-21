@@ -1,20 +1,17 @@
 /* ============================================================
    HPF Digital Learning Portal — dashboard side-nav + top bar.
 
-   Two nav styles, picked automatically per dashboard:
+   One navigation system, shared by all five role dashboards: the
+   side-nav links and top-level sections carry matching data-page
+   attributes. Clicking a link shows only that section — a real
+   separate view, not a scroll position — and the current page is both
+   the URL hash (#my-classes) and the .active link, so reload/back/
+   forward, sharing a link to a specific page, and "where am I right
+   now" all agree with each other.
 
-   - "Paged" (opt-in): the side-nav links and top-level sections carry
-     matching data-page attributes. Clicking a link shows only that
-     section — a real separate view, not a scroll position — and the
-     choice lives in the URL hash (#digital-library) so reload/back/
-     forward and sharing a link to a specific page all work. The
-     Education Team dashboard uses this.
-   - Classic scroll+flash (everyone else, unchanged): the dashboards are
-     one continuous scrolling page and a sidebar click jumps to (and
-     briefly highlights) the matching section by heading text.
-
-   Either way this also gives the notification bell something to do.
-   Imported by every dashboard JS.
+   Also owns: the mobile off-canvas drawer, the profile/account menu,
+   and the notification bell. Imported by every dashboard JS — nothing
+   here is page-specific.
    ============================================================ */
 
 import { $, $$, toast } from "./util.js";
@@ -135,78 +132,6 @@ if (pageLinks.length) {
   showPage((location.hash || "").slice(1));
 }
 
-/* ---------------------------------------------------------------- classic scroll+flash dashboards */
-if (!pageLinks.length) {
-
-/* nav label (lowercased) -> heading substrings to look for in a section */
-const HEADING_MATCH = {
-  "my classes": ["my classes", "classes"],
-  "classes": ["classes"],
-  "assignments": ["assignments", "this week"],
-  "assessments": ["recent results", "results", "assessment"],
-  "my results": ["recent results", "results", "this week"],
-  "digital library": ["digital library", "from the digital library", "content library"],
-  "teacher resources": ["teacher resources"],
-  "forms & feedback": ["forms", "your forms"],
-  "termly returns": ["termly returns"],
-  "field visits": ["recent field visits", "field visits"],
-  "field reports": ["field report", "recent field reports", "new field report"],
-  "field surveys": ["field surveys"],
-  "survey results": ["survey results"],
-};
-/* fallbacks for sections whose heading is dynamic or absent */
-const SELECTOR_FALLBACK = {
-  "my classes": ["#classGrid", "#classList"],
-  "classes": ["#classGrid", "#classList"],
-  "my results": [".hero-progress", "#resultList"],
-  "assessments": ["#resultList"],
-};
-
-const norm = (s) => (s || "").replace(/\s+/g, " ").trim().toLowerCase();
-
-function sectionFor(label) {
-  const key = norm(label);
-  if (key === "dashboard" || key === "overview") return null; // -> top
-  const wants = HEADING_MATCH[key] || [key.split(/\s|&/)[0]];
-
-  const sections = $$(".app-main .panel, .app-main .hero-progress, .app-main > div > .panel");
-  for (const s of sections) {
-    const h = norm(s.querySelector("h2, h1")?.textContent);
-    if (h && wants.some((w) => h.includes(w))) return s;
-  }
-  for (const sel of SELECTOR_FALLBACK[key] || []) {
-    const el = $(sel);
-    if (el) return el.closest(".panel, .card-grid, .hero-progress") || el;
-  }
-  return null;
-}
-
-const links = $$(".side-nav .side-link");
-
-function goTo(link) {
-  links.forEach((l) => l.classList.toggle("active", l === link));
-  $$(".app-main .nav-flash").forEach((p) => p.classList.remove("nav-flash"));
-  const target = sectionFor(link.textContent);
-  if (target) {
-    target.scrollIntoView({ behavior: "smooth", block: "start" });
-    void target.offsetWidth; // restart the highlight animation
-    target.classList.add("nav-flash");
-  } else {
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-}
-
-links.forEach((link) => {
-  link.setAttribute("role", "link");
-  link.setAttribute("tabindex", "0");
-  link.addEventListener("click", () => goTo(link));
-  link.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); goTo(link); }
-  });
-});
-
-} // !pageLinks.length
-
 /* notification bell — nothing to notify about yet, but it responds */
 const bell = $(".app-top-actions .icon-btn");
 if (bell) {
@@ -258,4 +183,32 @@ if (appShell && appTop && appSide) {
   // Picking a section closes the drawer instead of leaving it open over
   // the page it just navigated to.
   $$(".side-nav .side-link").forEach((link) => link.addEventListener("click", closeMenu));
+}
+
+/* ---------------------------------------------------------------- profile / account menu
+   The name+avatar block (.side-user) is now the one entry point for
+   account actions — click or Enter/Space reveals .side-menu (Sign out
+   today; the same #signOutBtn id every dashboard already wires, just
+   tucked away instead of sitting permanently in the sidebar). Closes on
+   an outside click, Escape, or picking Sign out itself. */
+const userBtn = $("#sideUserBtn");
+const userMenu = $("#sideMenu");
+if (userBtn && userMenu) {
+  const closeUserMenu = () => {
+    userMenu.hidden = true;
+    userBtn.setAttribute("aria-expanded", "false");
+  };
+  const toggleUserMenu = () => {
+    const open = userMenu.hidden;
+    userMenu.hidden = !open;
+    userBtn.setAttribute("aria-expanded", String(open));
+  };
+  userBtn.addEventListener("click", (e) => { e.stopPropagation(); toggleUserMenu(); });
+  userBtn.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleUserMenu(); }
+  });
+  document.addEventListener("click", (e) => {
+    if (!userMenu.hidden && !userMenu.contains(e.target) && e.target !== userBtn) closeUserMenu();
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeUserMenu(); });
 }

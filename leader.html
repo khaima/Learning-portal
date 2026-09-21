@@ -17,16 +17,20 @@
         <span class="wordmark-text"><b>Human Practice</b><span>Digital Learning Portal</span></span>
       </a>
       <nav class="side-nav">
-        <a class="side-link" data-page="dashboard"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Dashboard</a>
-        <a class="side-link" data-page="classes"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/></svg>Classes</a>
-        <a class="side-link" data-page="termly-returns"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>Termly Returns</a>
-        <a class="side-link" data-page="field-visits"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s7-6.1 7-11.5A7 7 0 0 0 5 9.5C5 14.9 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg>Field Visits</a>
+        <a class="side-link" data-page="overview"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Overview</a>
+        <a class="side-link" data-page="learners"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/></svg>Learners</a>
+        <a class="side-link" data-page="teachers"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V6a2 2 0 0 1 2-2h13v14H6a2 2 0 0 0-2 2Zm0 0a2 2 0 0 0 2 2h13"/><path d="M9 8h7M9 11h7"/></svg>Teachers</a>
+        <a class="side-link" data-page="learning"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>Learning</a>
+        <a class="side-link" data-page="reports"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="7"/><rect x="12" y="6" width="3" height="11"/><rect x="17" y="13" width="3" height="4"/></svg>Reports</a>
+        <a class="side-link" data-page="resources"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>Resources</a>
       </nav>
-      <div class="side-user">
+      <div class="side-user" id="sideUserBtn" tabindex="0" role="button" aria-haspopup="true" aria-expanded="false">
         <span class="side-avatar" id="sideAvatar">?</span>
         <div><b id="sideName">—</b><span id="sideMeta">—</span></div>
       </div>
-      <button class="side-signout" id="signOutBtn">Sign out</button>
+      <div class="side-menu" id="sideMenu" hidden>
+        <button class="side-signout" id="signOutBtn">Sign out</button>
+      </div>
     </aside>
 
     <main class="app-main">
@@ -42,7 +46,7 @@
         </div>
       </div>
 
-      <section class="dash-page" data-page="dashboard">
+      <section class="dash-page" data-page="overview">
         <div class="stat-row" id="statRow"></div>
         <div class="panel">
           <div class="panel-head"><h2>My learning activity</h2></div>
@@ -50,40 +54,50 @@
         </div>
       </section>
 
-      <section class="dash-page" data-page="classes" hidden>
+      <section class="dash-page" data-page="learners" hidden>
         <div class="panel">
-          <div class="panel-head"><h2>Classes</h2></div>
+          <div class="panel-head"><h2>Learners by class</h2></div>
           <div id="classList"></div>
         </div>
       </section>
 
-      <section class="dash-page" data-page="termly-returns" hidden>
+      <section class="dash-page" data-page="teachers" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Teaching staff</h2></div>
+          <div class="stat-row" id="teacherStatRow" style="margin-bottom:0"></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="learning" hidden>
         <div class="panel">
           <div class="panel-head"><h2>Termly returns</h2></div>
           <div id="returnList"></div>
         </div>
-        <div class="panel">
-          <div class="panel-head"><h2>Forms from the Education Team</h2></div>
-          <div id="formsList"></div>
-        </div>
-        <div class="panel">
-          <div class="panel-head"><h2>Digital Library</h2></div>
-          <div id="libraryList"></div>
-        </div>
-        <div class="panel">
-          <div class="panel-head"><h2>For School Head</h2></div>
-          <div id="headOnlyList"></div>
-        </div>
       </section>
 
-      <section class="dash-page" data-page="field-visits" hidden>
+      <section class="dash-page" data-page="reports" hidden>
         <div class="panel">
           <div class="panel-head"><h2>Recent field visits</h2></div>
           <div id="visitList"></div>
         </div>
         <div class="panel">
+          <div class="panel-head"><h2>Forms from the Education Team</h2></div>
+          <div id="formsList"></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="resources" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Digital Library</h2></div>
+          <div id="libraryList"></div>
+        </div>
+        <div class="panel">
           <div class="panel-head"><h2>Teacher Resources</h2></div>
           <div id="resourceList"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>For School Head</h2></div>
+          <div id="headOnlyList"></div>
         </div>
       </section>
     </main>

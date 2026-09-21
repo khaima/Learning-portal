@@ -17,17 +17,20 @@
         <span class="wordmark-text"><b>Human Practice</b><span>Digital Learning Portal</span></span>
       </a>
       <nav class="side-nav">
-        <a class="side-link active"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Dashboard</a>
-        <a class="side-link"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/></svg>My Classes</a>
-        <a class="side-link"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>Assignments</a>
-        <a class="side-link"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M9 13l2 2 4-4"/></svg>My Results</a>
-        <a class="side-link"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>Digital Library</a>
+        <a class="side-link" data-page="home"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Home</a>
+        <a class="side-link" data-page="my-learning"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/></svg>My Learning</a>
+        <a class="side-link" data-page="assignments"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>Assignments</a>
+        <a class="side-link" data-page="resources"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>Resources</a>
+        <a class="side-link" data-page="my-progress"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M9 13l2 2 4-4"/></svg>My Progress</a>
+        <a class="side-link" data-page="activity"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>Activity</a>
       </nav>
-      <div class="side-user">
+      <div class="side-user" id="sideUserBtn" tabindex="0" role="button" aria-haspopup="true" aria-expanded="false">
         <span class="side-avatar" id="sideAvatar">?</span>
         <div><b id="sideName">—</b><span id="sideMeta">—</span></div>
       </div>
-      <button class="side-signout" id="signOutBtn">Sign out</button>
+      <div class="side-menu" id="sideMenu" hidden>
+        <button class="side-signout" id="signOutBtn">Sign out</button>
+      </div>
     </aside>
 
     <main class="app-main">
@@ -43,35 +46,52 @@
         </div>
       </div>
 
-      <div class="hero-progress">
-        <svg class="ring" viewBox="0 0 80 80" id="progressRing">
-          <circle cx="40" cy="40" r="34" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="8"/>
-          <circle cx="40" cy="40" r="34" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round"
-            id="progressArc" transform="rotate(-90 40 40)"/>
-          <text x="40" y="46" text-anchor="middle" font-family="Baloo 2, sans-serif" font-weight="700" font-size="18" fill="#fff" id="progressText">0/0</text>
-        </svg>
-        <div>
-          <h2 id="progressHeading">This week</h2>
-          <p id="progressSub">—</p>
+      <section class="dash-page" data-page="home">
+        <div class="hero-progress">
+          <svg class="ring" viewBox="0 0 80 80" id="progressRing">
+            <circle cx="40" cy="40" r="34" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="8"/>
+            <circle cx="40" cy="40" r="34" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round"
+              id="progressArc" transform="rotate(-90 40 40)"/>
+            <text x="40" y="46" text-anchor="middle" font-family="Baloo 2, sans-serif" font-weight="700" font-size="18" fill="#fff" id="progressText">0/0</text>
+          </svg>
+          <div>
+            <h2 id="progressHeading">This week</h2>
+            <p id="progressSub">—</p>
+          </div>
         </div>
-      </div>
+      </section>
 
-      <div class="card-grid" id="classGrid"></div>
+      <section class="dash-page" data-page="my-learning" hidden>
+        <div class="card-grid" id="classGrid"></div>
+      </section>
 
-      <div class="panel">
-        <div class="panel-head"><h2>Assignments</h2></div>
-        <div id="assignmentList"></div>
-      </div>
+      <section class="dash-page" data-page="assignments" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Assignments</h2></div>
+          <div id="assignmentList"></div>
+        </div>
+      </section>
 
-      <div class="panel">
-        <div class="panel-head"><h2>From the Digital Library</h2></div>
-        <div id="libraryStrip"></div>
-      </div>
+      <section class="dash-page" data-page="resources" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>From the Digital Library</h2></div>
+          <div id="libraryStrip"></div>
+        </div>
+      </section>
 
-      <div class="panel">
-        <div class="panel-head"><h2>My learning activity</h2></div>
-        <div id="usageSummary"></div>
-      </div>
+      <section class="dash-page" data-page="my-progress" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>My progress</h2></div>
+          <div class="stat-row" id="progressStats" style="margin-bottom:0"></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="activity" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>My learning activity</h2></div>
+          <div id="usageSummary"></div>
+        </div>
+      </section>
     </main>
   </div>
 

@@ -17,18 +17,20 @@
         <span class="wordmark-text"><b>Human Practice</b><span>Digital Learning Portal</span></span>
       </a>
       <nav class="side-nav">
-        <a class="side-link" data-page="dashboard"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Dashboard</a>
+        <a class="side-link" data-page="home"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Home</a>
         <a class="side-link" data-page="my-classes"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/></svg>My Classes</a>
+        <a class="side-link" data-page="my-learners"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>My Learners</a>
         <a class="side-link" data-page="assignments"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>Assignments</a>
-        <a class="side-link" data-page="assessments"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M9 13l2 2 4-4"/></svg>Assessments</a>
-        <a class="side-link" data-page="digital-library"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>Digital Library</a>
-        <a class="side-link" data-page="teacher-resources"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V6a2 2 0 0 1 2-2h13v14H6a2 2 0 0 0-2 2Zm0 0a2 2 0 0 0 2 2h13"/><path d="M9 8h7M9 11h7"/></svg>Teacher Resources</a>
+        <a class="side-link" data-page="resources"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>Resources</a>
+        <a class="side-link" data-page="activity"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>Activity</a>
       </nav>
-      <div class="side-user">
+      <div class="side-user" id="sideUserBtn" tabindex="0" role="button" aria-haspopup="true" aria-expanded="false">
         <span class="side-avatar" id="sideAvatar">?</span>
         <div><b id="sideName">—</b><span id="sideMeta">—</span></div>
       </div>
-      <button class="side-signout" id="signOutBtn">Sign out</button>
+      <div class="side-menu" id="sideMenu" hidden>
+        <button class="side-signout" id="signOutBtn">Sign out</button>
+      </div>
     </aside>
 
     <main class="app-main">
@@ -44,15 +46,18 @@
         </div>
       </div>
 
-      <section class="dash-page" data-page="dashboard">
+      <section class="dash-page" data-page="home">
         <div class="stat-row" id="statRow"></div>
-        <div class="panel">
-          <div class="panel-head"><h2>My learning activity</h2></div>
-          <div id="usageSummary"></div>
-        </div>
       </section>
 
       <section class="dash-page" data-page="my-classes" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>My classes</h2></div>
+          <div id="classList"></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="my-learners" hidden>
         <div class="panel">
           <div class="panel-head">
             <h2>My Learners</h2>
@@ -87,10 +92,6 @@
           <div id="learnerRoster"></div>
           <div id="learnerRosterPager" style="display:flex;justify-content:space-between;align-items:center;margin-top:.6rem;font-size:.82rem;color:var(--ink-soft)"></div>
         </div>
-        <div class="panel">
-          <div class="panel-head"><h2>My classes</h2></div>
-          <div id="classList"></div>
-        </div>
       </section>
 
       <section class="dash-page" data-page="assignments" hidden>
@@ -99,29 +100,30 @@
           <div id="taskList"></div>
         </div>
         <div class="panel">
+          <div class="panel-head"><h2>Recent results</h2></div>
+          <div id="resultList"></div>
+        </div>
+        <div class="panel">
           <div class="panel-head"><h2>Forms from the Education Team</h2></div>
           <div id="formsList"></div>
         </div>
       </section>
 
-      <section class="dash-page" data-page="assessments" hidden>
-        <div class="panel">
-          <div class="panel-head"><h2>Recent results</h2></div>
-          <div id="resultList"></div>
-        </div>
-      </section>
-
-      <section class="dash-page" data-page="digital-library" hidden>
+      <section class="dash-page" data-page="resources" hidden>
         <div class="panel">
           <div class="panel-head"><h2>Digital Library</h2></div>
           <div id="libraryList"></div>
         </div>
-      </section>
-
-      <section class="dash-page" data-page="teacher-resources" hidden>
         <div class="panel">
           <div class="panel-head"><h2>Teacher Resources</h2></div>
           <div id="teacherResourceList"></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="activity" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>My learning activity</h2></div>
+          <div id="usageSummary"></div>
         </div>
       </section>
     </main>

@@ -35,6 +35,10 @@ async function main() {
     <div class="stat-tile"><div class="s-label">${svg(ICON.classes)}Classes</div><div class="s-num">${stats.classes}</div><div class="s-sub">running this term</div></div>
     <div class="stat-tile"><div class="s-label">${svg(ICON.attendance)}Attendance</div><div class="s-num">${stats.attendance}%</div><div class="s-sub">avg. this week</div></div>
   `;
+  // The "Teachers" page — there's no per-teacher roster to show yet, just
+  // the real staff count; honest about that rather than inventing a list.
+  $("#teacherStatRow").innerHTML =
+    `<div class="stat-tile"><div class="s-label">${svg(ICON.teachers)}Teachers</div><div class="s-num">${stats.teachers}</div><div class="s-sub">on staff</div></div>`;
 
   $("#classList").innerHTML = content.classes.length
     ? content.classes.map((c) => `
