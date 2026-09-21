@@ -46,18 +46,35 @@
         </div>
       </div>
 
+      <!-- HOME: a scannable digest, not a fourth copy of every full page —
+           each section shows just enough to act on, with one obvious next
+           step; the deep list always lives one click away in the sidebar. -->
       <section class="dash-page" data-page="home">
-        <div class="hero-progress">
-          <svg class="ring" viewBox="0 0 80 80" id="progressRing">
-            <circle cx="40" cy="40" r="34" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="8"/>
-            <circle cx="40" cy="40" r="34" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round"
-              id="progressArc" transform="rotate(-90 40 40)"/>
-            <text x="40" y="46" text-anchor="middle" font-family="Baloo 2, sans-serif" font-weight="700" font-size="18" fill="#fff" id="progressText">0/0</text>
-          </svg>
-          <div>
-            <h2 id="progressHeading">This week</h2>
-            <p id="progressSub">—</p>
-          </div>
+        <div class="continue-card" id="continueCard"></div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Learning progress</h2><a href="#my-progress">Full progress</a></div>
+          <div class="stat-row" id="homeProgressStats" style="margin-bottom:0"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Assignments needing action</h2><a href="#assignments">View all</a></div>
+          <div id="homeAssignments"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Recent activity</h2><a href="#activity">View all</a></div>
+          <div id="homeActivity"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Recommended for you</h2><a href="#resources">View all</a></div>
+          <div id="homeResources"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>My classes</h2><a href="#my-learning">View all</a></div>
+          <div class="card-grid" id="homeClasses" style="margin-bottom:0"></div>
         </div>
       </section>
 
@@ -80,8 +97,20 @@
       </section>
 
       <section class="dash-page" data-page="my-progress" hidden>
+        <div class="hero-progress">
+          <svg class="ring" viewBox="0 0 80 80" id="progressRing">
+            <circle cx="40" cy="40" r="34" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="8"/>
+            <circle cx="40" cy="40" r="34" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round"
+              id="progressArc" transform="rotate(-90 40 40)"/>
+            <text x="40" y="46" text-anchor="middle" font-family="Baloo 2, sans-serif" font-weight="700" font-size="18" fill="#fff" id="progressText">0/0</text>
+          </svg>
+          <div>
+            <h2 id="progressHeading">This week</h2>
+            <p id="progressSub">—</p>
+          </div>
+        </div>
         <div class="panel">
-          <div class="panel-head"><h2>My progress</h2></div>
+          <div class="panel-head"><h2>Assignment completion</h2></div>
           <div class="stat-row" id="progressStats" style="margin-bottom:0"></div>
         </div>
       </section>

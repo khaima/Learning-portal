@@ -401,6 +401,22 @@ a{ color:inherit; }
 .hero-progress h2{ color:#fff; font-size:1.15rem; margin-bottom:.25rem; }
 .hero-progress p{ margin:0; color:rgba(255,255,255,.82); font-size:.86rem; max-width:24rem; }
 
+/* ---- "Continue learning" — the one card every learner sees first, so
+   it gets the same visual weight as .hero-progress (same gradient,
+   same shadow) but a simpler content shape: an eyebrow, a title, a
+   short line of context, and exactly one button. */
+.continue-card{
+  background:linear-gradient(135deg,var(--panel),var(--panel-deep)); color:#fff;
+  border-radius:var(--radius-lg); padding:1.5rem 1.6rem; margin-bottom:1.4rem; box-shadow:var(--shadow);
+}
+.continue-eyebrow{ margin:0 0 .3rem; font-size:.76rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:rgba(255,255,255,.7); }
+.continue-card h2{ color:#fff; font-size:1.25rem; margin-bottom:.3rem; }
+.continue-card p{ margin:0 0 1rem; color:rgba(255,255,255,.82); font-size:.88rem; max-width:30rem; }
+.continue-card .btn-primary{ background:#fff; color:var(--panel-deep); }
+.continue-card .btn-primary:hover{ background:rgba(255,255,255,.88); }
+.continue-card .lib-open{ background:#fff; color:var(--panel-deep); }
+.continue-card .lib-open:hover{ background:rgba(255,255,255,.88); text-decoration:none; }
+
 .card-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(15rem,1fr)); gap:1rem; margin-bottom:1.4rem; }
 .learn-card{ background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius-lg); padding:1.1rem 1.2rem; box-shadow:var(--shadow); }
 .learn-card .lc-top{ display:flex; align-items:center; gap:.65rem; margin-bottom:.7rem; }
