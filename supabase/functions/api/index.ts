@@ -1284,6 +1284,70 @@ app.get("/stats", withProfile("education_team"), async (c) => {
   });
 });
 
+// ---- school leader: own-school overview ----
+// Aggregates only — counts and grade-level rollups, never an individual
+// learner's name or row, so the leader dashboard can be real without
+// turning into a second learner roster. Scoped strictly to the leader's
+// own school+county, unlike /stats (education team, portal-wide).
+
+app.get("/school/overview", withProfile("school_leader"), async (c) => {
+  const actor = c.get("actor");
+  const school = actor.school || "";
+  const county = actor.county || "";
+
+  const [profs, learnersRaw, reportsRaw] = await Promise.all([
+    admin.from("profiles").select("id, teacher_type").eq("role", "teacher").eq("school", school).eq("county", county),
+    admin.from("learners").select("id, grade").eq("school", school).eq("county", county),
+    admin.from("field_reports").select("*").eq("school", school).eq("county", county).order("created_at", { ascending: false }),
+  ]);
+  if (profs.error || learnersRaw.error || reportsRaw.error) {
+    return c.json({ error: "Could not load the school overview" }, 500);
+  }
+
+  const teacherRows = profs.data ?? [];
+  const learnerRows = learnersRaw.data ?? [];
+  const visitRows = reportsRaw.data ?? [];
+
+  const learnerIds = learnerRows.map((l) => l.id as string);
+  const asg = learnerIds.length
+    ? await admin.from("assignments").select("learner_id, done").in("learner_id", learnerIds)
+    : { data: [] as Record<string, unknown>[], error: null as unknown };
+  if (asg.error) return c.json({ error: "Could not load the school overview" }, 500);
+  const assignmentRows = asg.data ?? [];
+
+  const gradeOfLearner: Record<string, string> = {};
+  for (const l of learnerRows) gradeOfLearner[l.id as string] = (l.grade as string)?.trim() || "(not set)";
+  const gradeAgg: Record<string, { learners: number; total: number; done: number }> = {};
+  for (const l of learnerRows) {
+    const g = gradeOfLearner[l.id as string];
+    (gradeAgg[g] ??= { learners: 0, total: 0, done: 0 }).learners++;
+  }
+  for (const a of assignmentRows) {
+    const g = gradeOfLearner[a.learner_id as string] ?? "(not set)";
+    (gradeAgg[g] ??= { learners: 0, total: 0, done: 0 }).total++;
+    if (a.done) gradeAgg[g].done++;
+  }
+  const gradeBreakdown = Object.entries(gradeAgg)
+    .map(([grade, v]) => ({ grade, learners: v.learners, assignmentsTotal: v.total, assignmentsDone: v.done }))
+    .sort((a, b) => a.grade.localeCompare(b.grade));
+
+  const currentTerm = schoolTermOf(new Date().toISOString());
+  const visitedThisTerm = visitRows.some((r) => schoolTermOf(r.created_at) === currentTerm);
+
+  return c.json({
+    school, county,
+    teacherCount: teacherRows.length,
+    learnerCount: learnerRows.length,
+    teachersByType: tally(teacherRows, "teacher_type"),
+    assignmentsTotal: assignmentRows.length,
+    assignmentsDone: assignmentRows.filter((a) => a.done).length,
+    gradeBreakdown,
+    visits: visitRows.slice(0, 10).map(mapReport),
+    visitsTotal: visitRows.length,
+    visitedThisTerm,
+  });
+});
+
 // ---- education-team: manage staff accounts ----
 // Passwords are one-way hashed in auth.users — never readable, by anyone,
 // including this service-role key. So "editable" here means: edit the

@@ -48,16 +48,43 @@
 
       <section class="dash-page" data-page="overview">
         <div class="stat-row" id="statRow"></div>
+
         <div class="panel">
-          <div class="panel-head"><h2>My learning activity</h2></div>
-          <div id="usageSummary"></div>
+          <div class="panel-head"><h2>Learning activity</h2><a href="#learning">View all</a></div>
+          <div id="learningActivity"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>School reporting status</h2></div>
+          <div id="reportingStatus"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Field visits</h2><a href="#reports">View all</a></div>
+          <div id="visitSummary"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Education Team forms</h2></div>
+          <div id="formsList"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Resources for school leadership</h2><a href="#resources">View all</a></div>
+          <div id="leadershipResources"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Attention required</h2></div>
+          <div id="attentionList"></div>
         </div>
       </section>
 
       <section class="dash-page" data-page="learners" hidden>
         <div class="panel">
-          <div class="panel-head"><h2>Learners by class</h2></div>
-          <div id="classList"></div>
+          <div class="panel-head"><h2>Learners by grade</h2></div>
+          <p class="hint" style="margin-top:0">Counts only — individual learner records live with each learner's teacher.</p>
+          <div id="learnersByGrade"></div>
         </div>
       </section>
 
@@ -66,27 +93,32 @@
           <div class="panel-head"><h2>Teaching staff</h2></div>
           <div class="stat-row" id="teacherStatRow" style="margin-bottom:0"></div>
         </div>
+        <div class="panel">
+          <div class="panel-head"><h2>By teacher type</h2></div>
+          <div id="teacherTypeList"></div>
+        </div>
       </section>
 
       <section class="dash-page" data-page="learning" hidden>
         <div class="panel">
-          <div class="panel-head"><h2>Termly returns</h2></div>
-          <div id="returnList"></div>
+          <div class="panel-head"><h2>Learning activity by grade</h2></div>
+          <p class="hint" style="margin-top:0">Assignment completion — the one comparable signal recorded so far.</p>
+          <div id="learningByGrade"></div>
         </div>
       </section>
 
       <section class="dash-page" data-page="reports" hidden>
         <div class="panel">
-          <div class="panel-head"><h2>Recent field visits</h2></div>
+          <div class="panel-head"><h2>Field visits</h2></div>
           <div id="visitList"></div>
-        </div>
-        <div class="panel">
-          <div class="panel-head"><h2>Forms from the Education Team</h2></div>
-          <div id="formsList"></div>
         </div>
       </section>
 
       <section class="dash-page" data-page="resources" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>For School Head</h2></div>
+          <div id="headOnlyList"></div>
+        </div>
         <div class="panel">
           <div class="panel-head"><h2>Digital Library</h2></div>
           <div id="libraryList"></div>
@@ -96,8 +128,8 @@
           <div id="resourceList"></div>
         </div>
         <div class="panel">
-          <div class="panel-head"><h2>For School Head</h2></div>
-          <div id="headOnlyList"></div>
+          <div class="panel-head"><h2>My learning activity</h2></div>
+          <div id="usageSummary"></div>
         </div>
       </section>
     </main>

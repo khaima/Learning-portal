@@ -234,6 +234,13 @@ export async function getTeacherAssignments() {
   return assignments || [];
 }
 
+/* A school leader's own school in one call: real teacher/learner counts,
+   assignment completion, a grade-level breakdown, and recent field visits
+   — aggregates only, never an individual learner's row. */
+export async function getSchoolOverview() {
+  return apiGet("/school/overview");
+}
+
 /* ---------------------------------------------------------------- field reports */
 
 export async function getFieldReports() {

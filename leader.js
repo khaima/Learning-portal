@@ -1,26 +1,32 @@
 import "./nav.js";
 import { $, $$, esc, initials, formatDuration, groupByType } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
-import { LEADER_CONTENT, normalizeLibraryAudience, CONTENT_TYPES } from "./data.js";
-import { getForms, getResponses, addResponse, getLibrary, libraryFilesHtml, getMyLibraryUsage } from "./store.js";
+import { normalizeLibraryAudience, CONTENT_TYPES } from "./data.js";
+import {
+  getForms, getResponses, addResponse, getLibrary, libraryFilesHtml, getMyLibraryUsage,
+  getSchoolOverview,
+} from "./store.js";
 
 const ICON = {
   learners: '<path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/>',
   teachers: '<path d="M4 19V6a2 2 0 0 1 2-2h13v14H6a2 2 0 0 0-2 2Zm0 0a2 2 0 0 0 2 2h13"/><path d="M9 8h7M9 11h7"/>',
-  classes: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/>',
-  attendance: '<path d="M12 20V10M18 20V4M6 20v-6"/>',
+  grades: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/>',
 };
 const svg = (paths) => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${paths}</svg>`;
-const RETURN_PILL = { ok: "pill ok", due: "pill warm", upcoming: "pill" };
-const RETURN_LABEL = { ok: "Filed", due: "Due soon", upcoming: "Upcoming" };
+
+/* A short label for the grade-row "avatar" swatch — "Grade 5" → "G5",
+   anything without a number falls back to its first two letters, and an
+   unset grade gets a plain dash rather than a made-up code. */
+function gradeCode(grade) {
+  if (!grade || grade === "(not set)") return "–";
+  const m = grade.match(/\d+/);
+  if (m) return "G" + m[0];
+  return grade.slice(0, 2).toUpperCase();
+}
 
 async function main() {
   const user = await requireRole("school_leader");
   if (!user) return;
-  const content = LEADER_CONTENT[user.id] || {
-    stats: { learners: 0, teachers: 0, classes: 0, attendance: 0 },
-    classes: [], returns: [], visits: [],
-  };
 
   $("#sideAvatar").textContent = initials(user.fullName);
   $("#sideName").textContent = user.fullName;
@@ -28,115 +34,153 @@ async function main() {
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
   $("#topSub").textContent = `${user.school || "No school set"} · Term 2, 2026`;
 
-  const { stats } = content;
-  $("#statRow").innerHTML = `
-    <div class="stat-tile"><div class="s-label">${svg(ICON.learners)}Learners</div><div class="s-num">${stats.learners}</div><div class="s-sub">enrolled</div></div>
-    <div class="stat-tile"><div class="s-label">${svg(ICON.teachers)}Teachers</div><div class="s-num">${stats.teachers}</div><div class="s-sub">on staff</div></div>
-    <div class="stat-tile"><div class="s-label">${svg(ICON.classes)}Classes</div><div class="s-num">${stats.classes}</div><div class="s-sub">running this term</div></div>
-    <div class="stat-tile"><div class="s-label">${svg(ICON.attendance)}Attendance</div><div class="s-num">${stats.attendance}%</div><div class="s-sub">avg. this week</div></div>
-  `;
-  // The "Teachers" page — there's no per-teacher roster to show yet, just
-  // the real staff count; honest about that rather than inventing a list.
-  $("#teacherStatRow").innerHTML =
-    `<div class="stat-tile"><div class="s-label">${svg(ICON.teachers)}Teachers</div><div class="s-num">${stats.teachers}</div><div class="s-sub">on staff</div></div>`;
+  /* Everything on this dashboard is an aggregate — counts, percentages,
+     grade-level rollups — never a single learner's name or row. That's
+     the whole point of a school-leader view versus a teacher's: less
+     detail, more "is my school on track." */
+  let overview = {
+    teacherCount: 0, learnerCount: 0, teachersByType: [],
+    assignmentsTotal: 0, assignmentsDone: 0, gradeBreakdown: [],
+    visits: [], visitsTotal: 0, visitedThisTerm: false,
+  };
+  let formsCache = [];
+  let responsesCache = [];
 
-  $("#classList").innerHTML = content.classes.length
-    ? content.classes.map((c) => `
-      <div class="class-row">
-        <div class="class-swatch" style="background:${c.swatch}">${esc(c.code)}</div>
-        <div class="class-info"><b>${esc(c.name)}</b><span>${c.learners} learners</span>
-          <div class="class-bar"><i style="width:${c.coverage}%"></i></div></div>
-        <div class="class-meta"><b>${c.coverage}%</b>coverage</div>
-      </div>`).join("")
-    : `<div class="empty-state">No classes recorded yet.</div>`;
-
-  $("#returnList").innerHTML = content.returns.length
-    ? content.returns.map((r) => `
-      <div class="task-row"><div style="flex:1"><b>${esc(r.term)}</b><span>${esc(r.detail)}</span></div>
-        <span class="${RETURN_PILL[r.state] || "pill"}">${RETURN_LABEL[r.state] || r.state}</span></div>`).join("")
-    : `<div class="empty-state">No returns on record yet.</div>`;
-
-  $("#visitList").innerHTML = content.visits.length
-    ? content.visits.map((v) => `
-      <div class="task-row"><div><b>${esc(v.label)}</b><span>${esc(v.detail)}</span></div></div>`).join("")
-    : `<div class="empty-state">No field visits recorded yet.</div>`;
-
-  /* Content library. As head of institution, the school leader sees all
-     three shelves: Teacher Resources (staff-only), the learner-facing
-     Digital Library, and anything addressed specifically to school
-     leadership. */
-  $("#resourceList").innerHTML = `<div class="empty-state">Loading…</div>`;
-  $("#libraryList").innerHTML = `<div class="empty-state">Loading…</div>`;
-  $("#headOnlyList").innerHTML = `<div class="empty-state">Loading…</div>`;
-  getLibrary().then((library) => {
-    const row = (l) => `
-      <div class="task-row"><div><b>${esc(l.title)}</b><span>${esc(l.subject)}${
-        l.description ? " — " + esc(l.description) : ""}</span>${libraryFilesHtml(l)}</div></div>`;
-    const folders = (list) => groupByType(list, CONTENT_TYPES).map(({ type, items }) => `
-      <div class="list-group">
-        <div class="list-group-title">${esc(type)}<span class="count">${items.length}</span></div>
-        ${items.map(row).join("")}
-      </div>`).join("");
-    const resources = library.filter((l) => normalizeLibraryAudience(l.audience) === "staff");
-    const shared = library.filter((l) => normalizeLibraryAudience(l.audience) === "library");
-    const headOnly = library.filter((l) => normalizeLibraryAudience(l.audience) === "school_leader");
-    $("#resourceList").innerHTML = resources.length
-      ? folders(resources)
-      : `<div class="empty-state">No teacher resources uploaded yet.</div>`;
-    $("#libraryList").innerHTML = shared.length
-      ? folders(shared)
-      : `<div class="empty-state">Nothing in the library yet.</div>`;
-    $("#headOnlyList").innerHTML = headOnly.length
-      ? folders(headOnly)
-      : `<div class="empty-state">Nothing addressed to school heads yet.</div>`;
-  });
-
-  /* My learning activity — every "Open to read" click above (and on the
-     other shelves) is timed from open to return; see nav.js. */
-  renderUsageSummary();
-  async function renderUsageSummary() {
-    const el = $("#usageSummary");
-    el.innerHTML = `<div class="empty-state">Loading…</div>`;
-    let u;
-    try { u = await getMyLibraryUsage(); } catch {
-      el.innerHTML = `<div class="empty-state is-error">Couldn't load your activity.</div>`;
-      return;
-    }
-    if (!u.interactions.length) {
-      el.innerHTML = `<div class="empty-state">Open something from the library to start tracking your activity here.</div>`;
-      return;
-    }
-    const rows = u.interactions.slice(0, 10).map((it) => `
-      <div class="task-row">
-        <div style="flex:1"><b>${esc(it.title || "Resource")}</b><span>Started ${new Date(it.startedAt).toLocaleString()}${
-          it.completedAt ? " · Finished " + new Date(it.completedAt).toLocaleString() : " · In progress"}</span></div>
-        <span class="bar-num">${it.durationSeconds != null ? formatDuration(it.durationSeconds) : "—"}</span>
-      </div>`).join("");
-    const badgeChips = (u.badges || []).slice(0, 6).map((b) => `
-      <span class="pill" style="display:inline-flex;align-items:center;gap:.3rem;margin:0 .3rem .3rem 0">&#127942; ${esc(b.title || "Resource")}</span>`).join("");
-    el.innerHTML = `
-      <div class="chart-stats" style="grid-template-columns:repeat(3,1fr)">
-        <div><b>${formatDuration(u.totalSeconds)}</b><span>Time spent</span></div>
-        <div><b>${u.resourcesOpened}</b><span>Resources opened</span></div>
-        <div><b>${u.badgesEarned || 0}</b><span>Badges earned</span></div>
-      </div>
-      ${badgeChips ? `<div style="margin:.7rem 0 .1rem">${badgeChips}</div>` : ""}
-      ${rows}
+  function renderKpis() {
+    $("#statRow").innerHTML = `
+      <div class="stat-tile"><div class="s-label">${svg(ICON.learners)}Learners</div><div class="s-num">${overview.learnerCount}</div><div class="s-sub">enrolled</div></div>
+      <div class="stat-tile"><div class="s-label">${svg(ICON.teachers)}Teachers</div><div class="s-num">${overview.teacherCount}</div><div class="s-sub">on staff</div></div>
+      <div class="stat-tile"><div class="s-label">${svg(ICON.grades)}Grades running</div><div class="s-num">${overview.gradeBreakdown.length}</div><div class="s-sub">this term</div></div>
     `;
   }
 
-  /* Forms the Education Team has sent to school heads — same
-     create-once-fill-once loop as the teacher dashboard. */
+  function renderLearningActivity() {
+    const { assignmentsTotal: total, assignmentsDone: done } = overview;
+    $("#learningActivity").innerHTML = total
+      ? `<div class="chart-stats" style="grid-template-columns:repeat(2,1fr)">
+           <div><b>${Math.round((done / total) * 100)}%</b><span>Assignments completed</span></div>
+           <div><b>${done}/${total}</b><span>across the school</span></div>
+         </div>`
+      : `<div class="empty-state">No assignments recorded yet.</div>`;
+  }
+
+  function gradeRow({ grade, learners, assignmentsTotal, assignmentsDone }, withCompletion) {
+    const pct = assignmentsTotal ? Math.round((assignmentsDone / assignmentsTotal) * 100) : 0;
+    return `
+      <div class="class-row">
+        <div class="class-swatch" style="background:var(--brand)">${esc(gradeCode(grade))}</div>
+        <div class="class-info"><b>${esc(grade)}</b><span>${learners} learner${learners === 1 ? "" : "s"}${withCompletion ? ` · ${assignmentsDone}/${assignmentsTotal} assignments done` : ""}</span>
+          ${withCompletion ? `<div class="class-bar"><i style="width:${pct}%"></i></div>` : ""}</div>
+        ${withCompletion ? `<div class="class-meta"><b>${pct}%</b>complete</div>` : ""}
+      </div>`;
+  }
+
+  function renderLearningByGrade() {
+    $("#learningByGrade").innerHTML = overview.gradeBreakdown.length
+      ? overview.gradeBreakdown.map((g) => gradeRow(g, true)).join("")
+      : `<div class="empty-state">No grades recorded yet.</div>`;
+  }
+
+  function renderLearnersByGrade() {
+    $("#learnersByGrade").innerHTML = overview.gradeBreakdown.length
+      ? overview.gradeBreakdown.map((g) => gradeRow(g, false)).join("")
+      : `<div class="empty-state">No learners recorded yet.</div>`;
+  }
+
+  function renderTeachers() {
+    $("#teacherStatRow").innerHTML =
+      `<div class="stat-tile"><div class="s-label">${svg(ICON.teachers)}Teachers</div><div class="s-num">${overview.teacherCount}</div><div class="s-sub">on staff</div></div>`;
+    $("#teacherTypeList").innerHTML = overview.teachersByType.length
+      ? overview.teachersByType.map((t) => `<div class="result-row"><span>${esc(t.label)}</span><span>${t.value}</span></div>`).join("")
+      : `<div class="empty-state">No teacher type recorded yet.</div>`;
+  }
+
+  function visitRow(v) {
+    return `
+      <div class="task-row"><div><b>${esc(v.visitType || "Visit")}</b><span>${new Date(v.createdAt).toLocaleDateString()}</span></div></div>`;
+  }
+
+  function renderVisits() {
+    $("#visitList").innerHTML = overview.visits.length
+      ? overview.visits.map(visitRow).join("")
+      : `<div class="empty-state">No field visits recorded yet.</div>`;
+    $("#visitSummary").innerHTML = overview.visits.length
+      ? overview.visits.slice(0, 3).map(visitRow).join("")
+        + (overview.visitsTotal > 3 ? `<p class="hint" style="margin-top:.4rem">${overview.visitsTotal} visits on record — view all.</p>` : "")
+      : `<div class="empty-state">No field visits recorded yet.</div>`;
+  }
+
+  function renderReportingStatus() {
+    const el = $("#reportingStatus");
+    const total = formsCache.length;
+    if (!total) {
+      el.innerHTML = `<div class="empty-state">No forms from the Education Team yet.</div>`;
+      return;
+    }
+    const answeredIds = new Set(responsesCache.filter((r) => r.respondentId === user.id).map((r) => r.formId));
+    const pending = formsCache.filter((f) => !answeredIds.has(f.id));
+    el.innerHTML = pending.length
+      ? `<div class="alert alert-warn"><div><b>${pending.length} form${pending.length === 1 ? "" : "s"} awaiting response</b>${total - pending.length} of ${total} filed so far.</div></div>`
+      : `<div class="alert alert-ok"><div><b>All caught up</b>${total} of ${total} form${total === 1 ? "" : "s"} from the Education Team ${total === 1 ? "is" : "are"} filed.</div></div>`;
+  }
+
+  /* Plain-language, real signals only — no manufactured "tasks." Each item
+     here is derived straight from data already on the page, so nothing
+     shows up here that isn't also visible (and explainable) elsewhere. */
+  function renderAttention() {
+    const items = [];
+    const answeredIds = new Set(responsesCache.filter((r) => r.respondentId === user.id).map((r) => r.formId));
+    for (const f of formsCache.filter((f) => !answeredIds.has(f.id))) {
+      items.push({ tone: "warn", title: "Form awaiting response", detail: `"${f.title}" from the Education Team hasn't been filled in yet.` });
+    }
+    if (overview.assignmentsTotal > 0) {
+      const rate = overview.assignmentsDone / overview.assignmentsTotal;
+      if (rate < 0.5) {
+        items.push({ tone: "warn", title: "Low learning activity", detail: `Only ${Math.round(rate * 100)}% of assignments are completed across the school so far.` });
+      }
+    }
+    if (!overview.visitedThisTerm) {
+      items.push({ tone: "info", title: "Outstanding school task", detail: "No field visit has been recorded for the school this term." });
+    }
+    $("#attentionList").innerHTML = items.length
+      ? items.map((it) => `<div class="alert alert-${it.tone}"><div><b>${esc(it.title)}</b>${esc(it.detail)}</div></div>`).join("")
+      : `<div class="empty-state">Nothing needs your attention right now.</div>`;
+  }
+
+  function renderAllOverview() {
+    renderKpis();
+    renderLearningActivity();
+    renderLearningByGrade();
+    renderLearnersByGrade();
+    renderTeachers();
+    renderVisits();
+    renderReportingStatus();
+    renderAttention();
+  }
+  renderAllOverview();
+
+  async function loadOverview() {
+    try { overview = await getSchoolOverview(); } catch { /* keep the honest zeroed defaults */ }
+    renderAllOverview();
+  }
+  loadOverview();
+
+  /* Forms the Education Team has sent to school heads — the same
+     create-once-fill-once loop as the teacher dashboard. Lives on
+     Overview now (per the new layout); "School reporting status" and
+     "Attention required" above are both derived from this same data. */
   renderForms();
   async function renderForms() {
     $("#formsList").innerHTML = `<div class="empty-state">Loading…</div>`;
     const [allForms, responses] = await Promise.all([getForms(), getResponses()]);
-    const forms = allForms.filter((f) => f.audience === "school_leader");
-    const answeredFormIds = new Set(responses.filter((r) => r.respondentId === user.id).map((r) => r.formId));
+    formsCache = allForms.filter((f) => f.audience === "school_leader");
+    responsesCache = responses;
+    renderReportingStatus();
+    renderAttention();
 
-    $("#formsList").innerHTML = forms.length
-      ? forms.map((f) => {
-          const done = answeredFormIds.has(f.id);
+    $("#formsList").innerHTML = formsCache.length
+      ? formsCache.map((f) => {
+          const done = new Set(responsesCache.filter((r) => r.respondentId === user.id).map((r) => r.formId)).has(f.id);
           return `
             <div class="form-card">
               <div class="fc-head"><h3>${esc(f.title)}</h3>${done ? `<span class="pill ok">Submitted</span>` : `<span class="pill warm">Pending</span>`}</div>
@@ -148,7 +192,7 @@ async function main() {
       : `<div class="empty-state">No forms from the Education Team yet.</div>`;
 
     $$("[data-fill-form]").forEach((btn) =>
-      btn.addEventListener("click", () => openFormFill(btn.dataset.fillForm, forms, btn))
+      btn.addEventListener("click", () => openFormFill(btn.dataset.fillForm, formsCache, btn))
     );
   }
 
@@ -185,6 +229,76 @@ async function main() {
       });
       renderForms();
     });
+  }
+
+  /* Content library. As head of institution, the school leader sees all
+     three shelves: Teacher Resources (staff-only), the learner-facing
+     Digital Library, and anything addressed specifically to school
+     leadership — the last of which also gets a short preview on
+     Overview, since that's the one most relevant to this role. */
+  $("#resourceList").innerHTML = `<div class="empty-state">Loading…</div>`;
+  $("#libraryList").innerHTML = `<div class="empty-state">Loading…</div>`;
+  $("#headOnlyList").innerHTML = `<div class="empty-state">Loading…</div>`;
+  $("#leadershipResources").innerHTML = `<div class="empty-state">Loading…</div>`;
+  getLibrary().then((library) => {
+    const row = (l) => `
+      <div class="task-row"><div><b>${esc(l.title)}</b><span>${esc(l.subject)}${
+        l.description ? " — " + esc(l.description) : ""}</span>${libraryFilesHtml(l)}</div></div>`;
+    const folders = (list) => groupByType(list, CONTENT_TYPES).map(({ type, items }) => `
+      <div class="list-group">
+        <div class="list-group-title">${esc(type)}<span class="count">${items.length}</span></div>
+        ${items.map(row).join("")}
+      </div>`).join("");
+    const resources = library.filter((l) => normalizeLibraryAudience(l.audience) === "staff");
+    const shared = library.filter((l) => normalizeLibraryAudience(l.audience) === "library");
+    const headOnly = library.filter((l) => normalizeLibraryAudience(l.audience) === "school_leader");
+    $("#resourceList").innerHTML = resources.length
+      ? folders(resources)
+      : `<div class="empty-state">No teacher resources uploaded yet.</div>`;
+    $("#libraryList").innerHTML = shared.length
+      ? folders(shared)
+      : `<div class="empty-state">Nothing in the library yet.</div>`;
+    $("#headOnlyList").innerHTML = headOnly.length
+      ? folders(headOnly)
+      : `<div class="empty-state">Nothing addressed to school heads yet.</div>`;
+    $("#leadershipResources").innerHTML = headOnly.length
+      ? headOnly.slice(0, 5).map(row).join("") + (headOnly.length > 5 ? `<p class="hint" style="margin-top:.4rem">+${headOnly.length - 5} more — view all.</p>` : "")
+      : `<div class="empty-state">Nothing addressed to school heads yet.</div>`;
+  });
+
+  /* My learning activity — every "Open to read" click above is timed
+     from open to return; see nav.js. Personal, so it stays on the
+     Resources page rather than the school-wide Overview. */
+  renderUsageSummary();
+  async function renderUsageSummary() {
+    const el = $("#usageSummary");
+    el.innerHTML = `<div class="empty-state">Loading…</div>`;
+    let u;
+    try { u = await getMyLibraryUsage(); } catch {
+      el.innerHTML = `<div class="empty-state is-error">Couldn't load your activity.</div>`;
+      return;
+    }
+    if (!u.interactions.length) {
+      el.innerHTML = `<div class="empty-state">Open something from the library to start tracking your activity here.</div>`;
+      return;
+    }
+    const rows = u.interactions.slice(0, 10).map((it) => `
+      <div class="task-row">
+        <div style="flex:1"><b>${esc(it.title || "Resource")}</b><span>Started ${new Date(it.startedAt).toLocaleString()}${
+          it.completedAt ? " · Finished " + new Date(it.completedAt).toLocaleString() : " · In progress"}</span></div>
+        <span class="bar-num">${it.durationSeconds != null ? formatDuration(it.durationSeconds) : "—"}</span>
+      </div>`).join("");
+    const badgeChips = (u.badges || []).slice(0, 6).map((b) => `
+      <span class="pill" style="display:inline-flex;align-items:center;gap:.3rem;margin:0 .3rem .3rem 0">&#127942; ${esc(b.title || "Resource")}</span>`).join("");
+    el.innerHTML = `
+      <div class="chart-stats" style="grid-template-columns:repeat(3,1fr)">
+        <div><b>${formatDuration(u.totalSeconds)}</b><span>Time spent</span></div>
+        <div><b>${u.resourcesOpened}</b><span>Resources opened</span></div>
+        <div><b>${u.badgesEarned || 0}</b><span>Badges earned</span></div>
+      </div>
+      ${badgeChips ? `<div style="margin:.7rem 0 .1rem">${badgeChips}</div>` : ""}
+      ${rows}
+    `;
   }
 }
 main();
