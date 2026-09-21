@@ -28,7 +28,7 @@
              not an HTML <table>, so it reflows on a phone instead of
              needing horizontal scroll)
    Buttons   .btn .btn-primary .btn-outline .btn-ghost .btn-google
-   Forms     .field .field-error .fill-form
+   Forms     .field .field-error .fill-form .panel-search (row-list filter)
    Status    .pill (.warm/.ok/.danger) .alert (.info/.warm/.danger/.ok)
    Feedback  .empty-state (.is-error) .toast .badge-toast
    Charts    .chart-stats .bar-chart .donut .chart-legend
@@ -248,6 +248,15 @@ a{ color:inherit; }
   border-radius:var(--radius-sm); padding:.62rem .75rem; font-size:.92rem; font-family:inherit;
 }
 .field input:focus,.field select:focus{ border-color:var(--brand); }
+/* A search box above a row-list (.task-row etc.) instead of a paged
+   table — filters client-side as you type, so a long roster or queue
+   stays usable on a phone without horizontal scroll. */
+.panel-search{ margin-bottom:.8rem; }
+.panel-search input{
+  width:100%; border:1.5px solid var(--line); background:var(--paper-raised); color:var(--ink);
+  border-radius:var(--radius-sm); padding:.5rem .75rem; font-size:.86rem; font-family:inherit;
+}
+.panel-search input:focus{ border-color:var(--brand); }
 .field .field-error{ color:var(--danger); font-size:.78rem; margin-top:.3rem; }
 .login-foot{ display:flex; justify-content:space-between; margin-top:.8rem; font-size:.8rem; }
 .login-foot button{ background:none; border:0; color:var(--ink-soft); cursor:pointer; font-size:.8rem; text-decoration:underline; text-underline-offset:2px; }

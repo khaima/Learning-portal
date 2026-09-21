@@ -227,6 +227,13 @@ export async function setAssignmentDone(id, done) {
   return assignment;
 }
 
+/* Every assignment across a teacher's own roster in one call — feeds the
+   teacher dashboard's grading queue and recent-results sections. */
+export async function getTeacherAssignments() {
+  const { assignments } = await apiGet("/teacher/assignments");
+  return assignments || [];
+}
+
 /* ---------------------------------------------------------------- field reports */
 
 export async function getFieldReports() {

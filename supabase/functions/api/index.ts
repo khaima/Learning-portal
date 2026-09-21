@@ -1021,6 +1021,26 @@ app.get("/assignments", withActor(), async (c) => {
   return c.json({ assignments: (data ?? []).map(mapAssignment) });
 });
 
+/* Every assignment across a teacher's own roster, in one query — backs
+   the teacher dashboard's grading queue / recent results, which need to
+   scan all learners at once rather than one at a time (the per-learner
+   "view activity" panel already covers that case via /learners/:id/activity). */
+app.get("/teacher/assignments", withProfile("teacher"), async (c) => {
+  const teacherId = c.get("actor").id;
+  const { data, error } = await admin
+    .from("assignments")
+    .select("id, title, subject, due, done, learner_id, learners!inner(full_name, teacher_id)")
+    .eq("learners.teacher_id", teacherId)
+    .order("due");
+  if (error) return c.json({ error: error.message }, 500);
+  const assignments = (data ?? []).map((r: Record<string, unknown>) => ({
+    ...mapAssignment(r),
+    learnerId: r.learner_id,
+    learnerName: (r.learners as Record<string, unknown> | null)?.full_name ?? "",
+  }));
+  return c.json({ assignments });
+});
+
 /* A learner marks their own assignment done — or their teacher does it
    for them, from the "view a learner's activity" panel (helping remotely
    when a learner reports something's finished but couldn't do it

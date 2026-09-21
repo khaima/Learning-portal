@@ -5,7 +5,7 @@ import { TEACHER_CONTENT, normalizeLibraryAudience, CONTENT_TYPES } from "./data
 import {
   getLibrary, getForms, getResponses, addResponse, libraryFilesHtml,
   getLearners, addLearner, updateLearner, deleteLearner, getMyLibraryUsage, getLearnerActivity,
-  setAssignmentDone,
+  setAssignmentDone, getTeacherAssignments,
 } from "./store.js";
 import { openContentPanel } from "./viewer.js";
 
@@ -14,16 +14,15 @@ const ICON = {
   grade: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/>',
   score: '<path d="M4 19V5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M9 13l2 2 4-4"/>',
   attendance: '<path d="M12 20V10M18 20V4M6 20v-6"/>',
+  learners: '<circle cx="9" cy="7" r="4"/><path d="M2 21v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2"/><path d="M17 3.13a4 4 0 0 1 0 7.75"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/>',
+  library: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/>',
 };
 const svg = (paths) => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${paths}</svg>`;
 
 async function main() {
   const user = await requireRole("teacher");
   if (!user) return;
-  const content = TEACHER_CONTENT[user.id] || {
-    stats: { classes: 0, learners: 0, toGrade: 0, avgScore: 0, attendance: 0 },
-    classes: [], tasks: [], results: [],
-  };
+  const content = TEACHER_CONTENT[user.id] || { classes: [] };
 
   $("#sideAvatar").textContent = initials(user.fullName);
   $("#sideName").textContent = user.fullName;
@@ -31,33 +30,134 @@ async function main() {
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
   $("#topSub").textContent = `${user.school || "No school set"} · Term 2, 2026`;
 
-  const { stats } = content;
-  $("#statRow").innerHTML = `
-    <div class="stat-tile"><div class="s-label">${svg(ICON.classes)}Classes</div><div class="s-num">${stats.classes}</div><div class="s-sub">${stats.learners} learners total</div></div>
-    <div class="stat-tile"><div class="s-label">${svg(ICON.grade)}To grade</div><div class="s-num">${stats.toGrade}</div><div class="s-sub">this week</div></div>
-    <div class="stat-tile"><div class="s-label">${svg(ICON.score)}Avg. score</div><div class="s-num">${stats.avgScore}%</div><div class="s-sub">this term</div></div>
-    <div class="stat-tile"><div class="s-label">${svg(ICON.attendance)}Attendance</div><div class="s-num">${stats.attendance}%</div><div class="s-sub">avg. this week</div></div>
-  `;
+  /* ------------------------------------------------------------ KPI row
+     Real counts only — "assignments to review" / "completed this week"
+     come from the same assignment data as the grading queue below, not a
+     separate estimate, so the tiles and the lists underneath always agree. */
+  function renderKpis() {
+    const toReview = assignCache.filter((a) => !a.done).length;
+    const completedThisWeek = assignCache.filter((a) => a.done && isThisWeek(a.due)).length;
+    const resourcesUsed = usageCache ? usageCache.resourcesOpened : 0;
+    $("#statRow").innerHTML = `
+      <div class="stat-tile"><div class="s-label">${svg(ICON.learners)}My learners</div><div class="s-num">${learnerCache.length}</div><div class="s-sub">across your classes</div></div>
+      <div class="stat-tile"><div class="s-label">${svg(ICON.grade)}Assignments to review</div><div class="s-num">${toReview}</div><div class="s-sub">needs action</div></div>
+      <div class="stat-tile"><div class="s-label">${svg(ICON.score)}Completed this week</div><div class="s-num">${completedThisWeek}</div><div class="s-sub">assignments</div></div>
+      <div class="stat-tile"><div class="s-label">${svg(ICON.library)}Resources used</div><div class="s-num">${resourcesUsed}</div><div class="s-sub">by you, all time</div></div>
+    `;
+  }
 
-  $("#classList").innerHTML = content.classes.length
-    ? content.classes.map((c) => `
-      <div class="class-row">
-        <div class="class-swatch" style="background:${c.swatch}">${esc(c.code)}</div>
-        <div class="class-info"><b>${esc(c.name)}</b><span>${c.learners} learners</span>
-          <div class="class-bar"><i style="width:${c.coverage}%"></i></div></div>
-        <div class="class-meta"><b>${c.coverage}%</b>coverage</div>
-      </div>`).join("")
-    : `<div class="empty-state">No classes yet. A real build would let you create one here.</div>`;
+  function renderClasses() {
+    const html = content.classes.length
+      ? content.classes.map((c) => `
+        <div class="class-row">
+          <div class="class-swatch" style="background:${c.swatch}">${esc(c.code)}</div>
+          <div class="class-info"><b>${esc(c.name)}</b><span>${c.learners} learners</span>
+            <div class="class-bar"><i style="width:${c.coverage}%"></i></div></div>
+          <div class="class-meta"><b>${c.coverage}%</b>coverage</div>
+        </div>`).join("")
+      : `<div class="empty-state">No classes yet. A real build would let you create one here.</div>`;
+    $("#classList").innerHTML = html;
+    $("#homeClassList").innerHTML = html;
+  }
+  renderClasses();
 
-  $("#taskList").innerHTML = content.tasks.length
-    ? content.tasks.map((t) => `
-      <div class="task-row ${t.state}"><span class="task-dot"></span><div><b>${esc(t.title)}</b><span>${esc(t.detail)}</span></div></div>`).join("")
-    : `<div class="empty-state">Nothing due this week.</div>`;
+  /* ------------------------------------------------------------ assignments
+     One real list — not-done rows are the grading queue, done rows are
+     recent results — shared between Home and the Assignments page so a
+     status change made from either place shows up everywhere at once. */
+  let assignCache = [];
+  let learnerCache = [];
+  let usageCache = null;
 
-  $("#resultList").innerHTML = content.results.length
-    ? content.results.map((r) => `
-      <div class="result-row"><span>${esc(r.label)}</span><span class="score ${r.kind}">${r.score}%</span></div>`).join("")
-    : `<div class="empty-state">No results recorded yet.</div>`;
+  const todayISO = () => new Date().toISOString().slice(0, 10);
+  function isThisWeek(dateStr) {
+    if (!dateStr) return false;
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return false;
+    const now = new Date();
+    const day = (now.getDay() + 6) % 7; // Monday = 0
+    const start = new Date(now); start.setHours(0, 0, 0, 0); start.setDate(start.getDate() - day);
+    const end = new Date(start); end.setDate(end.getDate() + 7);
+    return d >= start && d < end;
+  }
+
+  function assignRow(a) {
+    const overdue = !a.done && a.due && a.due < todayISO();
+    const cls = a.done ? "ok" : overdue ? "danger" : "warm";
+    const label = a.done ? "Completed" : overdue ? "Overdue" : "Needs action";
+    return `
+      <div class="task-row" data-assign="${esc(a.id)}">
+        <span class="task-dot"></span>
+        <div style="flex:1"><b>${esc(a.title)}</b><span>${esc(a.learnerName)} · ${esc(a.subject)}${a.due ? " · due " + esc(a.due) : ""}</span></div>
+        <button type="button" class="pill ${cls}" style="border:0;cursor:pointer" data-toggle-assign="${esc(a.id)}" data-done="${a.done ? "1" : "0"}">${label}</button>
+      </div>`;
+  }
+
+  function filterAssignments(list, query) {
+    if (!query) return list;
+    const q = query.toLowerCase();
+    return list.filter((a) => `${a.learnerName} ${a.title} ${a.subject}`.toLowerCase().includes(q));
+  }
+
+  function renderQueueInto(targetId, searchInputId) {
+    const el = $(targetId);
+    if (!el) return;
+    const queue = assignCache.filter((a) => !a.done);
+    const filtered = filterAssignments(queue, ($(searchInputId)?.value || "").trim());
+    el.innerHTML = filtered.length
+      ? filtered.map(assignRow).join("")
+      : queue.length
+        ? `<div class="empty-state">No matches for that search.</div>`
+        : `<div class="empty-state">Nothing needs grading right now.</div>`;
+  }
+
+  function renderRecentResults() {
+    const done = assignCache.filter((a) => a.done)
+      .slice().sort((x, y) => (y.due || "").localeCompare(x.due || ""));
+    const html = done.length
+      ? done.map((a) => `<div class="result-row"><span>${esc(a.learnerName)} — ${esc(a.title)}</span><span class="pill ok">Completed</span></div>`).join("")
+      : `<div class="empty-state">No completed assignments yet.</div>`;
+    $("#resultList").innerHTML = html;
+    $("#homeResultList").innerHTML = done.length
+      ? done.slice(0, 8).map((a) => `<div class="result-row"><span>${esc(a.learnerName)} — ${esc(a.title)}</span><span class="pill ok">Completed</span></div>`).join("")
+        + (done.length > 8 ? `<p class="hint" style="margin-top:.4rem">+${done.length - 8} more — view all.</p>` : "")
+      : `<div class="empty-state">No completed assignments yet.</div>`;
+  }
+
+  function renderAllAssignmentViews() {
+    renderQueueInto("#gradingQueue", "#gradingSearch");
+    renderQueueInto("#taskList", "#assignSearch");
+    renderRecentResults();
+    renderKpis();
+  }
+
+  async function handleAssignToggleClick(e) {
+    const btn = e.target.closest("[data-toggle-assign]");
+    if (!btn) return;
+    const id = btn.dataset.toggleAssign;
+    const nextDone = btn.dataset.done !== "1";
+    btn.disabled = true;
+    try {
+      await setAssignmentDone(id, nextDone);
+      assignCache = assignCache.map((a) => (a.id === id ? { ...a, done: nextDone } : a));
+      renderAllAssignmentViews();
+      toast(nextDone ? "Marked done" : "Marked not yet done", "");
+    } catch (err) {
+      btn.disabled = false;
+      toast("Couldn't update that", err?.body?.error || err?.message || "", "error");
+    }
+  }
+  $("#gradingQueue").addEventListener("click", handleAssignToggleClick);
+  $("#taskList").addEventListener("click", handleAssignToggleClick);
+  $("#gradingSearch")?.addEventListener("input", () => renderQueueInto("#gradingQueue", "#gradingSearch"));
+  $("#assignSearch")?.addEventListener("input", () => renderQueueInto("#taskList", "#assignSearch"));
+
+  async function loadAssignments() {
+    try { assignCache = await getTeacherAssignments(); } catch { assignCache = []; }
+    renderAllAssignmentViews();
+  }
+
+  renderKpis();
 
   /* ------------------------------------------------------------ my learners
      Learners sign in with a username + 4-digit PIN. This teacher creates
@@ -69,7 +169,6 @@ async function main() {
 
   const LEARNER_PAGE_SIZE = 8;
   let learnerPage = 0;
-  let learnerCache = [];
 
   function learnerRow(l) {
     return `
@@ -122,7 +221,43 @@ async function main() {
     roster.innerHTML = `<div class="empty-state">Loading…</div>`;
     try { learnerCache = await getLearners(); } catch { learnerCache = []; }
     renderRosterPage();
+    renderHomeLearnerActivity();
+    renderKpis();
   }
+
+  /* Home's "Learner activity" panel — the same roster, but read + jump-to
+     only (no edit/PIN/remove); those management actions stay on My
+     Learners so this stays a quick scan-and-check-in view. */
+  function learnerActivityRow(l) {
+    return `
+      <div class="task-row" data-learner-activity="${esc(l.id)}">
+        <div style="flex:1">
+          <b>${esc(l.fullName)}</b>
+          <span>@${esc(l.username)}${l.grade ? " · " + esc(l.grade) : ""}${l.locked ? ' · <span class="pill warm">Locked</span>' : ""}</span>
+        </div>
+        <button type="button" class="pill" style="border:0;cursor:pointer" data-view-activity="${esc(l.id)}">View activity</button>
+      </div>`;
+  }
+  function renderHomeLearnerActivity() {
+    const el = $("#learnerActivityList");
+    if (!el) return;
+    const q = ($("#learnerActivitySearch")?.value || "").trim().toLowerCase();
+    const filtered = q
+      ? learnerCache.filter((l) => `${l.fullName} ${l.username} ${l.grade || ""}`.toLowerCase().includes(q))
+      : learnerCache;
+    el.innerHTML = filtered.length
+      ? filtered.map(learnerActivityRow).join("")
+      : learnerCache.length
+        ? `<div class="empty-state">No matches for that search.</div>`
+        : `<div class="empty-state">No learners yet. Add one from My Learners.</div>`;
+  }
+  $("#learnerActivitySearch")?.addEventListener("input", renderHomeLearnerActivity);
+  $("#learnerActivityList")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-view-activity]");
+    if (!btn) return;
+    const row = btn.closest("[data-learner-activity]");
+    openLearnerActivity(btn.dataset.viewActivity, row.querySelector("b").textContent);
+  });
 
   $("#addLearnerBtn").addEventListener("click", () => {
     addForm.hidden = false;
@@ -346,7 +481,9 @@ async function main() {
       try {
         await setAssignmentDone(assignId, nextDone);
         assignments = assignments.map((a) => (a.id === assignId ? { ...a, done: nextDone } : a));
+        assignCache = assignCache.map((a) => (a.id === assignId ? { ...a, done: nextDone } : a));
         render();
+        renderAllAssignmentViews();
         toast(nextDone ? "Marked done" : "Marked not yet done", "");
       } catch (err) {
         btn.disabled = false;
@@ -356,13 +493,17 @@ async function main() {
   }
 
   renderRoster();
+  loadAssignments();
 
   /* Content library lives in the real database (education.js writes it).
      Teacher Resources go to teachers and the head of institution only —
      never the Learner dashboard; the Digital Library is the learner-facing
-     shelf, which teachers and heads can see too. */
+     shelf, which teachers and heads can see too. Home gets a short preview
+     of each with a link to the full folder-grouped view here. */
   $("#teacherResourceList").innerHTML = `<div class="empty-state">Loading…</div>`;
   $("#libraryList").innerHTML = `<div class="empty-state">Loading…</div>`;
+  $("#homeTeacherResources").innerHTML = `<div class="empty-state">Loading…</div>`;
+  $("#homeLibrary").innerHTML = `<div class="empty-state">Loading…</div>`;
   getLibrary().then((library) => {
     const row = (l) => `
         <div class="task-row"><div><b>${esc(l.title)}</b><span>${esc(l.subject)}${l.description ? " — " + esc(l.description) : ""}</span>${libraryFilesHtml(l)}</div></div>`;
@@ -371,6 +512,9 @@ async function main() {
         <div class="list-group-title">${esc(type)}<span class="count">${items.length}</span></div>
         ${items.map(row).join("")}
       </div>`).join("");
+    const preview = (list, emptyMsg) => list.length
+      ? list.slice(0, 5).map(row).join("") + (list.length > 5 ? `<p class="hint" style="margin-top:.4rem">+${list.length - 5} more — view all.</p>` : "")
+      : `<div class="empty-state">${emptyMsg}</div>`;
     const resources = library.filter((l) => normalizeLibraryAudience(l.audience) === "staff");
     const shared = library.filter((l) => normalizeLibraryAudience(l.audience) === "library");
     $("#teacherResourceList").innerHTML = resources.length
@@ -379,19 +523,40 @@ async function main() {
     $("#libraryList").innerHTML = shared.length
       ? folders(shared)
       : `<div class="empty-state">Nothing in the library yet.</div>`;
+    $("#homeTeacherResources").innerHTML = preview(resources, "No teacher resources uploaded yet.");
+    $("#homeLibrary").innerHTML = preview(shared, "Nothing in the library yet.");
   });
 
   /* My learning activity — every "Open to read" click above is timed
-     from open to return; see nav.js. */
+     from open to return; see nav.js. Home gets the summary tiles only;
+     the full interaction log stays on the Activity page. */
   renderUsageSummary();
   async function renderUsageSummary() {
     const el = $("#usageSummary");
+    const homeEl = $("#homeUsageSummary");
     el.innerHTML = `<div class="empty-state">Loading…</div>`;
+    if (homeEl) homeEl.innerHTML = `<div class="empty-state">Loading…</div>`;
     let u;
     try { u = await getMyLibraryUsage(); } catch {
       el.innerHTML = `<div class="empty-state is-error">Couldn't load your activity.</div>`;
+      if (homeEl) homeEl.innerHTML = `<div class="empty-state is-error">Couldn't load your activity.</div>`;
       return;
     }
+    usageCache = u;
+    renderKpis();
+
+    const summaryHtml = `
+      <div class="chart-stats" style="grid-template-columns:repeat(3,1fr)">
+        <div><b>${formatDuration(u.totalSeconds)}</b><span>Time spent</span></div>
+        <div><b>${u.resourcesOpened}</b><span>Resources opened</span></div>
+        <div><b>${u.badgesEarned || 0}</b><span>Badges earned</span></div>
+      </div>`;
+    if (homeEl) {
+      homeEl.innerHTML = u.interactions.length
+        ? summaryHtml
+        : `<div class="empty-state">Open something from the library to start tracking your activity here.</div>`;
+    }
+
     if (!u.interactions.length) {
       el.innerHTML = `<div class="empty-state">Open something from the library to start tracking your activity here.</div>`;
       return;
@@ -405,11 +570,7 @@ async function main() {
     const badgeChips = (u.badges || []).slice(0, 6).map((b) => `
       <span class="pill" style="display:inline-flex;align-items:center;gap:.3rem;margin:0 .3rem .3rem 0">&#127942; ${esc(b.title || "Resource")}</span>`).join("");
     el.innerHTML = `
-      <div class="chart-stats" style="grid-template-columns:repeat(3,1fr)">
-        <div><b>${formatDuration(u.totalSeconds)}</b><span>Time spent</span></div>
-        <div><b>${u.resourcesOpened}</b><span>Resources opened</span></div>
-        <div><b>${u.badgesEarned || 0}</b><span>Badges earned</span></div>
-      </div>
+      ${summaryHtml}
       ${badgeChips ? `<div style="margin:.7rem 0 .1rem">${badgeChips}</div>` : ""}
       ${rows}
     `;

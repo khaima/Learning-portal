@@ -48,6 +48,43 @@
 
       <section class="dash-page" data-page="home">
         <div class="stat-row" id="statRow"></div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Grading queue</h2><a href="#assignments">View all</a></div>
+          <div class="panel-search"><input type="search" id="gradingSearch" placeholder="Search by learner or assignment…"></div>
+          <div id="gradingQueue"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>My classes</h2><a href="#my-classes">View all</a></div>
+          <div id="homeClassList"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Learner activity</h2><a href="#my-learners">Manage learners</a></div>
+          <div class="panel-search"><input type="search" id="learnerActivitySearch" placeholder="Search learners…"></div>
+          <div id="learnerActivityList"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Recent results</h2><a href="#assignments">View all</a></div>
+          <div id="homeResultList"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Teacher resources</h2><a href="#resources">View all</a></div>
+          <div id="homeTeacherResources"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Digital Library</h2><a href="#resources">View all</a></div>
+          <div id="homeLibrary"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>My learning activity</h2><a href="#activity">Full activity</a></div>
+          <div id="homeUsageSummary"></div>
+        </div>
       </section>
 
       <section class="dash-page" data-page="my-classes" hidden>
@@ -96,7 +133,8 @@
 
       <section class="dash-page" data-page="assignments" hidden>
         <div class="panel">
-          <div class="panel-head"><h2>This week</h2></div>
+          <div class="panel-head"><h2>Grading queue</h2></div>
+          <div class="panel-search"><input type="search" id="assignSearch" placeholder="Search by learner or assignment…"></div>
           <div id="taskList"></div>
         </div>
         <div class="panel">
