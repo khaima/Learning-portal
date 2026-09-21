@@ -18,12 +18,13 @@
       </a>
       <nav class="side-nav">
         <a class="side-link" data-page="overview"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Overview</a>
+        <a class="side-link" data-page="programme-analytics"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="7"/><rect x="12" y="6" width="3" height="11"/><rect x="17" y="13" width="3" height="4"/></svg>Programme Analytics</a>
         <a class="side-link" data-page="schools"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21V8l8-5 8 5v13"/><path d="M9 21v-6h6v6"/></svg>Schools</a>
         <a class="side-link" data-page="users"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Users</a>
         <a class="side-link" data-page="content"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>Content</a>
         <a class="side-link" data-page="forms"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>Forms</a>
-        <a class="side-link" data-page="kobo"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>Kobo</a>
-        <a class="side-link" data-page="analytics"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="7"/><rect x="12" y="6" width="3" height="11"/><rect x="17" y="13" width="3" height="4"/></svg>Analytics</a>
+        <a class="side-link" data-page="kobo"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>Kobo Surveys</a>
+        <a class="side-link" data-page="reports"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 17v-4M12 17v-7M16 17v-2"/></svg>Reports</a>
       </nav>
       <div class="side-user" id="sideUserBtn" tabindex="0" role="button" aria-haspopup="true" aria-expanded="false">
         <span class="side-avatar" id="sideAvatar">?</span>
@@ -47,27 +48,64 @@
         </div>
       </div>
 
+      <!-- Global filters — apply wherever the underlying data actually
+           supports them (see education.js); pages where nothing here is
+           school/county/date-scoped (Forms, Kobo, Reports) simply ignore
+           them rather than pretend to. -->
+      <div class="panel filter-bar">
+        <div class="filter-bar-row">
+          <div class="field">
+            <label for="gfCounty">County</label>
+            <select id="gfCounty"><option value="">All counties</option></select>
+          </div>
+          <div class="field">
+            <label for="gfSchool">School</label>
+            <select id="gfSchool"><option value="">All schools</option></select>
+          </div>
+          <div class="field">
+            <label for="gfTerm">Term</label>
+            <select id="gfTerm"></select>
+          </div>
+          <div class="field" id="gfFromField" hidden>
+            <label for="gfFrom">From</label>
+            <input type="date" id="gfFrom">
+          </div>
+          <div class="field" id="gfToField" hidden>
+            <label for="gfTo">To</label>
+            <input type="date" id="gfTo">
+          </div>
+          <div class="field">
+            <label for="gfRole">Role</label>
+            <select id="gfRole"></select>
+          </div>
+          <button type="button" id="gfClear" class="btn btn-ghost">Clear filters</button>
+        </div>
+        <p class="hint" id="gfSummary" hidden style="margin:.6rem 0 0"></p>
+      </div>
+
       <section class="dash-page" data-page="overview">
         <div class="stat-row" id="statRow"></div>
+        <div class="panel">
+          <div class="panel-head"><h2>Needs attention</h2></div>
+          <div id="attentionList"><div class="empty-state">Loading…</div></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="programme-analytics" hidden>
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Programme analytics</h2>
+            <span class="chart-meta" id="impactMeta" style="margin:0"></span>
+          </div>
+          <p class="hint" style="margin-top:0">Detailed, filterable breakdowns — county/school/role apply throughout; the date range only applies to charts that carry a real date (marked below).</p>
+          <div id="impactBody"><div class="empty-state">Loading…</div></div>
+        </div>
       </section>
 
       <section class="dash-page" data-page="schools" hidden>
         <div class="panel">
-          <div class="panel-head">
-            <h2>Portal impact</h2>
-            <span class="chart-meta" id="impactMeta" style="margin:0"></span>
-          </div>
-          <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:.9rem;max-width:32rem;margin-bottom:1.1rem">
-            <div class="field" style="margin-bottom:0">
-              <label for="impactCounty">Filter by county</label>
-              <select id="impactCounty"><option value="">All counties</option></select>
-            </div>
-            <div class="field" style="margin-bottom:0">
-              <label for="impactSchool">Filter by school</label>
-              <select id="impactSchool"><option value="">All schools</option></select>
-            </div>
-          </div>
-          <div id="impactBody"><div class="empty-state">Loading…</div></div>
+          <div class="panel-head"><h2 id="schoolsHeading">Schools</h2></div>
+          <div id="schoolsBody"><div class="empty-state">Loading…</div></div>
         </div>
       </section>
 
@@ -168,12 +206,9 @@
             "Time spent" is measured from when someone opens a resource to
             when they come back to the portal tab — the honest signal
             available once a file opens in its own tab, not a literal
-            reading-time measurement.
+            reading-time measurement. Scoped by the global School filter
+            above.
           </p>
-          <div class="field" style="max-width:20rem;margin-bottom:1rem">
-            <label for="usageSchool">School</label>
-            <select id="usageSchool"><option value="">All schools</option></select>
-          </div>
           <div id="usageBody"><div class="empty-state">Loading…</div></div>
         </div>
       </section>
@@ -269,7 +304,7 @@
         </div>
       </section>
 
-      <section class="dash-page" data-page="analytics" hidden>
+      <section class="dash-page" data-page="reports" hidden>
         <div class="panel" id="surveyResultsPanel">
           <div class="panel-head">
             <h2>Survey results</h2>

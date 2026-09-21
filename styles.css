@@ -254,6 +254,13 @@ a{ color:inherit; }
 /* A search box above a row-list (.task-row etc.) instead of a paged
    table — filters client-side as you type, so a long roster or queue
    stays usable on a phone without horizontal scroll. */
+/* Global filter bar (Education Team dashboard): one persistent row of
+   scope controls above every page, plus the "Showing data for…" summary
+   that appears once a filter is actually active. */
+.filter-bar{ margin-bottom:1.1rem; }
+.filter-bar-row{ display:flex; flex-wrap:wrap; gap:.8rem; align-items:flex-end; }
+.filter-bar-row .field{ margin-bottom:0; flex:1 1 9rem; min-width:8rem; }
+.filter-bar-row .btn{ padding:.5rem 1rem; font-size:.82rem; }
 .panel-search{ margin-bottom:.8rem; }
 .panel-search input{
   width:100%; border:1.5px solid var(--line); background:var(--paper-raised); color:var(--ink);

@@ -1149,11 +1149,28 @@ app.get("/stats", withProfile("education_team"), async (c) => {
   const inSchool = !!school;
   const topN = Math.max(0, Math.min(50, Number(c.req.query("topGrades")) || 0)); // 0 = no cap
 
+  // Optional date range (Term is just a friendly preset for this same pair,
+  // computed client-side). Only applied to rows that actually carry a
+  // created_at — new-learner intake and field visits — never invented for
+  // metrics with no date column (assignments, forms, library).
+  const fromStr = String(c.req.query("from") ?? "").trim();
+  const toStr = String(c.req.query("to") ?? "").trim();
+  const fromDate = fromStr && !Number.isNaN(Date.parse(fromStr)) ? new Date(fromStr) : null;
+  const toDate = toStr && !Number.isNaN(Date.parse(toStr)) ? new Date(toStr) : null;
+  const inDateRange = (dateStr: unknown) => {
+    if (!fromDate && !toDate) return true;
+    const d = new Date(String(dateStr ?? ""));
+    if (Number.isNaN(d.getTime())) return false;
+    if (fromDate && d < fromDate) return false;
+    if (toDate) { const end = new Date(toDate); end.setDate(end.getDate() + 1); if (d >= end) return false; }
+    return true;
+  };
+
   const [profs, learnersRaw, asg, reportsRaw, forms, responses, library] = await Promise.all([
     admin.from("profiles").select("id, role, county, school, teacher_type"),
     admin.from("learners").select("id, teacher_id, grade, school, created_at"),
     admin.from("assignments").select("learner_id, done"),
-    admin.from("field_reports").select("county, visit_type, school"),
+    admin.from("field_reports").select("county, visit_type, school, created_at"),
     admin.from("forms").select("id, audience"),
     admin.from("responses").select("form_id"),
     admin.from("library_items").select("audience, subject"),
@@ -1193,6 +1210,10 @@ app.get("/stats", withProfile("education_team"), async (c) => {
     staffRows = staffRows.filter((p) => (p.school || "") === school);
     learnerRows = learnerRows.filter((l) => (l.school || "") === school);
     reportRows = reportRows.filter((r) => r.school === school);
+  }
+  if (fromDate || toDate) {
+    learnerRows = learnerRows.filter((l) => inDateRange(l.created_at));
+    reportRows = reportRows.filter((r) => inDateRange(r.created_at));
   }
 
   const learnerIdSet = new Set(learnerRows.map((l) => l.id));
@@ -1259,6 +1280,8 @@ app.get("/stats", withProfile("education_team"), async (c) => {
   return c.json({
     county: inCounty ? county : null,
     school: inSchool ? school : null,
+    from: fromDate ? fromStr : null,
+    to: toDate ? toStr : null,
     counties,
     schools,
     accounts: staffRows.length + learnerRows.length,

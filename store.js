@@ -258,14 +258,18 @@ export async function addFieldReport({ school, county, visitType }) {
 /* Pass a county and/or school to scope the whole Overview page —
    accounts, assignment completion, field visits, grade breakdowns — to
    that region or that one school; omit both for the portal-wide view.
-   topGrades caps the "grade performance" ranking to the top N grades
-   (0 or omitted = show every grade). Forms/feedback and the content
-   library aren't school-specific, so those numbers stay portal-wide
-   regardless. */
-export async function getStats({ county, school, topGrades } = {}) {
+   from/to (ISO yyyy-mm-dd) scope new-learner intake and field visits to a
+   date range — the only two metrics with a real date to filter by; every
+   other number (assignments, forms, library) has no date column and stays
+   portal-wide regardless of from/to. topGrades caps the "grade
+   performance" ranking to the top N grades (0 or omitted = show every
+   grade). */
+export async function getStats({ county, school, from, to, topGrades } = {}) {
   const params = new URLSearchParams();
   if (county) params.set("county", county);
   if (school) params.set("school", school);
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
   if (topGrades) params.set("topGrades", String(topGrades));
   const qs = params.toString();
   return apiGet(`/stats${qs ? `?${qs}` : ""}`);

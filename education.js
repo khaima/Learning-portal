@@ -35,29 +35,151 @@ async function main() {
   $("#sideMeta").textContent = "Education Team";
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
 
+  /* ------------------------------------------------------------ global filters
+     One filter bar drives every page that has real, scopeable data behind
+     it (Overview, Programme Analytics, Schools, Users, Content's usage
+     report). Term is just a friendly preset for the same from/to pair the
+     date pickers set — see termBounds(). Pages with nothing school/county/
+     date-scoped in their data model (Forms, Kobo Surveys, Reports) simply
+     don't read this state. */
+  const gf = { county: "", school: "", from: "", to: "", role: "" };
+  let gpTopN = 0; // grade-performance ranking cap; 0 = show every grade
+  let lastStats = null;
+  let formsCache = [];
+  let responsesCache = [];
+  let koboState = { configured: false };
+
+  // Local calendar date, not toISOString() — that converts through UTC and
+  // silently shifts a term boundary by a day in timezones ahead of UTC.
+  const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  function termBounds(year, term) {
+    const from = new Date(year, (term - 1) * 4, 1);
+    const to = new Date(year, (term - 1) * 4 + 4, 0);
+    return { from: isoDate(from), to: isoDate(to) };
+  }
+  function termOptions() {
+    const now = new Date();
+    const curTerm = now.getMonth() <= 3 ? 1 : now.getMonth() <= 7 ? 2 : 3;
+    const opts = [{ value: "", label: "All time" }];
+    for (const year of [now.getFullYear(), now.getFullYear() - 1]) {
+      for (let term = 3; term >= 1; term--) {
+        if (year === now.getFullYear() && term > curTerm) continue;
+        const b = termBounds(year, term);
+        opts.push({ value: `${b.from}|${b.to}`, label: `${year} Term ${term}` });
+      }
+    }
+    opts.push({ value: "custom", label: "Custom range…" });
+    return opts;
+  }
+  function termLabelFor(from, to) {
+    if (!from && !to) return null;
+    const now = new Date();
+    for (const year of [now.getFullYear(), now.getFullYear() - 1]) {
+      for (let term = 1; term <= 3; term++) {
+        const b = termBounds(year, term);
+        if (b.from === from && b.to === to) return `Term ${term}, ${year}`;
+      }
+    }
+    return null;
+  }
+  const fmtDate = (s) => s ? new Date(s).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "";
+  function dateRangeLabel(from, to) {
+    if (from && to) return `${fmtDate(from)} – ${fmtDate(to)}`;
+    if (from) return `From ${fmtDate(from)}`;
+    if (to) return `Until ${fmtDate(to)}`;
+    return "";
+  }
+  // A filter is active → an emptier, more specific message than the
+  // page's usual "nothing here yet" — see the brief: "No data available
+  // for this filter."
+  function emptyMsg(base) {
+    return (gf.county || gf.school || gf.from || gf.to || gf.role) ? "No data available for this filter." : base;
+  }
+
+  $("#gfTerm").innerHTML = termOptions().map((o) => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join("");
+  $("#gfRole").innerHTML = `<option value="">All roles</option>` + ROLES.map((r) => `<option value="${r.value}">${esc(r.label)}</option>`).join("");
+
+  function updateFilterSummary() {
+    const parts = [];
+    if (gf.county) parts.push(`${gf.county} County`);
+    if (gf.school) parts.push(gf.school);
+    if (gf.from || gf.to) parts.push(termLabelFor(gf.from, gf.to) || dateRangeLabel(gf.from, gf.to));
+    if (gf.role) parts.push(ROLE_LABEL[gf.role] || gf.role);
+    const el = $("#gfSummary");
+    if (!parts.length) { el.hidden = true; el.textContent = ""; return; }
+    el.hidden = false;
+    el.textContent = `Showing data for: ${parts.join(" / ")}`;
+  }
+
+  async function applyFilters() {
+    updateFilterSummary();
+    await renderStats();
+    renderUsersList();
+    renderUsage();
+  }
+
+  $("#gfCounty").addEventListener("change", (e) => {
+    gf.county = e.target.value;
+    gf.school = ""; // a school from the old county may not exist in the new one
+    applyFilters();
+  });
+  $("#gfSchool").addEventListener("change", (e) => {
+    gf.school = e.target.value;
+    applyFilters();
+  });
+  $("#gfTerm").addEventListener("change", (e) => {
+    const v = e.target.value;
+    if (v === "custom") {
+      $("#gfFromField").hidden = false;
+      $("#gfToField").hidden = false;
+      return; // wait for the actual date pickers
+    }
+    $("#gfFromField").hidden = true;
+    $("#gfToField").hidden = true;
+    const [from, to] = v ? v.split("|") : ["", ""];
+    gf.from = from; gf.to = to;
+    applyFilters();
+  });
+  $("#gfFrom").addEventListener("change", (e) => { gf.from = e.target.value; applyFilters(); });
+  $("#gfTo").addEventListener("change", (e) => { gf.to = e.target.value; applyFilters(); });
+  $("#gfRole").addEventListener("change", (e) => { gf.role = e.target.value; applyFilters(); });
+  $("#gfClear").addEventListener("click", () => {
+    gf.county = ""; gf.school = ""; gf.from = ""; gf.to = ""; gf.role = "";
+    $("#gfCounty").value = ""; $("#gfSchool").value = ""; $("#gfTerm").value = ""; $("#gfRole").value = "";
+    $("#gfFromField").hidden = true; $("#gfToField").hidden = true;
+    applyFilters();
+  });
+
   /* ------------------------------------------------------------ live org-wide stats
      Real aggregation, computed server-side from every account and everything
      they've produced (see the /stats route). A field report filed on the
      Field Officer dashboard, or an assignment marked done by a learner,
-     changes these numbers on the next load, from any device. Optionally
-     scoped to a county and/or a specific school — see renderImpact(). */
-  let impactCounty = "";
-  let impactSchool = "";
-  let gpTopN = 0; // grade-performance ranking cap; 0 = show every grade
-
+     changes these numbers on the next load, from any device. Scoped by the
+     global filters above — county/school/role throughout, date range only
+     where a real date exists (new-learner intake, field visits). */
   async function renderStats() {
     $("#statRow").innerHTML = `<div class="empty-state">Loading…</div>`;
     $("#impactBody").innerHTML = `<div class="empty-state">Loading…</div>`;
+    $("#schoolsBody").innerHTML = `<div class="empty-state">Loading…</div>`;
     let s;
     try {
-      s = await getStats({ county: impactCounty, school: impactSchool, topGrades: gpTopN });
+      s = await getStats({ county: gf.county, school: gf.school, from: gf.from, to: gf.to, topGrades: gpTopN });
     } catch {
-      $("#statRow").innerHTML = `<div class="empty-state is-error">Couldn't load stats.</div>`;
-      $("#impactBody").innerHTML = `<div class="empty-state is-error">Couldn't load impact data.</div>`;
+      $("#statRow").innerHTML = `<div class="empty-state is-error">${emptyMsg("Couldn't load stats.")}</div>`;
+      $("#impactBody").innerHTML = `<div class="empty-state is-error">${emptyMsg("Couldn't load impact data.")}</div>`;
+      $("#schoolsBody").innerHTML = `<div class="empty-state is-error">${emptyMsg("Couldn't load schools.")}</div>`;
       return;
     }
-    populateFilter($("#impactCounty"), s.counties || [], impactCounty);
-    populateFilter($("#impactSchool"), s.schools || [], impactSchool);
+    lastStats = s;
+    populateFilter($("#gfCounty"), s.counties || [], gf.county);
+    populateFilter($("#gfSchool"), s.schools || [], gf.school);
+    renderKpis(s);
+    renderImpact(s);
+    renderSchoolsPage(s);
+    renderAttention();
+  }
+
+  function renderKpis(s) {
     const r = s.byRole || {};
     const scoped = s.school ? ` at ${esc(s.school)}` : s.county ? ` in ${esc(s.county)}` : "";
     $("#statRow").innerHTML = `
@@ -70,35 +192,62 @@ async function main() {
       <div class="stat-tile"><div class="s-label">${svg(ICON.library)}Forms & responses</div><div class="s-num">${s.formsSent} / ${s.responsesReceived}</div>
         <div class="s-sub">sent / received${scoped ? " · portal-wide" : ""}</div></div>
     `;
-    renderImpact(s);
+  }
+
+  /* "Needs attention" — the one actionable panel on the otherwise-light
+     Overview page. Every item here is a real, already-fetched signal
+     (never a manufactured "task"): forms nobody has responded to yet,
+     KoboToolbox not connected, schools with no field visit on record.
+     Called again as each of those three sources resolves, so it's
+     correct as soon as all three are in, regardless of load order. */
+  function renderAttention() {
+    if (!lastStats) return;
+    const s = lastStats;
+    const items = [];
+    for (const f of formsCache.filter((f) => !responsesCache.some((r) => r.formId === f.id)).slice(0, 5)) {
+      items.push({ tone: "warn", title: "Form with no responses yet", detail: `"${f.title}" (sent to ${esc(AUDIENCE_LABEL[f.audience] || f.audience)}) has no responses yet.` });
+    }
+    if (!koboState.configured) {
+      items.push({ tone: "info", title: "KoboToolbox not connected", detail: "Connect a KoboToolbox account to attach field surveys — see Kobo Surveys." });
+    }
+    if (!s.school) {
+      const visited = new Set((s.fieldReportsBySchool || []).map((d) => d.label));
+      for (const name of (s.schools || []).filter((n) => !visited.has(n)).slice(0, 5)) {
+        items.push({ tone: "warn", title: "No field visits recorded", detail: `${name} has no field visit on record${s.county ? " in " + esc(s.county) : ""}.` });
+      }
+    }
+    $("#attentionList").innerHTML = items.length
+      ? items.map((it) => `<div class="alert alert-${it.tone}"><div><b>${esc(it.title)}</b>${it.detail}</div></div>`).join("")
+      : `<div class="empty-state">${emptyMsg("Nothing needs attention right now.")}</div>`;
   }
 
   /* County/school filters — repopulated on every load (the lists can grow
      as new schools come on board) but never fight the visitor's current
      pick. The school list already narrows to the selected county. */
   function populateFilter(sel, options, current) {
-    const fallback = sel.id === "impactSchool" ? "All schools" : "All counties";
+    const fallback = sel.id === "gfSchool" ? "All schools" : "All counties";
     sel.innerHTML = `<option value="">${fallback}</option>` +
       options.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("");
     sel.value = current;
   }
-  $("#impactCounty").addEventListener("change", (e) => {
-    impactCounty = e.target.value;
-    impactSchool = ""; // a school from the old county may not exist in the new one
-    renderStats();
-  });
-  $("#impactSchool").addEventListener("change", (e) => {
-    impactSchool = e.target.value;
-    renderStats();
-  });
 
   /* Top-N control lives inside the grade-performance card itself, which is
-     rebuilt on every render — one delegated listener survives that. */
+     rebuilt on every render — one delegated listener survives that; the
+     other listener on this same element drills a bar-chart school label
+     straight into the Schools page (see barChart()'s drillSchool option). */
   $("#impactBody").addEventListener("change", (e) => {
     if (e.target.id === "gpTopN") {
       gpTopN = Number(e.target.value) || 0;
       renderStats();
     }
+  });
+  $("#impactBody").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-drill-school]");
+    if (!btn) return;
+    gf.school = btn.dataset.drillSchool;
+    $("#gfSchool").value = gf.school;
+    location.hash = "#schools";
+    applyFilters();
   });
 
   /* ------------------------------------------------------------ portal impact (Overview charts)
@@ -113,7 +262,17 @@ async function main() {
      school where that makes sense — reuses the same bar/donut/legend
      renderers as Survey Results, defined further down this file. */
   function renderImpact(s) {
+    // Two scope suffixes: `scope` (county/school only) for metrics with no
+    // date column, `scopeD` (+ the active date range) for the two that
+    // genuinely have one — new-learner intake and field visits. Anything
+    // using plain `scope` while a date range is active gets an explicit
+    // "not date-filtered" note instead of silently ignoring the filter.
     const scope = s.school ? ` — ${s.school}` : s.county ? ` — ${s.county}` : "";
+    const hasDate = !!(s.from || s.to);
+    const dateLabel = hasDate ? dateRangeLabel(s.from, s.to) : "";
+    const scopeD = scope + (hasDate ? ` — ${dateLabel}` : "");
+    const notDateFiltered = hasDate ? " · not date-filtered" : "";
+
     const ROLE_LABELS = { teacher: "Teachers", learner: "Learners", school_leader: "School Leaders", field_officer: "Field Officers" };
     const roleData = Object.entries(ROLE_LABELS).map(([k, label]) => ({ label, value: (s.byRole && s.byRole[k]) || 0 }));
     const doneData = [
@@ -127,39 +286,49 @@ async function main() {
     const libraryTotal = (s.libraryByDestination || []).reduce((a, d) => a + d.value, 0);
     const teacherTypeData = (s.teachersByType || []).map((d) => ({ ...d, label: d.label === "(not set)" ? "Not specified" : d.label }));
 
-    const cards = [
-      impactCard(`Accounts by role${scope}`, `${s.accounts || 0} total · teachers, learners, leaders & field officers`,
-        sumOf(roleData) ? `<div class="chart-donut-wrap">${donutChart(roleData)}${legend(roleData)}</div>` : miniEmpty()),
-      impactCard(`Assignment completion${scope}`, `${s.assignmentsTotal || 0} assigned to learners`,
-        sumOf(doneData) ? `<div class="chart-donut-wrap">${donutChart(doneData)}${legend(doneData)}</div>` : miniEmpty()),
-      impactCard(`Learners by grade${scope}`, `${learnerTotal} learners`,
-        (s.learnersByGrade || []).length ? barChart(s.learnersByGrade) : miniEmpty()),
-    ];
-    if (s.county && !s.school) {
-      cards.push(impactCard(`Learners by school${scope}`, `${learnerTotal} learners`,
-        (s.learnersBySchool || []).length ? barChart(s.learnersBySchool) : miniEmpty()));
+    const cards = [];
+
+    // A role filter collapses the multi-segment donut to one number —
+    // clearer than a degenerate single-slice chart.
+    if (gf.role) {
+      const roleCount = (s.byRole && s.byRole[gf.role]) || 0;
+      cards.push(impactCard(`Accounts by role${scope}`, `filtered to ${esc(ROLE_LABEL[gf.role] || gf.role)}${notDateFiltered}`,
+        `<div class="chart-stats"><div><b>${roleCount}</b><span>${esc(ROLE_LABEL[gf.role] || gf.role)}</span></div></div>`));
+    } else {
+      cards.push(impactCard(`Accounts by role${scope}`, `${s.accounts || 0} total · teachers, learners, leaders & field officers${notDateFiltered}`,
+        sumOf(roleData) ? `<div class="chart-donut-wrap">${donutChart(roleData)}${legend(roleData)}</div>` : miniEmpty()));
     }
     cards.push(
-      impactCard(`New learners by term${scope}`, `based on when each account was created`,
+      impactCard(`Assignment completion${scope}`, `${s.assignmentsTotal || 0} assigned to learners${notDateFiltered}`,
+        sumOf(doneData) ? `<div class="chart-donut-wrap">${donutChart(doneData)}${legend(doneData)}</div>` : miniEmpty()),
+      impactCard(`Learners by grade${scope}`, `${learnerTotal} learners${notDateFiltered}`,
+        (s.learnersByGrade || []).length ? barChart(s.learnersByGrade) : miniEmpty()),
+    );
+    if (s.county && !s.school) {
+      cards.push(impactCard(`Learners by school${scope}`, `${learnerTotal} learners${notDateFiltered} · click a school to open it`,
+        (s.learnersBySchool || []).length ? barChart(s.learnersBySchool, { drillSchool: true }) : miniEmpty()));
+    }
+    cards.push(
+      impactCard(`New learners by term${scopeD}`, `based on when each account was created${hasDate ? "" : " · every term on record"}`,
         (s.newLearnersByTerm || []).length ? barChart(s.newLearnersByTerm) : miniEmpty()),
-      impactCard(`Teachers by type${scope}`, `BOM vs TSC · self-declared at sign-up`,
+      impactCard(`Teachers by type${scope}`, `BOM vs TSC · self-declared at sign-up${notDateFiltered}`,
         sumOf(teacherTypeData) ? `<div class="chart-donut-wrap">${donutChart(teacherTypeData)}${legend(teacherTypeData)}</div>` : miniEmpty()),
     );
     cards.push(
-      impactCard(`Field visits by type${scope}`, `${s.reportsFiled || 0} reports filed`,
+      impactCard(`Field visits by type${scopeD}`, `${s.reportsFiled || 0} reports filed`,
         (s.fieldReportsByVisitType || []).length ? barChart(s.fieldReportsByVisitType) : miniEmpty()),
     );
     cards.push(
       s.county
-        ? impactCard(`Field visits by school${scope}`, `${s.reportsFiled || 0} reports filed`,
-            (s.fieldReportsBySchool || []).length ? barChart(s.fieldReportsBySchool) : miniEmpty())
-        : impactCard("Field visits by county", `${s.reportsFiled || 0} reports filed · pick a county above to drill in`,
+        ? impactCard(`Field visits by school${scopeD}`, `${s.reportsFiled || 0} reports filed · click a school to open it`,
+            (s.fieldReportsBySchool || []).length ? barChart(s.fieldReportsBySchool, { drillSchool: true }) : miniEmpty())
+        : impactCard(`Field visits by county${hasDate ? ` — ${dateLabel}` : ""}`, `${s.reportsFiled || 0} reports filed · pick a county above to drill in`,
             (s.fieldReportsByCounty || []).length ? barChart(s.fieldReportsByCounty) : miniEmpty()),
     );
     cards.push(
-      impactCard("Content library", `${libraryTotal} items uploaded · portal-wide`,
+      impactCard("Content library", `${libraryTotal} items uploaded · portal-wide, all-time`,
         sumOf(s.libraryByDestination) ? `<div class="chart-donut-wrap">${donutChart(s.libraryByDestination)}${legend(s.libraryByDestination)}</div>` : miniEmpty()),
-      impactCard("Forms & feedback engagement", `${s.formsSent || 0} sent · ${s.responsesReceived || 0} responses · portal-wide`,
+      impactCard("Forms & feedback engagement", `${s.formsSent || 0} sent · ${s.responsesReceived || 0} responses · portal-wide, all-time`,
         `<div class="chart-subhead">Sent</div>${sumOf(sentData) ? barChart(sentData) : miniEmpty()}<div class="chart-subhead">Responded</div>${sumOf(respData) ? barChart(respData) : miniEmpty()}`),
     );
 
@@ -179,7 +348,7 @@ async function main() {
       ? barChart(gp.map((g) => ({ label: `${g.label} (${g.total})`, value: g.value })))
       : miniEmpty();
     cards.push(`<div class="chart-card">${gpHead}
-      <div class="chart-empty" style="margin:-.3rem 0 .5rem">% of assignments completed, by grade — ranked, not an exam score</div>
+      <div class="chart-empty" style="margin:-.3rem 0 .5rem">% of assignments completed, by grade — ranked, not an exam score${notDateFiltered}</div>
       ${gpBody}
     </div>`);
 
@@ -193,6 +362,75 @@ async function main() {
       ${body}
     </div>`;
   }
+
+  /* ------------------------------------------------------------ Schools
+     Drill from summary → school → relevant records: no school picked shows
+     the directory (every school in the current county/date scope); picking
+     one shows that school's real numbers, reusing the same /stats call
+     already made for Overview/Analytics — no extra fetch — plus a link to
+     that school's staff on the Users page (permissions allow education
+     team to see staff records; individual learners stay off this
+     dashboard, same as everywhere else here). */
+  function renderSchoolsPage(s) {
+    const heading = $("#schoolsHeading");
+    const body = $("#schoolsBody");
+
+    if (!s.school) {
+      heading.textContent = s.county ? `Schools — ${s.county}` : "Schools";
+      const schools = s.schools || [];
+      body.innerHTML = schools.length
+        ? schools.map((name) => `
+            <div class="task-row">
+              <div style="flex:1"><b>${esc(name)}</b></div>
+              <button type="button" class="pill" style="border:0;cursor:pointer" data-view-school="${esc(name)}">View school</button>
+            </div>`).join("")
+        : `<div class="empty-state">${emptyMsg("No schools recorded yet.")}</div>`;
+      return;
+    }
+
+    heading.textContent = s.school;
+    const r = s.byRole || {};
+    const learnerTotal = (s.learnersByGrade || []).reduce((a, d) => a + d.value, 0);
+    const pct = s.assignmentsTotal ? Math.round((s.assignmentsDone / s.assignmentsTotal) * 100) : null;
+    body.innerHTML = `
+      <button type="button" id="schoolsBack" style="background:none;border:0;padding:0;color:var(--brand);font-weight:600;cursor:pointer;font-family:inherit;font-size:.82rem;margin-bottom:.7rem">← All schools</button>
+      <p class="hint" style="margin-top:0">${esc(s.school)}${s.county ? " · " + esc(s.county) : ""}</p>
+      <div class="chart-stats" style="grid-template-columns:repeat(4,1fr)">
+        <div><b>${r.teacher || 0}</b><span>Teachers</span></div>
+        <div><b>${learnerTotal}</b><span>Learners</span></div>
+        <div><b>${pct != null ? pct + "%" : "—"}</b><span>Assignments completed</span></div>
+        <div><b>${s.reportsFiled || 0}</b><span>Field visits</span></div>
+      </div>
+      <div style="margin-top:1rem"><button type="button" class="btn btn-outline" id="schoolViewStaff">View staff at this school →</button></div>
+    `;
+  }
+
+  $("#schoolsBody").addEventListener("click", (e) => {
+    const viewBtn = e.target.closest("[data-view-school]");
+    if (viewBtn) {
+      gf.school = viewBtn.dataset.viewSchool;
+      $("#gfSchool").value = gf.school;
+      updateFilterSummary();
+      renderStats();
+      renderUsersList();
+      renderUsage();
+      return;
+    }
+    if (e.target.id === "schoolsBack") {
+      gf.school = "";
+      $("#gfSchool").value = "";
+      updateFilterSummary();
+      renderStats();
+      renderUsersList();
+      renderUsage();
+      return;
+    }
+    if (e.target.id === "schoolViewStaff") {
+      $("#usersSearch").value = gf.school;
+      location.hash = "#users";
+      renderUsersList();
+    }
+  });
 
   /* ------------------------------------------------------------ content library */
   $("#up_subject").innerHTML = LIBRARY_SUBJECTS.map((s) => `<option>${esc(s)}</option>`).join("");
@@ -254,20 +492,15 @@ async function main() {
       </div>`).join("");
   }
 
-  let usageSchool = "";
-
   async function renderUsage() {
     $("#usageBody").innerHTML = `<div class="empty-state">Loading…</div>`;
     let u;
     try {
-      u = await getLibraryUsage({ school: usageSchool });
+      u = await getLibraryUsage({ school: gf.school });
     } catch {
-      $("#usageBody").innerHTML = `<div class="empty-state is-error">Couldn't load the usage report.</div>`;
+      $("#usageBody").innerHTML = `<div class="empty-state is-error">${emptyMsg("Couldn't load the usage report.")}</div>`;
       return;
     }
-    $("#usageSchool").innerHTML = `<option value="">All schools</option>` +
-      (u.schools || []).map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
-    $("#usageSchool").value = usageSchool;
     $("#usageMeta").textContent = u.school ? `Scoped to ${u.school}` : "All schools";
 
     const topResources = (u.byResource || []).slice(0, 8).map((r) => ({ label: r.title, seconds: r.totalSeconds }));
@@ -281,17 +514,12 @@ async function main() {
       </div>
       <div class="chart-grid">
         ${impactCard("Most-visited resources", `${(u.byResource || []).length} resources`,
-          topResources.length ? durationBarChart(topResources) : `<div class="chart-empty">Nothing opened yet</div>`)}
+          topResources.length ? durationBarChart(topResources) : `<div class="chart-empty">${emptyMsg("Nothing opened yet.")}</div>`)}
         ${impactCard("By school", u.school ? "1 school (filtered)" : `${(u.bySchool || []).length} schools`,
-          (u.bySchool || []).length ? schoolUsageRows(u.bySchool) : `<div class="chart-empty">Nothing tracked yet</div>`)}
+          (u.bySchool || []).length ? schoolUsageRows(u.bySchool) : `<div class="chart-empty">${emptyMsg("Nothing tracked yet.")}</div>`)}
       </div>
     `;
   }
-
-  $("#usageSchool").addEventListener("change", (e) => {
-    usageSchool = e.target.value;
-    renderUsage();
-  });
 
   /* ---- file / folder picker for "Upload content" ---- */
   const fileInput = $("#up_file");
@@ -480,11 +708,12 @@ async function main() {
   /* ------------------------------------------------------------ forms & feedback */
   async function renderForms() {
     $("#formsList").innerHTML = `<div class="empty-state">Loading…</div>`;
-    let forms = [];
-    let responses = [];
     try {
-      [forms, responses] = await Promise.all([getForms(), getResponses()]);
-    } catch { /* shown as empty */ }
+      [formsCache, responsesCache] = await Promise.all([getForms(), getResponses()]);
+    } catch { formsCache = []; responsesCache = []; }
+    const forms = formsCache;
+    const responses = responsesCache;
+    renderAttention();
     $("#formsList").innerHTML = forms.length
       ? forms.map((f) => {
           const answers = responses.filter((r) => r.formId === f.id);
@@ -522,7 +751,6 @@ async function main() {
   const koboManage = $("#koboManage");
   const koboSyncBtn = $("#koboSyncBtn");
   const koboAssetSel = $("#kb_asset");
-  let koboState = { configured: false };
 
   function showKoboConnect() {
     koboConnectForm.hidden = false;
@@ -540,6 +768,7 @@ async function main() {
     $("#kb_url").value = koboState.baseUrl || "https://eu.kobotoolbox.org";
     $("#kb_field").value = koboState.officerField || "officer_ref";
     $("#koboFieldEcho").textContent = koboState.officerField || "officer_ref";
+    renderAttention();
 
     if (!koboState.configured) { showKoboConnect(); refreshSurveyPicker(); return; }
 
@@ -771,7 +1000,7 @@ async function main() {
   }
 
   const sumOf = (data) => (data || []).reduce((s, d) => s + (d.value || 0), 0);
-  const miniEmpty = () => `<div class="chart-empty">No answers yet</div>`;
+  const miniEmpty = () => `<div class="chart-empty">${emptyMsg("No answers yet.")}</div>`;
 
   function chartCard(q) {
     let body;
@@ -801,12 +1030,15 @@ async function main() {
     </div>`;
   }
 
-  function barChart(data) {
+  function barChart(data, opts = {}) {
     const rows = data || [];
     const max = Math.max(1, ...rows.map((d) => d.value || 0));
     return `<div class="bar-chart">${rows.map((d) => `
       <div class="bar-row">
-        <span class="bar-label" title="${esc(d.label)}">${esc(d.label)}</span>
+        <span class="bar-label" title="${esc(d.label)}">${opts.drillSchool
+          ? `<button type="button" data-drill-school="${esc(d.label)}"
+               style="background:none;border:0;padding:0;color:var(--brand);font-weight:600;cursor:pointer;font-family:inherit;font-size:inherit;text-align:left">${esc(d.label)}</button>`
+          : esc(d.label)}</span>
         <span class="bar-track"><span class="bar-fill" style="width:${((d.value || 0) / max) * 100}%"></span></span>
         <span class="bar-num">${d.value || 0}</span>
       </div>`).join("")}</div>`;
@@ -922,16 +1154,24 @@ async function main() {
       $("#usersMeta").textContent = "";
       return;
     }
+    if (gf.role === "learner") {
+      list.innerHTML = `<div class="empty-state">Learner accounts aren't staff sign-ins — see Schools for learner counts by grade.</div>`;
+      $("#usersMeta").textContent = "";
+      return;
+    }
     const q = $("#usersSearch").value.trim().toLowerCase();
     const sortBy = $("#usersSort").value;
-    const filtered = allUsers.filter((u) => userMatchesSearch(u, q));
+    let filtered = allUsers.filter((u) => userMatchesSearch(u, q));
+    if (gf.county) filtered = filtered.filter((u) => (u.county || "") === gf.county);
+    if (gf.school) filtered = filtered.filter((u) => (u.school || "") === gf.school);
+    if (gf.role) filtered = filtered.filter((u) => u.role === gf.role);
 
     $("#usersMeta").textContent = filtered.length === allUsers.length
       ? `${allUsers.length} account${allUsers.length === 1 ? "" : "s"}`
       : `${filtered.length} of ${allUsers.length} accounts`;
 
     if (!filtered.length) {
-      list.innerHTML = `<div class="empty-state">No accounts match your search.</div>`;
+      list.innerHTML = `<div class="empty-state">${emptyMsg("No accounts match your search.")}</div>`;
       return;
     }
 
