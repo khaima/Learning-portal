@@ -665,47 +665,63 @@ body.viewer-locked{ overflow:hidden; }
 /* ---- survey results (live charts) ---- */
 .chart-meta{ font-size:.78rem; color:var(--ink-soft); margin:0 0 .9rem; }
 .chart-grid{
-  display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:1rem;
+  display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:1.1rem;
 }
 .chart-card{
-  border:1px solid var(--line); border-radius:var(--radius-md);
-  padding:.9rem 1rem; background:var(--paper-raised); min-width:0;
+  border:1px solid var(--line); border-radius:var(--radius-lg);
+  padding:1.1rem 1.2rem; background:var(--paper-raised); min-width:0;
+  box-shadow:var(--shadow); transition:box-shadow .15s ease, border-color .15s ease;
 }
+.chart-card:hover{ border-color:color-mix(in srgb, var(--brand) 30%, var(--line)); box-shadow:0 2px 4px rgba(20,33,61,.07), 0 14px 28px -14px rgba(20,33,61,.24); }
 .chart-card-head{
-  display:flex; align-items:baseline; justify-content:space-between; gap:.6rem; margin-bottom:.7rem;
+  display:flex; align-items:baseline; justify-content:space-between; gap:.6rem;
+  margin-bottom:.8rem; padding-bottom:.6rem; border-bottom:1px solid var(--line);
 }
-.chart-card-head b{ font-size:.86rem; line-height:1.3; }
+.chart-card-head b{ font-size:.9rem; line-height:1.3; color:var(--ink); }
 .chart-card-head span{ font-size:.72rem; color:var(--ink-soft); flex:none; }
-.chart-empty{ font-size:.8rem; color:var(--ink-soft); padding:.4rem 0; }
+.chart-empty{ font-size:.8rem; color:var(--ink-soft); padding:.5rem 0; }
 
-.bar-chart{ display:flex; flex-direction:column; gap:.45rem; }
-.bar-row{ display:grid; grid-template-columns:38% 1fr auto; align-items:center; gap:.5rem; padding:0; border:0; }
+.bar-chart{ display:flex; flex-direction:column; gap:.55rem; }
+.bar-row{ display:grid; grid-template-columns:38% 1fr auto; align-items:center; gap:.6rem; padding:0; border:0; }
 .bar-label{
-  font-size:.76rem; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  font-size:.78rem; color:var(--ink); font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
-.bar-track{ height:9px; border-radius:999px; background:var(--paper-sunk); overflow:hidden; }
-.bar-fill{ display:block; height:100%; border-radius:999px; background:var(--chart-1); min-width:2px; }
-.bar-num{ font-size:.76rem; font-weight:700; color:var(--ink-soft); }
+.bar-track{ height:11px; border-radius:999px; background:var(--paper-sunk); overflow:hidden; }
+.bar-fill{
+  display:block; height:100%; border-radius:999px; background:var(--chart-1);
+  min-width:3px; transition:width .5s cubic-bezier(.22,.72,.27,1);
+}
+/* Cycle the six chart colors per row instead of one flat bar color
+   throughout — same palette already used by the donut/legend, just put
+   to work here too so a multi-row chart reads at a glance. */
+.bar-row:nth-child(6n+1) .bar-fill{ background:var(--chart-1); }
+.bar-row:nth-child(6n+2) .bar-fill{ background:var(--chart-2); }
+.bar-row:nth-child(6n+3) .bar-fill{ background:var(--chart-3); }
+.bar-row:nth-child(6n+4) .bar-fill{ background:var(--chart-4); }
+.bar-row:nth-child(6n+5) .bar-fill{ background:var(--chart-5); }
+.bar-row:nth-child(6n+6) .bar-fill{ background:var(--chart-6); }
+.bar-num{ font-size:.78rem; font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums; text-align:right; }
 
 .chart-stats{
-  display:grid; grid-template-columns:repeat(4,1fr); gap:.4rem; margin-bottom:.8rem;
+  display:grid; grid-template-columns:repeat(4,1fr); gap:.5rem; margin-bottom:.9rem;
 }
 .chart-stats div{
-  text-align:center; background:var(--paper-sunk); border-radius:var(--radius-sm); padding:.4rem .2rem;
+  text-align:center; background:var(--paper-sunk); border:1px solid var(--line);
+  border-radius:var(--radius-sm); padding:.55rem .3rem;
 }
-.chart-stats b{ display:block; font-family:"Baloo 2",sans-serif; font-size:1.05rem; color:var(--brand-fg); }
+.chart-stats b{ display:block; font-family:"Baloo 2",sans-serif; font-size:1.1rem; color:var(--brand-fg); }
 .chart-stats span{ font-size:.62rem; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.03em; }
 
-.chart-donut-wrap{ display:flex; align-items:center; gap:1rem; flex-wrap:wrap; }
-.donut{ width:104px; height:104px; flex:none; transform:rotate(-90deg); }
-.donut-seg{ transition:stroke-dasharray .4s ease; }
+.chart-donut-wrap{ display:flex; align-items:center; gap:1.3rem; flex-wrap:wrap; }
+.donut{ width:128px; height:128px; flex:none; transform:rotate(-90deg); filter:drop-shadow(0 4px 10px rgba(20,33,61,.12)); }
+.donut-seg{ transition:stroke-dasharray .5s cubic-bezier(.22,.72,.27,1); }
 .donut-total{
   transform:rotate(90deg); transform-origin:21px 21px; text-anchor:middle;
   dominant-baseline:central; font-family:"Baloo 2",sans-serif; font-size:9px; font-weight:700; fill:var(--ink);
 }
-.chart-legend{ display:flex; flex-direction:column; gap:.3rem; font-size:.76rem; color:var(--ink); min-width:0; }
-.chart-legend span{ display:flex; align-items:center; gap:.4rem; }
-.chart-legend i{ width:10px; height:10px; border-radius:3px; flex:none; }
+.chart-legend{ display:flex; flex-direction:column; gap:.45rem; font-size:.78rem; color:var(--ink); min-width:0; flex:1 1 8rem; }
+.chart-legend span{ display:flex; align-items:center; gap:.55rem; padding:.15rem 0; }
+.chart-legend i{ width:11px; height:11px; border-radius:3px; flex:none; }
 
 .chart-list{ max-height:220px; overflow-y:auto; display:flex; flex-direction:column; gap:.35rem; }
 .chart-list-row{
@@ -717,4 +733,4 @@ body.viewer-locked{ overflow:hidden; }
   color:var(--ink-soft); margin:.7rem 0 .35rem;
 }
 .chart-subhead:first-child{ margin-top:0; }
-@media (prefers-reduced-motion: reduce){ .donut-seg{ transition:none; } }
+@media (prefers-reduced-motion: reduce){ .donut-seg{ transition:none; } .bar-fill{ transition:none; } .chart-card{ transition:none; } }
