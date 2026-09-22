@@ -145,6 +145,7 @@
             <div class="panel">
               <div class="panel-head"><h2>Upload content</h2></div>
               <form id="uploadForm">
+                <p class="form-section-label">What are you adding</p>
                 <div class="field">
                   <label for="up_title">Title</label>
                   <input id="up_title" type="text" placeholder="e.g. Fractions — visual walkthrough" required>
@@ -159,20 +160,31 @@
                     <select id="up_type" required></select>
                   </div>
                 </div>
+
+                <p class="form-section-label">Where it goes</p>
                 <div class="field">
                   <label for="up_audience">Destination</label>
                   <select id="up_audience" required></select>
                 </div>
                 <div class="field">
-                  <label for="up_folder">Folder <span style="color:var(--ink-soft);font-weight:500">— optional, to help separate content</span></label>
+                  <label for="up_folder">Folder <span class="hint-inline">— optional, to help separate content</span></label>
                   <select id="up_folder"><option value="">No folder</option></select>
+                  <div class="folder-inline-create" id="up_folder_new" hidden>
+                    <input id="up_folder_new_name" type="text" placeholder="New folder name" maxlength="60">
+                    <button type="button" class="btn btn-outline" id="up_folder_new_add">Add</button>
+                    <button type="button" class="btn btn-ghost" id="up_folder_new_cancel">Cancel</button>
+                  </div>
+                  <button type="button" class="link-btn" id="up_folder_manage_toggle" hidden>Manage folders for this destination</button>
+                  <div class="folder-chip-row" id="up_folder_manage" hidden></div>
                 </div>
+
+                <p class="form-section-label">The content itself</p>
                 <div class="field">
                   <label for="up_desc">Description</label>
                   <input id="up_desc" type="text" placeholder="What is this, and who is it for?">
                 </div>
                 <div class="field" id="up_file_field">
-                  <label>File <span style="color:var(--ink-soft);font-weight:500">— optional</span></label>
+                  <label>File <span class="hint-inline">— optional</span></label>
                   <div class="upload-drop" id="uploadDrop">
                     <input id="up_file" type="file" multiple hidden>
                     <div class="upload-choices">
@@ -185,7 +197,7 @@
                 </div>
                 <div class="login-divider" style="margin:.9rem 0"><span>or</span></div>
                 <div class="field">
-                  <label for="up_link">Link to another site <span style="color:var(--ink-soft);font-weight:500">— YouTube plays right in the portal; anything else opens in a new tab</span></label>
+                  <label for="up_link">Link to another site <span class="hint-inline">— YouTube plays right in the portal; anything else opens in a new tab</span></label>
                   <input id="up_link" type="url" placeholder="https://youtube.com/watch?v=… or any other link">
                 </div>
                 <button class="btn btn-primary btn-block" type="submit">Add to library</button>
@@ -194,22 +206,6 @@
           </div>
 
           <div>
-            <div class="panel">
-              <div class="panel-head"><h2>Folders</h2></div>
-              <p class="hint">Group content together — e.g. "Grade 4 Maths" — so it's easier to find on every dashboard.</p>
-              <form id="folderForm" class="form-row" style="display:grid;grid-template-columns:1fr 1fr auto;gap:.6rem;align-items:end;margin-top:.6rem">
-                <div class="field" style="margin-bottom:0">
-                  <label for="fld_name">Folder name</label>
-                  <input id="fld_name" type="text" placeholder="e.g. Grade 4 Maths" required>
-                </div>
-                <div class="field" style="margin-bottom:0">
-                  <label for="fld_audience">Destination</label>
-                  <select id="fld_audience" required></select>
-                </div>
-                <button class="btn btn-primary" type="submit">Create</button>
-              </form>
-              <div id="folderList" style="margin-top:.9rem"></div>
-            </div>
             <div class="panel">
               <div class="panel-head"><h2>Content Library</h2></div>
               <div id="libraryList"></div>

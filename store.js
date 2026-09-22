@@ -73,6 +73,17 @@ export async function setLibraryPublished(id, published) {
   return item;
 }
 
+/* Fixes a mistake on an already-uploaded item (wrong subject, a typo in
+   the title, the wrong destination…) in place — same id, same published
+   state, never a second row. Pass only the fields that changed; the API
+   ignores anything else and, if the destination changes without a new
+   folderId, automatically clears a now-mismatched folder rather than
+   leaving it inconsistent. */
+export async function updateLibraryItem(id, patch) {
+  const { item } = await apiSend("PATCH", `/library/${id}`, patch);
+  return item;
+}
+
 /* Deletes the row and every uploaded file behind it (server-side); a
    link-only or metadata-only item just removes the row. */
 export async function deleteLibraryItem(id) {

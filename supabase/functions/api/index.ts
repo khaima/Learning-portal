@@ -730,33 +730,63 @@ app.post("/library", withProfile("education_team"), async (c) => {
   return c.json({ item: await mapLibrary(data), uploads });
 });
 
-/* Publish/unpublish and folder reassignment — the only edits this route
-   allows. A freshly uploaded item starts as a draft (see the table
-   default); it's real to the education team immediately (their own
-   GET /library shows drafts) but invisible to everyone else until
-   explicitly published here. Moving to a folder requires the folder's
-   audience to match the item's own — same rule as at upload time. */
+/* Publish/unpublish, metadata edits, and folder reassignment — every
+   edit this route allows, all on the SAME row (never a new one — this
+   is how "picked the wrong subject" gets fixed, or a link gets swapped,
+   without losing the item's published state or creating a duplicate).
+   A freshly uploaded item starts as a draft (see the table default);
+   it's real to the education team immediately (their own GET /library
+   shows drafts) but invisible to everyone else until explicitly
+   published here. Moving to a folder — explicitly, or implicitly by
+   changing the destination away from the folder's own audience —
+   requires the folder's audience to match; changing destination without
+   picking a new folder auto-unfiles rather than leaving a mismatched,
+   inconsistent state. */
 app.patch("/library/:id", withProfile("education_team"), async (c) => {
   const id = c.req.param("id");
   const b = await c.req.json().catch(() => ({}));
+  const { data: current } = await admin
+    .from("library_items").select("audience, folder_id").eq("id", id).maybeSingle();
+  if (!current) return c.json({ error: "Content not found" }, 404);
+
   const patch: Record<string, unknown> = {};
   if (typeof b.published === "boolean") patch.published = b.published;
+  if (typeof b.title === "string") {
+    const title = b.title.trim();
+    if (!title) return c.json({ error: "Title is required" }, 400);
+    patch.title = title;
+  }
+  if (typeof b.subject === "string" && b.subject.trim()) patch.subject = b.subject.trim();
+  if (typeof b.type === "string" && b.type.trim()) patch.type = b.type.trim();
+  if (typeof b.description === "string") patch.description = b.description.trim();
+  if (typeof b.externalUrl === "string") {
+    const url = b.externalUrl.trim();
+    if (url && !URL_RE.test(url)) return c.json({ error: "Link must start with http:// or https://" }, 400);
+    patch.external_url = url || null;
+  }
+  if (typeof b.audience === "string") {
+    patch.audience = ["staff", "school_leader"].includes(b.audience) ? b.audience : "library";
+  }
+  const effectiveAudience = (patch.audience as string | undefined) ?? current.audience as string;
+
   if ("folderId" in b) {
     if (b.folderId === null) {
       patch.folder_id = null;
     } else {
-      const { data: item } = await admin
-        .from("library_items").select("audience").eq("id", id).maybeSingle();
-      if (!item) return c.json({ error: "Content not found" }, 404);
       const { data: folder } = await admin
         .from("library_folders").select("id, audience").eq("id", b.folderId).maybeSingle();
       if (!folder) return c.json({ error: "Folder not found" }, 400);
-      if (folder.audience !== item.audience) {
+      if (folder.audience !== effectiveAudience) {
         return c.json({ error: "Folder is for a different destination" }, 400);
       }
       patch.folder_id = folder.id;
     }
+  } else if (patch.audience && current.folder_id) {
+    const { data: folder } = await admin
+      .from("library_folders").select("audience").eq("id", current.folder_id as string).maybeSingle();
+    if (!folder || folder.audience !== effectiveAudience) patch.folder_id = null;
   }
+
   if (!Object.keys(patch).length) return c.json({ error: "Nothing to update" }, 400);
   const { data, error } = await admin
     .from("library_items")

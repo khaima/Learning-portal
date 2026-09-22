@@ -579,6 +579,48 @@ a{ color:inherit; }
 
 .fill-form{ border:1.5px dashed var(--line); border-radius:var(--radius-md); padding:.9rem 1rem; margin-top:.7rem; background:var(--paper-sunk); }
 
+/* ---- "Upload content" form, broken into scannable groups instead of
+   one long column of fields — an eyebrow label ahead of each group,
+   no border/box needed since the vertical rhythm alone reads as
+   sections. First one sits flush under the panel title. ---- */
+.form-section-label{
+  margin:1.3rem 0 .5rem; font-family:"Baloo 2",sans-serif; font-weight:700;
+  font-size:.72rem; letter-spacing:.04em; text-transform:uppercase; color:var(--ink-soft);
+}
+.form-section-label:first-child{ margin-top:0; }
+.hint-inline{ color:var(--ink-soft); font-weight:500; }
+
+/* Inline "+ Create new folder…" — picking that option in #up_folder
+   reveals this row right under the select instead of sending the
+   education team to a separate panel. */
+.folder-inline-create{ display:flex; gap:.5rem; margin-top:.5rem; }
+.folder-inline-create input{
+  flex:1; min-width:0; padding:.6rem .8rem; border:1.5px solid var(--line);
+  border-radius:var(--radius-sm); font:inherit; font-size:.86rem; background:var(--paper-raised); color:var(--ink);
+}
+.folder-inline-create input:focus{ border-color:var(--brand); }
+.folder-inline-create .btn{ padding:.5rem .9rem; font-size:.82rem; flex:none; }
+.link-btn{
+  display:inline-block; margin-top:.45rem; background:none; border:0; padding:0;
+  font-family:inherit; font-size:.78rem; font-weight:600; color:var(--brand); cursor:pointer;
+}
+.link-btn:hover{ text-decoration:underline; }
+.folder-chip-row{ display:flex; flex-wrap:wrap; gap:.4rem; margin-top:.5rem; }
+.folder-chip{
+  display:inline-flex; align-items:center; gap:.35rem; background:var(--brand-soft); color:var(--brand-fg);
+  border-radius:999px; padding:.28rem .5rem .28rem .7rem; font-size:.78rem; font-weight:600;
+}
+.folder-chip button{
+  background:none; border:0; padding:0; width:1.1rem; height:1.1rem; border-radius:50%;
+  color:var(--brand-fg); cursor:pointer; font-size:.9rem; line-height:1; display:flex; align-items:center; justify-content:center;
+}
+.folder-chip button:hover{ background:rgba(0,0,0,.08); }
+@media (max-width:640px){
+  .folder-inline-create{ flex-wrap:wrap; }
+  .folder-inline-create input{ flex:1 1 100%; }
+  .link-btn{ padding:.3rem 0; font-size:.82rem; }
+}
+
 /* ---- file / folder upload on "Upload content" ---- */
 .upload-drop{
   border:1.5px dashed var(--line); border-radius:var(--radius-md);
@@ -794,6 +836,46 @@ body.viewer-locked{ overflow:hidden; }
 }
 .folder-group .list-group{ margin-top:.7rem; padding-left:.2rem; border-left:2px solid var(--line); }
 .folder-group .list-group:first-child{ margin-top:.7rem; }
+
+/* Content Library management (education.js) renders these groups as
+   <details>/<summary> instead of plain <div>s — collapsible, so a long
+   library stays scannable — while every other dashboard keeps the same
+   classes on plain <div>s (unaffected, since these rules only match a
+   real <summary>). Open by default; a small chevron shows state. */
+details > summary.folder-group-title,
+details > summary.list-group-title{
+  cursor:pointer; list-style:none; user-select:none;
+}
+details > summary.folder-group-title::-webkit-details-marker,
+details > summary.list-group-title::-webkit-details-marker{ display:none; }
+details > summary.folder-group-title::before,
+details > summary.list-group-title::before{
+  content:""; flex:none; width:0; height:0; margin-right:.15rem;
+  border-left:5px solid var(--ink-soft); border-top:4px solid transparent; border-bottom:4px solid transparent;
+  transition:transform .15s ease;
+}
+details[open] > summary.folder-group-title::before,
+details[open] > summary.list-group-title::before{ transform:rotate(90deg); }
+
+/* ---- inline "edit this item" row (Content Library) — expands a normal
+   .task-row into a compact editor in place, so fixing a wrong subject or
+   a typo never leaves the list or opens a separate page. */
+.lib-edit-row{
+  background:var(--paper-sunk); border:1.5px solid var(--line); border-radius:var(--radius-md);
+  padding:.8rem .9rem; margin:.35rem 0;
+}
+.lib-edit-row .field{ margin-bottom:.6rem; }
+.lib-edit-row .field:last-of-type{ margin-bottom:0; }
+.lib-edit-row .field label{ font-size:.76rem; }
+.lib-edit-row input,
+.lib-edit-row select{
+  width:100%; box-sizing:border-box; padding:.55rem .7rem; border:1.5px solid var(--line);
+  border-radius:var(--radius-sm); font:inherit; font-size:.86rem; background:var(--paper-raised); color:var(--ink);
+}
+.lib-edit-row input:focus,
+.lib-edit-row select:focus{ border-color:var(--brand); }
+.lib-edit-row .edit-actions{ display:flex; gap:.6rem; align-items:center; margin-top:.8rem; flex-wrap:wrap; }
+.lib-edit-row .edit-actions .btn{ padding:.5rem 1.1rem; font-size:.82rem; }
 
 /* A small inline <select> that sits alongside .roster-actions' link-style
    buttons (e.g. "Move to folder…" on each Content Library row) — pill-
