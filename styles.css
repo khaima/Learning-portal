@@ -301,6 +301,14 @@ a{ color:inherit; }
 /* ================================================================ APP SHELL (teacher + learner) */
 .app-shell{ min-height:100vh; display:grid; grid-template-columns:15.5rem 1fr; }
 .app-side{ background:var(--panel-deep); color:#fff; padding:1.3rem 1.1rem; display:flex; flex-direction:column; gap:1.6rem; }
+/* A grid item's default min-width is "auto" — the min-content size of
+   whatever's inside it — so a chart grid with a minmax(300px,…) column
+   (or any other wide-ish content) can silently force this whole track,
+   and the page with it, past the viewport edge on a narrow screen with
+   no visible cause. min-width:0 is the standard escape hatch: it lets
+   .app-main actually shrink to the real available width and leaves
+   overflow-prone content (like .chart-grid) to handle itself. */
+.app-main{ min-width:0; }
 
 /* ---- mobile nav: the sidebar becomes an off-canvas drawer instead of
    just vanishing — menu-btn/side-backdrop are inserted by nav.js on
@@ -409,6 +417,9 @@ a{ color:inherit; }
 .task-row button.mark-done{
   margin-left:auto; flex:none; background:var(--success-soft); color:var(--success); border:0;
   border-radius:999px; padding:.3rem .7rem; font-size:.72rem; font-weight:700; cursor:pointer;
+}
+@media (max-width:768px){
+  .task-row button.mark-done{ padding:.55rem .9rem; font-size:.78rem; }
 }
 
 .result-row{ display:flex; align-items:center; justify-content:space-between; padding:.55rem 0; border-bottom:1px solid var(--line); font-size:.86rem; }
@@ -543,6 +554,15 @@ a{ color:inherit; }
   width:2.7rem; height:2.7rem; flex:none; cursor:pointer; font-size:1.1rem; font-weight:700; line-height:1;
 }
 .qrow-remove:disabled{ opacity:.4; cursor:not-allowed; }
+/* Below 640px, the fixed 9.5rem answer-type select plus the 2.7rem
+   remove button leave the question text barely wide enough for a
+   handful of characters. Give the question its own full-width line and
+   let the type select share the second line with Remove instead. */
+@media (max-width:640px){
+  .qrow{ flex-wrap:wrap; }
+  .qrow .field{ flex:1 1 100%; }
+  .qrow select{ flex:1; width:auto; }
+}
 
 .form-card{ border:1px solid var(--line); border-radius:var(--radius-md); padding:1rem 1.1rem; margin-bottom:.8rem; }
 .form-card:last-child{ margin-bottom:0; }
@@ -654,6 +674,32 @@ body.viewer-locked{ overflow:hidden; }
   .viewer-frame[data-kind="video"]{ border-radius:0; max-width:none; max-height:none; height:100%; }
 }
 
+/* Every ".form-row" (add-learner, upload, search+sort, question builder…)
+   sets its own two-column grid-template-columns inline, per form — there
+   was never a shared class to hang this on. Below 640px that 2-across
+   layout leaves too little room per field (a "Sort by" <select> was
+   truncating its own selected text) — one rule, !important because it's
+   overriding each call site's own inline style, stacks every one of them
+   to a single column instead of editing each form separately. */
+@media (max-width:640px){
+  .form-row{ grid-template-columns:1fr !important; }
+}
+
+/* Kobo "add a deployed survey" row: a select sharing one line with two
+   buttons truncates its own selected/placeholder text to almost nothing
+   once the buttons claim their share — give the select its own line. */
+@media (max-width:640px){
+  #koboAttachForm > div{ flex-wrap:wrap; }
+  #koboAttachForm select{ flex:1 1 100% !important; }
+}
+
+/* "I've submitted this" (Kobo survey card, field officer dashboard) is a
+   zero-padding text link set inline in field.js — fine for a mouse, a
+   ~15px tap target on a phone. */
+@media (max-width:768px){
+  [data-kobo-done]{ padding:.5rem 0 !important; display:inline-block; }
+}
+
 /* ---- reading-badge celebration popup (viewer.js showBadgeCelebration) ---- */
 .badge-toast{
   position:fixed; left:50%; bottom:1.6rem; transform:translate(-50%,1.2rem);
@@ -671,7 +717,14 @@ body.viewer-locked{ overflow:hidden; }
 .badge-toast-card p{ margin:.15rem 0 0; font-size:.82rem; color:var(--ink-soft); }
 .badge-toast-card em{ font-style:normal; color:var(--brand-fg); font-weight:600; }
 
-/* ---- teacher's learner roster ---- */
+/* ---- roster rows (teacher's learners, education team's staff list) ----
+   A name block plus 3-4 text-link actions, side by side — comfortable on
+   a desktop's wide row, but flex:none on .roster-actions refuses to
+   shrink, so on a narrow screen it either overflows the row (staff list,
+   whose labels are longest: "Send reset link", "Set new password") or
+   crams into a barely-tappable sliver (learner roster). Past 768px this
+   is untouched; at and below it the actions drop to their own full-width
+   line and grow into real touch targets instead. */
 .roster-actions{ display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; flex:none; }
 .roster-actions button{
   background:none; border:0; padding:.15rem .1rem; cursor:pointer;
@@ -679,6 +732,11 @@ body.viewer-locked{ overflow:hidden; }
 }
 .roster-actions button:hover{ text-decoration:underline; }
 .roster-actions button.danger{ color:var(--danger); }
+@media (max-width:768px){
+  .task-row:has(.roster-actions){ flex-wrap:wrap; }
+  .roster-actions{ flex:1 1 100%; gap:.4rem .9rem; padding-top:.2rem; }
+  .roster-actions button{ padding:.55rem .1rem; font-size:.82rem; }
+}
 #addLearnerForm .form-row{ margin-bottom:0; }
 #addLearnerForm .field{ margin-bottom:.7rem; }
 
@@ -722,7 +780,7 @@ body.viewer-locked{ overflow:hidden; }
 /* ---- survey results (live charts) ---- */
 .chart-meta{ font-size:.78rem; color:var(--ink-soft); margin:0 0 .9rem; }
 .chart-grid{
-  display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:1.1rem;
+  display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:1.1rem;
 }
 .chart-card{
   border:1px solid var(--line); border-radius:var(--radius-lg);
@@ -733,9 +791,16 @@ body.viewer-locked{ overflow:hidden; }
 .chart-card-head{
   display:flex; align-items:baseline; justify-content:space-between; gap:.6rem;
   margin-bottom:.8rem; padding-bottom:.6rem; border-bottom:1px solid var(--line);
+  flex-wrap:wrap;
 }
 .chart-card-head b{ font-size:.9rem; line-height:1.3; color:var(--ink); }
-.chart-card-head span{ font-size:.72rem; color:var(--ink-soft); flex:none; }
+/* A long meta sentence ("13 total · teachers, learners, leaders & field
+   officers") used to hold flex:none, which refuses to shrink below its
+   full one-line width — on a narrow screen that silently pushed the card
+   past the viewport edge instead of wrapping. Letting it shrink/wrap
+   (plus flex-wrap above, for when it needs its own line under the
+   title) keeps every chart card's own width the ceiling instead. */
+.chart-card-head span{ font-size:.72rem; color:var(--ink-soft); flex:1 1 auto; min-width:0; }
 .chart-empty{ font-size:.8rem; color:var(--ink-soft); padding:.5rem 0; }
 
 .bar-chart{ display:flex; flex-direction:column; gap:.55rem; }
