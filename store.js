@@ -41,6 +41,19 @@ export async function addLibraryItem(item) {
   return saved;
 }
 
+/* A freshly uploaded item is a draft — real to the education team right
+   away, invisible to everyone else until this flips it to published. */
+export async function setLibraryPublished(id, published) {
+  const { item } = await apiSend("PATCH", `/library/${id}`, { published });
+  return item;
+}
+
+/* Deletes the row and every uploaded file behind it (server-side); a
+   link-only or metadata-only item just removes the row. */
+export async function deleteLibraryItem(id) {
+  await apiSend("DELETE", `/library/${id}`);
+}
+
 const safeSegment = (s) =>
   String(s).replace(/[^\w.\- ]+/g, "_").replace(/\s+/g, " ").trim() || "file";
 

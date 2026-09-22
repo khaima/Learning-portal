@@ -172,6 +172,7 @@ const mapLibrary = async (r: Record<string, unknown>) => ({
   isFolder: !!r.is_folder,
   files: await signFiles((r.files as LibFile[]) ?? []),
   externalUrl: r.external_url ?? null,
+  published: !!r.published,
 });
 const mapProfile = (r: Record<string, unknown>) => ({
   id: r.id,
@@ -644,8 +645,12 @@ app.get("/library", withActor(), async (c) => {
     .select("*")
     .order("uploaded_at", { ascending: false });
   if (error) return c.json({ error: error.message }, 500);
+  // A draft is only visible to the education team — everyone else only
+  // ever sees what's actually been published, same as the audience check
+  // right next to it.
   const visible = (data ?? []).filter((it) =>
-    canSeeLibrary(it.audience as string, role),
+    canSeeLibrary(it.audience as string, role) &&
+    (role === "education_team" || it.published),
   );
   const items = await Promise.all(visible.map(mapLibrary));
   return c.json({ items });
@@ -700,6 +705,25 @@ app.post("/library", withProfile("education_team"), async (c) => {
     .single();
   if (error) return c.json({ error: error.message }, 400);
   return c.json({ item: await mapLibrary(data), uploads });
+});
+
+/* Publish/unpublish — the only edit this route allows. A freshly
+   uploaded item starts as a draft (see the table default); it's real to
+   the education team immediately (their own GET /library shows drafts)
+   but invisible to everyone else until explicitly published here. */
+app.patch("/library/:id", withProfile("education_team"), async (c) => {
+  const id = c.req.param("id");
+  const b = await c.req.json().catch(() => ({}));
+  if (typeof b.published !== "boolean") return c.json({ error: "Nothing to update" }, 400);
+  const { data, error } = await admin
+    .from("library_items")
+    .update({ published: b.published })
+    .eq("id", id)
+    .select()
+    .maybeSingle();
+  if (error) return c.json({ error: error.message }, 400);
+  if (!data) return c.json({ error: "Content not found" }, 404);
+  return c.json({ item: await mapLibrary(data) });
 });
 
 app.delete("/library/:id", withProfile("education_team"), async (c) => {

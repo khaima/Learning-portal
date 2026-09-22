@@ -6,7 +6,7 @@ import {
   normalizeLibraryAudience,
 } from "./data.js";
 import {
-  getLibrary, addLibraryItem, getForms, addForm, getResponses, getStats,
+  getLibrary, addLibraryItem, setLibraryPublished, deleteLibraryItem, getForms, addForm, getResponses, getStats,
   uploadLibraryFiles, libraryFilesHtml, getLibraryUsage,
   koboConfig, saveKoboConfig, koboAssets, koboAssetPreview, koboForms, attachKoboForm,
   removeKoboForm, syncKobo, koboResults,
@@ -445,19 +445,64 @@ async function main() {
     library: { cls: " ok", label: "Digital Library" },
   };
 
+  /* Publish/Delete live here (Content Library management) only — a
+     draft is real the instant it's uploaded, but invisible to every
+     other dashboard until published; deleting removes the row and any
+     uploaded files behind it, immediately and for good. */
   function libraryRow(it) {
     const dest = AUDIENCE_PILL[normalizeLibraryAudience(it.audience)];
     return `
-      <div class="task-row">
+      <div class="task-row" data-lib-id="${esc(it.id)}">
         <span class="task-dot" style="background:var(--brand);margin-top:.55rem"></span>
         <div style="flex:1">
           <b>${esc(it.title)}</b>
           <span>${esc(it.subject)}${it.description ? " — " + esc(it.description) : ""}</span>
           ${libraryFilesHtml(it)}
+          <div class="roster-actions" style="margin-top:.4rem">
+            <button type="button" data-act="publish">${it.published ? "Unpublish" : "Publish"}</button>
+            <button type="button" data-act="delete" class="danger">Delete</button>
+          </div>
         </div>
-        <span class="pill${dest.cls}">${dest.label}</span>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.3rem;flex:none">
+          <span class="pill${dest.cls}">${dest.label}</span>
+          <span class="pill ${it.published ? "ok" : "warm"}">${it.published ? "Published" : "Draft"}</span>
+        </div>
       </div>`;
   }
+
+  $("#libraryList").addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-act]");
+    if (!btn) return;
+    const row = btn.closest("[data-lib-id]");
+    const id = row.dataset.libId;
+    const title = row.querySelector("b")?.textContent || "this item";
+
+    if (btn.dataset.act === "publish") {
+      const publishing = btn.textContent.trim() === "Publish";
+      btn.disabled = true;
+      try {
+        await setLibraryPublished(id, publishing);
+        toast(publishing ? "Published successfully." : "Unpublished.", publishing ? `"${title}" is now visible on dashboards.` : `"${title}" is hidden from dashboards again.`, "success");
+        renderLibrary();
+      } catch (err) {
+        console.error("could not update publish state:", err);
+        toast("Couldn't do that", friendlyError(err), "error");
+        btn.disabled = false;
+      }
+    } else if (btn.dataset.act === "delete") {
+      if (!confirm(`Delete "${title}"? This removes it — and any uploaded files — for good.`)) return;
+      btn.disabled = true;
+      try {
+        await deleteLibraryItem(id);
+        toast("Deleted successfully.", "", "success");
+        renderLibrary();
+      } catch (err) {
+        console.error("could not delete library item:", err);
+        toast("Couldn't delete that", friendlyError(err), "error");
+        btn.disabled = false;
+      }
+    }
+  });
 
   async function renderLibrary() {
     $("#libraryList").innerHTML = skeleton(4);

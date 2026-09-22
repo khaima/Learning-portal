@@ -68,7 +68,11 @@ create table if not exists public.library_items (
   -- a YouTube video, an article, another platform's course page. Mutually
   -- exclusive with `files` in practice (the upload form offers one or the
   -- other), but nothing at the DB layer forces that.
-  external_url text
+  external_url text,
+  -- Drafts default false: real the instant it's uploaded (the education
+  -- team's own /library call shows drafts), but invisible to every other
+  -- role until explicitly published (PATCH /library/:id).
+  published boolean not null default false
 );
 
 -- One row per "someone opened a resource". `completed_at`/`duration_seconds`
