@@ -39,6 +39,28 @@ export function groupByType(items, order) {
   return [...known, ...rest].map((type) => ({ type, items: buckets.get(type) }));
 }
 
+/* Buckets library items into the organizational folders the education
+   team created (see library_folders) — a real, named grouping, distinct
+   from groupByType's by-content-type buckets. Items with no folder, or
+   whose folder got deleted, land in a trailing "Unfiled" group; folders
+   with nothing in them are skipped. */
+export function groupByFolder(items, folders) {
+  const known = new Map((folders || []).map((f) => [f.id, f]));
+  const buckets = new Map();
+  const unfiled = [];
+  for (const it of items) {
+    const f = it.folderId && known.has(it.folderId) ? known.get(it.folderId) : null;
+    if (!f) { unfiled.push(it); continue; }
+    if (!buckets.has(f.id)) buckets.set(f.id, []);
+    buckets.get(f.id).push(it);
+  }
+  const groups = (folders || [])
+    .filter((f) => buckets.has(f.id))
+    .map((f) => ({ id: f.id, name: f.name, items: buckets.get(f.id) }));
+  if (unfiled.length) groups.push({ id: null, name: "Unfiled", items: unfiled });
+  return groups;
+}
+
 let toastHost = null;
 export function toast(title, body = "", kind = "info") {
   if (!toastHost) {
@@ -118,4 +140,45 @@ export function friendlyError(err, fallback = "We couldn't load this information
   if (err && typeof err.status === "number" && err.message) return err.message;
   console.error(err);
   return fallback;
+}
+
+/* In-app confirm dialog — replaces the native window.confirm() for
+   destructive actions (deleting content, removing a folder). The native
+   dialog is blocking and browser-styled, which is both inconsistent with
+   the rest of the UI and, in some embedded/automated contexts, silently
+   auto-dismissed as "cancel" without the caller ever finding out. This
+   is a real Promise the caller awaits, so there's no ambiguity about
+   whether the user actually chose to proceed. */
+let confirmOverlay = null;
+export function confirmDialog({ title = "Are you sure?", body = "", confirmLabel = "Confirm", cancelLabel = "Cancel", danger = false } = {}) {
+  return new Promise((resolve) => {
+    if (!confirmOverlay) {
+      confirmOverlay = document.createElement("div");
+      confirmOverlay.className = "confirm-overlay";
+      document.body.appendChild(confirmOverlay);
+    }
+    confirmOverlay.innerHTML = `
+      <div class="confirm-card" role="alertdialog" aria-modal="true">
+        <b>${esc(title)}</b>
+        ${body ? `<p>${esc(body)}</p>` : ""}
+        <div class="confirm-actions">
+          <button type="button" class="btn btn-outline" data-act="cancel">${esc(cancelLabel)}</button>
+          <button type="button" class="btn ${danger ? "btn-danger" : "btn-primary"}" data-act="ok">${esc(confirmLabel)}</button>
+        </div>
+      </div>`;
+    let settled = false;
+    const done = (val) => {
+      if (settled) return;
+      settled = true;
+      confirmOverlay.classList.remove("is-open");
+      document.removeEventListener("keydown", onKey);
+      resolve(val);
+    };
+    const onKey = (e) => { if (e.key === "Escape") done(false); };
+    confirmOverlay.querySelector('[data-act="cancel"]').addEventListener("click", () => done(false));
+    confirmOverlay.querySelector('[data-act="ok"]').addEventListener("click", () => done(true));
+    confirmOverlay.addEventListener("click", (e) => { if (e.target === confirmOverlay) done(false); });
+    document.addEventListener("keydown", onKey);
+    confirmOverlay.classList.add("is-open");
+  });
 }

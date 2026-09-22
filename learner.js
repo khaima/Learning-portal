@@ -1,9 +1,9 @@
 import "./nav.js";
-import { $, $$, esc, initials, formatDuration, groupByType, skeleton, emptyState, errorState, friendlyError, toast } from "./util.js";
+import { $, $$, esc, initials, formatDuration, groupByType, groupByFolder, skeleton, emptyState, errorState, friendlyError, toast } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { LEARNER_CONTENT, SUBJECT_ICON_PATHS, normalizeLibraryAudience, CONTENT_TYPES } from "./data.js";
 import {
-  getLibrary, libraryFilesHtml, getAssignments, markAssignmentDone, getMyLibraryUsage,
+  getLibrary, getLibraryFolders, libraryFilesHtml, getAssignments, markAssignmentDone, getMyLibraryUsage,
 } from "./store.js";
 
 const CIRCUMFERENCE = 2 * Math.PI * 34;
@@ -155,6 +155,17 @@ async function main() {
       return [];
     }
   }
+  // Organizational folders (the education team's own groupings) — best
+  // effort: nothing here is critical enough to show its own error state,
+  // a failed fetch just means everything renders ungrouped this time.
+  async function loadFolders() {
+    try {
+      return await getLibraryFolders();
+    } catch (err) {
+      console.error("could not load library folders:", err);
+      return [];
+    }
+  }
   let usageFailed = false;
   async function loadUsage() {
     try {
@@ -168,7 +179,7 @@ async function main() {
     }
   }
 
-  function renderResources(library, onRetry) {
+  function renderResources(library, folders, onRetry) {
     if (libraryFailed) {
       const msg = errorState("Check your connection and try again.", onRetry);
       $("#libraryStrip").innerHTML = msg;
@@ -182,12 +193,19 @@ async function main() {
           <b>${esc(l.title)}</b><span>${esc(l.subject)}</span>
           ${libraryFilesHtml(l)}
         </div>`;
-
-    $("#libraryStrip").innerHTML = forLearners.length
-      ? groupByType(forLearners, CONTENT_TYPES).map(({ type, items }) => `
+    const byType = (items) => groupByType(items, CONTENT_TYPES).map(({ type, items: t }) => `
         <div class="list-group">
-          <div class="list-group-title">${esc(type)}<span class="count">${items.length}</span></div>
-          <div class="lib-strip">${items.map(card).join("")}</div>
+          <div class="list-group-title">${esc(type)}<span class="count">${t.length}</span></div>
+          <div class="lib-strip">${t.map(card).join("")}</div>
+        </div>`).join("");
+
+    // Organizational folders (the education team's own groupings) come
+    // first; each folder's items still sub-group by type underneath.
+    $("#libraryStrip").innerHTML = forLearners.length
+      ? groupByFolder(forLearners, folders).map(({ name, items }) => `
+        <div class="folder-group">
+          <div class="folder-group-title">${esc(name)}<span class="count">${items.length}</span></div>
+          ${byType(items)}
         </div>`).join("")
       : `<div class="empty-state">Nothing in the library yet.</div>`;
 
@@ -291,10 +309,11 @@ async function main() {
 
   let assignments = [];
   let library = [];
+  let libraryFolders = [];
   let usage = null;
 
   async function retryAssignments() { assignments = await loadAssignments(); renderAll(); }
-  async function retryLibrary() { library = await loadLibrary(); renderAll(); }
+  async function retryLibrary() { [library, libraryFolders] = await Promise.all([loadLibrary(), loadFolders()]); renderAll(); }
   async function retryUsage() { usage = await loadUsage(); renderAll(); }
 
   function renderAll() {
@@ -304,12 +323,14 @@ async function main() {
       assignments = assignments.map((a) => (a.id === id ? { ...a, done: true } : a));
       renderAll();
     }, retryAssignments);
-    renderResources(library, retryLibrary);
+    renderResources(library, libraryFolders, retryLibrary);
     renderActivity(usage, retryUsage);
     renderContinueCard({ library, usage, assignments });
   }
 
-  [assignments, library, usage] = await Promise.all([loadAssignments(), loadLibrary(), loadUsage()]);
+  [assignments, [library, libraryFolders], usage] = await Promise.all([
+    loadAssignments(), Promise.all([loadLibrary(), loadFolders()]), loadUsage(),
+  ]);
   renderAll();
 }
 main();

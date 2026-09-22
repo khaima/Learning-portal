@@ -21,6 +21,30 @@ export async function getLibrary() {
   return items || [];
 }
 
+/* Organizational folders (e.g. "Grade 4 Maths") the education team
+   sorts content into — separate from a folder UPLOAD (many files as one
+   item, see uploadLibraryFiles below). Every role that can see the
+   library can list folders (same audience rules as items); only the
+   education team can create/delete them. */
+export async function getLibraryFolders() {
+  const { folders } = await apiGet("/library/folders");
+  return folders || [];
+}
+export async function createLibraryFolder(name, audience) {
+  const { folder } = await apiSend("POST", "/library/folders", { name, audience });
+  return folder;
+}
+export async function deleteLibraryFolder(id) {
+  await apiSend("DELETE", `/library/folders/${id}`);
+}
+/* Moves an item into a folder, or back out to "Unfiled" (folderId: null).
+   The folder must share the item's own destination (staff/library/
+   school_leader) — the API enforces it. */
+export async function setLibraryFolder(id, folderId) {
+  const { item } = await apiSend("PATCH", `/library/${id}`, { folderId });
+  return item;
+}
+
 /* Create a library item. `files` is the manifest [{ name, size }] the
    caller intends to upload; the API returns a signed upload URL per
    file, which uploadLibraryFiles() then PUTs to. `externalUrl` is the
@@ -37,6 +61,7 @@ export async function addLibraryItem(item) {
     isFolder: !!item.isFolder,
     files: (item.files || []).map((f) => ({ name: f.name, size: f.size })),
     externalUrl: item.externalUrl || null,
+    folderId: item.folderId || null,
   });
   return saved;
 }
@@ -85,6 +110,7 @@ export async function uploadLibraryFiles(item, fileList, onProgress) {
     fileName: folderName || list[0].name,
     isFolder,
     files: manifest,
+    folderId: item.folderId || null,
   });
 
   let done = 0;

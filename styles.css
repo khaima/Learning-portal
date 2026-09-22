@@ -674,6 +674,30 @@ body.viewer-locked{ overflow:hidden; }
   .viewer-frame[data-kind="video"]{ border-radius:0; max-width:none; max-height:none; height:100%; }
 }
 
+/* ---- in-app confirm dialog (util.js confirmDialog()) — replaces
+   window.confirm() for destructive actions (delete content, delete a
+   folder). Same overlay treatment as the viewer, smaller card, higher
+   z-index so it can sit above anything else already open. */
+.confirm-overlay{
+  display:none; position:fixed; inset:0; z-index:600;
+  background:rgba(10,16,32,.78); padding:1.2rem; align-items:center; justify-content:center;
+}
+.confirm-overlay.is-open{ display:flex; }
+.confirm-card{
+  width:100%; max-width:26rem; background:var(--paper-raised); border-radius:var(--radius-lg);
+  box-shadow:var(--shadow); padding:1.3rem 1.4rem; animation:viewer-pop .18s ease-out;
+}
+.confirm-card b{ display:block; font-family:"Baloo 2",sans-serif; font-size:1.02rem; color:var(--ink); margin-bottom:.4rem; }
+.confirm-card p{ margin:0 0 1.1rem; font-size:.86rem; color:var(--ink-soft); line-height:1.5; }
+.confirm-actions{ display:flex; gap:.6rem; justify-content:flex-end; flex-wrap:wrap; }
+.confirm-actions .btn{ padding:.55rem 1.1rem; font-size:.84rem; }
+.btn-danger{ background:var(--danger); color:#fff; }
+.btn-danger:hover{ filter:brightness(.92); }
+@media (max-width:480px){
+  .confirm-actions{ flex-direction:column-reverse; }
+  .confirm-actions .btn{ width:100%; }
+}
+
 /* Every ".form-row" (add-learner, upload, search+sort, question builder…)
    sets its own two-column grid-template-columns inline, per form — there
    was never a shared class to hang this on. Below 640px that 2-across
@@ -752,6 +776,35 @@ body.viewer-locked{ overflow:hidden; }
   font-family:"Work Sans",sans-serif; font-weight:600; font-size:.72rem; color:var(--ink-soft);
   background:var(--paper-sunk); border-radius:999px; padding:.1rem .55rem;
 }
+
+/* ---- content library organizational folders (library_folders) — a
+   named grouping the education team creates to separate content, one
+   level above the existing by-type .list-group sections. Wraps them,
+   doesn't replace them: each folder's items still sub-group by type. */
+.folder-group{ margin-top:1.7rem; }
+.folder-group:first-child{ margin-top:.6rem; }
+.folder-group-title{
+  display:flex; align-items:center; gap:.4rem; font-family:"Baloo 2",sans-serif;
+  font-weight:700; font-size:.95rem; color:var(--ink);
+}
+.folder-group-title .icon{ width:15px; height:15px; color:var(--brand); flex:none; }
+.folder-group-title .count{
+  font-family:"Work Sans",sans-serif; font-weight:600; font-size:.72rem; color:var(--ink-soft);
+  background:var(--paper-sunk); border-radius:999px; padding:.1rem .55rem;
+}
+.folder-group .list-group{ margin-top:.7rem; padding-left:.2rem; border-left:2px solid var(--line); }
+.folder-group .list-group:first-child{ margin-top:.7rem; }
+
+/* A small inline <select> that sits alongside .roster-actions' link-style
+   buttons (e.g. "Move to folder…" on each Content Library row) — pill-
+   shaped to read as an action, not a form field, but a real touch target
+   on mobile. */
+.inline-select{
+  font-family:inherit; font-size:.76rem; font-weight:600; color:var(--brand-fg);
+  background:var(--brand-soft); border:0; border-radius:999px; padding:.28rem .65rem;
+  cursor:pointer; max-width:12rem;
+}
+@media (max-width:768px){ .inline-select{ font-size:.82rem; padding:.55rem .8rem; max-width:none; } }
 
 /* ---- KoboToolbox field surveys ---- */
 .kobo-note{

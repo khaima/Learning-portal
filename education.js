@@ -1,5 +1,5 @@
 import "./nav.js";
-import { $, $$, esc, initials, toast, formatDuration, groupByType, skeleton, errorState, friendlyError } from "./util.js";
+import { $, $$, esc, initials, toast, formatDuration, groupByType, groupByFolder, skeleton, errorState, friendlyError, confirmDialog } from "./util.js";
 import { requireRole, signOut, sendPasswordResetLink } from "./auth.js";
 import {
   CONTENT_TYPES, LIBRARY_SUBJECTS, LIBRARY_AUDIENCES, FORM_AUDIENCES, QUESTION_TYPES, ROLES,
@@ -8,6 +8,7 @@ import {
 import {
   getLibrary, addLibraryItem, setLibraryPublished, deleteLibraryItem, getForms, addForm, getResponses, getStats,
   uploadLibraryFiles, libraryFilesHtml, getLibraryUsage,
+  getLibraryFolders, createLibraryFolder, deleteLibraryFolder, setLibraryFolder,
   koboConfig, saveKoboConfig, koboAssets, koboAssetPreview, koboForms, attachKoboForm,
   removeKoboForm, syncKobo, koboResults,
   getUsers, updateUser, resetUserPassword,
@@ -438,6 +439,7 @@ async function main() {
   $("#up_subject").innerHTML = LIBRARY_SUBJECTS.map((s) => `<option>${esc(s)}</option>`).join("");
   $("#up_type").innerHTML = CONTENT_TYPES.map((t) => `<option>${esc(t)}</option>`).join("");
   $("#up_audience").innerHTML = LIBRARY_AUDIENCES.map((a) => `<option value="${a.value}">${esc(a.label)}</option>`).join("");
+  $("#fld_audience").innerHTML = LIBRARY_AUDIENCES.map((a) => `<option value="${a.value}">${esc(a.label)}</option>`).join("");
 
   const AUDIENCE_PILL = {
     staff: { cls: "", label: "Teacher Resources" },
@@ -445,12 +447,38 @@ async function main() {
     library: { cls: " ok", label: "Digital Library" },
   };
 
-  /* Publish/Delete live here (Content Library management) only — a
-     draft is real the instant it's uploaded, but invisible to every
+  /* Organizational folders (library_folders) — separate from the
+     upload form's own file/folder picker above (many files as one
+     item). Cached here so the upload form's folder picker, each row's
+     "Move to folder" control, and the Folders panel itself all stay in
+     sync without three separate fetches. */
+  let allFolders = [];
+
+  function foldersFor(audience) {
+    return allFolders.filter((f) => f.audience === audience);
+  }
+
+  // The upload form's folder choices depend on whichever destination is
+  // currently selected — a folder can only ever hold items that share
+  // its own audience (the API enforces this too).
+  function refreshUploadFolderOptions() {
+    const sel = $("#up_folder");
+    const keep = sel.value;
+    const opts = foldersFor($("#up_audience").value);
+    sel.innerHTML = `<option value="">No folder</option>${
+      opts.map((f) => `<option value="${esc(f.id)}">${esc(f.name)}</option>`).join("")}`;
+    if (opts.some((f) => f.id === keep)) sel.value = keep;
+  }
+  $("#up_audience").addEventListener("change", refreshUploadFolderOptions);
+
+  /* Publish/Delete/Move live here (Content Library management) only —
+     a draft is real the instant it's uploaded, but invisible to every
      other dashboard until published; deleting removes the row and any
-     uploaded files behind it, immediately and for good. */
+     uploaded files behind it, immediately and for good; moving assigns
+     or clears which folder the item sits in. */
   function libraryRow(it) {
     const dest = AUDIENCE_PILL[normalizeLibraryAudience(it.audience)];
+    const folderOpts = foldersFor(normalizeLibraryAudience(it.audience));
     return `
       <div class="task-row" data-lib-id="${esc(it.id)}">
         <span class="task-dot" style="background:var(--brand);margin-top:.55rem"></span>
@@ -461,6 +489,11 @@ async function main() {
           <div class="roster-actions" style="margin-top:.4rem">
             <button type="button" data-act="publish">${it.published ? "Unpublish" : "Publish"}</button>
             <button type="button" data-act="delete" class="danger">Delete</button>
+            ${folderOpts.length ? `
+              <select class="inline-select" data-act="move" aria-label="Move to folder">
+                <option value="">Unfiled</option>
+                ${folderOpts.map((f) => `<option value="${esc(f.id)}"${f.id === it.folderId ? " selected" : ""}>${esc(f.name)}</option>`).join("")}
+              </select>` : ""}
           </div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.3rem;flex:none">
@@ -490,12 +523,18 @@ async function main() {
         btn.disabled = false;
       }
     } else if (btn.dataset.act === "delete") {
-      if (!confirm(`Delete "${title}"? This removes it — and any uploaded files — for good.`)) return;
+      const ok = await confirmDialog({
+        title: `Delete "${title}"?`,
+        body: "This removes it — and any uploaded files — for good. This can't be undone.",
+        confirmLabel: "Delete", danger: true,
+      });
+      if (!ok) return;
       btn.disabled = true;
       try {
         await deleteLibraryItem(id);
         toast("Deleted successfully.", "", "success");
         renderLibrary();
+        renderFolders();
       } catch (err) {
         console.error("could not delete library item:", err);
         toast("Couldn't delete that", friendlyError(err), "error");
@@ -504,24 +543,126 @@ async function main() {
     }
   });
 
+  $("#libraryList").addEventListener("change", async (e) => {
+    const sel = e.target.closest("select[data-act='move']");
+    if (!sel) return;
+    const row = sel.closest("[data-lib-id]");
+    const id = row.dataset.libId;
+    const title = row.querySelector("b")?.textContent || "this item";
+    const folderId = sel.value || null;
+    sel.disabled = true;
+    try {
+      await setLibraryFolder(id, folderId);
+      toast("Moved.", folderId ? `"${title}" is now in that folder.` : `"${title}" is unfiled.`, "success");
+      renderLibrary();
+      renderFolders();
+    } catch (err) {
+      console.error("could not move library item:", err);
+      toast("Couldn't move that", friendlyError(err), "error");
+      sel.disabled = false;
+    }
+  });
+
   async function renderLibrary() {
     $("#libraryList").innerHTML = skeleton(4);
     let items;
     try {
-      items = await getLibrary();
+      [items, allFolders] = await Promise.all([getLibrary(), getLibraryFolders()]);
     } catch (err) {
       console.error("could not load library:", err);
       $("#libraryList").innerHTML = errorState(friendlyError(err), renderLibrary);
       return;
     }
+    refreshUploadFolderOptions();
+    const byType = (rows) => groupByType(rows, CONTENT_TYPES).map(({ type, items: t }) => `
+      <div class="list-group">
+        <div class="list-group-title">${esc(type)}<span class="count">${t.length}</span></div>
+        ${t.map(libraryRow).join("")}
+      </div>`).join("");
     $("#libraryList").innerHTML = items.length
-      ? groupByType(items, CONTENT_TYPES).map(({ type, items: rows }) => `
-        <div class="list-group">
-          <div class="list-group-title">${esc(type)}<span class="count">${rows.length}</span></div>
-          ${rows.map(libraryRow).join("")}
+      ? groupByFolder(items, allFolders).map(({ name, items: rows }) => `
+        <div class="folder-group">
+          <div class="folder-group-title">${esc(name)}<span class="count">${rows.length}</span></div>
+          ${byType(rows)}
         </div>`).join("")
       : `<div class="empty-state">Nothing uploaded yet.</div>`;
   }
+
+  /* ---- Folders panel — create/delete the organizational groupings
+     above. Deleting a folder never deletes its contents: the API sets
+     folder_id back to null, so affected items just fall back to
+     "Unfiled" in every list. */
+  async function renderFolders() {
+    $("#folderList").innerHTML = skeleton(2, { avatar: false });
+    try {
+      allFolders = await getLibraryFolders();
+    } catch (err) {
+      console.error("could not load folders:", err);
+      $("#folderList").innerHTML = errorState(friendlyError(err), renderFolders);
+      return;
+    }
+    refreshUploadFolderOptions();
+    $("#folderList").innerHTML = allFolders.length
+      ? allFolders.map((f) => `
+        <div class="task-row" data-folder-id="${esc(f.id)}">
+          <span class="task-dot" style="background:var(--brand);margin-top:.55rem"></span>
+          <div style="flex:1">
+            <b>${esc(f.name)}</b>
+            <span>${esc(AUDIENCE_PILL[f.audience]?.label || f.audience)} · ${f.itemCount} item${f.itemCount === 1 ? "" : "s"}</span>
+            <div class="roster-actions" style="margin-top:.4rem">
+              <button type="button" data-act="delete-folder" class="danger">Delete</button>
+            </div>
+          </div>
+        </div>`).join("")
+      : `<div class="empty-state">No folders yet — content stays organized by type until you create one.</div>`;
+  }
+
+  $("#folderForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = $("#fld_name").value.trim();
+    if (!name) return;
+    const submitBtn = e.target.querySelector("[type=submit]");
+    submitBtn.disabled = true;
+    submitBtn.classList.add("is-saving");
+    try {
+      await createLibraryFolder(name, $("#fld_audience").value);
+      toast("Folder created.", `"${name}" is ready to use.`, "success");
+      e.target.reset();
+      $("#fld_audience").value = LIBRARY_AUDIENCES[0].value;
+      renderFolders();
+      renderLibrary();
+    } catch (err) {
+      toast("Couldn't create that folder", friendlyError(err), "error");
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.classList.remove("is-saving");
+    }
+  });
+
+  $("#folderList").addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-act='delete-folder']");
+    if (!btn) return;
+    const row = btn.closest("[data-folder-id]");
+    const id = row.dataset.folderId;
+    const name = row.querySelector("b")?.textContent || "this folder";
+    const ok = await confirmDialog({
+      title: `Delete "${name}"?`,
+      body: "Content inside stays — it just becomes unfiled. This can't be undone.",
+      confirmLabel: "Delete", danger: true,
+    });
+    if (!ok) return;
+    btn.disabled = true;
+    try {
+      await deleteLibraryFolder(id);
+      toast("Folder deleted.", "", "success");
+      renderFolders();
+      renderLibrary();
+    } catch (err) {
+      console.error("could not delete folder:", err);
+      toast("Couldn't delete that folder", friendlyError(err), "error");
+      btn.disabled = false;
+    }
+  });
 
   /* ------------------------------------------------------------ content usage report
      Every "Open to read" click is timed (see nav.js) and rolls up here —
@@ -674,6 +815,7 @@ async function main() {
       audience: $("#up_audience").value,
       description: $("#up_desc").value.trim(),
       externalUrl: link || undefined,
+      folderId: $("#up_folder").value || null,
     };
 
     submitBtn.classList.add("is-saving");
@@ -697,7 +839,9 @@ async function main() {
       $("#up_subject").value = LIBRARY_SUBJECTS[0];
       $("#up_type").value = CONTENT_TYPES[0];
       $("#up_audience").value = LIBRARY_AUDIENCES[0].value;
+      refreshUploadFolderOptions();
       renderLibrary();
+      renderFolders();
     } catch (err) {
       toast("Upload failed", friendlyError(err, "Could not save the content. Check your connection and try again."), "error");
     } finally {
@@ -1348,6 +1492,7 @@ async function main() {
   });
 
   renderStats();
+  renderFolders();
   renderLibrary();
   renderUsage();
   renderForms();

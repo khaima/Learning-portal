@@ -1,9 +1,9 @@
 import "./nav.js";
-import { $, $$, esc, initials, toast, formatDuration, groupByType, skeleton, emptyState, errorState, friendlyError } from "./util.js";
+import { $, $$, esc, initials, toast, formatDuration, groupByType, groupByFolder, skeleton, emptyState, errorState, friendlyError } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { TEACHER_CONTENT, normalizeLibraryAudience, CONTENT_TYPES } from "./data.js";
 import {
-  getLibrary, getForms, getResponses, addResponse, libraryFilesHtml,
+  getLibrary, getLibraryFolders, getForms, getResponses, addResponse, libraryFilesHtml,
   getLearners, addLearner, updateLearner, deleteLearner, getMyLibraryUsage, getLearnerActivity,
   setAssignmentDone, getTeacherAssignments,
 } from "./store.js";
@@ -541,9 +541,9 @@ async function main() {
   $("#homeTeacherResources").innerHTML = skeleton(2, { avatar: false });
   $("#homeLibrary").innerHTML = skeleton(2, { avatar: false });
   async function renderLibraryShelves() {
-    let library;
+    let library, folders;
     try {
-      library = await getLibrary();
+      [library, folders] = await Promise.all([getLibrary(), getLibraryFolders()]);
     } catch (err) {
       console.error("could not load library:", err);
       const msg = errorState(friendlyError(err), renderLibraryShelves);
@@ -555,10 +555,17 @@ async function main() {
     }
     const row = (l) => `
         <div class="task-row"><div><b>${esc(l.title)}</b><span>${esc(l.subject)}${l.description ? " — " + esc(l.description) : ""}</span>${libraryFilesHtml(l)}</div></div>`;
-    const folders = (list) => groupByType(list, CONTENT_TYPES).map(({ type, items }) => `
+    const byType = (list) => groupByType(list, CONTENT_TYPES).map(({ type, items }) => `
       <div class="list-group">
         <div class="list-group-title">${esc(type)}<span class="count">${items.length}</span></div>
         ${items.map(row).join("")}
+      </div>`).join("");
+    // Organizational folders (the education team's own groupings) come
+    // first; each folder's items still sub-group by type underneath.
+    const shelf = (list) => groupByFolder(list, folders).map(({ name, items }) => `
+      <div class="folder-group">
+        <div class="folder-group-title">${esc(name)}<span class="count">${items.length}</span></div>
+        ${byType(items)}
       </div>`).join("");
     const preview = (list, emptyMsg) => list.length
       ? list.slice(0, 5).map(row).join("") + (list.length > 5 ? `<p class="hint" style="margin-top:.4rem">+${list.length - 5} more — view all.</p>` : "")
@@ -566,10 +573,10 @@ async function main() {
     const resources = library.filter((l) => normalizeLibraryAudience(l.audience) === "staff");
     const shared = library.filter((l) => normalizeLibraryAudience(l.audience) === "library");
     $("#teacherResourceList").innerHTML = resources.length
-      ? folders(resources)
+      ? shelf(resources)
       : `<div class="empty-state">No teacher resources uploaded yet.</div>`;
     $("#libraryList").innerHTML = shared.length
-      ? folders(shared)
+      ? shelf(shared)
       : `<div class="empty-state">Nothing in the library yet.</div>`;
     $("#homeTeacherResources").innerHTML = preview(resources, "No teacher resources uploaded yet.");
     $("#homeLibrary").innerHTML = preview(shared, "Nothing in the library yet.");

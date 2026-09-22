@@ -43,6 +43,21 @@ create table if not exists public.profiles (
 create index if not exists profiles_role_idx on public.profiles (role);
 
 -- ---------------------------------------------------------------- content library
+-- Optional organizational grouping ("Grade 4 Maths", "Term 2 Science…") —
+-- separate from `is_folder` below, which is about an uploaded FOLDER OF
+-- FILES becoming one item. A library_folder is just a named bucket the
+-- education team sorts existing/new items into; deleting a folder never
+-- deletes its contents (`on delete set null` — items fall back to
+-- "Unfiled"). Same 3-destination audience as items, and an item placed in
+-- a folder must share the folder's audience (enforced in the API).
+create table if not exists public.library_folders (
+  id text primary key,
+  name text not null,
+  audience text not null default 'library' check (audience in ('staff','library','school_leader')),
+  created_by text not null default '',
+  created_at timestamptz not null default now()
+);
+
 create table if not exists public.library_items (
   id text primary key,
   title text not null,
@@ -72,8 +87,10 @@ create table if not exists public.library_items (
   -- Drafts default false: real the instant it's uploaded (the education
   -- team's own /library call shows drafts), but invisible to every other
   -- role until explicitly published (PATCH /library/:id).
-  published boolean not null default false
+  published boolean not null default false,
+  folder_id text references public.library_folders(id) on delete set null
 );
+create index if not exists library_items_folder_idx on public.library_items (folder_id);
 
 -- One row per "someone opened a resource". `completed_at`/`duration_seconds`
 -- fill in only if they come back to this tab (see nav.js) — "Open to read"
@@ -242,6 +259,7 @@ create index if not exists kobo_submissions_officer_idx on public.kobo_submissio
 alter table public.profiles         enable row level security;
 alter table public.learners         enable row level security;
 alter table public.learner_sessions enable row level security;
+alter table public.library_folders  enable row level security;
 alter table public.library_items    enable row level security;
 alter table public.library_interactions enable row level security;
 alter table public.library_badges   enable row level security;

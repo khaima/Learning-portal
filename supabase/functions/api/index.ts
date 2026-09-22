@@ -173,6 +173,13 @@ const mapLibrary = async (r: Record<string, unknown>) => ({
   files: await signFiles((r.files as LibFile[]) ?? []),
   externalUrl: r.external_url ?? null,
   published: !!r.published,
+  folderId: r.folder_id ?? null,
+});
+const mapFolder = (r: Record<string, unknown>, itemCount = 0) => ({
+  id: r.id,
+  name: r.name,
+  audience: r.audience,
+  itemCount,
 });
 const mapProfile = (r: Record<string, unknown>) => ({
   id: r.id,
@@ -666,6 +673,21 @@ app.post("/library", withProfile("education_team"), async (c) => {
     return c.json({ error: "Link must start with http:// or https://" }, 400);
   }
   const id = rid("lib");
+  const audience = ["staff", "school_leader"].includes(b.audience) ? b.audience : "library";
+
+  let folderId: string | null = null;
+  if (b.folderId) {
+    const { data: folder } = await admin
+      .from("library_folders")
+      .select("id, audience")
+      .eq("id", b.folderId)
+      .maybeSingle();
+    if (!folder) return c.json({ error: "Folder not found" }, 400);
+    if (folder.audience !== audience) {
+      return c.json({ error: "Folder is for a different destination" }, 400);
+    }
+    folderId = folder.id as string;
+  }
 
   const files: LibFile[] = [];
   const uploads: {
@@ -692,7 +714,7 @@ app.post("/library", withProfile("education_team"), async (c) => {
       title: String(b.title).trim(),
       subject: b.subject,
       type: b.type,
-      audience: ["staff", "school_leader"].includes(b.audience) ? b.audience : "library",
+      audience,
       description: String(b.description ?? "").trim(),
       uploaded_by: c.get("actor").fullName,
       file_name: b.fileName ?? files[0]?.name ?? null,
@@ -700,6 +722,7 @@ app.post("/library", withProfile("education_team"), async (c) => {
       is_folder: isFolder,
       files,
       external_url: externalUrl || null,
+      folder_id: folderId,
     })
     .select()
     .single();
@@ -707,23 +730,89 @@ app.post("/library", withProfile("education_team"), async (c) => {
   return c.json({ item: await mapLibrary(data), uploads });
 });
 
-/* Publish/unpublish — the only edit this route allows. A freshly
-   uploaded item starts as a draft (see the table default); it's real to
-   the education team immediately (their own GET /library shows drafts)
-   but invisible to everyone else until explicitly published here. */
+/* Publish/unpublish and folder reassignment — the only edits this route
+   allows. A freshly uploaded item starts as a draft (see the table
+   default); it's real to the education team immediately (their own
+   GET /library shows drafts) but invisible to everyone else until
+   explicitly published here. Moving to a folder requires the folder's
+   audience to match the item's own — same rule as at upload time. */
 app.patch("/library/:id", withProfile("education_team"), async (c) => {
   const id = c.req.param("id");
   const b = await c.req.json().catch(() => ({}));
-  if (typeof b.published !== "boolean") return c.json({ error: "Nothing to update" }, 400);
+  const patch: Record<string, unknown> = {};
+  if (typeof b.published === "boolean") patch.published = b.published;
+  if ("folderId" in b) {
+    if (b.folderId === null) {
+      patch.folder_id = null;
+    } else {
+      const { data: item } = await admin
+        .from("library_items").select("audience").eq("id", id).maybeSingle();
+      if (!item) return c.json({ error: "Content not found" }, 404);
+      const { data: folder } = await admin
+        .from("library_folders").select("id, audience").eq("id", b.folderId).maybeSingle();
+      if (!folder) return c.json({ error: "Folder not found" }, 400);
+      if (folder.audience !== item.audience) {
+        return c.json({ error: "Folder is for a different destination" }, 400);
+      }
+      patch.folder_id = folder.id;
+    }
+  }
+  if (!Object.keys(patch).length) return c.json({ error: "Nothing to update" }, 400);
   const { data, error } = await admin
     .from("library_items")
-    .update({ published: b.published })
+    .update(patch)
     .eq("id", id)
     .select()
     .maybeSingle();
   if (error) return c.json({ error: error.message }, 400);
   if (!data) return c.json({ error: "Content not found" }, 404);
   return c.json({ item: await mapLibrary(data) });
+});
+
+/* Organizational folders — a named bucket the education team sorts
+   items into (e.g. "Grade 4 Maths"), separate from `isFolder` above
+   (an uploaded folder of files becoming one item). Visible to the same
+   audience rules as items; deleting a folder never deletes its
+   contents (the FK is `on delete set null`, so items just fall back
+   to "Unfiled"). */
+app.get("/library/folders", withActor(), async (c) => {
+  const role = c.get("actor").role;
+  const [{ data: folders, error: fErr }, { data: items, error: iErr }] = await Promise.all([
+    admin.from("library_folders").select("*").order("name"),
+    admin.from("library_items").select("folder_id, audience, published"),
+  ]);
+  if (fErr) return c.json({ error: fErr.message }, 500);
+  if (iErr) return c.json({ error: iErr.message }, 500);
+  const counts = new Map<string, number>();
+  for (const it of items ?? []) {
+    if (!it.folder_id) continue;
+    if (!canSeeLibrary(it.audience as string, role)) continue;
+    if (role !== "education_team" && !it.published) continue;
+    counts.set(it.folder_id as string, (counts.get(it.folder_id as string) ?? 0) + 1);
+  }
+  const visible = (folders ?? []).filter((f) => canSeeLibrary(f.audience as string, role));
+  return c.json({ folders: visible.map((f) => mapFolder(f, counts.get(f.id as string) ?? 0)) });
+});
+
+app.post("/library/folders", withProfile("education_team"), async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const name = String(b.name ?? "").trim();
+  if (!name) return c.json({ error: "Folder name is required" }, 400);
+  const audience = ["staff", "school_leader"].includes(b.audience) ? b.audience : "library";
+  const { data, error } = await admin
+    .from("library_folders")
+    .insert({ id: rid("fld"), name, audience, created_by: c.get("actor").fullName })
+    .select()
+    .single();
+  if (error) return c.json({ error: error.message }, 400);
+  return c.json({ folder: mapFolder(data, 0) });
+});
+
+app.delete("/library/folders/:id", withProfile("education_team"), async (c) => {
+  const id = c.req.param("id");
+  const { error } = await admin.from("library_folders").delete().eq("id", id);
+  if (error) return c.json({ error: error.message }, 400);
+  return c.json({ ok: true });
 });
 
 app.delete("/library/:id", withProfile("education_team"), async (c) => {

@@ -164,6 +164,10 @@
                   <select id="up_audience" required></select>
                 </div>
                 <div class="field">
+                  <label for="up_folder">Folder <span style="color:var(--ink-soft);font-weight:500">— optional, to help separate content</span></label>
+                  <select id="up_folder"><option value="">No folder</option></select>
+                </div>
+                <div class="field">
                   <label for="up_desc">Description</label>
                   <input id="up_desc" type="text" placeholder="What is this, and who is it for?">
                 </div>
@@ -190,6 +194,22 @@
           </div>
 
           <div>
+            <div class="panel">
+              <div class="panel-head"><h2>Folders</h2></div>
+              <p class="hint">Group content together — e.g. "Grade 4 Maths" — so it's easier to find on every dashboard.</p>
+              <form id="folderForm" class="form-row" style="display:grid;grid-template-columns:1fr 1fr auto;gap:.6rem;align-items:end;margin-top:.6rem">
+                <div class="field" style="margin-bottom:0">
+                  <label for="fld_name">Folder name</label>
+                  <input id="fld_name" type="text" placeholder="e.g. Grade 4 Maths" required>
+                </div>
+                <div class="field" style="margin-bottom:0">
+                  <label for="fld_audience">Destination</label>
+                  <select id="fld_audience" required></select>
+                </div>
+                <button class="btn btn-primary" type="submit">Create</button>
+              </form>
+              <div id="folderList" style="margin-top:.9rem"></div>
+            </div>
             <div class="panel">
               <div class="panel-head"><h2>Content Library</h2></div>
               <div id="libraryList"></div>

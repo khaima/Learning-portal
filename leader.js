@@ -1,9 +1,9 @@
 import "./nav.js";
-import { $, $$, esc, initials, formatDuration, groupByType, skeleton, emptyState, errorState, friendlyError, toast } from "./util.js";
+import { $, $$, esc, initials, formatDuration, groupByType, groupByFolder, skeleton, emptyState, errorState, friendlyError, toast } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { normalizeLibraryAudience, CONTENT_TYPES } from "./data.js";
 import {
-  getForms, getResponses, addResponse, getLibrary, libraryFilesHtml, getMyLibraryUsage,
+  getForms, getResponses, addResponse, getLibrary, getLibraryFolders, libraryFilesHtml, getMyLibraryUsage,
   getSchoolOverview,
 } from "./store.js";
 
@@ -280,9 +280,9 @@ async function main() {
   $("#headOnlyList").innerHTML = skeleton(2);
   $("#leadershipResources").innerHTML = skeleton(2, { avatar: false });
   async function renderLibraryShelves() {
-    let library;
+    let library, folders;
     try {
-      library = await getLibrary();
+      [library, folders] = await Promise.all([getLibrary(), getLibraryFolders()]);
     } catch (err) {
       console.error("could not load library:", err);
       const msg = errorState(friendlyError(err), renderLibraryShelves);
@@ -295,22 +295,29 @@ async function main() {
     const row = (l) => `
       <div class="task-row"><div><b>${esc(l.title)}</b><span>${esc(l.subject)}${
         l.description ? " — " + esc(l.description) : ""}</span>${libraryFilesHtml(l)}</div></div>`;
-    const folders = (list) => groupByType(list, CONTENT_TYPES).map(({ type, items }) => `
+    const byType = (list) => groupByType(list, CONTENT_TYPES).map(({ type, items }) => `
       <div class="list-group">
         <div class="list-group-title">${esc(type)}<span class="count">${items.length}</span></div>
         ${items.map(row).join("")}
+      </div>`).join("");
+    // Organizational folders (the education team's own groupings) come
+    // first; each folder's items still sub-group by type underneath.
+    const shelf = (list) => groupByFolder(list, folders).map(({ name, items }) => `
+      <div class="folder-group">
+        <div class="folder-group-title">${esc(name)}<span class="count">${items.length}</span></div>
+        ${byType(items)}
       </div>`).join("");
     const resources = library.filter((l) => normalizeLibraryAudience(l.audience) === "staff");
     const shared = library.filter((l) => normalizeLibraryAudience(l.audience) === "library");
     const headOnly = library.filter((l) => normalizeLibraryAudience(l.audience) === "school_leader");
     $("#resourceList").innerHTML = resources.length
-      ? folders(resources)
+      ? shelf(resources)
       : `<div class="empty-state">No teacher resources uploaded yet.</div>`;
     $("#libraryList").innerHTML = shared.length
-      ? folders(shared)
+      ? shelf(shared)
       : `<div class="empty-state">Nothing in the library yet.</div>`;
     $("#headOnlyList").innerHTML = headOnly.length
-      ? folders(headOnly)
+      ? shelf(headOnly)
       : `<div class="empty-state">Nothing addressed to school heads yet.</div>`;
     $("#leadershipResources").innerHTML = headOnly.length
       ? headOnly.slice(0, 5).map(row).join("") + (headOnly.length > 5 ? `<p class="hint" style="margin-top:.4rem">+${headOnly.length - 5} more — view all.</p>` : "")
