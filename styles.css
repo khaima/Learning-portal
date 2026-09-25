@@ -749,6 +749,20 @@ a{ color:inherit; }
 .school-add input:focus{ border-color:var(--brand); }
 .school-add .btn{ padding:.6rem 1.1rem; font-size:.85rem; }
 .school-list-body{ padding:.3rem .9rem; }
+.county-manage{ margin:-.3rem 0 1rem; }
+.county-manage > summary{
+  cursor:pointer; font-size:.8rem; font-weight:600; color:var(--brand); width:max-content;
+}
+.county-manage > summary:hover{ text-decoration:underline; }
+.county-manage[open] > summary{ margin-bottom:.6rem; }
+.county-manage .school-add{ margin-bottom:.3rem; grid-template-columns:minmax(0,2fr) minmax(0,1fr) auto; }
+@media (max-width:640px){ .county-manage .school-add{ grid-template-columns:1fr; } }
+.lib-section-head .code-chip{ font-size:.68rem; }
+.county-remove{
+  background:none; border:0; padding:.1rem .3rem; cursor:pointer;
+  font-family:inherit; font-size:.74rem; font-weight:600; color:var(--danger);
+}
+.county-remove:hover{ text-decoration:underline; }
 .school-item{ display:flex; align-items:center; gap:.8rem; padding:.65rem 0; border-bottom:1px solid var(--line); }
 .school-item:last-child{ border-bottom:0; }
 .school-item > .code-chip{ flex:none; }

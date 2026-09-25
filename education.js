@@ -12,7 +12,7 @@ import {
   koboConfig, saveKoboConfig, koboAssets, koboAssetPreview, koboForms, attachKoboForm,
   removeKoboForm, syncKobo, koboResults,
   getUsers, updateUser, resetUserPassword,
-  getSchools, createSchool, renameSchool, deleteSchool, wireSchoolPicker,
+  watchSchools, createSchool, renameSchool, deleteSchool, createCounty, deleteCounty, wireSchoolPicker,
 } from "./store.js";
 import { openIframeViewer } from "./viewer.js";
 
@@ -45,6 +45,10 @@ async function main() {
      date-scoped in their data model (Forms, Kobo Surveys, Reports) simply
      don't read this state. */
   const gf = { county: "", school: "", from: "", to: "", role: "" };
+  // The live county/school list (see "school list" below) — the one source
+  // for every county/school dropdown on this dashboard.
+  let schoolDir = { counties: [], countyCodes: {}, schools: [] };
+  let userPicker = null; // the County → School picker in an open Users editor
   let gpTopN = 0; // grade-performance ranking cap; 0 = show every grade
   let lastStats = null;
   let formsCache = [];
@@ -120,9 +124,44 @@ async function main() {
     renderUsage();
   }
 
+  /* County/School filter options come from the live school list (never
+     from whatever text is in people's profiles), with the school list
+     narrowed to the chosen county. With `clearMissing` (a live-list
+     refresh), a pick that no longer exists — a school or county removed
+     or renamed — is cleared and true is returned so the caller re-applies
+     the filters; otherwise (e.g. drilling into a chart label from an
+     older, not-yet-placed account) the pick is kept and shown as-is. */
+  function renderGlobalFilterOptions({ clearMissing = false } = {}) {
+    let cleared = false;
+    if (clearMissing && gf.county && !schoolDir.counties.includes(gf.county)) { gf.county = ""; gf.school = ""; cleared = true; }
+    const list = schoolDir.schools.filter((s) => !gf.county || s.county === gf.county);
+    const missing = gf.school && !list.some((s) => s.name === gf.school);
+    if (clearMissing && missing) { gf.school = ""; cleared = true; }
+    const extraCounty = gf.county && !schoolDir.counties.includes(gf.county) ? [gf.county] : [];
+    $("#gfCounty").innerHTML = `<option value="">All counties</option>` +
+      [...schoolDir.counties, ...extraCounty].map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+    $("#gfSchool").innerHTML = `<option value="">All schools</option>` +
+      list.map((s) => `<option value="${esc(s.name)}">${esc(s.name)} (${esc(s.code)})</option>`).join("") +
+      (gf.school && !list.some((s) => s.name === gf.school) ? `<option value="${esc(gf.school)}">${esc(gf.school)}</option>` : "");
+    $("#gfCounty").value = gf.county;
+    $("#gfSchool").value = gf.school;
+    return cleared;
+  }
+
+  /* Filter to one school from a chart/list click: its county follows
+     along so the School dropdown can show it. */
+  function pickSchoolFilter(name) {
+    gf.school = name;
+    const inCounty = schoolDir.schools.find((s) => s.name === name && s.county === gf.county);
+    const any = inCounty || schoolDir.schools.find((s) => s.name === name);
+    if (any) gf.county = any.county;
+    renderGlobalFilterOptions();
+  }
+
   $("#gfCounty").addEventListener("change", (e) => {
     gf.county = e.target.value;
     gf.school = ""; // a school from the old county may not exist in the new one
+    renderGlobalFilterOptions();
     applyFilters();
   });
   $("#gfSchool").addEventListener("change", (e) => {
@@ -147,7 +186,8 @@ async function main() {
   $("#gfRole").addEventListener("change", (e) => { gf.role = e.target.value; applyFilters(); });
   $("#gfClear").addEventListener("click", () => {
     gf.county = ""; gf.school = ""; gf.from = ""; gf.to = ""; gf.role = "";
-    $("#gfCounty").value = ""; $("#gfSchool").value = ""; $("#gfTerm").value = ""; $("#gfRole").value = "";
+    renderGlobalFilterOptions();
+    $("#gfTerm").value = ""; $("#gfRole").value = "";
     $("#gfFromField").hidden = true; $("#gfToField").hidden = true;
     applyFilters();
   });
@@ -175,8 +215,6 @@ async function main() {
       return;
     }
     lastStats = s;
-    populateFilter($("#gfCounty"), s.counties || [], gf.county);
-    populateFilter($("#gfSchool"), s.schools || [], gf.school);
     renderKpis(s);
     renderImpact(s);
     renderSchoolsPage(s);
@@ -225,16 +263,6 @@ async function main() {
       : `<div class="empty-state">${emptyMsg("Nothing needs attention right now.")}</div>`;
   }
 
-  /* County/school filters — repopulated on every load (the lists can grow
-     as new schools come on board) but never fight the visitor's current
-     pick. The school list already narrows to the selected county. */
-  function populateFilter(sel, options, current) {
-    const fallback = sel.id === "gfSchool" ? "All schools" : "All counties";
-    sel.innerHTML = `<option value="">${fallback}</option>` +
-      options.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("");
-    sel.value = current;
-  }
-
   /* Top-N control lives inside the grade-performance card itself, which is
      rebuilt on every render — one delegated listener survives that; the
      other listener on this same element drills a bar-chart school label
@@ -248,8 +276,7 @@ async function main() {
   $("#impactBody").addEventListener("click", (e) => {
     const btn = e.target.closest("[data-drill-school]");
     if (!btn) return;
-    gf.school = btn.dataset.drillSchool;
-    $("#gfSchool").value = gf.school;
+    pickSchoolFilter(btn.dataset.drillSchool);
     location.hash = "#schools";
     applyFilters();
   });
@@ -412,8 +439,7 @@ async function main() {
   $("#schoolsBody").addEventListener("click", (e) => {
     const viewBtn = e.target.closest("[data-view-school]");
     if (viewBtn) {
-      gf.school = viewBtn.dataset.viewSchool;
-      $("#gfSchool").value = gf.school;
+      pickSchoolFilter(viewBtn.dataset.viewSchool);
       updateFilterSummary();
       renderStats();
       renderUsersList();
@@ -422,7 +448,7 @@ async function main() {
     }
     if (e.target.id === "schoolsBack") {
       gf.school = "";
-      $("#gfSchool").value = "";
+      renderGlobalFilterOptions();
       updateFilterSummary();
       renderStats();
       renderUsersList();
@@ -1488,11 +1514,14 @@ async function main() {
   });
 
   /* ------------------------------------------------------------ school list
-     The four programme counties are fixed; the schools in each are managed
-     here and feed every County → School dropdown in the portal. The API
-     gives each new school its code (NRK-001…); renaming never changes a
-     code, and a school can only be removed once nobody is in it. */
-  let schoolDir = { counties: [], schools: [] };
+     Counties and the schools in each are managed here and feed every
+     county/school dropdown in the portal — sign-up, "Choose your school",
+     field visits, the Users editor and this dashboard's own filters. The
+     API gives each new school its code (NRK-001…) from its county's code;
+     renaming never changes a code, a school can only be removed once
+     nobody is in it, and a county only once it has no schools or field
+     officers. Every change here refreshes every dropdown on this page at
+     once; other people's open pages pick it up via watchSchools(). */
   let renamingSchoolId = null;
   const PIN_ICON = '<path d="M12 21s7-6.1 7-11.5A7 7 0 0 0 5 9.5C5 14.9 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/>';
   const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -1523,8 +1552,9 @@ async function main() {
   }
 
   function renderSchoolListDom() {
-    const { counties, schools } = schoolDir;
-    $("#schoolListCount").textContent = plural(schools.length, "school");
+    const { counties, countyCodes, schools } = schoolDir;
+    $("#schoolListCount").textContent =
+      `${counties.length} ${counties.length === 1 ? "county" : "counties"} · ${plural(schools.length, "school")}`;
     $("#schoolList").innerHTML = counties.map((c) => {
       const list = schools.filter((s) => s.county === c);
       return `
@@ -1532,31 +1562,90 @@ async function main() {
           <summary class="lib-section-head">
             <span class="lib-section-ic">${svg(PIN_ICON)}</span>
             <span class="lib-section-name">${esc(c)}</span>
+            <span class="code-chip">${esc(countyCodes[c] || "")}</span>
+            ${list.length ? "" : `<button type="button" class="county-remove" data-remove-county="${esc(c)}">Remove county</button>`}
             <span class="count">${list.length}</span>
           </summary>
           <div class="lib-section-body school-list-body">${list.length
             ? list.map(schoolItem).join("")
             : `<div class="empty-state">No schools in ${esc(c)} yet — add one above.</div>`}</div>
         </details>`;
-    }).join("");
+    }).join("") || `<div class="empty-state">No counties yet — add one under "Manage counties".</div>`;
   }
 
-  async function renderSchoolList() {
-    $("#schoolList").innerHTML = skeleton(3, { avatar: false });
-    try {
-      schoolDir = await getSchools();
-    } catch (err) {
-      console.error("could not load schools:", err);
-      $("#schoolList").innerHTML = errorState(friendlyError(err), renderSchoolList);
-      return;
-    }
+  /* One fresh copy of the list, applied to every dropdown on this page. */
+  function applySchoolDir(data) {
+    schoolDir = data;
     const keep = $("#as_county").value;
     $("#as_county").innerHTML = `<option value="">County</option>${
       schoolDir.counties.map((c) => `<option>${esc(c)}</option>`).join("")}`;
-    $("#as_county").value = keep;
-    renamingSchoolId = null;
-    renderSchoolListDom();
+    $("#as_county").value = schoolDir.counties.includes(keep) ? keep : "";
+    // Don't re-render under someone mid-rename (they'd lose their typing).
+    if (!renamingSchoolId) renderSchoolListDom();
+    if (renderGlobalFilterOptions({ clearMissing: true })) applyFilters();
+    userPicker?.update(schoolDir);
   }
+
+  $("#schoolList").innerHTML = skeleton(3, { avatar: false });
+  const schoolsWatch = watchSchools(applySchoolDir, (err) => {
+    console.error("could not load schools:", err);
+    $("#schoolList").innerHTML = errorState(friendlyError(err), () => schoolsWatch.refresh());
+  });
+  const renderSchoolList = async () => {
+    renamingSchoolId = null;
+    await schoolsWatch.refresh();
+  };
+
+  // ---- counties ----
+  $("#ac_name").addEventListener("input", () => {
+    const code = $("#ac_code");
+    if (code.dataset.touched) return;
+    code.value = $("#ac_name").value.replace(/[^a-z]/gi, "").slice(0, 3).toUpperCase();
+  });
+  $("#ac_code").addEventListener("input", (e) => {
+    e.target.dataset.touched = "1";
+    e.target.value = e.target.value.replace(/[^a-z]/gi, "").toUpperCase();
+  });
+  $("#addCountyForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = $("#ac_name").value.trim();
+    const code = $("#ac_code").value.trim();
+    if (!name || !code) return;
+    const btn = e.target.querySelector("[type=submit]");
+    btn.disabled = true;
+    try {
+      const county = await createCounty(name, code);
+      toast("County added", `${county.name} (${county.code}) — its schools will be ${county.code}-001, ${county.code}-002…`, "success");
+      e.target.reset();
+      delete $("#ac_code").dataset.touched;
+      await renderSchoolList();
+    } catch (err) {
+      toast("Couldn't add that county", friendlyError(err), "error");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  $("#schoolList").addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-remove-county]");
+    if (!btn) return;
+    e.preventDefault(); // it sits inside the section's <summary> — don't toggle it
+    const name = btn.dataset.removeCounty;
+    const ok = await confirmDialog({
+      title: `Remove ${name} county?`,
+      body: "It disappears from every county dropdown. It has no schools, so no one is affected.",
+      confirmLabel: "Remove", danger: true,
+    });
+    if (!ok) return;
+    btn.disabled = true;
+    try {
+      await deleteCounty(name);
+      toast("County removed", "", "success");
+      await renderSchoolList();
+    } catch (err) {
+      toast("Couldn't remove that county", friendlyError(err), "error");
+      btn.disabled = false;
+    }
+  });
 
   $("#addSchoolForm").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -1644,7 +1733,6 @@ async function main() {
      fetch, so it's instant. */
   let allUsers = [];
   let editingUserId = null;
-  let userPicker = null;
 
   /* Inline editor for one account. Where it sits follows the role:
      teachers and heads pick County → School from the school list (a new
@@ -1819,6 +1907,7 @@ async function main() {
         renderUsersList();
       } else if (btn.dataset.act === "cancel-user") {
         editingUserId = null;
+        userPicker = null;
         renderUsersList();
       } else if (btn.dataset.act === "save-user") {
         const role = row.querySelector(".ue-role").value;
@@ -1843,6 +1932,7 @@ async function main() {
         const user = await updateUser(id, patch);
         toast("Account updated", user.userCode ? `${user.fullName} is ${user.userCode}.` : "", "success");
         editingUserId = null;
+        userPicker = null;
         renderUsers();
         renderSchoolList();
       } else if (btn.dataset.act === "resetlink") {
@@ -1866,7 +1956,6 @@ async function main() {
   });
 
   renderStats();
-  renderSchoolList();
   renderLibrary();
   renderUsage();
   renderForms();

@@ -105,12 +105,21 @@
       <section class="dash-page" data-page="schools" hidden>
         <div class="panel">
           <div class="panel-head"><h2>School list</h2><span class="shelf-count" id="schoolListCount"></span></div>
-          <p class="shelf-sub">Every County → School dropdown in the portal uses this list. Each school gets a code, and every teacher, school head and learner placed in it gets their own code under it (e.g. NRK-001-T01).</p>
+          <p class="shelf-sub">Every county and school dropdown in the portal — sign-up, field visits, user editing and the filters above — uses this list, and updates live when you change it. Each school gets a code, and every teacher, school head and learner placed in it gets their own code under it (e.g. NRK-001-T01).</p>
           <form id="addSchoolForm" class="school-add">
             <select id="as_county" aria-label="County" required></select>
             <input id="as_name" type="text" placeholder="School name, e.g. Aitong Primary" maxlength="80" aria-label="School name" required>
             <button class="btn btn-primary" type="submit">Add school</button>
           </form>
+          <details class="county-manage">
+            <summary>Manage counties</summary>
+            <form id="addCountyForm" class="school-add">
+              <input id="ac_name" type="text" placeholder="New county, e.g. Samburu" maxlength="40" aria-label="County name" required>
+              <input id="ac_code" type="text" placeholder="Code, e.g. SMB" maxlength="4" aria-label="County code (2–4 letters)" required>
+              <button class="btn btn-outline" type="submit">Add county</button>
+            </form>
+            <p class="field-hint">The code (2–4 letters) starts every school code in that county, e.g. SMB-001, and can't be changed later. A county with no schools can be removed from its section below.</p>
+          </details>
           <div id="schoolList"></div>
         </div>
         <div class="panel">

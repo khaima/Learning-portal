@@ -3,7 +3,7 @@ import { $, $$, esc, initials, skeleton, emptyState, errorState, friendlyError, 
 import { requireRole, signOut } from "./auth.js";
 import { VISIT_TYPES } from "./data.js";
 import {
-  getForms, getResponses, addResponse, getFieldReports, addFieldReport, getSchools,
+  getForms, getResponses, addResponse, getFieldReports, addFieldReport, watchSchools,
   myKoboSurveys, markKoboSubmitted,
 } from "./store.js";
 
@@ -225,25 +225,33 @@ async function main() {
 
   resetWizard();
 
-  async function loadDirectory() {
-    $("#schoolsDirectory").innerHTML = skeleton(3, { avatar: false });
-    try {
-      directory = await getSchools();
-    } catch (err) {
-      console.error("could not load schools:", err);
-      $("#schoolsDirectory").innerHTML = errorState(friendlyError(err), loadDirectory);
-      return;
-    }
+  /* Live list: new or renamed schools/counties from the Education Team
+     show up when this tab comes back into view (or within a minute),
+     without losing a visit that's half-picked. */
+  let directoryLoaded = false;
+  function applyDirectory(data) {
+    const keep = { county: countySelect.value, school: schoolSelect.value };
+    directory = data;
     fillCounties();
-    if (user.county && directory.counties.includes(user.county)) {
-      countySelect.value = user.county;
+    const county = directoryLoaded ? keep.county : user.county;
+    if (county && directory.counties.includes(county)) {
+      countySelect.value = county;
       countySelect.dispatchEvent(new Event("change"));
-      schoolField.hidden = false;
+      if ([...schoolSelect.options].some((o) => o.value === keep.school && o.value)) {
+        schoolSelect.value = keep.school;
+        schoolSelect.dispatchEvent(new Event("change"));
+        if (visitTypeSelect.value) startVisitBtn.hidden = false;
+      }
     }
+    directoryLoaded = true;
     renderDirectory();
     renderKpis();
   }
-  loadDirectory();
+  $("#schoolsDirectory").innerHTML = skeleton(3, { avatar: false });
+  const schoolsWatch = watchSchools(applyDirectory, (err) => {
+    console.error("could not load schools:", err);
+    $("#schoolsDirectory").innerHTML = errorState(friendlyError(err), () => schoolsWatch.refresh());
+  });
 
   /* ---- Field surveys (KoboToolbox) ----
      The Education Team attaches a deployed Kobo survey; it shows here with

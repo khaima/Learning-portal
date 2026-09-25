@@ -5,7 +5,7 @@ import {
   learnerLogin, getProfile, createProfile, setMySchool, signOut, sendPasswordResetLink,
 } from "./auth.js";
 import { learnerToken } from "./api.js";
-import { getSchools, wireSchoolPicker } from "./store.js";
+import { watchSchools, wireSchoolPicker } from "./store.js";
 import { ROLES } from "./data.js";
 
 const ROLE_LABEL = Object.fromEntries(ROLES.map((r) => [r.value, r.label]));
@@ -407,18 +407,23 @@ function setOnboardRole(role) {
 }
 roleCards.forEach((c) => c.addEventListener("click", () => setOnboardRole(c.dataset.role)));
 
-async function loadOnboardSchools() {
+/* Live list: a school the Education Team adds while someone is on this
+   screen appears in their dropdown when they come back to the tab (or
+   within a minute) — no reload needed. */
+function loadOnboardSchools() {
   $("#ob_county").innerHTML = `<option value="">Loading…</option>`;
   $("#ob_school").innerHTML = `<option value="">Loading…</option>`;
-  try {
-    const data = await getSchools();
-    onboardPicker = wireSchoolPicker($("#ob_county"), $("#ob_school"), data, {
-      onChange: (school) => codeHint($("#ob_code_hint"), school, selectedRole),
-    });
-  } catch (err) {
-    onboardError.textContent = friendlyError(err, "Couldn't load the list of schools. Check your connection and reload.");
-    onboardError.hidden = false;
-  }
+  watchSchools(
+    (data) => {
+      const onChange = (school) => codeHint($("#ob_code_hint"), school, selectedRole);
+      if (onboardPicker) onboardPicker.update(data);
+      else onboardPicker = wireSchoolPicker($("#ob_county"), $("#ob_school"), data, { onChange });
+    },
+    (err) => {
+      onboardError.textContent = friendlyError(err, "Couldn't load the list of schools. Check your connection and reload.");
+      onboardError.hidden = false;
+    },
+  );
 }
 
 const onboardForm = $("#onboardForm");
@@ -467,18 +472,21 @@ $("#onboardSignOut").addEventListener("click", async () => {
 let schoolPicker = null;
 const schoolForm = $("#schoolForm");
 const schoolError = $("#schoolError");
-async function showSchoolStep(profile) {
+function showSchoolStep(profile) {
   show("school");
   schoolError.hidden = true;
-  try {
-    const data = await getSchools();
-    schoolPicker = wireSchoolPicker($("#sp_county"), $("#sp_school"), data, {
-      onChange: (school) => codeHint($("#sp_code_hint"), school, profile.role),
-    });
-  } catch (err) {
-    schoolError.textContent = friendlyError(err, "Couldn't load the list of schools. Check your connection and reload.");
-    schoolError.hidden = false;
-  }
+  watchSchools(
+    (data) => {
+      if (schoolPicker) schoolPicker.update(data);
+      else schoolPicker = wireSchoolPicker($("#sp_county"), $("#sp_school"), data, {
+        onChange: (school) => codeHint($("#sp_code_hint"), school, profile.role),
+      });
+    },
+    (err) => {
+      schoolError.textContent = friendlyError(err, "Couldn't load the list of schools. Check your connection and reload.");
+      schoolError.hidden = false;
+    },
+  );
 }
 schoolForm.addEventListener("submit", async (e) => {
   e.preventDefault();

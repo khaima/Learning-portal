@@ -55,16 +55,26 @@ const rid = (prefix: string) =>
   prefix + "_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
 
 // ---------------------------------------------------------------- schools & codes
-/* The portal's counties are a fixed list; the schools in each are the
-   `schools` table, managed by the education team. Every school gets a
-   code from its county (NRK-001 = Narok's first school), and everyone
-   placed in a school — teachers, school heads, learners — gets a
-   personal code under it: NRK-001-T01, NRK-001-H01, NRK-001-L0001.
-   The school row is the source of truth; the plain `school`/`county`
-   text on profiles/learners is kept in sync with it so every existing
-   report, filter and overview keeps working unchanged. */
-const COUNTY_CODE: Record<string, string> = { Narok: "NRK", Laikipia: "LKP", Meru: "MRU", Isiolo: "ISL" };
-const COUNTIES = Object.keys(COUNTY_CODE);
+/* Counties (`counties`) and the schools in each (`schools`) are both
+   managed by the education team, and are the one source for every
+   county/school list in the portal. Every county has a short code
+   (NRK); every school gets a code from its county (NRK-001 = Narok's
+   first school), and everyone placed in a school — teachers, school
+   heads, learners — gets a personal code under it: NRK-001-T01,
+   NRK-001-H01, NRK-001-L0001. The school row is the source of truth;
+   the plain `school`/`county` text on profiles/learners is kept in sync
+   with it so every existing report, filter and overview keeps working. */
+type County = { name: string; code: string };
+async function loadCounties(): Promise<County[]> {
+  const { data, error } = await admin.from("counties").select("name, code").order("created_at").order("name");
+  if (error) throw new Error(error.message);
+  return (data ?? []) as County[];
+}
+async function isCounty(name: unknown) {
+  if (!name) return false;
+  const { data } = await admin.from("counties").select("name").eq("name", String(name)).maybeSingle();
+  return !!data;
+}
 const SCHOOL_ROLES = ["teacher", "school_leader"];
 const CODE_KIND: Record<string, { letter: string; width: number }> = {
   teacher: { letter: "T", width: 2 },
@@ -580,7 +590,7 @@ app.post("/me", async (c) => {
     county = school.county;
   } else if (b.role === "field_officer") {
     county = String(b.county ?? "").trim();
-    if (!COUNTIES.includes(county)) return c.json({ error: "Choose your county" }, 400);
+    if (!(await isCounty(county))) return c.json({ error: "Choose your county" }, 400);
   }
 
   const { data, error } = await admin
@@ -637,13 +647,23 @@ async function moveTeachersLearners(teacherId: string, school: School) {
 
 // ---- schools directory ----
 
+/* `ilike` treats % and _ as wildcards — escape them so a name only ever
+   matches itself (case-insensitively). */
+const ilikeExact = (s: string) => s.replace(/[\\%_]/g, "\\$&");
+
 /* Any signed-in account can read the list (onboarding needs it before a
    profile exists); only the education team adds, renames or removes.
    The education team also gets head counts per school. */
 app.get("/schools", async (c) => {
-  const { data, error } = await admin.from("schools").select("*").order("county").order("seq");
-  if (error) return c.json({ error: error.message }, 500);
-  const schools = (data ?? []).map(mapSchool) as Record<string, unknown>[];
+  const [{ data, error }, counties] = await Promise.all([
+    admin.from("schools").select("*").order("seq"),
+    loadCounties().catch(() => null),
+  ]);
+  if (error || !counties) return c.json({ error: error?.message || "Could not load counties" }, 500);
+  const countyOrder = new Map(counties.map((co, i) => [co.name, i]));
+  const schools = (data ?? [])
+    .sort((a, b) => (countyOrder.get(a.county) ?? 99) - (countyOrder.get(b.county) ?? 99) || a.seq - b.seq)
+    .map(mapSchool) as Record<string, unknown>[];
   const me = c.get("actorKind") === "staff" ? await loadStaffProfile(c.get("userId")) : null;
   if (me?.role === "education_team") {
     const [{ data: profs }, { data: learners }] = await Promise.all([
@@ -658,16 +678,57 @@ app.get("/schools", async (c) => {
       s.learners = count(learners, s.id);
     }
   }
-  return c.json({ counties: COUNTIES, schools });
+  return c.json({
+    counties: counties.map((co) => co.name),
+    countyCodes: Object.fromEntries(counties.map((co) => [co.name, co.code])),
+    schools,
+  });
+});
+
+/* Counties: the education team can add one (with its short code, which
+   prefixes every school code in it) or remove one that has no schools
+   and no field officers in it yet. Names and codes can't be edited, so
+   no existing code ever changes. */
+app.post("/counties", withProfile("education_team"), async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const name = String(b.name ?? "").trim().replace(/\s+/g, " ");
+  const code = String(b.code ?? "").trim().toUpperCase();
+  if (!name) return c.json({ error: "County name is required" }, 400);
+  if (!/^[A-Z]{2,4}$/.test(code)) return c.json({ error: "County code must be 2–4 letters, e.g. NRK" }, 400);
+  const { data: dupName } = await admin.from("counties").select("name").ilike("name", ilikeExact(name)).maybeSingle();
+  if (dupName) return c.json({ error: `${dupName.name} is already a county` }, 409);
+  const { data: dupCode } = await admin.from("counties").select("name").eq("code", code).maybeSingle();
+  if (dupCode) return c.json({ error: `${code} is already used by ${dupCode.name}` }, 409);
+  const { data, error } = await admin.from("counties")
+    .insert({ name, code, created_by: c.get("actor").fullName }).select("name, code").single();
+  if (error) return c.json({ error: isUniqueViolation(error) ? "That county or code already exists" : error.message }, 400);
+  return c.json({ county: data });
+});
+
+app.delete("/counties/:name", withProfile("education_team"), async (c) => {
+  const name = decodeURIComponent(c.req.param("name"));
+  if (!(await isCounty(name))) return c.json({ error: "County not found" }, 404);
+  const [{ count: schools }, { count: officers }] = await Promise.all([
+    admin.from("schools").select("id", { count: "exact", head: true }).eq("county", name),
+    admin.from("profiles").select("id", { count: "exact", head: true }).eq("role", "field_officer").eq("county", name),
+  ]);
+  if ((schools ?? 0) > 0) return c.json({ error: `${name} still has ${schools} school(s) — remove them first` }, 409);
+  if ((officers ?? 0) > 0) {
+    return c.json({ error: `${name} still has ${officers} field officer(s) — move them to another county first` }, 409);
+  }
+  const { error } = await admin.from("counties").delete().eq("name", name);
+  if (error) return c.json({ error: error.message }, 400);
+  return c.json({ ok: true });
 });
 
 app.post("/schools", withProfile("education_team"), async (c) => {
   const b = await c.req.json().catch(() => ({}));
   const name = String(b.name ?? "").trim().replace(/\s+/g, " ");
   const county = String(b.county ?? "").trim();
-  if (!COUNTIES.includes(county)) return c.json({ error: "Choose a county" }, 400);
+  const { data: countyRow } = await admin.from("counties").select("code").eq("name", county).maybeSingle();
+  if (!countyRow) return c.json({ error: "Choose a county" }, 400);
   if (!name) return c.json({ error: "School name is required" }, 400);
-  const { data: dup } = await admin.from("schools").select("id").eq("county", county).ilike("name", name).maybeSingle();
+  const { data: dup } = await admin.from("schools").select("id").eq("county", county).ilike("name", ilikeExact(name)).maybeSingle();
   if (dup) return c.json({ error: `${name} is already on the ${county} list` }, 409);
 
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -676,7 +737,7 @@ app.post("/schools", withProfile("education_team"), async (c) => {
     const seq = ((last?.[0]?.seq as number) ?? 0) + 1;
     const { data, error } = await admin.from("schools").insert({
       id: rid("sch"), name, county, seq,
-      code: `${COUNTY_CODE[county]}-${String(seq).padStart(3, "0")}`,
+      code: `${countyRow.code}-${String(seq).padStart(3, "0")}`,
       created_by: c.get("actor").fullName,
     }).select().single();
     if (!error) return c.json({ school: mapSchool(data) });
@@ -694,7 +755,7 @@ app.patch("/schools/:id", withProfile("education_team"), async (c) => {
   const name = String(b.name ?? "").trim().replace(/\s+/g, " ");
   if (!name) return c.json({ error: "School name is required" }, 400);
   const { data: dup } = await admin.from("schools").select("id").eq("county", school.county)
-    .ilike("name", name).neq("id", school.id).maybeSingle();
+    .ilike("name", ilikeExact(name)).neq("id", school.id).maybeSingle();
   if (dup) return c.json({ error: `${name} is already on the ${school.county} list` }, 409);
   const { data, error } = await admin.from("schools").update({ name }).eq("id", school.id).select().single();
   if (error) return c.json({ error: error.message }, 400);
@@ -1547,7 +1608,7 @@ app.get("/stats", withProfile("education_team"), async (c) => {
     return true;
   };
 
-  const [profs, learnersRaw, asg, reportsRaw, forms, responses, library] = await Promise.all([
+  const [profs, learnersRaw, asg, reportsRaw, forms, responses, library, schoolsReg, countiesReg] = await Promise.all([
     admin.from("profiles").select("id, role, county, school, teacher_type"),
     admin.from("learners").select("id, teacher_id, grade, school, created_at"),
     admin.from("assignments").select("learner_id, done"),
@@ -1555,18 +1616,23 @@ app.get("/stats", withProfile("education_team"), async (c) => {
     admin.from("forms").select("id, audience"),
     admin.from("responses").select("form_id"),
     admin.from("library_items").select("audience, subject"),
+    admin.from("schools").select("name, county, code, seq").order("seq"),
+    loadCounties().catch(() => [] as County[]),
   ]);
 
   const allProfiles = profs.data ?? [];
   const allLearners = learnersRaw.data ?? [];
   const allReports = reportsRaw.data ?? [];
 
-  // Every county with data anywhere, for the filter dropdown — a staff
-  // member's own county, or a county a field visit was logged in.
-  const countySet = new Set<string>();
-  for (const p of allProfiles) if (p.county) countySet.add(p.county as string);
-  for (const r of allReports) if (r.county) countySet.add(r.county as string);
-  const counties = [...countySet].sort();
+  // The filter dropdowns list the education team's live counties and
+  // schools — the same list every other picker in the portal uses — not
+  // whatever text happens to be in people's profiles.
+  const counties = countiesReg.map((co) => co.name);
+  const countyOrder = new Map(counties.map((n, i) => [n, i]));
+  const schoolOptions = (schoolsReg.data ?? [])
+    .filter((s) => !inCounty || s.county === county)
+    .sort((a, b) => (countyOrder.get(a.county) ?? 99) - (countyOrder.get(b.county) ?? 99) || a.seq - b.seq)
+    .map((s) => ({ name: s.name as string, code: s.code as string, county: s.county as string }));
 
   // A learner has no county (or school, in principle) of their own — they
   // inherit their teacher's, same as they inherit teacher.school at signup.
@@ -1579,13 +1645,9 @@ app.get("/stats", withProfile("education_team"), async (c) => {
     : allLearners;
   let reportRows = inCounty ? allReports.filter((r) => r.county === county) : allReports;
 
-  // Schools available in the current (county-scoped) view, for the school
-  // filter dropdown — computed before the school filter itself narrows further.
-  const schoolSet = new Set<string>();
-  for (const p of staffRows) if (p.school) schoolSet.add(p.school as string);
-  for (const l of learnerRows) if (l.school) schoolSet.add(l.school as string);
-  for (const r of reportRows) if (r.school) schoolSet.add(r.school as string);
-  const schools = [...schoolSet].sort();
+  // Schools in the current (county-scoped) view — every listed school,
+  // including ones with no activity yet.
+  const schools = schoolOptions.map((s) => s.name);
 
   if (inSchool) {
     staffRows = staffRows.filter((p) => (p.school || "") === school);
@@ -1665,6 +1727,7 @@ app.get("/stats", withProfile("education_team"), async (c) => {
     to: toDate ? toStr : null,
     counties,
     schools,
+    schoolOptions,
     accounts: staffRows.length + learnerRows.length,
     byRole,
     teachersByType,
@@ -1822,7 +1885,7 @@ app.patch("/users/:id", withProfile("education_team"), async (c) => {
     patch.school = "";
     if (nextRole === "field_officer") {
       const county = b.county !== undefined ? String(b.county).trim() : existing.county;
-      if (!COUNTIES.includes(county)) return c.json({ error: "Choose a county for this field officer" }, 400);
+      if (!(await isCounty(county))) return c.json({ error: "Choose a county for this field officer" }, 400);
       patch.county = county;
     } else {
       patch.county = "";

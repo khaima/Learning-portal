@@ -411,8 +411,42 @@ export async function addFieldReport({ schoolId, visitType }) {
    code (NRK-001); everyone placed in it gets a personal code under it
    (NRK-001-T01 teacher, -H01 head, -L0001 learner) from the API. */
 export async function getSchools() {
-  const { counties, schools } = await apiGet("/schools");
-  return { counties: counties || [], schools: schools || [] };
+  const { counties, countyCodes, schools } = await apiGet("/schools");
+  return { counties: counties || [], countyCodes: countyCodes || {}, schools: schools || [] };
+}
+export async function createCounty(name, code) {
+  const { county } = await apiSend("POST", "/counties", { name, code });
+  return county;
+}
+export async function deleteCounty(name) {
+  await apiSend("DELETE", `/counties/${encodeURIComponent(name)}`);
+}
+
+/* Keeps a page's county/school lists live: loads now, then again every
+   time the tab comes back into view and once a minute while it's being
+   looked at — so a school the Education Team adds shows up in someone
+   else's open dropdown without them reloading. `onData` gets every fresh
+   copy; `onError` only the first-load failure (a later background
+   refresh failing just keeps the list it already has). */
+export function watchSchools(onData, onError) {
+  let loaded = false;
+  const refresh = async () => {
+    try {
+      const data = await getSchools();
+      loaded = true;
+      onData(data);
+      return data;
+    } catch (err) {
+      if (!loaded) onError?.(err);
+      return null;
+    }
+  };
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && loaded) refresh();
+  });
+  setInterval(() => { if (document.visibilityState === "visible" && loaded) refresh(); }, 60 * 1000);
+  refresh();
+  return { refresh };
 }
 export async function createSchool(name, county) {
   const { school } = await apiSend("POST", "/schools", { name, county });
@@ -427,13 +461,18 @@ export async function deleteSchool(id) {
 }
 
 /* Fills a County <select> and a School <select> that narrows to the
-   picked county. Returns a small controller; `onChange(school)` fires
-   with the chosen school record (or null). */
-export function wireSchoolPicker(countySel, schoolSel, { counties, schools }, { countyId, schoolId, onChange } = {}) {
-  const selectedSchool = schools.find((s) => s.id === schoolId) || null;
-  countySel.innerHTML = `<option value="">Select county</option>${
-    counties.map((c) => `<option>${esc(c)}</option>`).join("")}`;
-  countySel.value = selectedSchool?.county || countyId || "";
+   picked county. Returns a small controller: `current()` is the chosen
+   school record (or null), `county()` the chosen county, and
+   `update(data)` swaps in a fresh list (see watchSchools) while keeping
+   whatever is picked — unless that county/school was removed, in which
+   case the pick is cleared. `onChange` fires after every update too. */
+export function wireSchoolPicker(countySel, schoolSel, data, { countyId, schoolId, onChange } = {}) {
+  let { counties, schools } = data;
+  const fillCounties = (keep) => {
+    countySel.innerHTML = `<option value="">Select county</option>${
+      counties.map((c) => `<option>${esc(c)}</option>`).join("")}`;
+    countySel.value = counties.includes(keep) ? keep : "";
+  };
   const fillSchools = (keepId) => {
     const list = schools.filter((s) => s.county === countySel.value);
     schoolSel.disabled = !countySel.value || !list.length;
@@ -446,10 +485,22 @@ export function wireSchoolPicker(countySel, schoolSel, { counties, schools }, { 
     schoolSel.value = list.some((s) => s.id === keepId) ? keepId : "";
   };
   const current = () => schools.find((s) => s.id === schoolSel.value) || null;
+  const selectedSchool = schools.find((s) => s.id === schoolId) || null;
+  fillCounties(selectedSchool?.county || countyId || "");
   fillSchools(selectedSchool?.id);
   countySel.addEventListener("change", () => { fillSchools(); onChange?.(current()); });
   schoolSel.addEventListener("change", () => onChange?.(current()));
-  return { current, county: () => countySel.value };
+  return {
+    current,
+    county: () => countySel.value,
+    update(next) {
+      const before = { county: countySel.value, school: schoolSel.value };
+      ({ counties, schools } = next);
+      fillCounties(before.county);
+      fillSchools(before.school);
+      onChange?.(current()); // the pick may be gone, or renamed (hints show its name/code)
+    },
+  };
 }
 
 /* ---------------------------------------------------------------- stats */
