@@ -766,7 +766,7 @@ a{ color:inherit; }
   color:var(--brand-fg); text-decoration:underline; cursor:pointer; text-align:left;
 }
 .viewer-note{
-  margin-left:auto; font-size:.72rem; font-weight:600; color:var(--ink-soft);
+  flex:none; font-size:.72rem; font-weight:600; color:var(--ink-soft);
   background:var(--paper-sunk); border-radius:999px; padding:.2rem .6rem;
 }
 .lib-size{ color:var(--ink-soft); font-weight:500; }
@@ -781,40 +781,39 @@ a{ color:inherit; }
 .lib-folder li a{ color:var(--brand-fg); }
 
 /* ---- in-portal content viewer (viewer.js) ----
-   The frame fits itself to what's actually open: full and roomy for
-   something meant to be read (PDF/Office/text — reading benefits from
-   every extra inch), a bounded, centered card for an image, video, or
-   audio track (those have their own natural size and just look lost
-   stretched edge-to-edge). data-kind on .viewer-frame drives which. */
+   A full-page reading view, not a box floating over a dimmed dashboard:
+   it takes the whole screen with its own header (Back · title · View
+   only) and the document is fitted inside it — PDFs open at "whole page
+   fits", images and video scale down with no cropping, nothing scrolls
+   sideways. The browser/phone Back button closes it, like leaving any
+   page. */
 .viewer-overlay{
-  display:none; position:fixed; inset:0; z-index:500;
-  background:rgba(10,16,32,.78); padding:2.2rem; align-items:center; justify-content:center;
+  display:none; position:fixed; inset:0; z-index:500; background:var(--paper-sunk);
 }
 .viewer-overlay.is-open{ display:flex; }
 body.viewer-locked{ overflow:hidden; }
-.viewer-frame{
-  display:flex; flex-direction:column; width:100%; height:100%; max-width:72rem;
-  background:var(--paper-raised); border-radius:var(--radius-lg); box-shadow:var(--shadow); overflow:hidden;
-  animation:viewer-pop .22s ease-out;
-}
+.viewer-frame{ display:flex; flex-direction:column; width:100%; height:100%; animation:viewer-in .16s ease-out; }
+@keyframes viewer-in{ from{ opacity:0; } to{ opacity:1; } }
 @keyframes viewer-pop{ from{ opacity:0; transform:scale(.97); } to{ opacity:1; transform:scale(1); } }
-.viewer-frame[data-kind="image"],
-.viewer-frame[data-kind="audio"]{ max-width:44rem; height:auto; max-height:90%; }
-.viewer-frame[data-kind="video"]{ max-width:64rem; max-height:44rem; }
 .viewer-bar{
-  display:flex; align-items:center; justify-content:space-between; gap:1rem;
-  padding:.8rem 1.1rem; border-bottom:1px solid var(--line); flex:none;
+  display:flex; align-items:center; gap:.8rem; flex:none;
+  padding:.55rem 1rem; background:var(--paper-raised); border-bottom:1px solid var(--line);
 }
-.viewer-bar b{ font-family:"Baloo 2",sans-serif; font-size:.95rem; color:var(--ink); }
+.viewer-title{
+  flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font-family:"Baloo 2",sans-serif; font-size:1rem; color:var(--ink);
+}
 .viewer-close{
-  background:none; border:0; font-size:1.5rem; line-height:1; color:var(--ink-soft);
-  cursor:pointer; padding:.1rem .5rem; border-radius:999px;
+  display:inline-flex; align-items:center; gap:.35rem; flex:none;
+  background:var(--paper-sunk); border:0; border-radius:999px; padding:.45rem .9rem .45rem .7rem;
+  font-family:inherit; font-size:.82rem; font-weight:600; color:var(--ink); cursor:pointer;
 }
-.viewer-close:hover{ background:var(--paper-sunk); color:var(--ink); }
-.viewer-body{ flex:1; min-height:0; display:flex; align-items:center; justify-content:center; background:var(--paper-sunk); }
+.viewer-close .icon{ width:16px; height:16px; }
+.viewer-close:hover{ background:var(--brand-soft); color:var(--brand-fg); }
+.viewer-body{ flex:1; min-height:0; display:flex; align-items:center; justify-content:center; overflow:hidden; }
 .viewer-body iframe{ width:100%; height:100%; border:0; background:#fff; }
-.viewer-body img{ max-width:100%; max-height:100%; object-fit:contain; }
-.viewer-body video{ width:100%; height:100%; max-height:100%; object-fit:contain; background:#0b0f1a; }
+.viewer-body img{ max-width:calc(100% - 2rem); max-height:calc(100% - 2rem); object-fit:contain; }
+.viewer-body video{ width:100%; height:100%; object-fit:contain; background:#0b0f1a; }
 .viewer-audio-card{
   display:flex; flex-direction:column; align-items:center; gap:.7rem;
   padding:2.4rem 1.5rem; text-align:center; width:100%;
@@ -824,14 +823,12 @@ body.viewer-locked{ overflow:hidden; }
 .viewer-audio-card audio{ width:min(26rem,90%); }
 .viewer-html-panel{
   width:100%; height:100%; overflow:auto; box-sizing:border-box;
-  padding:1.3rem 1.5rem; text-align:left; background:var(--paper-raised);
+  padding:1.3rem max(1.5rem, calc((100% - 60rem) / 2)); text-align:left; background:var(--paper-raised);
 }
 @media (max-width:640px){
-  .viewer-overlay{ padding:0; }
-  .viewer-frame,
-  .viewer-frame[data-kind="image"],
-  .viewer-frame[data-kind="audio"],
-  .viewer-frame[data-kind="video"]{ border-radius:0; max-width:none; max-height:none; height:100%; }
+  .viewer-bar{ padding:.5rem .7rem; gap:.5rem; }
+  .viewer-close span{ display:none; }
+  .viewer-close{ padding:.5rem; }
 }
 
 /* ---- in-app confirm dialog (util.js confirmDialog()) — replaces

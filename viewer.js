@@ -13,9 +13,9 @@
    open in a new tab; viewableKind() is the one place that decision gets
    made, and nav.js checks it before deciding how to time the visit.
 
-   The frame sizes itself per content kind (see styles.css) — full and
-   roomy for something you read, snug and centered for an image or an
-   audio track — rather than one fixed box for everything. nav.js also
+   It's a full-page reading view with its own Back button (the browser's
+   Back works too), and the content is fitted to the screen — see
+   styles.css. nav.js also
    uses currentOpenId()/isViewerOpen() here to award a reading badge (see
    showBadgeCelebration()) once a session has stayed open a while. */
 
@@ -57,6 +57,13 @@ export function youTubeEmbedUrl(url) {
 let overlay = null;
 let onCloseCb = null;
 let openSeq = 0;
+let historyPushed = false;
+
+window.addEventListener("popstate", () => {
+  if (!historyPushed || !isViewerOpen()) return;
+  historyPushed = false;
+  closeViewer();
+});
 
 function ensureOverlay() {
   if (overlay) return overlay;
@@ -65,9 +72,11 @@ function ensureOverlay() {
   overlay.innerHTML = `
     <div class="viewer-frame" role="dialog" aria-modal="true">
       <div class="viewer-bar">
+        <button type="button" class="viewer-close" aria-label="Back">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg><span>Back</span>
+        </button>
         <b class="viewer-title"></b>
         <span class="viewer-note" hidden>View only</span>
-        <button type="button" class="viewer-close" aria-label="Close">&times;</button>
       </div>
       <div class="viewer-body"></div>
     </div>`;
@@ -94,6 +103,12 @@ function showOverlay(title, node, onClose, kind) {
   const body = el.querySelector(".viewer-body");
   body.innerHTML = "";
   body.appendChild(node);
+  // A history entry per viewing session, so the browser/phone Back
+  // button closes the reader instead of leaving the dashboard.
+  if (!el.classList.contains("is-open")) {
+    history.pushState({ hpfViewer: true }, "");
+    historyPushed = true;
+  }
   el.classList.add("is-open");
   document.body.classList.add("viewer-locked");
 }
@@ -132,7 +147,11 @@ export function openViewer({ title, url, name, allowDownload = false }, onClose)
   let node;
   if (kind === "pdf" || kind === "text") {
     node = document.createElement("iframe");
-    node.src = kind === "pdf" && locked ? `${url}#toolbar=0&navpanes=0` : url;
+    // "view=Fit" (Chrome/Edge) and "zoom=page-fit" (Firefox) open a PDF
+    // with the whole page fitted to the screen.
+    node.src = kind === "pdf"
+      ? `${url}#view=Fit&zoom=page-fit${locked ? "&toolbar=0&navpanes=0" : ""}`
+      : url;
     node.title = title || name || "";
   } else if (kind === "office") {
     node = document.createElement("iframe");
@@ -237,4 +256,8 @@ export function closeViewer() {
   const cb = onCloseCb;
   onCloseCb = null;
   if (cb) cb();
+  if (historyPushed) {
+    historyPushed = false;
+    history.back();
+  }
 }
