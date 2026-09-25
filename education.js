@@ -1,5 +1,5 @@
 import "./nav.js";
-import { $, $$, esc, initials, toast, formatDuration, groupByType, groupByFolder, skeleton, errorState, friendlyError, confirmDialog } from "./util.js";
+import { $, $$, esc, initials, toast, formatDuration, groupByFolder, skeleton, errorState, friendlyError, confirmDialog } from "./util.js";
 import { requireRole, signOut, sendPasswordResetLink } from "./auth.js";
 import {
   CONTENT_TYPES, LIBRARY_SUBJECTS, LIBRARY_AUDIENCES, FORM_AUDIENCES, QUESTION_TYPES, ROLES,
@@ -438,7 +438,21 @@ async function main() {
   /* ------------------------------------------------------------ content library */
   $("#up_subject").innerHTML = LIBRARY_SUBJECTS.map((s) => `<option>${esc(s)}</option>`).join("");
   $("#up_type").innerHTML = CONTENT_TYPES.map((t) => `<option>${esc(t)}</option>`).join("");
-  $("#up_audience").innerHTML = LIBRARY_AUDIENCES.map((a) => `<option value="${a.value}">${esc(a.label)}</option>`).join("");
+  // Short names in the picker ("Digital Library"); the "who sees it"
+  // half of each label shows as a hint underneath instead of being
+  // clipped inside a narrow select.
+  const audienceName = (a) => a.label.split(" — ")[0];
+  const audienceWho = (a) => {
+    const who = a.label.split(" — ")[1] || "";
+    return who.charAt(0).toUpperCase() + who.slice(1);
+  };
+  $("#up_audience").innerHTML = LIBRARY_AUDIENCES.map((a) => `<option value="${a.value}">${esc(audienceName(a))}</option>`).join("");
+  function refreshAudienceHint() {
+    const a = LIBRARY_AUDIENCES.find((x) => x.value === $("#up_audience").value);
+    $("#up_audience_hint").textContent = a ? audienceWho(a) : "";
+  }
+  $("#up_audience").addEventListener("change", refreshAudienceHint);
+  refreshAudienceHint();
 
   const AUDIENCE_PILL = {
     staff: { cls: "", label: "Teacher Resources" },
@@ -570,7 +584,7 @@ async function main() {
     const currentAudience = normalizeLibraryAudience(it.audience);
     const subjOpts = LIBRARY_SUBJECTS.map((s) => `<option${s === it.subject ? " selected" : ""}>${esc(s)}</option>`).join("");
     const typeOpts = CONTENT_TYPES.map((t) => `<option${t === it.type ? " selected" : ""}>${esc(t)}</option>`).join("");
-    const audOpts = LIBRARY_AUDIENCES.map((a) => `<option value="${a.value}"${a.value === currentAudience ? " selected" : ""}>${esc(a.label)}</option>`).join("");
+    const audOpts = LIBRARY_AUDIENCES.map((a) => `<option value="${a.value}"${a.value === currentAudience ? " selected" : ""}>${esc(audienceName(a))}</option>`).join("");
     const folderSelectOpts = (audience, selectedId) => `<option value="">No folder</option>${
       foldersFor(audience).map((f) => `<option value="${esc(f.id)}"${f.id === selectedId ? " selected" : ""}>${esc(f.name)}</option>`).join("")}`;
     return `
@@ -602,39 +616,61 @@ async function main() {
      assigns or clears which folder the item sits in. Editing updates
      this SAME row — never a new one, so the published state and every
      other dashboard's copy stay put. */
+  const TYPE_ICON = {
+    Video: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="m10 9 5 3-5 3V9Z"/>',
+    Worksheet: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/>',
+    Reading: ICON.library,
+    "Lesson plan": '<rect x="4" y="5" width="16" height="16" rx="2"/><path d="M8 3v4M16 3v4M4 10h16"/>',
+    Assessment: '<path d="m9 11 3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/>',
+  };
+  const FOLDER_ICON = '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>';
+
   function libraryRow(it) {
     if (it.id === editingItemId) return editRow(it);
-    const dest = AUDIENCE_PILL[normalizeLibraryAudience(it.audience)];
-    const folderOpts = foldersFor(normalizeLibraryAudience(it.audience));
+    const audience = normalizeLibraryAudience(it.audience);
+    const dest = AUDIENCE_PILL[audience];
+    const folderOpts = foldersFor(audience);
     return `
-      <div class="task-row" data-lib-id="${esc(it.id)}">
-        <span class="task-dot" style="background:var(--brand);margin-top:.55rem"></span>
-        <div style="flex:1">
-          <b>${esc(it.title)}</b>
-          <span>${esc(it.subject)}${it.description ? " — " + esc(it.description) : ""}</span>
-          ${libraryFilesHtml(it)}
-          <div class="roster-actions" style="margin-top:.4rem">
-            <button type="button" data-act="publish">${it.published ? "Unpublish" : "Publish"}</button>
-            <button type="button" data-act="edit">Edit</button>
-            <button type="button" data-act="delete" class="danger">Delete</button>
-            ${folderOpts.length ? `
-              <select class="inline-select" data-act="move" aria-label="Move to folder">
-                <option value="">Unfiled</option>
-                ${folderOpts.map((f) => `<option value="${esc(f.id)}"${f.id === it.folderId ? " selected" : ""}>${esc(f.name)}</option>`).join("")}
-              </select>` : ""}
+      <div class="lib-row" data-lib-id="${esc(it.id)}">
+        <span class="lib-ic" data-type="${esc(it.type || "")}">${svg(TYPE_ICON[it.type] || ICON.library)}</span>
+        <div class="lib-main">
+          <div class="lib-title-line">
+            <b>${esc(it.title)}</b>
+            <span class="pill ${it.published ? "ok" : "warm"}">${it.published ? "Published" : "Draft"}</span>
           </div>
-        </div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.3rem;flex:none">
-          <span class="pill${dest.cls}">${dest.label}</span>
-          <span class="pill ${it.published ? "ok" : "warm"}">${it.published ? "Published" : "Draft"}</span>
+          <div class="lib-meta">
+            <span>${esc(it.subject)}</span><span>${esc(it.type || "Other")}</span><span class="lib-dest${dest.cls}">${dest.label}</span>
+          </div>
+          ${it.description ? `<p class="lib-desc">${esc(it.description)}</p>` : ""}
+          <div class="lib-row-foot">
+            ${libraryFilesHtml(it)}
+            <div class="roster-actions lib-row-actions">
+              <button type="button" data-act="publish">${it.published ? "Unpublish" : "Publish"}</button>
+              <button type="button" data-act="edit">Edit</button>
+              <button type="button" data-act="delete" class="danger">Delete</button>
+              ${folderOpts.length ? `
+                <select class="inline-select" data-act="move" aria-label="Move to folder">
+                  <option value="">Unfiled</option>
+                  ${folderOpts.map((f) => `<option value="${esc(f.id)}"${f.id === it.folderId ? " selected" : ""}>${esc(f.name)}</option>`).join("")}
+                </select>` : ""}
+            </div>
+          </div>
         </div>
       </div>`;
   }
 
   $("#libraryList").addEventListener("click", async (e) => {
+    if (e.target.closest("#libClearFilters")) {
+      $("#libSearch").value = "";
+      $("#libFilterDest").value = "";
+      $("#libFilterStatus").value = "";
+      renderLibraryDom();
+      return;
+    }
     const btn = e.target.closest("button[data-act]");
     if (!btn) return;
     const row = btn.closest("[data-lib-id]");
+    if (!row) return;
     const id = row.dataset.libId;
     const title = row.querySelector("b")?.textContent || "this item";
 
@@ -735,19 +771,51 @@ async function main() {
   // be wasteful and would blow away whatever's mid-edit elsewhere.
   function renderLibraryDom() {
     refreshFolderUI();
-    const byType = (rows) => groupByType(rows, CONTENT_TYPES).map(({ type, items: t }) => `
-      <details class="list-group" open>
-        <summary class="list-group-title">${esc(type)}<span class="count">${t.length}</span></summary>
-        ${t.map(libraryRow).join("")}
-      </details>`).join("");
-    $("#libraryList").innerHTML = cachedItems.length
-      ? groupByFolder(cachedItems, allFolders).map(({ name, items: rows }) => `
-        <details class="folder-group" open>
-          <summary class="folder-group-title">${esc(name)}<span class="count">${rows.length}</span></summary>
-          ${byType(rows)}
-        </details>`).join("")
-      : `<div class="empty-state">Nothing uploaded yet.</div>`;
+    const published = cachedItems.filter((it) => it.published).length;
+    $("#libStats").innerHTML = cachedItems.length ? `
+      <span class="lib-stat"><b>${cachedItems.length}</b> item${cachedItems.length === 1 ? "" : "s"}</span>
+      <span class="lib-stat ok"><b>${published}</b> published</span>
+      <span class="lib-stat warm"><b>${cachedItems.length - published}</b> draft${cachedItems.length - published === 1 ? "" : "s"}</span>` : "";
+
+    if (!cachedItems.length) {
+      $("#libraryList").innerHTML = `<div class="empty-state">Nothing uploaded yet — use <b>+ New upload</b> above to add the first item.</div>`;
+      return;
+    }
+
+    const q = $("#libSearch").value.trim().toLowerCase();
+    const dest = $("#libFilterDest").value;
+    const status = $("#libFilterStatus").value;
+    const shown = cachedItems.filter((it) =>
+      (!q || [it.title, it.subject, it.type, it.description].some((v) => (v || "").toLowerCase().includes(q))) &&
+      (!dest || normalizeLibraryAudience(it.audience) === dest) &&
+      (!status || (status === "published") === !!it.published));
+
+    if (!shown.length) {
+      $("#libraryList").innerHTML = `<div class="empty-state">No content matches these filters. <button type="button" class="link-btn" id="libClearFilters">Clear filters</button></div>`;
+      return;
+    }
+
+    const folderById = new Map(allFolders.map((f) => [f.id, f]));
+    $("#libraryList").innerHTML = groupByFolder(shown, allFolders).map(({ id, name, items: rows }) => {
+      const folder = id ? folderById.get(id) : null;
+      return `
+        <details class="lib-section" open>
+          <summary class="lib-section-head">
+            <span class="lib-section-ic">${svg(FOLDER_ICON)}</span>
+            <span class="lib-section-name">${esc(name)}</span>
+            ${folder ? `<span class="lib-section-dest">${esc(AUDIENCE_PILL[folder.audience]?.label || "")}</span>` : ""}
+            <span class="count">${rows.length}</span>
+          </summary>
+          <div class="lib-section-body">${rows.map(libraryRow).join("")}</div>
+        </details>`;
+    }).join("");
   }
+
+  $("#libFilterDest").innerHTML = `<option value="">All destinations</option>${
+    LIBRARY_AUDIENCES.map((a) => `<option value="${a.value}">${esc(AUDIENCE_PILL[a.value].label)}</option>`).join("")}`;
+  $("#libSearch").addEventListener("input", renderLibraryDom);
+  $("#libFilterDest").addEventListener("change", renderLibraryDom);
+  $("#libFilterStatus").addEventListener("change", renderLibraryDom);
 
   async function renderLibrary() {
     $("#libraryList").innerHTML = skeleton(4);
@@ -821,13 +889,46 @@ async function main() {
   const uploadDrop = $("#uploadDrop");
   const linkInput = $("#up_link");
   const fileField = $("#up_file_field");
+  const linkField = $("#up_link_field");
+  const uploadForm = $("#uploadForm");
+  const uploadToggle = $("#uploadToggle");
   let picked = [];
 
-  // A link and a file are mutually exclusive — once a link is typed,
-  // fold away the file picker rather than let both sit there ambiguously.
-  linkInput.addEventListener("input", () => {
-    fileField.hidden = !!linkInput.value.trim();
-  });
+  // A file and a link are mutually exclusive, so it's one switch rather
+  // than two stacked inputs; switching clears whatever the other side had.
+  function setSource(src) {
+    $$(".source-toggle [data-source]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.source === src)));
+    fileField.hidden = src !== "file";
+    linkField.hidden = src !== "link";
+    linkInput.required = src === "link";
+    if (src === "file") linkInput.value = "";
+    else clearPicked();
+  }
+  $$(".source-toggle [data-source]").forEach((b) => b.addEventListener("click", () => setSource(b.dataset.source)));
+
+  // The upload form stays folded into a one-line bar until it's needed,
+  // so the library below gets the page.
+  function setUploadOpen(open) {
+    uploadForm.hidden = !open;
+    uploadToggle.setAttribute("aria-expanded", String(open));
+    uploadToggle.textContent = open ? "Close" : "+ New upload";
+    uploadToggle.classList.toggle("btn-primary", !open);
+    uploadToggle.classList.toggle("btn-outline", open);
+    if (open) $("#up_title").focus();
+  }
+  function resetUploadForm() {
+    uploadForm.reset();
+    clearPicked();
+    setSource("file");
+    folderNewRow.hidden = true;
+    $("#up_subject").value = LIBRARY_SUBJECTS[0];
+    $("#up_type").value = CONTENT_TYPES[0];
+    $("#up_audience").value = LIBRARY_AUDIENCES[0].value;
+    refreshAudienceHint();
+    refreshFolderUI();
+  }
+  uploadToggle.addEventListener("click", () => setUploadOpen(uploadForm.hidden));
+  $("#uploadCancel").addEventListener("click", () => { resetUploadForm(); setUploadOpen(false); });
 
   function setFolderMode(on) {
     // webkitdirectory turns the same input into a folder picker.
@@ -931,13 +1032,8 @@ async function main() {
         await addLibraryItem(meta);
         toast("Added to library successfully.", "", "success");
       }
-      e.target.reset();
-      clearPicked();
-      fileField.hidden = false;
-      $("#up_subject").value = LIBRARY_SUBJECTS[0];
-      $("#up_type").value = CONTENT_TYPES[0];
-      $("#up_audience").value = LIBRARY_AUDIENCES[0].value;
-      refreshFolderUI();
+      resetUploadForm();
+      setUploadOpen(false);
       renderLibrary();
     } catch (err) {
       toast("Upload failed", friendlyError(err, "Could not save the content. Check your connection and try again."), "error");

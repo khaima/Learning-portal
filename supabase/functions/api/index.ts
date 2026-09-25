@@ -141,25 +141,30 @@ function canSeeLibrary(audience: string | null | undefined, role: Role): boolean
 
 type LibFile = { name: string; path: string; size: number };
 
-/* Signed URLs with no `download` option: the object is served with its
-   real content-type and no attachment disposition, so a browser opens
-   a PDF/image/text/video right in the tab instead of saving it to disk.
-   (`download: true` — used until now — forces "Content-Disposition:
-   attachment", which is exactly what made every open a download.) The
-   field is still called downloadUrl for the frontend, but it's a "view
-   this in the portal" link now. */
-async function signFiles(files: LibFile[]) {
+/* Every file gets `viewUrl` — signed with no `download` option, so it's
+   served with its real content-type and no attachment disposition and
+   renders inside the portal's viewer. Only the education team also gets
+   `downloadUrl`, signed with `download` (Content-Disposition:
+   attachment), which is what the frontend's Download button uses —
+   every other role is view-only. The storage path is never sent. */
+async function signFiles(files: LibFile[], canDownload: boolean) {
   return await Promise.all(
     (files ?? []).map(async (f) => {
-      const { data } = await admin.storage
-        .from(LIBRARY_BUCKET)
-        .createSignedUrl(f.path, DOWNLOAD_TTL);
-      return { ...f, downloadUrl: data?.signedUrl ?? null };
+      const bucket = admin.storage.from(LIBRARY_BUCKET);
+      const { data: view } = await bucket.createSignedUrl(f.path, DOWNLOAD_TTL);
+      const out: Record<string, unknown> = { name: f.name, size: f.size, viewUrl: view?.signedUrl ?? null };
+      if (canDownload) {
+        const { data: dl } = await bucket.createSignedUrl(f.path, DOWNLOAD_TTL, {
+          download: f.name.split("/").pop() || true,
+        });
+        out.downloadUrl = dl?.signedUrl ?? null;
+      }
+      return out;
     }),
   );
 }
 
-const mapLibrary = async (r: Record<string, unknown>) => ({
+const mapLibrary = async (r: Record<string, unknown>, canDownload = false) => ({
   id: r.id,
   title: r.title,
   subject: r.subject,
@@ -170,7 +175,7 @@ const mapLibrary = async (r: Record<string, unknown>) => ({
   fileName: r.file_name,
   fileSize: r.file_size ?? 0,
   isFolder: !!r.is_folder,
-  files: await signFiles((r.files as LibFile[]) ?? []),
+  files: await signFiles((r.files as LibFile[]) ?? [], canDownload),
   externalUrl: r.external_url ?? null,
   published: !!r.published,
   folderId: r.folder_id ?? null,
@@ -659,7 +664,7 @@ app.get("/library", withActor(), async (c) => {
     canSeeLibrary(it.audience as string, role) &&
     (role === "education_team" || it.published),
   );
-  const items = await Promise.all(visible.map(mapLibrary));
+  const items = await Promise.all(visible.map((it) => mapLibrary(it, role === "education_team")));
   return c.json({ items });
 });
 
@@ -727,7 +732,7 @@ app.post("/library", withProfile("education_team"), async (c) => {
     .select()
     .single();
   if (error) return c.json({ error: error.message }, 400);
-  return c.json({ item: await mapLibrary(data), uploads });
+  return c.json({ item: await mapLibrary(data, true), uploads });
 });
 
 /* Publish/unpublish, metadata edits, and folder reassignment — every
@@ -796,7 +801,7 @@ app.patch("/library/:id", withProfile("education_team"), async (c) => {
     .maybeSingle();
   if (error) return c.json({ error: error.message }, 400);
   if (!data) return c.json({ error: "Content not found" }, 404);
-  return c.json({ item: await mapLibrary(data) });
+  return c.json({ item: await mapLibrary(data, true) });
 });
 
 /* Organizational folders — a named bucket the education team sorts

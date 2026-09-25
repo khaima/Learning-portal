@@ -17,7 +17,6 @@
 import { $, $$, toast } from "./util.js";
 import { startLibraryInteraction, completeLibraryInteraction, awardLibraryBadge } from "./store.js";
 import { openViewer, openYouTubeViewer, viewableKind, isViewerOpen, currentOpenId, showBadgeCelebration } from "./viewer.js";
-
 /* ---------------------------------------------------------------- reading-badge celebration
    A real "you've been at this a while" moment, not a claim about what
    was learned: once a viewer session on one resource stays open past
@@ -80,20 +79,36 @@ document.addEventListener("click", (e) => {
     return;
   }
 
-  if (viewableKind(fileName)) {
+  // Library files: view-only unless the API granted a download (education
+  // team only — see libraryFilesHtml in store.js).
+  const viewUrl = link.dataset.viewUrl;
+  if (viewUrl !== undefined) {
     e.preventDefault();
+    const canDownload = link.dataset.canDownload === "1";
     const title = link.dataset.itemTitle || fileName;
+    if (!viewUrl) {
+      toast("Couldn't open that", "The file link has expired — refresh the page and try again.", "error");
+      return;
+    }
+    if (!viewableKind(fileName)) {
+      if (canDownload) {
+        window.open(viewUrl, "_blank", "noopener");
+        startLibraryInteraction(itemId)
+          .then((interaction) => { if (interaction) pendingInteractions.push(interaction.id); })
+          .catch(() => {});
+      } else {
+        toast("Preview not available", "This file type can't be shown in the portal, and downloads are limited to the Education Team.");
+      }
+      return;
+    }
+    const open = (onClose) => openViewer({ title, url: viewUrl, name: fileName, allowDownload: canDownload }, onClose);
     startLibraryInteraction(itemId)
       .then((interaction) => {
         const id = interaction?.id;
-        const opened = openViewer(
-          { title, url: link.href, name: fileName },
-          () => { if (id) completeLibraryInteraction(id).catch(() => {}); },
-        );
-        if (!opened) window.open(link.href, "_blank", "noopener"); // shouldn't happen; safety net
-        else scheduleBadgeCheck(itemId, title);
+        open(() => { if (id) completeLibraryInteraction(id).catch(() => {}); });
+        scheduleBadgeCheck(itemId, title);
       })
-      .catch(() => window.open(link.href, "_blank", "noopener")); // tracking failed — still let them read it
+      .catch(() => open()); // tracking failed — still let them read it
     return;
   }
 

@@ -579,16 +579,116 @@ a{ color:inherit; }
 
 .fill-form{ border:1.5px dashed var(--line); border-radius:var(--radius-md); padding:.9rem 1rem; margin-top:.7rem; background:var(--paper-sunk); }
 
-/* ---- "Upload content" form, broken into scannable groups instead of
-   one long column of fields — an eyebrow label ahead of each group,
-   no border/box needed since the vertical rhythm alone reads as
-   sections. First one sits flush under the panel title. ---- */
-.form-section-label{
-  margin:1.3rem 0 .5rem; font-family:"Baloo 2",sans-serif; font-weight:700;
-  font-size:.72rem; letter-spacing:.04em; text-transform:uppercase; color:var(--ink-soft);
-}
-.form-section-label:first-child{ margin-top:0; }
+/* ---- "Upload content" — folded into a one-line bar until opened, then
+   a compact grid (title/description/source full-width, the four
+   pickers side by side) instead of one long column. ---- */
+.upload-panel{ padding-top:1rem; padding-bottom:1rem; }
+.upload-bar{ display:flex; align-items:center; justify-content:space-between; gap:1rem; }
+.upload-bar-text h2{ margin:0; font-family:"Baloo 2",sans-serif; font-size:1.05rem; color:var(--ink); }
+.upload-bar-text p{ margin:.15rem 0 0; font-size:.8rem; color:var(--ink-soft); }
+.upload-bar .btn{ flex:none; padding:.55rem 1.1rem; font-size:.85rem; }
+.upload-form{ margin-top:1rem; padding-top:1rem; border-top:1px solid var(--line); }
+.upload-grid{ display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:.2rem .9rem; }
+.upload-grid .span-all{ grid-column:1 / -1; }
+.upload-grid .field{ min-width:0; }
+.upload-actions{ display:flex; justify-content:flex-end; gap:.6rem; margin-top:.4rem; }
+.upload-actions .btn{ padding:.6rem 1.3rem; font-size:.86rem; }
 .hint-inline{ color:var(--ink-soft); font-weight:500; }
+.field-hint{ margin:.3rem 0 0; font-size:.74rem; color:var(--ink-soft); line-height:1.35; }
+.source-toggle{
+  display:inline-flex; gap:.2rem; padding:.2rem; margin-bottom:.6rem;
+  background:var(--paper-sunk); border-radius:999px;
+}
+.source-toggle button{
+  border:0; background:none; font:inherit; font-size:.8rem; font-weight:600; color:var(--ink-soft);
+  padding:.4rem .9rem; border-radius:999px; cursor:pointer;
+}
+.source-toggle button[aria-selected="true"]{ background:var(--paper-raised); color:var(--brand-fg); box-shadow:0 1px 2px rgba(20,33,61,.12); }
+#up_link_field input{
+  width:100%; box-sizing:border-box; padding:.7rem .85rem; border:1.5px solid var(--line);
+  border-radius:var(--radius-sm); font:inherit; font-size:.9rem; background:var(--paper-raised); color:var(--ink);
+}
+#up_link_field input:focus{ border-color:var(--brand); }
+@media (max-width:1100px){ .upload-grid{ grid-template-columns:repeat(2, minmax(0, 1fr)); } }
+@media (max-width:640px){
+  .upload-bar{ flex-wrap:wrap; }
+  .upload-bar .btn{ width:100%; }
+  .upload-grid{ grid-template-columns:1fr; }
+  .upload-actions .btn{ flex:1; }
+}
+
+/* ---- Content Library (education team) — a toolbar (search, destination,
+   status) and summary counts over folder sections; each item is one
+   tidy row: a type icon, title + status, a meta line, then View/Download
+   and the management actions. ---- */
+.lib-head{ display:flex; align-items:center; justify-content:space-between; gap:.8rem; flex-wrap:wrap; margin-bottom:.8rem; }
+.lib-head h2{ margin:0; font-family:"Baloo 2",sans-serif; font-size:1.05rem; color:var(--ink); }
+.lib-stats{ display:flex; gap:.4rem; flex-wrap:wrap; }
+.lib-stat{ font-size:.76rem; color:var(--ink-soft); background:var(--paper-sunk); border-radius:999px; padding:.22rem .65rem; }
+.lib-stat b{ color:var(--ink); }
+.lib-stat.ok b{ color:var(--success); }
+.lib-stat.warm b{ color:var(--accent-fg); }
+.lib-toolbar{ display:grid; grid-template-columns:minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); gap:.6rem; margin-bottom:1rem; }
+.lib-toolbar input,
+.lib-toolbar select{
+  width:100%; box-sizing:border-box; padding:.6rem .8rem; border:1.5px solid var(--line);
+  border-radius:var(--radius-sm); font:inherit; font-size:.85rem; background:var(--paper-raised); color:var(--ink);
+}
+.lib-toolbar input:focus,
+.lib-toolbar select:focus{ border-color:var(--brand); }
+@media (max-width:640px){ .lib-toolbar{ grid-template-columns:1fr 1fr; } .lib-toolbar input{ grid-column:1 / -1; } }
+
+.lib-section{ border:1px solid var(--line); border-radius:var(--radius-md); background:var(--paper-raised); }
+.lib-section + .lib-section{ margin-top:.8rem; }
+.lib-section-head{
+  display:flex; align-items:center; gap:.55rem; padding:.7rem .9rem; cursor:pointer;
+  list-style:none; user-select:none; background:var(--paper-sunk); border-radius:var(--radius-md);
+}
+.lib-section[open] > .lib-section-head{ border-bottom:1px solid var(--line); border-radius:var(--radius-md) var(--radius-md) 0 0; }
+.lib-section-head::-webkit-details-marker{ display:none; }
+.lib-section-head::after{
+  content:""; margin-left:.2rem; flex:none; width:0; height:0;
+  border-left:5px solid var(--ink-soft); border-top:4px solid transparent; border-bottom:4px solid transparent;
+  transition:transform .15s ease;
+}
+.lib-section[open] > .lib-section-head::after{ transform:rotate(90deg); }
+.lib-section-ic{ display:flex; color:var(--brand); }
+.lib-section-ic .icon{ width:17px; height:17px; }
+.lib-section-name{ font-family:"Baloo 2",sans-serif; font-weight:700; font-size:.95rem; color:var(--ink); }
+.lib-section-dest{ font-size:.72rem; color:var(--ink-soft); }
+.lib-section-head .count{
+  margin-left:auto; font-weight:600; font-size:.72rem; color:var(--ink-soft);
+  background:var(--paper-raised); border:1px solid var(--line); border-radius:999px; padding:.05rem .55rem;
+}
+.lib-section-body{ padding:.2rem .9rem; }
+
+.lib-row{ display:flex; gap:.8rem; padding:.85rem 0; border-bottom:1px solid var(--line); }
+.lib-row:last-child{ border-bottom:0; }
+.lib-ic{
+  flex:none; width:2.3rem; height:2.3rem; border-radius:.7rem; display:flex; align-items:center; justify-content:center;
+  background:var(--brand-soft); color:var(--brand-fg);
+}
+.lib-ic .icon{ width:18px; height:18px; }
+.lib-ic[data-type="Video"]{ background:var(--danger-soft); color:var(--danger); }
+.lib-ic[data-type="Worksheet"]{ background:var(--accent-soft); color:var(--accent-fg); }
+.lib-ic[data-type="Assessment"]{ background:var(--success-soft); color:var(--success); }
+.lib-main{ flex:1; min-width:0; }
+.lib-title-line{ display:flex; align-items:flex-start; justify-content:space-between; gap:.6rem; }
+.lib-title-line b{ font-size:.9rem; color:var(--ink); overflow-wrap:anywhere; }
+.lib-title-line .pill{ flex:none; font-size:.7rem; padding:.18rem .6rem; }
+.lib-meta{ display:flex; flex-wrap:wrap; align-items:center; gap:.15rem .5rem; margin-top:.15rem; font-size:.76rem; color:var(--ink-soft); }
+.lib-meta span + span::before{ content:"·"; margin-right:.5rem; color:var(--line); }
+.lib-dest{ font-weight:600; color:var(--brand-fg); }
+.lib-dest.warm{ color:var(--accent-fg); }
+.lib-dest.ok{ color:var(--success); }
+.lib-desc{ margin:.3rem 0 0; font-size:.8rem; color:var(--ink-soft); line-height:1.45; }
+.lib-row-foot{ display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:.4rem .8rem; }
+.lib-row-foot .lib-folder{ flex-basis:100%; }
+.lib-row-actions{ margin-top:.4rem; margin-left:auto; }
+.lib-panel .lib-edit-row{ margin:.6rem 0; }
+@media (max-width:768px){
+  .lib-row-actions{ margin-left:0; flex:1 1 100%; }
+}
 
 /* Inline "+ Create new folder…" — picking that option in #up_folder
    reveals this row right under the select instead of sending the
@@ -645,12 +745,30 @@ a{ color:inherit; }
 /* ---- "open to read" affordance shared by every dashboard's library list ---- */
 .lib-open{
   display:inline-flex; align-items:center; gap:.35rem; margin-top:.4rem;
-  font-size:.78rem; font-weight:600; color:var(--brand-fg);
-  background:var(--brand-soft); border-radius:var(--radius-sm);
-  padding:.3rem .6rem; text-decoration:none;
+  font-family:inherit; font-size:.78rem; font-weight:600; color:var(--brand-fg);
+  background:var(--brand-soft); border:0; border-radius:var(--radius-sm);
+  padding:.3rem .6rem; text-decoration:none; cursor:pointer;
 }
 .lib-open:hover{ text-decoration:underline; }
 .lib-open .icon{ width:14px; height:14px; }
+/* View + (education team only) Download, side by side. */
+.lib-actions{ display:inline-flex; flex-wrap:wrap; align-items:center; gap:.4rem; }
+.lib-download{
+  display:inline-flex; align-items:center; gap:.3rem; margin-top:.4rem;
+  font-size:.78rem; font-weight:600; color:var(--ink-soft); text-decoration:none;
+  border:1px solid var(--line); border-radius:var(--radius-sm); padding:.25rem .55rem;
+}
+.lib-download:hover{ color:var(--brand-fg); border-color:var(--brand); }
+.lib-download .icon{ width:13px; height:13px; }
+.lib-folder .lib-download{ margin:0 0 0 .4rem; padding:.1rem .4rem; }
+.lib-file-btn{
+  background:none; border:0; padding:0; font:inherit; font-size:inherit;
+  color:var(--brand-fg); text-decoration:underline; cursor:pointer; text-align:left;
+}
+.viewer-note{
+  margin-left:auto; font-size:.72rem; font-weight:600; color:var(--ink-soft);
+  background:var(--paper-sunk); border-radius:999px; padding:.2rem .6rem;
+}
 .lib-size{ color:var(--ink-soft); font-weight:500; }
 .lib-folder{ margin-top:.4rem; font-size:.78rem; }
 .lib-folder summary{

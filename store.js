@@ -151,23 +151,32 @@ export function formatBytes(n = 0) {
   return `${n.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-/* "Open to read" affordance for a library item, shared by every
-   dashboard. The API puts a signed, view-in-browser URL (no forced
-   download — PDFs, images, text and video render right in the tab) on
-   each file as `downloadUrl`, despite the name; the browser only saves
-   it to disk if the visitor explicitly chooses to, or if it's a file
-   type the in-app viewer doesn't handle (see below).
+/* "Open" affordance for a library item, shared by every dashboard.
+   Files are VIEW-ONLY for everyone except the education team: the API
+   sends every role a signed `viewUrl` (rendered inside the portal's own
+   viewer, see viewer.js / nav.js), and only the education team an extra
+   `downloadUrl`, which is the one thing that renders a Download button
+   here. The view URL rides in data-view-url on a button, not an <a
+   href>, so there's no plain file link to right-click → "Save link as".
 
-   data-track-item / data-file-name / data-item-title mark every open
-   link so the delegated listener in nav.js can (a) time the visit and
-   (b) — for a file type this portal knows how to render (PDF, image,
-   video, audio, text directly; Word/Excel/PowerPoint via Microsoft's
-   viewer) — open it in the portal's own in-app viewer instead of a new
-   tab; see viewer.js. Anything else still opens in a new tab. An item
-   pointing at an external link (see
-   addLibraryItem) has no files at all; a YouTube link gets the same
-   in-app treatment via data-yt-embed, anything else just opens in a
-   new tab since most sites block being framed. */
+   data-track-item / data-file-name / data-item-title let the delegated
+   listener in nav.js time the visit and open the viewer. An item that
+   points at an external link has no files; a YouTube link plays in the
+   viewer via data-yt-embed, anything else opens in a new tab since most
+   sites block being framed. */
+const OPEN_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>`;
+const DOWNLOAD_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>`;
+
+function openButton(item, f, label, cls = "lib-open") {
+  return `<button type="button" class="${cls}" data-track-item="${esc(item.id)}" data-file-name="${esc(f.name)}" data-item-title="${esc(item.title)}" data-view-url="${esc(f.viewUrl || "")}"${
+    f.downloadUrl ? ` data-can-download="1"` : ""}>${label}</button>`;
+}
+function downloadLink(f) {
+  return f.downloadUrl
+    ? `<a class="lib-download" href="${esc(f.downloadUrl)}" download title="Download (Education Team only)">${DOWNLOAD_ICON}<span>Download</span></a>`
+    : "";
+}
+
 export function libraryFilesHtml(item) {
   if (item.externalUrl) {
     const embed = youTubeEmbedUrl(item.externalUrl);
@@ -181,12 +190,11 @@ export function libraryFilesHtml(item) {
   if (!files.length) return "";
   if (files.length === 1) {
     const f = files[0];
-    return `<a class="lib-open" data-track-item="${esc(item.id)}" data-file-name="${esc(f.name)}" data-item-title="${esc(item.title)}" href="${esc(f.downloadUrl || "#")}" target="_blank" rel="noopener">
-      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3h7v7M21 3l-9 9M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg>
-      Open to read${f.size ? ` <span class="lib-size">${esc(formatBytes(f.size))}</span>` : ""}</a>`;
+    const size = f.size ? ` <span class="lib-size">${esc(formatBytes(f.size))}</span>` : "";
+    return `<span class="lib-actions">${openButton(item, f, `${OPEN_ICON}<span>View</span>${size}`)}${downloadLink(f)}</span>`;
   }
-  const rows = files.map((f) => `<li><a data-track-item="${esc(item.id)}" data-file-name="${esc(f.name)}" data-item-title="${esc(item.title)}" href="${esc(f.downloadUrl || "#")}" target="_blank" rel="noopener">${esc(f.name)}</a>${
-    f.size ? ` <span class="lib-size">${esc(formatBytes(f.size))}</span>` : ""}</li>`).join("");
+  const rows = files.map((f) => `<li>${openButton(item, f, esc(f.name), "lib-file-btn")}${
+    f.size ? ` <span class="lib-size">${esc(formatBytes(f.size))}</span>` : ""}${downloadLink(f)}</li>`).join("");
   return `<details class="lib-folder">
     <summary><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>
     ${files.length} files${item.fileSize ? ` <span class="lib-size">${esc(formatBytes(item.fileSize))}</span>` : ""}</summary>

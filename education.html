@@ -140,77 +140,92 @@
       </section>
 
       <section class="dash-page" data-page="content" hidden>
-        <div class="body-grid">
-          <div>
-            <div class="panel">
-              <div class="panel-head"><h2>Upload content</h2></div>
-              <form id="uploadForm">
-                <p class="form-section-label">What are you adding</p>
-                <div class="field">
-                  <label for="up_title">Title</label>
-                  <input id="up_title" type="text" placeholder="e.g. Fractions — visual walkthrough" required>
+        <div class="panel upload-panel">
+          <div class="upload-bar">
+            <div class="upload-bar-text">
+              <h2>Upload content</h2>
+              <p>Add a file, a folder of files, or a link. New uploads start as drafts until you publish them.</p>
+            </div>
+            <button type="button" class="btn btn-primary" id="uploadToggle" aria-expanded="false" aria-controls="uploadForm">+ New upload</button>
+          </div>
+          <form id="uploadForm" class="upload-form" hidden>
+            <div class="upload-grid">
+              <div class="field span-all">
+                <label for="up_title">Title</label>
+                <input id="up_title" type="text" placeholder="e.g. Fractions — visual walkthrough" required>
+              </div>
+              <div class="field">
+                <label for="up_subject">Subject</label>
+                <select id="up_subject" required></select>
+              </div>
+              <div class="field">
+                <label for="up_type">Type</label>
+                <select id="up_type" required></select>
+              </div>
+              <div class="field">
+                <label for="up_audience">Destination</label>
+                <select id="up_audience" required></select>
+                <p class="field-hint" id="up_audience_hint"></p>
+              </div>
+              <div class="field">
+                <label for="up_folder">Folder <span class="hint-inline">— optional</span></label>
+                <select id="up_folder"><option value="">No folder</option></select>
+                <div class="folder-inline-create" id="up_folder_new" hidden>
+                  <input id="up_folder_new_name" type="text" placeholder="New folder name" maxlength="60">
+                  <button type="button" class="btn btn-outline" id="up_folder_new_add">Add</button>
+                  <button type="button" class="btn btn-ghost" id="up_folder_new_cancel">Cancel</button>
                 </div>
-                <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:.9rem">
-                  <div class="field">
-                    <label for="up_subject">Subject</label>
-                    <select id="up_subject" required></select>
-                  </div>
-                  <div class="field">
-                    <label for="up_type">Type</label>
-                    <select id="up_type" required></select>
-                  </div>
+                <button type="button" class="link-btn" id="up_folder_manage_toggle" hidden>Manage folders</button>
+                <div class="folder-chip-row" id="up_folder_manage" hidden></div>
+              </div>
+              <div class="field span-all">
+                <label for="up_desc">Description <span class="hint-inline">— optional</span></label>
+                <input id="up_desc" type="text" placeholder="What is this, and who is it for?">
+              </div>
+              <div class="field span-all">
+                <div class="source-toggle" role="tablist" aria-label="Content source">
+                  <button type="button" role="tab" data-source="file" aria-selected="true">Upload a file</button>
+                  <button type="button" role="tab" data-source="link" aria-selected="false">Add a link</button>
                 </div>
-
-                <p class="form-section-label">Where it goes</p>
-                <div class="field">
-                  <label for="up_audience">Destination</label>
-                  <select id="up_audience" required></select>
-                </div>
-                <div class="field">
-                  <label for="up_folder">Folder <span class="hint-inline">— optional, to help separate content</span></label>
-                  <select id="up_folder"><option value="">No folder</option></select>
-                  <div class="folder-inline-create" id="up_folder_new" hidden>
-                    <input id="up_folder_new_name" type="text" placeholder="New folder name" maxlength="60">
-                    <button type="button" class="btn btn-outline" id="up_folder_new_add">Add</button>
-                    <button type="button" class="btn btn-ghost" id="up_folder_new_cancel">Cancel</button>
-                  </div>
-                  <button type="button" class="link-btn" id="up_folder_manage_toggle" hidden>Manage folders for this destination</button>
-                  <div class="folder-chip-row" id="up_folder_manage" hidden></div>
-                </div>
-
-                <p class="form-section-label">The content itself</p>
-                <div class="field">
-                  <label for="up_desc">Description</label>
-                  <input id="up_desc" type="text" placeholder="What is this, and who is it for?">
-                </div>
-                <div class="field" id="up_file_field">
-                  <label>File <span class="hint-inline">— optional</span></label>
+                <div id="up_file_field">
                   <div class="upload-drop" id="uploadDrop">
                     <input id="up_file" type="file" multiple hidden>
                     <div class="upload-choices">
                       <button type="button" class="btn btn-outline" id="pickFileBtn">Choose a file</button>
                       <button type="button" class="btn btn-outline" id="pickFolderBtn">Choose a folder</button>
                     </div>
-                    <p class="upload-hint" id="uploadHint">Drag a file here, or pick one from your computer. Folders upload every file inside.</p>
+                    <p class="upload-hint" id="uploadHint">or drag a file here. Folders upload every file inside.</p>
                     <ul class="upload-list" id="uploadList" hidden></ul>
                   </div>
                 </div>
-                <div class="login-divider" style="margin:.9rem 0"><span>or</span></div>
-                <div class="field">
-                  <label for="up_link">Link to another site <span class="hint-inline">— YouTube plays right in the portal; anything else opens in a new tab</span></label>
-                  <input id="up_link" type="url" placeholder="https://youtube.com/watch?v=… or any other link">
+                <div id="up_link_field" hidden>
+                  <input id="up_link" type="url" placeholder="https://youtube.com/watch?v=… or any other link" aria-label="Link to another site">
+                  <p class="upload-hint" style="text-align:left">YouTube plays right in the portal; anything else opens in a new tab.</p>
                 </div>
-                <button class="btn btn-primary btn-block" type="submit">Add to library</button>
-              </form>
+              </div>
             </div>
-          </div>
+            <div class="upload-actions">
+              <button type="button" class="btn btn-ghost" id="uploadCancel">Cancel</button>
+              <button class="btn btn-primary" type="submit">Add to library</button>
+            </div>
+          </form>
+        </div>
 
-          <div>
-            <div class="panel">
-              <div class="panel-head"><h2>Content Library</h2></div>
-              <div id="libraryList"></div>
-            </div>
+        <div class="panel lib-panel">
+          <div class="lib-head">
+            <h2>Content Library</h2>
+            <div class="lib-stats" id="libStats"></div>
           </div>
+          <div class="lib-toolbar">
+            <input type="search" id="libSearch" placeholder="Search title, subject or description…" aria-label="Search the library">
+            <select id="libFilterDest" aria-label="Filter by destination"></select>
+            <select id="libFilterStatus" aria-label="Filter by status">
+              <option value="">All statuses</option>
+              <option value="published">Published</option>
+              <option value="draft">Drafts</option>
+            </select>
+          </div>
+          <div id="libraryList"></div>
         </div>
 
         <div class="panel">

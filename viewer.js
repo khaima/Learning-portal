@@ -66,12 +66,16 @@ function ensureOverlay() {
     <div class="viewer-frame" role="dialog" aria-modal="true">
       <div class="viewer-bar">
         <b class="viewer-title"></b>
+        <span class="viewer-note" hidden>View only</span>
         <button type="button" class="viewer-close" aria-label="Close">&times;</button>
       </div>
       <div class="viewer-body"></div>
     </div>`;
   document.body.appendChild(overlay);
   overlay.addEventListener("click", (e) => { if (e.target === overlay) closeViewer(); });
+  overlay.addEventListener("contextmenu", (e) => {
+    if (overlay.querySelector(".viewer-frame").dataset.locked) e.preventDefault();
+  });
   overlay.querySelector(".viewer-close").addEventListener("click", closeViewer);
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && overlay.classList.contains("is-open")) closeViewer();
@@ -85,6 +89,8 @@ function showOverlay(title, node, onClose, kind) {
   openSeq += 1;
   el.querySelector(".viewer-title").textContent = title || "";
   el.querySelector(".viewer-frame").dataset.kind = kind || "";
+  el.querySelector(".viewer-frame").dataset.locked = "";
+  el.querySelector(".viewer-note").hidden = true;
   const body = el.querySelector(".viewer-body");
   body.innerHTML = "";
   body.appendChild(node);
@@ -110,29 +116,43 @@ export function currentOpenId() {
     true if it did. `onClose` fires once, whenever the viewer closes
     (X, Esc, backdrop click) — the caller uses it to mark the visit
     complete. Returns false without opening anything for a type that
-    can't render inline (caller should fall back to a normal link). */
-export function openViewer({ title, url, name }, onClose) {
+    can't render inline.
+
+    `allowDownload` is only true for the education team. Otherwise the
+    session is view-only: the browser's own PDF toolbar (with its
+    download/print buttons), the video/audio "Download" menu entry,
+    Office's download button, image dragging and the right-click menu
+    are all switched off. That removes every built-in save path, though
+    no web page can stop a screenshot. */
+export function openViewer({ title, url, name, allowDownload = false }, onClose) {
   const kind = viewableKind(name);
   if (!kind) return false;
+  const locked = !allowDownload;
 
   let node;
   if (kind === "pdf" || kind === "text") {
     node = document.createElement("iframe");
-    node.src = url;
+    node.src = kind === "pdf" && locked ? `${url}#toolbar=0&navpanes=0` : url;
     node.title = title || name || "";
   } else if (kind === "office") {
     node = document.createElement("iframe");
-    node.src = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
+    node.src = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}${
+      locked ? "&wdDownloadButton=False&wdPrint=0" : ""}`;
     node.title = title || name || "";
   } else if (kind === "image") {
     node = document.createElement("img");
     node.src = url;
     node.alt = title || name || "";
+    if (locked) node.draggable = false;
   } else if (kind === "video") {
     node = document.createElement("video");
     node.src = url;
     node.controls = true;
     node.autoplay = true;
+    if (locked) {
+      node.setAttribute("controlsList", "nodownload");
+      node.disablePictureInPicture = true;
+    }
   } else if (kind === "audio") {
     node = document.createElement("div");
     node.className = "viewer-audio-card";
@@ -140,10 +160,13 @@ export function openViewer({ title, url, name }, onClose) {
     audio.src = url;
     audio.controls = true;
     audio.autoplay = true;
+    if (locked) audio.setAttribute("controlsList", "nodownload");
     node.innerHTML = `<div class="viewer-audio-icon">&#127925;</div><b>${esc(title || name || "Audio")}</b>`;
     node.appendChild(audio);
   }
   showOverlay(title || name, node, onClose, kind);
+  overlay.querySelector(".viewer-frame").dataset.locked = locked ? "1" : "";
+  overlay.querySelector(".viewer-note").hidden = !locked;
   return true;
 }
 
