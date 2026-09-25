@@ -278,14 +278,44 @@
                   <input id="fb_desc" type="text" placeholder="What is this form for?">
                 </div>
                 <div class="field">
-                  <label for="fb_audience">Send to</label>
-                  <select id="fb_audience" required></select>
+                  <label>Form type</label>
+                  <div class="source-toggle" role="tablist" aria-label="Form type">
+                    <button type="button" role="tab" data-fb-kind="questions" aria-selected="true">Build questions</button>
+                    <button type="button" role="tab" data-fb-kind="file" aria-selected="false">Upload a file</button>
+                    <button type="button" role="tab" data-fb-kind="link" aria-selected="false">Link</button>
+                  </div>
                 </div>
-                <div class="field">
+                <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:.9rem">
+                  <div class="field">
+                    <label for="fb_audience">Send to</label>
+                    <select id="fb_audience" required></select>
+                  </div>
+                  <div class="field">
+                    <label for="fb_county">County</label>
+                    <select id="fb_county"><option value="">All counties</option></select>
+                  </div>
+                </div>
+                <div class="field" id="fb_visit_field">
+                  <label for="fb_visit">Visit type</label>
+                  <select id="fb_visit"></select>
+                  <p class="field-hint">A form tied to a visit type appears inside every Field Officer visit of that type, right after they pick it, and is filled in during the visit.</p>
+                </div>
+                <div class="field" id="fb_questions_field">
                   <label>Questions</label>
                   <div id="questionRows"></div>
                   <button class="btn btn-outline" type="button" id="addQuestion" style="margin-top:.3rem">+ Add question</button>
                 </div>
+                <div class="field" id="fb_file_field" hidden>
+                  <label for="fb_file">Form file</label>
+                  <input id="fb_file" type="file">
+                  <p class="field-hint">e.g. a PDF or Word form. Recipients can view or download it, fill it, and upload the filled copy back.</p>
+                </div>
+                <div class="field" id="fb_link_field" hidden>
+                  <label for="fb_link">Link to the form</label>
+                  <input id="fb_link" type="url" placeholder="https://forms.gle/… or any other form link">
+                  <p class="field-hint">Opens in a new tab; recipients confirm here once they've filled it.</p>
+                </div>
+                <div class="alert alert-info form-reach" id="fb_reach"></div>
                 <button class="btn btn-primary btn-block" type="submit" style="margin-top:.9rem">Send form</button>
               </form>
             </div>

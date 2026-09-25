@@ -3,11 +3,12 @@ import { $, $$, esc, initials, schoolLine, toast, formatDuration, skeleton, empt
 import { requireRole, signOut } from "./auth.js";
 import { TEACHER_CONTENT, normalizeLibraryAudience } from "./data.js";
 import {
-  getLibrary, getLibraryFolders, getForms, getResponses, addResponse, mountLibraryShelves, libraryPreviewHtml,
+  getLibrary, getLibraryFolders, getForms, getResponses, mountLibraryShelves, libraryPreviewHtml,
   getLearners, addLearner, updateLearner, deleteLearner, getMyLibraryUsage, getLearnerActivity,
   setAssignmentDone, getTeacherAssignments,
 } from "./store.js";
 import { openContentPanel } from "./viewer.js";
+import { mountFormList } from "./forms.js";
 
 const ICON = {
   classes: '<path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/>',
@@ -638,69 +639,11 @@ async function main() {
       $("#formsList").innerHTML = errorState(friendlyError(err), renderForms);
       return;
     }
-    const teacherForms = forms.filter((f) => f.audience === "teacher");
-    const answeredFormIds = new Set(responses.filter((r) => r.respondentId === user.id).map((r) => r.formId));
-
-    $("#formsList").innerHTML = teacherForms.length
-      ? teacherForms.map((f) => {
-          const done = answeredFormIds.has(f.id);
-          return `
-            <div class="form-card">
-              <div class="fc-head"><h3>${esc(f.title)}</h3>${done ? `<span class="pill ok">Submitted</span>` : `<span class="pill warm">Pending</span>`}</div>
-              <div class="fc-meta">${f.description ? esc(f.description) : "From " + esc(f.createdBy)}</div>
-              ${done ? "" : `<button class="btn btn-outline" type="button" data-fill-form="${esc(f.id)}">Fill out</button>
-                <div class="fill-form" id="fill-${esc(f.id)}" hidden></div>`}
-            </div>`;
-        }).join("")
-      : emptyState("No forms yet", "The Education Team hasn't sent anything here.");
-
-    $$("[data-fill-form]").forEach((btn) =>
-      btn.addEventListener("click", () => openFormFill(btn.dataset.fillForm, teacherForms, btn))
-    );
-  }
-
-  function openFormFill(formId, forms, btn) {
-    const form = forms.find((f) => f.id === formId);
-    const box = $("#fill-" + formId);
-    if (!form || !box) return;
-    btn.hidden = true;
-    box.hidden = false;
-    box.innerHTML = form.questions.map((q) => `
-      <div class="field">
-        <label>${esc(q.prompt)}</label>
-        ${q.type === "rating"
-          ? `<select data-q="${esc(q.id)}"><option value="5">5 — Excellent</option><option value="4">4 — Good</option><option value="3" selected>3 — Okay</option><option value="2">2 — Weak</option><option value="1">1 — Poor</option></select>`
-          : `<input type="text" data-q="${esc(q.id)}" placeholder="Your answer">`}
-      </div>`).join("") +
-      `<button class="btn btn-primary btn-block" type="button" id="submit-${esc(formId)}">Submit feedback</button>`;
-
-    $("#submit-" + formId).addEventListener("click", async () => {
-      const submitBtn = $("#submit-" + formId);
-      submitBtn.disabled = true;
-      submitBtn.classList.add("is-saving");
-      submitBtn.textContent = "Saving…";
-      const answers = form.questions.map((q) => ({
-        questionId: q.id,
-        value: box.querySelector(`[data-q="${q.id}"]`).value,
-      }));
-      try {
-        await addResponse({
-          id: "resp_" + Date.now().toString(36),
-          formId: form.id,
-          respondentId: user.id,
-          respondentName: user.fullName,
-          respondentRole: "teacher",
-          answers,
-        });
-        toast("Feedback submitted successfully.", "", "success");
-        renderForms();
-      } catch (err) {
-        console.error("could not submit form response:", err);
-        toast("Couldn't submit that", friendlyError(err), "error");
-        submitBtn.disabled = false;
-        submitBtn.classList.remove("is-saving");
-        submitBtn.textContent = "Submit feedback";
-      }
+    // The API already sends only forms addressed to this teacher's role
+    // and county; forms.js renders and submits them (all three kinds).
+    mountFormList($("#formsList"), {
+      forms: forms.filter((f) => f.audience === "teacher"),
+      responses, userId: user.id, onSubmitted: renderForms,
     });
   }
 }

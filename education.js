@@ -3,10 +3,10 @@ import { $, $$, esc, initials, toast, formatDuration, skeleton, errorState, frie
 import { requireRole, signOut, sendPasswordResetLink } from "./auth.js";
 import {
   CONTENT_TYPES, LIBRARY_SUBJECTS, LIBRARY_AUDIENCES, FORM_AUDIENCES, QUESTION_TYPES, ROLES,
-  normalizeLibraryAudience,
+  normalizeLibraryAudience, VISIT_TYPES,
 } from "./data.js";
 import {
-  getLibrary, addLibraryItem, setLibraryPublished, deleteLibraryItem, updateLibraryItem, getForms, addForm, getResponses, getStats,
+  getLibrary, addLibraryItem, setLibraryPublished, deleteLibraryItem, updateLibraryItem, getForms, addForm, deleteForm, getResponses, getStats,
   uploadLibraryFiles, libraryFilesHtml, libraryTypeIcon, librarySectionsHtml, getLibraryUsage,
   getLibraryFolders, createLibraryFolder, deleteLibraryFolder, setLibraryFolder,
   koboConfig, saveKoboConfig, koboAssets, koboAssetPreview, koboForms, attachKoboForm,
@@ -15,6 +15,7 @@ import {
   watchSchools, createSchool, renameSchool, deleteSchool, createCounty, deleteCounty, wireSchoolPicker,
 } from "./store.js";
 import { openIframeViewer } from "./viewer.js";
+import { formTagsHtml } from "./forms.js";
 
 const AUDIENCE_LABEL = Object.fromEntries(FORM_AUDIENCES.map((a) => [a.value, a.label]));
 const STAFF_ROLES = ROLES.filter((r) => r.value !== "learner");
@@ -1050,8 +1051,44 @@ async function main() {
     }
   });
 
-  /* ------------------------------------------------------------ form builder */
+  /* ------------------------------------------------------------ form builder
+     Three kinds of form — built here (questions), an uploaded file, or a
+     link to another site — each addressed to a role, a county (or all)
+     and, for field officers, optionally a visit type. The "Goes to" line
+     spells out exactly who'll get it before it's sent; recipients see it
+     automatically (the API filters by role, county and visit type). */
   $("#fb_audience").innerHTML = FORM_AUDIENCES.map((a) => `<option value="${a.value}">${esc(a.label)}</option>`).join("");
+  $("#fb_visit").innerHTML = `<option value="">Not tied to a visit — a stand-alone form</option>` +
+    VISIT_TYPES.map((v) => `<option value="${esc(v)}">${esc(v)} visits</option>`).join("");
+  let fbKind = "questions";
+
+  function refreshFormCountyOptions() {
+    const sel = $("#fb_county");
+    const keep = sel.value;
+    sel.innerHTML = `<option value="">All counties</option>` +
+      schoolDir.counties.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+    sel.value = schoolDir.counties.includes(keep) ? keep : "";
+    syncFormBuilder();
+  }
+
+  function syncFormBuilder() {
+    const audience = $("#fb_audience").value;
+    const isField = audience === "field_officer";
+    $("#fb_visit_field").hidden = !isField;
+    if (!isField) $("#fb_visit").value = "";
+    $("#fb_questions_field").hidden = fbKind !== "questions";
+    $("#fb_file_field").hidden = fbKind !== "file";
+    $("#fb_link_field").hidden = fbKind !== "link";
+    $$("[data-fb-kind]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.fbKind === fbKind)));
+    const who = (FORM_AUDIENCES.find((a) => a.value === audience)?.label || "").toLowerCase();
+    const county = $("#fb_county").value;
+    const visit = $("#fb_visit").value;
+    $("#fb_reach").innerHTML = `<b>Goes to:</b> ${esc(who)} in ${county ? `${esc(county)} County` : "every county"}${
+      visit ? `, filled in during every <b>${esc(visit)}</b> visit` : ""}.`;
+  }
+  $$("[data-fb-kind]").forEach((b) => b.addEventListener("click", () => { fbKind = b.dataset.fbKind; syncFormBuilder(); }));
+  ["#fb_audience", "#fb_county", "#fb_visit"].forEach((s) => $(s).addEventListener("change", syncFormBuilder));
+  syncFormBuilder();
 
   const questionRows = $("#questionRows");
   function addQuestionRow() {
@@ -1081,24 +1118,44 @@ async function main() {
         prompt: row.querySelector(".q-prompt").value.trim(),
       }))
       .filter((q) => q.prompt);
-    if (!questions.length) return;
+    const file = $("#fb_file").files[0];
+    const link = $("#fb_link").value.trim();
+    if (fbKind === "questions" && !questions.length) {
+      toast("Add a question", "Write at least one question for this form.", "error");
+      return;
+    }
+    if (fbKind === "file" && !file) {
+      toast("Choose the form file", "Pick the file recipients should fill in.", "error");
+      return;
+    }
+    if (fbKind === "link" && !/^https?:\/\//i.test(link)) {
+      toast("Add the form's link", "It must start with http:// or https://.", "error");
+      return;
+    }
 
     const submitBtn = e.target.querySelector("[type=submit]");
     submitBtn.disabled = true;
     submitBtn.classList.add("is-saving");
     const originalLabel = submitBtn.textContent;
-    submitBtn.textContent = "Saving…";
+    submitBtn.textContent = fbKind === "file" ? "Uploading…" : "Saving…";
     try {
       await addForm({
         title,
         description: $("#fb_desc").value.trim(),
         audience: $("#fb_audience").value,
+        kind: fbKind,
+        county: $("#fb_county").value || null,
+        visitType: $("#fb_visit").value || null,
         questions,
+        externalUrl: link,
+        file,
       });
-      toast("Form sent successfully.", "", "success");
+      toast("Form sent successfully.", $("#fb_reach").textContent, "success");
       e.target.reset();
       questionRows.innerHTML = "";
       addQuestionRow();
+      fbKind = "questions";
+      syncFormBuilder();
       renderForms();
       renderStats();
     } catch (err) {
@@ -1124,37 +1181,85 @@ async function main() {
     const forms = formsCache;
     const responses = responsesCache;
     renderAttention();
+    const none = `<span style="color:var(--ink-soft);font-size:.82rem">No responses yet</span>`;
+    const when = (d) => d ? new Date(d).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "";
+    // Who answered — plus the school, for forms filled in during a visit.
+    const who = (r) => `${esc(r.respondentName)}${r.school ? ` · ${esc(r.school)}` : ""}`;
     $("#formsList").innerHTML = forms.length
       ? forms.map((f) => {
           const answers = responses.filter((r) => r.formId === f.id);
-          const qBlocks = f.questions.map((q) => {
-            const qAnswers = answers.map((r) => r.answers.find((a) => a.questionId === q.id)).filter(Boolean);
-            if (q.type === "rating") {
-              const nums = qAnswers.map((a) => Number(a.value)).filter((n) => !Number.isNaN(n));
-              const avg = nums.length ? (nums.reduce((s, n) => s + n, 0) / nums.length).toFixed(1) : null;
+          let body;
+          if (f.kind === "questions") {
+            body = f.questions.map((q) => {
+              const qAnswers = answers
+                .map((r) => ({ r, a: r.answers.find((a) => a.questionId === q.id) }))
+                .filter((x) => x.a);
+              if (q.type === "rating") {
+                const nums = qAnswers.map((x) => Number(x.a.value)).filter((n) => !Number.isNaN(n));
+                const avg = nums.length ? (nums.reduce((s, n) => s + n, 0) / nums.length).toFixed(1) : null;
+                return `<div class="fc-q"><b>${esc(q.prompt)}</b>${
+                  avg ? `<span class="fc-avg">${avg}</span> / 5 avg · ${nums.length} response(s)` : none
+                }</div>`;
+              }
               return `<div class="fc-q"><b>${esc(q.prompt)}</b>${
-                avg ? `<span class="fc-avg">${avg}</span> / 5 avg · ${nums.length} response(s)`
-                    : `<span style="color:var(--ink-soft);font-size:.82rem">No responses yet</span>`
+                qAnswers.length
+                  ? qAnswers.map(({ r, a }) => `<div class="fc-answer"><b>${who(r)}</b>${esc(a.value)}</div>`).join("")
+                  : none
               }</div>`;
-            }
-            return `<div class="fc-q"><b>${esc(q.prompt)}</b>${
-              qAnswers.length
-                ? qAnswers.map((a) => {
-                    const respondent = answers.find((r) => r.answers.includes(a));
-                    return `<div class="fc-answer"><b>${esc(respondent.respondentName)}</b>${esc(a.value)}</div>`;
-                  }).join("")
-                : `<span style="color:var(--ink-soft);font-size:.82rem">No responses yet</span>`
+            }).join("");
+          } else {
+            // File and link forms: who has filled it, when, and any filled copy they sent back.
+            const blank = f.kind === "file" && f.files[0]
+              ? `<a class="form-open" href="${esc(f.files[0].viewUrl)}" target="_blank" rel="noopener">View blank form</a>`
+              : f.kind === "link" && f.externalUrl
+                ? `<a class="form-open" href="${esc(f.externalUrl)}" target="_blank" rel="noopener">Open form ↗</a>`
+                : "";
+            body = `<div class="fc-q">${blank}${
+              answers.length
+                ? answers.map((r) => `<div class="fc-answer"><b>${who(r)}</b>${
+                    r.files.length
+                      ? r.files.map((file) => `<a href="${esc(file.downloadUrl || file.viewUrl)}" target="_blank" rel="noopener">${esc(file.name)}</a>`).join(", ")
+                      : "Marked as filled"
+                  } · ${when(r.submittedAt)}</div>`).join("")
+                : none
             }</div>`;
-          }).join("");
+          }
           return `
             <div class="form-card">
               <div class="fc-head"><h3>${esc(f.title)}</h3><span class="pill">${esc(AUDIENCE_LABEL[f.audience] || f.audience)}</span></div>
+              <div class="form-tags">${formTagsHtml(f)}</div>
               <div class="fc-meta">${answers.length} response(s)${f.description ? " · " + esc(f.description) : ""}</div>
-              ${qBlocks}
+              ${body}
+              <div class="fc-actions"><button type="button" class="btn btn-ghost" data-delete-form="${esc(f.id)}">Delete form</button></div>
             </div>`;
         }).join("")
       : `<div class="empty-state">No forms created yet.</div>`;
   }
+
+  $("#formsList").addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-delete-form]");
+    if (!btn) return;
+    const form = formsCache.find((f) => f.id === btn.dataset.deleteForm);
+    if (!form) return;
+    const n = responsesCache.filter((r) => r.formId === form.id).length;
+    const ok = await confirmDialog({
+      title: `Delete "${form.title}"?`,
+      body: `It disappears from every dashboard${n ? `, and its ${n} response(s) are deleted too` : ""}. This can't be undone.`,
+      confirmLabel: "Delete form",
+      danger: true,
+    });
+    if (!ok) return;
+    btn.disabled = true;
+    try {
+      await deleteForm(form.id);
+      toast("Form deleted.", "", "success");
+      renderForms();
+      renderStats();
+    } catch (err) {
+      btn.disabled = false;
+      toast("Couldn't delete the form", friendlyError(err), "error");
+    }
+  });
 
   /* ------------------------------------------------------------ field surveys (KoboToolbox) */
   const koboConnectForm = $("#koboConnectForm");
@@ -1584,6 +1689,7 @@ async function main() {
     if (!renamingSchoolId) renderSchoolListDom();
     if (renderGlobalFilterOptions({ clearMissing: true })) applyFilters();
     userPicker?.update(schoolDir);
+    refreshFormCountyOptions();
   }
 
   $("#schoolList").innerHTML = skeleton(3, { avatar: false });

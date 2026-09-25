@@ -21,18 +21,28 @@
 -- Safe to re-run against a fresh project.
 
 -- ---------------------------------------------------------------- schools & codes
--- The programme's counties are a fixed list; the schools in each are
--- managed by the education team and feed every County → School dropdown.
+-- The counties (with their 2–4 letter code prefix) and the schools in each
+-- are managed by the education team and feed every County → School dropdown.
 -- Each school gets a code from its county (NRK-001 = Narok's first
 -- school: NRK Narok, LKP Laikipia, MRU Meru, ISL Isiolo). Everyone placed
 -- in a school — teachers, heads, learners — gets a personal code under it
 -- (NRK-001-T01, NRK-001-H01, NRK-001-L0001). school_code_counters only
 -- ever count up, so a code someone once had is never given to anyone
 -- else. A school with people in it can't be deleted (on delete restrict).
+create table if not exists public.counties (
+  name text primary key,
+  code text not null unique check (code ~ '^[A-Z]{2,4}$'),
+  created_by text not null default '',
+  created_at timestamptz not null default now()
+);
+insert into public.counties (name, code) values
+  ('Narok','NRK'), ('Laikipia','LKP'), ('Meru','MRU'), ('Isiolo','ISL')
+on conflict (name) do nothing;
+
 create table if not exists public.schools (
   id text primary key,
   name text not null,
-  county text not null check (county in ('Narok','Laikipia','Meru','Isiolo')),
+  county text not null references public.counties(name) on update cascade on delete restrict,
   code text not null unique,
   seq int not null,
   created_by text not null default '',
@@ -241,6 +251,30 @@ create table if not exists public.field_reports (
 );
 create index if not exists field_reports_officer_id_idx on public.field_reports (officer_id);
 
+-- ---------------------------------------------------------------- form kinds, targeting & visit forms
+-- A form is built in the portal (kind 'questions'), an uploaded file
+-- ('file' — stored at library/forms/{id}/…) or a link to another site
+-- ('link'). It reaches only its audience role, in one county or all
+-- (county null). A field-officer form may be tied to a visit type: it
+-- then appears inside every visit of that type (for schools in its
+-- county) and is answered as part of the visit report, so the response
+-- carries the visit and the school. General forms keep one response per
+-- person; visit forms get one per visit. Filled copies of file forms
+-- live at library/form-responses/{formId}/{respondentId}/….
+alter table public.forms add column if not exists kind text not null default 'questions' check (kind in ('questions','file','link'));
+alter table public.forms add column if not exists county text references public.counties(name) on update cascade on delete restrict;
+alter table public.forms add column if not exists visit_type text;
+alter table public.forms add column if not exists files jsonb not null default '[]'::jsonb;
+alter table public.forms add column if not exists external_url text;
+alter table public.responses add column if not exists visit_id text references public.field_reports(id) on delete cascade;
+alter table public.responses add column if not exists school text not null default '';
+alter table public.responses add column if not exists files jsonb not null default '[]'::jsonb;
+alter table public.responses drop constraint if exists responses_form_id_respondent_id_key;
+drop index if exists public.responses_form_respondent_idx;
+create unique index if not exists responses_general_uidx on public.responses (form_id, respondent_id) where visit_id is null;
+create unique index if not exists responses_visit_uidx on public.responses (form_id, visit_id) where visit_id is not null;
+create index if not exists responses_visit_idx on public.responses (visit_id);
+
 -- ---------------------------------------------------------------- KoboToolbox field surveys
 -- The Education Team runs field surveys in KoboToolbox. They connect the
 -- account once (`kobo_config`, single row) — the API token is stored here
@@ -292,6 +326,7 @@ create table if not exists public.kobo_submissions (
 create index if not exists kobo_submissions_officer_idx on public.kobo_submissions (officer_id);
 
 -- ---------------------------------------------------------------- lock everything down
+alter table public.counties         enable row level security;
 alter table public.schools          enable row level security;
 alter table public.school_code_counters enable row level security;
 alter table public.profiles         enable row level security;

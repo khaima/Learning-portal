@@ -312,21 +312,43 @@ const mapRosterLearner = (r: Record<string, unknown>) => ({
 const mapSchool = (r: Record<string, unknown>) => ({
   id: r.id, name: r.name, county: r.county, code: r.code,
 });
-const mapForm = (r: Record<string, unknown>) => ({
+/* A form is one of three kinds: `questions` (built in the portal and
+   answered in it), `file` (an uploaded form — e.g. a PDF — that
+   recipients open/download, fill, and optionally upload back) or `link`
+   (a form on another site, e.g. a Google Form). It's addressed to one
+   role, one county or all (county null), and — for field officers —
+   optionally one visit type, in which case it's filled inside a visit
+   of that type rather than on its own. Blank form files are signed for
+   download too: recipients need a copy to fill. */
+const FORM_KINDS = ["questions", "file", "link"];
+const VISIT_TYPES = ["Learning", "Infrastructure", "ICT", "MEP"];
+const mapForm = async (r: Record<string, unknown>) => ({
   id: r.id,
   title: r.title,
   description: r.description,
   audience: r.audience,
+  kind: r.kind ?? "questions",
+  county: r.county ?? null,
+  visitType: r.visit_type ?? null,
+  externalUrl: r.external_url ?? null,
+  files: await signFiles((r.files as LibFile[]) ?? [], true),
   createdBy: r.created_by,
+  createdAt: r.created_at,
   questions: r.questions ?? [],
 });
-const mapResponse = (r: Record<string, unknown>) => ({
+/* Filled copies uploaded with a response: the education team can
+   download them; everyone else (the respondent) only views. */
+const mapResponse = async (r: Record<string, unknown>, canDownload = false) => ({
   id: r.id,
   formId: r.form_id,
   respondentId: r.respondent_id,
   respondentName: r.respondent_name,
   respondentRole: r.respondent_role,
+  visitId: r.visit_id ?? null,
+  school: r.school ?? "",
+  submittedAt: r.submitted_at,
   answers: r.answers ?? [],
+  files: await signFiles((r.files as LibFile[]) ?? [], canDownload),
 });
 const mapAssignment = (r: Record<string, unknown>) => ({
   id: r.id,
@@ -708,14 +730,16 @@ app.post("/counties", withProfile("education_team"), async (c) => {
 app.delete("/counties/:name", withProfile("education_team"), async (c) => {
   const name = decodeURIComponent(c.req.param("name"));
   if (!(await isCounty(name))) return c.json({ error: "County not found" }, 404);
-  const [{ count: schools }, { count: officers }] = await Promise.all([
+  const [{ count: schools }, { count: officers }, { count: forms }] = await Promise.all([
     admin.from("schools").select("id", { count: "exact", head: true }).eq("county", name),
     admin.from("profiles").select("id", { count: "exact", head: true }).eq("role", "field_officer").eq("county", name),
+    admin.from("forms").select("id", { count: "exact", head: true }).eq("county", name),
   ]);
   if ((schools ?? 0) > 0) return c.json({ error: `${name} still has ${schools} school(s) — remove them first` }, 409);
   if ((officers ?? 0) > 0) {
     return c.json({ error: `${name} still has ${officers} field officer(s) — move them to another county first` }, 409);
   }
+  if ((forms ?? 0) > 0) return c.json({ error: `${forms} form(s) are sent to ${name} — delete them first` }, 409);
   const { error } = await admin.from("counties").delete().eq("name", name);
   if (error) return c.json({ error: error.message }, 400);
   return c.json({ ok: true });
@@ -1381,36 +1405,122 @@ app.get("/library/usage", withProfile("education_team"), async (c) => {
 
 // ---- forms & responses (staff only) ----
 
+/* Who receives a form: its role, and its county (null = every county).
+   A field officer's visit-type forms are the exception — they're filled
+   during a visit to a school in any county, so the county check happens
+   against that school when the visit is submitted, not here. */
+function formReaches(f: Record<string, unknown>, actor: Actor) {
+  if (actor.role === "education_team") return true;
+  if (f.audience !== actor.role) return false;
+  if (actor.role === "field_officer" && f.visit_type) return true;
+  return !f.county || f.county === actor.county;
+}
+
 app.get("/forms", withProfile(), async (c) => {
   const p = c.get("actor");
-  let q = admin.from("forms").select("*").order("created_at", { ascending: false });
-  if (p.role !== "education_team") q = q.eq("audience", p.role);
-  const { data, error } = await q;
+  const { data, error } = await admin.from("forms").select("*").order("created_at", { ascending: false });
   if (error) return c.json({ error: error.message }, 500);
-  return c.json({ forms: (data ?? []).map(mapForm) });
+  const forms = await Promise.all((data ?? []).filter((f) => formReaches(f, p)).map(mapForm));
+  return c.json({ forms });
 });
 
 app.post("/forms", withProfile("education_team"), async (c) => {
   const b = await c.req.json().catch(() => ({}));
-  if (!String(b.title ?? "").trim()) return c.json({ error: "Title is required" }, 400);
+  const title = String(b.title ?? "").trim();
+  if (!title) return c.json({ error: "Title is required" }, 400);
   if (!["teacher", "school_leader", "field_officer"].includes(b.audience)) {
     return c.json({ error: "Pick who the form is for" }, 400);
   }
+  const kind = FORM_KINDS.includes(b.kind) ? b.kind : "questions";
+  const county = b.county ? String(b.county) : null;
+  if (county && !(await isCounty(county))) return c.json({ error: "That county isn't on the list" }, 400);
+  const visitType = b.visitType ? String(b.visitType) : null;
+  if (visitType && !VISIT_TYPES.includes(visitType)) return c.json({ error: "Pick a valid visit type" }, 400);
+  if (visitType && b.audience !== "field_officer") {
+    return c.json({ error: "Visit types only apply to forms for field officers" }, 400);
+  }
+
+  const questions = Array.isArray(b.questions)
+    ? b.questions.filter((q: { prompt?: string }) => String(q?.prompt ?? "").trim())
+    : [];
+  const externalUrl = String(b.externalUrl ?? "").trim();
+  const fileList = Array.isArray(b.files) ? (b.files as { name: string; size?: number }[]) : [];
+  if (kind === "questions" && !questions.length) return c.json({ error: "Add at least one question" }, 400);
+  if (kind === "link" && !URL_RE.test(externalUrl)) {
+    return c.json({ error: "Link must start with http:// or https://" }, 400);
+  }
+  if (kind === "file" && !fileList.length) return c.json({ error: "Choose the form file to upload" }, 400);
+
+  const id = rid("form");
+  const files: LibFile[] = [];
+  const uploads: { name: string; path: string; token: string; signedUrl: string }[] = [];
+  for (const f of kind === "file" ? fileList : []) {
+    const path = `forms/${id}/${safePath(f.name)}`;
+    const { data, error } = await admin.storage.from(LIBRARY_BUCKET).createSignedUploadUrl(path);
+    if (error) return c.json({ error: error.message }, 500);
+    files.push({ name: f.name, path, size: f.size ?? 0 });
+    uploads.push({ name: f.name, path, token: data.token, signedUrl: data.signedUrl });
+  }
+
   const { data, error } = await admin
     .from("forms")
     .insert({
-      id: rid("form"),
-      title: String(b.title).trim(),
+      id,
+      title,
       description: String(b.description ?? "").trim(),
       audience: b.audience,
+      kind,
+      county,
+      visit_type: visitType,
+      external_url: kind === "link" ? externalUrl : null,
+      files,
       created_by: c.get("actor").fullName,
-      questions: Array.isArray(b.questions) ? b.questions : [],
+      questions: kind === "questions" ? questions : [],
     })
     .select()
     .single();
   if (error) return c.json({ error: error.message }, 400);
-  return c.json({ form: mapForm(data) });
+  return c.json({ form: await mapForm(data), uploads });
 });
+
+/* Removes a form, its responses (cascade) and every file behind them. */
+app.delete("/forms/:id", withProfile("education_team"), async (c) => {
+  const id = c.req.param("id");
+  const { data: form } = await admin.from("forms").select("files").eq("id", id).maybeSingle();
+  if (!form) return c.json({ error: "Form not found" }, 404);
+  const { data: resp } = await admin.from("responses").select("files").eq("form_id", id);
+  const paths = [
+    ...((form.files as LibFile[]) ?? []),
+    ...(resp ?? []).flatMap((r) => (r.files as LibFile[]) ?? []),
+  ].map((f) => f.path);
+  if (paths.length) await admin.storage.from(LIBRARY_BUCKET).remove(paths);
+  const { error } = await admin.from("forms").delete().eq("id", id);
+  if (error) return c.json({ error: error.message }, 400);
+  return c.json({ ok: true });
+});
+
+/* A signed upload slot for a filled copy of a `file` form. The response
+   that references it must come from the same person (see cleanResponseFiles). */
+app.post("/forms/:id/response-upload", withProfile(), async (c) => {
+  const actor = c.get("actor");
+  const { data: form } = await admin.from("forms").select("*").eq("id", c.req.param("id")).maybeSingle();
+  if (!form || form.kind !== "file" || !formReaches(form, actor)) return c.json({ error: "Form not found" }, 404);
+  const b = await c.req.json().catch(() => ({}));
+  const name = String(b.name ?? "").trim();
+  if (!name) return c.json({ error: "Missing file name" }, 400);
+  const path = `form-responses/${form.id}/${actor.id}/${rid("f")}/${safePath(name)}`;
+  const { data, error } = await admin.storage.from(LIBRARY_BUCKET).createSignedUploadUrl(path);
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ upload: { name, path, token: data.token, signedUrl: data.signedUrl, size: Number(b.size) || 0 } });
+});
+
+/** Only keeps filled-copy files this person actually uploaded for this form. */
+function cleanResponseFiles(raw: unknown, formId: string, actorId: string): LibFile[] {
+  const prefix = `form-responses/${formId}/${actorId}/`;
+  return (Array.isArray(raw) ? raw : [])
+    .filter((f) => typeof f?.path === "string" && f.path.startsWith(prefix) && !f.path.includes(".."))
+    .map((f) => ({ name: String(f.name ?? "file"), path: f.path, size: Number(f.size) || 0 }));
+}
 
 app.get("/responses", withProfile(), async (c) => {
   const p = c.get("actor");
@@ -1421,30 +1531,34 @@ app.get("/responses", withProfile(), async (c) => {
   if (p.role !== "education_team") q = q.eq("respondent_id", p.id);
   const { data, error } = await q;
   if (error) return c.json({ error: error.message }, 500);
-  return c.json({ responses: (data ?? []).map(mapResponse) });
+  const responses = await Promise.all((data ?? []).map((r) => mapResponse(r, p.role === "education_team")));
+  return c.json({ responses });
 });
 
+/* A general (not visit-linked) response: one per person per form,
+   re-submitting replaces it. Visit-type forms are answered through
+   POST /field-reports instead, once per visit. */
 app.post("/responses", withProfile(), async (c) => {
   const b = await c.req.json().catch(() => ({}));
   const p = c.get("actor");
-  if (!b.formId) return c.json({ error: "Missing form" }, 400);
-  const { data, error } = await admin
-    .from("responses")
-    .upsert(
-      {
-        id: b.id ?? rid("resp"),
-        form_id: b.formId,
-        respondent_id: p.id,
-        respondent_name: p.fullName,
-        respondent_role: p.role,
-        answers: Array.isArray(b.answers) ? b.answers : [],
-      },
-      { onConflict: "form_id,respondent_id" },
-    )
-    .select()
-    .single();
+  const { data: form } = await admin.from("forms").select("*").eq("id", String(b.formId ?? "")).maybeSingle();
+  if (!form || !formReaches(form, p)) return c.json({ error: "Form not found" }, 404);
+  if (form.visit_type) return c.json({ error: "This form is filled in during a school visit" }, 400);
+  const row = {
+    respondent_name: p.fullName,
+    respondent_role: p.role,
+    answers: form.kind === "questions" && Array.isArray(b.answers) ? b.answers : [],
+    files: form.kind === "file" ? cleanResponseFiles(b.files, form.id, p.id) : [],
+    submitted_at: new Date().toISOString(),
+  };
+  const { data: existing } = await admin.from("responses").select("id")
+    .eq("form_id", form.id).eq("respondent_id", p.id).is("visit_id", null).maybeSingle();
+  const { data, error } = existing
+    ? await admin.from("responses").update(row).eq("id", existing.id).select().single()
+    : await admin.from("responses")
+      .insert({ id: rid("resp"), form_id: form.id, respondent_id: p.id, ...row }).select().single();
   if (error) return c.json({ error: error.message }, 400);
-  return c.json({ response: mapResponse(data) });
+  return c.json({ response: await mapResponse(data) });
 });
 
 // ---- assignments (learner-facing) ----
@@ -1526,15 +1640,32 @@ app.get("/field-reports", withProfile(), async (c) => {
 
 app.post("/field-reports", withProfile("field_officer"), async (c) => {
   const b = await c.req.json().catch(() => ({}));
+  const actor = c.get("actor");
   const school = await loadSchool(b.schoolId);
   if (!school || !b.visitType) {
     return c.json({ error: "County, school and visit type are all required" }, 400);
   }
+
+  // The visit's forms: each must be a field-officer form for this visit
+  // type that covers this school's county.
+  const filled = Array.isArray(b.responses) ? b.responses : [];
+  const formIds = [...new Set(filled.map((r: { formId?: string }) => String(r?.formId ?? "")))];
+  const { data: formRows } = formIds.length
+    ? await admin.from("forms").select("*").in("id", formIds)
+    : { data: [] as Record<string, unknown>[] };
+  const formById = new Map((formRows ?? []).map((f) => [f.id, f]));
+  for (const id of formIds) {
+    const f = formById.get(id);
+    if (!f || f.audience !== "field_officer" || f.visit_type !== b.visitType || (f.county && f.county !== school.county)) {
+      return c.json({ error: "One of the forms doesn't belong to this visit — reload and try again" }, 400);
+    }
+  }
+
   const { data, error } = await admin
     .from("field_reports")
     .insert({
       id: rid("fr"),
-      officer_id: c.get("actor").id,
+      officer_id: actor.id,
       school_id: school.id,
       school: school.name,
       county: school.county,
@@ -1543,6 +1674,29 @@ app.post("/field-reports", withProfile("field_officer"), async (c) => {
     .select()
     .single();
   if (error) return c.json({ error: error.message }, 400);
+
+  if (formIds.length) {
+    const rows = formIds.map((id) => {
+      const f = formById.get(id)!;
+      const r = filled.find((x: { formId?: string }) => x?.formId === id);
+      return {
+        id: rid("resp"),
+        form_id: id,
+        respondent_id: actor.id,
+        respondent_name: actor.fullName,
+        respondent_role: actor.role,
+        visit_id: data.id,
+        school: `${school.name} (${school.code})`,
+        answers: f.kind === "questions" && Array.isArray(r?.answers) ? r.answers : [],
+        files: f.kind === "file" ? cleanResponseFiles(r?.files, id as string, actor.id) : [],
+      };
+    });
+    const { error: rErr } = await admin.from("responses").insert(rows);
+    if (rErr) {
+      await admin.from("field_reports").delete().eq("id", data.id); // keep report + forms all-or-nothing
+      return c.json({ error: rErr.message }, 400);
+    }
+  }
   return c.json({ report: mapReport(data) });
 });
 

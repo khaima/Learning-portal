@@ -36,8 +36,11 @@ Edge Function API in front of a locked-down Postgres database. Six pages:
   leadership specifically, never mixed into teachers' own resources) —
   and their own **My learning activity** panel.
 - **`field.html`** — a field officer's stats and the flagship flow: pick a
-  county, the school list (with codes) narrows, pick a visit type, submit — the report
-  saves and appears immediately. Plus forms addressed to Field Officers,
+  county, the school list (with codes) narrows, pick a visit type — the
+  Education Team's forms for that programme (Learning, Infrastructure,
+  ICT, MEP) appear straight away — start the visit, fill those forms in,
+  submit — the report and its forms save together and appear immediately.
+  Plus other forms addressed to Field Officers,
   and **Field surveys** — KoboToolbox surveys attached by the Education
   Team, each with an **Open survey** button that launches Kobo's own web
   form (prefilled with the officer's ID) and a status pill that flips to
@@ -48,9 +51,14 @@ Edge Function API in front of a locked-down Postgres database. Six pages:
   **Teacher Resources** (teachers and the head of institution only), the
   **Digital Library** (learner-facing, also visible to teachers and
   heads), or **For School Head** (head of institution only — for things
-  addressed specifically to school leadership). Build and send a form
-  (1–5 rating and short-answer questions) to Teachers, School Leaders, or
-  Field Officers, watch responses roll in with live rating averages,
+  addressed specifically to school leadership). Create a form — build
+  questions (1–5 rating and short answer), upload a form file, or paste a
+  link — and send it to Teachers, School Leaders, or Field Officers, in
+  one county or all counties; a Field Officer form can be tied to a visit
+  type so it's filled in during every visit of that type. Each form
+  reaches exactly those people automatically. Watch responses roll in
+  (live rating averages, filled copies to download, the school for visit
+  forms),
   connect **KoboToolbox** to publish field surveys (see below), see a
   **Content usage report** (see below), and see a **Portal impact**
   dashboard (see below).

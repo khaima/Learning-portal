@@ -1178,3 +1178,45 @@ body.viewer-locked{ overflow:hidden; }
 }
 .chart-subhead:first-child{ margin-top:0; }
 @media (prefers-reduced-motion: reduce){ .donut-seg{ transition:none; } .bar-fill{ transition:none; } .chart-card{ transition:none; } }
+
+/* ---------------------------------------------------------------- forms: kinds, targeting, visit forms
+   Tags say what kind of form it is, which county it reaches and which
+   visit type it belongs to; visit forms are filled in one after another
+   during a Field Officer's school visit. */
+.form-tags{ display:flex; flex-wrap:wrap; gap:.3rem; margin:.25rem 0 .45rem; }
+.form-tag{
+  display:inline-block; font-size:.7rem; font-weight:600; line-height:1.5;
+  color:var(--ink-soft); background:var(--paper-sunk); border-radius:999px; padding:.05rem .55rem; white-space:nowrap;
+}
+.form-tag.visit{ color:var(--brand-fg); background:var(--brand-soft); }
+.form-reach{ margin:.2rem 0 0; font-size:.82rem; }
+.form-card .fc-actions{ display:flex; justify-content:flex-end; margin-top:.5rem; }
+.form-card .fc-actions .btn{ padding:.35rem .7rem; font-size:.8rem; color:var(--danger, #b42318); }
+.form-card .fc-answer a{ color:var(--brand); font-weight:600; }
+.form-open{ display:flex; width:fit-content; align-items:center; margin-bottom:.5rem; font-size:.84rem; font-weight:600; color:var(--brand); }
+a.btn.form-open{ margin-bottom:.2rem; }
+.form-file-actions{ display:flex; flex-wrap:wrap; gap:.5rem; margin-bottom:.6rem; }
+.form-file-actions a{ margin-top:0; }
+.form-done{ display:flex; align-items:center; gap:.5rem; margin-top:.6rem; font-size:.86rem; font-weight:600; cursor:pointer; }
+.form-done input{ width:18px; height:18px; accent-color:var(--brand); }
+
+.visit-forms-preview{
+  border:1px dashed var(--line); border-radius:var(--radius-md); padding:.8rem .9rem; margin:.2rem 0 .9rem;
+  background:var(--paper-sunk);
+}
+.visit-forms-head{ display:flex; align-items:center; gap:.5rem; margin-bottom:.5rem; font-size:.9rem; }
+.visit-forms-head .count{
+  font-size:.72rem; font-weight:700; color:var(--brand-fg); background:var(--brand-soft);
+  border-radius:999px; padding:0 .5rem; line-height:1.6;
+}
+.visit-forms-list{ list-style:none; margin:0; padding:0; display:grid; gap:.35rem; }
+.visit-forms-list li{ display:flex; align-items:center; gap:.5rem; font-size:.86rem; }
+.visit-forms-list .form-tag{ background:var(--paper-raised); }
+#visitFormsFill{ margin:.9rem 0; }
+#visitFormsFill:empty{ display:none; }
+.visit-form{ border:1px solid var(--line); border-radius:var(--radius-md); padding:.9rem 1rem; margin-bottom:.7rem; background:var(--paper-raised); }
+.visit-form:last-child{ margin-bottom:0; }
+.visit-form-head{ display:flex; align-items:center; justify-content:space-between; gap:.6rem; margin-bottom:.3rem; font-size:.9rem; }
+.visit-form .fc-meta{ font-size:.78rem; color:var(--ink-soft); margin:0 0 .5rem; }
+.visit-form .field:last-child{ margin-bottom:0; }
+@media (max-width:640px){ #formBuilder .form-row{ grid-template-columns:1fr !important; } }

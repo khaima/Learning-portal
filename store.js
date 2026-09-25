@@ -336,14 +336,47 @@ export async function getForms() {
   return forms || [];
 }
 
+/* A form is built in the portal (kind "questions"), an uploaded file
+   ("file" — pass `file`, it's pushed to Storage through the signed URL
+   the API returns), or a link to another site ("link"). `county` null =
+   every county; `visitType` (field officers only) makes it part of that
+   kind of school visit instead of a stand-alone form. */
 export async function addForm(form) {
-  const { form: saved } = await apiSend("POST", "/forms", {
+  const file = form.kind === "file" ? form.file : null;
+  const { form: saved, uploads } = await apiSend("POST", "/forms", {
     title: form.title,
     description: form.description,
     audience: form.audience,
-    questions: form.questions,
+    kind: form.kind || "questions",
+    county: form.county || null,
+    visitType: form.visitType || null,
+    externalUrl: form.externalUrl || null,
+    questions: form.questions || [],
+    files: file ? [{ name: file.name, size: file.size }] : [],
   });
+  if (file && uploads?.[0]) {
+    const { error } = await supabase.storage.from(LIBRARY_BUCKET)
+      .uploadToSignedUrl(uploads[0].path, uploads[0].token, file, { contentType: file.type || undefined });
+    if (error) {
+      await apiSend("DELETE", `/forms/${saved.id}`).catch(() => {});
+      throw error;
+    }
+  }
   return saved;
+}
+
+export async function deleteForm(id) {
+  await apiSend("DELETE", `/forms/${id}`);
+}
+
+/* Uploads a filled copy of a `file` form; returns the reference to send
+   along with the response ({ name, path, size }). */
+export async function uploadFilledForm(formId, file) {
+  const { upload } = await apiSend("POST", `/forms/${formId}/response-upload`, { name: file.name, size: file.size });
+  const { error } = await supabase.storage.from(LIBRARY_BUCKET)
+    .uploadToSignedUrl(upload.path, upload.token, file, { contentType: file.type || undefined });
+  if (error) throw error;
+  return { name: file.name, path: upload.path, size: file.size };
 }
 
 export async function getResponses() {
@@ -354,7 +387,8 @@ export async function getResponses() {
 export async function addResponse(r) {
   const { response } = await apiSend("POST", "/responses", {
     formId: r.formId,
-    answers: r.answers,
+    answers: r.answers || [],
+    files: r.files || [],
   });
   return response;
 }
@@ -399,8 +433,10 @@ export async function getFieldReports() {
   return reports || [];
 }
 
-export async function addFieldReport({ schoolId, visitType }) {
-  const { report } = await apiSend("POST", "/field-reports", { schoolId, visitType });
+/* `responses`: the visit's forms as filled in during it —
+   [{ formId, answers?, files? }] — saved together with the report. */
+export async function addFieldReport({ schoolId, visitType, responses = [] }) {
+  const { report } = await apiSend("POST", "/field-reports", { schoolId, visitType, responses });
   return report;
 }
 

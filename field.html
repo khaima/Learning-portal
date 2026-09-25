@@ -76,13 +76,16 @@
                 <option value="" disabled selected>Select visit type</option>
               </select>
             </div>
+            <!-- The Education Team's forms for this visit type (and this school's county) -->
+            <div class="visit-forms-preview" id="visitFormsPreview" hidden></div>
             <button type="button" class="btn btn-primary btn-block" id="startVisitBtn" hidden>4 · Start visit</button>
           </div>
 
-          <!-- Stage: visit under way -->
+          <!-- Stage: visit under way — fill the visit's forms, then submit it all together -->
           <div id="visitActive" hidden>
             <div class="panel-head"><h2>Visit in progress</h2></div>
             <div class="alert alert-info" id="activeVisitSummary"></div>
+            <div id="visitFormsFill"></div>
             <button type="button" class="btn btn-primary btn-block" id="completeVisitBtn">5 · Complete &amp; submit visit report</button>
             <button type="button" class="btn btn-ghost btn-block" id="cancelActiveBtn" style="margin-top:.5rem">Cancel visit</button>
           </div>

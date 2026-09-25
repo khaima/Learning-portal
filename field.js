@@ -1,11 +1,12 @@
 import "./nav.js";
-import { $, $$, esc, initials, skeleton, emptyState, errorState, friendlyError, toast } from "./util.js";
+import { $, $$, esc, initials, skeleton, emptyState, errorState, friendlyError, toast, confirmDialog } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { VISIT_TYPES } from "./data.js";
 import {
-  getForms, getResponses, addResponse, getFieldReports, addFieldReport, watchSchools,
+  getForms, getResponses, getFieldReports, addFieldReport, watchSchools,
   myKoboSurveys, markKoboSubmitted,
 } from "./store.js";
+import { mountFormList, renderVisitForms, unfilledVisitForms, collectVisitResponses, FORM_KIND_LABEL } from "./forms.js";
 
 const ICON = {
   schools: '<path d="M4 21V8l8-5 8 5v13"/><path d="M9 21v-6h6v6"/>',
@@ -147,6 +148,27 @@ async function main() {
       directory.counties.map((c) => `<option>${esc(c)}</option>`).join("");
   }
 
+  /* The Education Team's forms for a kind of visit: field-officer forms
+     tagged with this visit type, for this school's county or all. */
+  let fieldForms = [];
+  const visitForms = (visitType, county) =>
+    fieldForms.filter((f) => f.visitType === visitType && (!f.county || f.county === county));
+
+  function renderVisitFormsPreview() {
+    const el = $("#visitFormsPreview");
+    const school = directory.schools.find((s) => s.id === schoolSelect.value);
+    const visitType = visitTypeSelect.value;
+    if (!school || !visitType) { el.hidden = true; return; }
+    const forms = visitForms(visitType, school.county);
+    el.hidden = false;
+    el.innerHTML = forms.length
+      ? `<div class="visit-forms-head"><b>Forms for ${esc(visitType)} visits</b><span class="count">${forms.length}</span></div>
+         <ul class="visit-forms-list">${forms.map((f) =>
+           `<li><span class="form-tag">${esc(FORM_KIND_LABEL[f.kind] || "Questions")}</span>${esc(f.title)}</li>`).join("")}</ul>
+         <p class="field-hint">You'll fill these in during the visit.</p>`
+      : `<p class="field-hint" style="margin:0">No forms for ${esc(visitType)} visits in ${esc(school.county)} yet — you can still log the visit.</p>`;
+  }
+
   function resetWizard() {
     currentVisit = null;
     countySelect.value = "";
@@ -156,6 +178,8 @@ async function main() {
     visitTypeField.hidden = true;
     visitTypeSelect.value = "";
     startVisitBtn.hidden = true;
+    $("#visitFormsPreview").hidden = true;
+    $("#visitFormsFill").innerHTML = "";
     showStage("idle");
   }
 
@@ -174,13 +198,16 @@ async function main() {
     schoolField.hidden = false;
     visitTypeField.hidden = true;
     startVisitBtn.hidden = true;
+    $("#visitFormsPreview").hidden = true;
   });
   schoolSelect.addEventListener("change", () => {
     visitTypeField.hidden = false;
     startVisitBtn.hidden = true;
+    renderVisitFormsPreview();
   });
   visitTypeSelect.addEventListener("change", () => {
     startVisitBtn.hidden = false;
+    renderVisitFormsPreview();
   });
 
   startVisitBtn.addEventListener("click", () => {
@@ -189,21 +216,41 @@ async function main() {
     currentVisit = {
       schoolId: school.id, school: `${school.name} (${school.code})`, county: school.county,
       visitType: visitTypeSelect.value, startedAt: new Date(),
+      forms: visitForms(visitTypeSelect.value, school.county),
     };
     $("#activeVisitSummary").innerHTML =
       `<div><b>${esc(currentVisit.school)}</b><br>${esc(currentVisit.county)} · ${esc(currentVisit.visitType)}<br>` +
       `Started ${currentVisit.startedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>`;
+    const fill = $("#visitFormsFill");
+    if (currentVisit.forms.length) {
+      fill.innerHTML = `<div class="visit-forms-head"><b>Fill in the visit's forms</b><span class="count">${currentVisit.forms.length}</span></div><div class="visit-forms-body"></div>`;
+      renderVisitForms(fill.querySelector(".visit-forms-body"), currentVisit.forms);
+    } else {
+      fill.innerHTML = "";
+    }
     showStage("active");
   });
 
   $("#completeVisitBtn").addEventListener("click", async (e) => {
     if (!currentVisit) return;
     const btn = e.currentTarget;
+    const formsBox = $("#visitFormsFill .visit-forms-body");
+    const unfilled = formsBox ? unfilledVisitForms(formsBox, currentVisit.forms) : [];
+    if (unfilled.length) {
+      const ok = await confirmDialog({
+        title: `${unfilled.length} form${unfilled.length === 1 ? "" : "s"} not filled in yet`,
+        body: `${unfilled.map((f) => f.title).join(", ")}. Submit the visit anyway? Only the filled forms are sent.`,
+        confirmLabel: "Submit anyway",
+      });
+      if (!ok) return;
+    }
     btn.disabled = true;
     btn.classList.add("is-saving");
     btn.textContent = "Saving…";
     try {
-      await addFieldReport({ schoolId: currentVisit.schoolId, visitType: currentVisit.visitType });
+      const responses = formsBox ? await collectVisitResponses(formsBox, currentVisit.forms) : [];
+      await addFieldReport({ schoolId: currentVisit.schoolId, visitType: currentVisit.visitType, responses });
+      currentVisit.formsSent = responses.length;
     } catch (err) {
       console.error("could not save field report:", err);
       toast("Couldn't submit this visit", friendlyError(err), "error");
@@ -217,7 +264,9 @@ async function main() {
     btn.textContent = "5 · Complete & submit visit report";
     toast("Visit report submitted successfully.", "", "success");
     $("#confirmedSummary").innerHTML =
-      `<div><b>Visit report submitted</b><br>${esc(currentVisit.school)} · ${esc(currentVisit.county)} · ${esc(currentVisit.visitType)}</div>`;
+      `<div><b>Visit report submitted</b><br>${esc(currentVisit.school)} · ${esc(currentVisit.county)} · ${esc(currentVisit.visitType)}` +
+      `${currentVisit.forms.length ? `<br>${currentVisit.formsSent} of ${currentVisit.forms.length} form${currentVisit.forms.length === 1 ? "" : "s"} sent` : ""}</div>`;
+    $("#visitFormsFill").innerHTML = "";
     currentVisit = null;
     showStage("confirmed");
     refreshReports();
@@ -348,9 +397,10 @@ async function main() {
   $("#koboRefresh")?.addEventListener("click", loadKoboSurveys);
   loadKoboSurveys();
 
-  /* Forms the Education Team has sent to field officers — same
-     create-once-fill-once loop as the teacher and school-leader
-     dashboards. */
+  /* Forms the Education Team has sent to field officers. Stand-alone
+     ones are listed here; ones tagged with a visit type are filled inside
+     a visit of that type (see "Start School Visit" above), so they're
+     kept in fieldForms for the visit flow instead. */
   renderForms();
   async function renderForms() {
     $("#formsList").innerHTML = skeleton(2, { avatar: false });
@@ -362,70 +412,9 @@ async function main() {
       $("#formsList").innerHTML = errorState(friendlyError(err), renderForms);
       return;
     }
-    forms = forms.filter((f) => f.audience === "field_officer");
-    const answeredFormIds = new Set(responses.filter((r) => r.respondentId === user.id).map((r) => r.formId));
-
-    $("#formsList").innerHTML = forms.length
-      ? forms.map((f) => {
-          const done = answeredFormIds.has(f.id);
-          return `
-            <div class="form-card">
-              <div class="fc-head"><h3>${esc(f.title)}</h3>${done ? `<span class="pill ok">Submitted</span>` : `<span class="pill warm">Pending</span>`}</div>
-              <div class="fc-meta">${f.description ? esc(f.description) : "From " + esc(f.createdBy)}</div>
-              ${done ? "" : `<button class="btn btn-outline" type="button" data-fill-form="${esc(f.id)}">Fill out</button>
-                <div class="fill-form" id="fill-${esc(f.id)}" hidden></div>`}
-            </div>`;
-        }).join("")
-      : emptyState("No forms yet", "The Education Team hasn't sent anything here.");
-
-    $$("[data-fill-form]").forEach((btn) =>
-      btn.addEventListener("click", () => openFormFill(btn.dataset.fillForm, forms, btn))
-    );
-  }
-
-  function openFormFill(formId, forms, btn) {
-    const form = forms.find((f) => f.id === formId);
-    const box = $("#fill-" + formId);
-    if (!form || !box) return;
-    btn.hidden = true;
-    box.hidden = false;
-    box.innerHTML = form.questions.map((q) => `
-      <div class="field">
-        <label>${esc(q.prompt)}</label>
-        ${q.type === "rating"
-          ? `<select data-q="${esc(q.id)}"><option value="5">5 — Excellent</option><option value="4">4 — Good</option><option value="3" selected>3 — Okay</option><option value="2">2 — Weak</option><option value="1">1 — Poor</option></select>`
-          : `<input type="text" data-q="${esc(q.id)}" placeholder="Your answer">`}
-      </div>`).join("") +
-      `<button class="btn btn-primary btn-block" type="button" id="submit-${esc(formId)}">Submit feedback</button>`;
-
-    $("#submit-" + formId).addEventListener("click", async () => {
-      const submitBtn = $("#submit-" + formId);
-      submitBtn.disabled = true;
-      submitBtn.classList.add("is-saving");
-      submitBtn.textContent = "Saving…";
-      const answers = form.questions.map((q) => ({
-        questionId: q.id,
-        value: box.querySelector(`[data-q="${q.id}"]`).value,
-      }));
-      try {
-        await addResponse({
-          id: "resp_" + Date.now().toString(36),
-          formId: form.id,
-          respondentId: user.id,
-          respondentName: user.fullName,
-          respondentRole: "field_officer",
-          answers,
-        });
-        toast("Feedback submitted successfully.", "", "success");
-        renderForms();
-      } catch (err) {
-        console.error("could not submit form response:", err);
-        toast("Couldn't submit that", friendlyError(err), "error");
-        submitBtn.disabled = false;
-        submitBtn.classList.remove("is-saving");
-        submitBtn.textContent = "Submit feedback";
-      }
-    });
+    fieldForms = forms.filter((f) => f.audience === "field_officer");
+    if (!stageSelect.hidden) renderVisitFormsPreview();
+    mountFormList($("#formsList"), { forms: fieldForms, responses, userId: user.id, onSubmitted: renderForms });
   }
 }
 main();
