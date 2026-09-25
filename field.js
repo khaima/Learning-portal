@@ -1,9 +1,9 @@
 import "./nav.js";
 import { $, $$, esc, initials, skeleton, emptyState, errorState, friendlyError, toast } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
-import { FIELD_SCHOOLS_BY_COUNTY, VISIT_TYPES } from "./data.js";
+import { VISIT_TYPES } from "./data.js";
 import {
-  getForms, getResponses, addResponse, getFieldReports, addFieldReport,
+  getForms, getResponses, addResponse, getFieldReports, addFieldReport, getSchools,
   myKoboSurveys, markKoboSubmitted,
 } from "./store.js";
 
@@ -33,20 +33,21 @@ async function main() {
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
   $("#topSub").textContent = `${user.county || "No county set"} · Term 2, 2026`;
 
-  /* Assigned schools/counties come from the real county→school directory
-     below (not per-officer demo data); "visits this term" is the officer's
-     own real field reports, counted against the current term. */
+  /* Schools come from the Education Team's school list (the same one every
+     County → School picker uses); "visits this term" is the officer's own
+     real field reports, counted against the current term. A field officer
+     belongs to a county, not a school — they pick the school per visit. */
   let reportsCache = [];
+  let directory = { counties: [], schools: [] };
 
   function renderKpis() {
-    const totalSchools = Object.values(FIELD_SCHOOLS_BY_COUNTY).reduce((n, list) => n + list.length, 0);
-    const totalCounties = Object.keys(FIELD_SCHOOLS_BY_COUNTY).length;
+    const mine = directory.schools.filter((s) => s.county === user.county);
     const thisTerm = termOf(new Date().toISOString());
     const visitsThisTerm = reportsCache.filter((r) => termOf(r.createdAt) === thisTerm).length;
     $("#statRow").innerHTML = `
-      <div class="stat-tile"><div class="s-label">${svg(ICON.schools)}Assigned schools</div><div class="s-num">${totalSchools}</div><div class="s-sub">across ${totalCounties} counties</div></div>
+      <div class="stat-tile"><div class="s-label">${svg(ICON.schools)}Schools in ${esc(user.county || "your county")}</div><div class="s-num">${mine.length}</div><div class="s-sub">${directory.schools.length} listed across all counties</div></div>
       <div class="stat-tile"><div class="s-label">${svg(ICON.visits)}Visits this term</div><div class="s-num">${visitsThisTerm}</div><div class="s-sub">field reports filed</div></div>
-      <div class="stat-tile"><div class="s-label">${svg(ICON.counties)}Counties</div><div class="s-num">${totalCounties}</div><div class="s-sub">covered</div></div>
+      <div class="stat-tile"><div class="s-label">${svg(ICON.counties)}Counties</div><div class="s-num">${directory.counties.length}</div><div class="s-sub">in the programme</div></div>
     `;
   }
 
@@ -94,14 +95,23 @@ async function main() {
   refreshReports();
 
   // ---- Schools directory — the same county→school list the visit flow uses ----
-  const counties = Object.keys(FIELD_SCHOOLS_BY_COUNTY);
-  $("#schoolsDirectory").innerHTML = counties.length
-    ? counties.map((c) => `
-      <div class="list-group">
-        <div class="list-group-title">${esc(c)}<span class="count">${FIELD_SCHOOLS_BY_COUNTY[c].length}</span></div>
-        ${FIELD_SCHOOLS_BY_COUNTY[c].map((s) => `<div class="task-row"><div><b>${esc(s)}</b></div></div>`).join("")}
-      </div>`).join("")
-    : `<div class="empty-state">No schools assigned yet.</div>`;
+  function renderDirectory() {
+    const { counties, schools } = directory;
+    // Their own county first; the rest after.
+    const ordered = [...counties].sort((a, b) => (b === user.county) - (a === user.county));
+    $("#schoolsDirectory").innerHTML = schools.length
+      ? ordered.map((c) => {
+          const list = schools.filter((s) => s.county === c);
+          return `
+            <div class="list-group">
+              <div class="list-group-title">${esc(c)}<span class="count">${list.length}</span></div>
+              ${list.length
+                ? list.map((s) => `<div class="task-row"><div><b>${esc(s.name)}</b><span><span class="code-chip">${esc(s.code)}</span></span></div></div>`).join("")
+                : `<div class="empty-state" style="padding:.6rem 0">No schools listed yet.</div>`}
+            </div>`;
+        }).join("")
+      : `<div class="empty-state">No schools listed yet — the Education Team adds them.</div>`;
+  }
 
   /* ---- Start School Visit — the one obvious primary action, walked
      through as a guided flow: county → school → visit type → start →
@@ -119,9 +129,6 @@ async function main() {
   const visitTypeField = $("#visitTypeField");
   const startVisitBtn = $("#startVisitBtn");
 
-  countySelect.innerHTML =
-    `<option value="" disabled selected>Select county</option>` +
-    Object.keys(FIELD_SCHOOLS_BY_COUNTY).map((c) => `<option>${esc(c)}</option>`).join("");
   visitTypeSelect.innerHTML =
     `<option value="" disabled selected>Select visit type</option>` +
     VISIT_TYPES.map((v) => `<option>${esc(v)}</option>`).join("");
@@ -133,6 +140,11 @@ async function main() {
     stageSelect.hidden = stage !== "select";
     stageActive.hidden = stage !== "active";
     stageConfirmed.hidden = stage !== "confirmed";
+  }
+
+  function fillCounties() {
+    countySelect.innerHTML = `<option value="" disabled selected>Select county</option>` +
+      directory.counties.map((c) => `<option>${esc(c)}</option>`).join("");
   }
 
   function resetWizard() {
@@ -153,11 +165,12 @@ async function main() {
   $("#logAnotherBtn").addEventListener("click", resetWizard);
 
   countySelect.addEventListener("change", () => {
-    const schools = FIELD_SCHOOLS_BY_COUNTY[countySelect.value] || [];
+    const schools = directory.schools.filter((s) => s.county === countySelect.value);
     schoolSelect.disabled = schools.length === 0;
-    schoolSelect.innerHTML =
-      `<option value="" disabled selected>Select a school</option>` +
-      schools.map((s) => `<option>${esc(s)}</option>`).join("");
+    schoolSelect.innerHTML = schools.length
+      ? `<option value="" disabled selected>Select a school</option>` +
+        schools.map((s) => `<option value="${esc(s.id)}">${esc(s.name)} (${esc(s.code)})</option>`).join("")
+      : `<option value="" disabled selected>No schools listed for ${esc(countySelect.value)} yet</option>`;
     schoolField.hidden = false;
     visitTypeField.hidden = true;
     startVisitBtn.hidden = true;
@@ -171,9 +184,11 @@ async function main() {
   });
 
   startVisitBtn.addEventListener("click", () => {
+    const school = directory.schools.find((s) => s.id === schoolSelect.value);
+    if (!school) return;
     currentVisit = {
-      county: countySelect.value, school: schoolSelect.value, visitType: visitTypeSelect.value,
-      startedAt: new Date(),
+      schoolId: school.id, school: `${school.name} (${school.code})`, county: school.county,
+      visitType: visitTypeSelect.value, startedAt: new Date(),
     };
     $("#activeVisitSummary").innerHTML =
       `<div><b>${esc(currentVisit.school)}</b><br>${esc(currentVisit.county)} · ${esc(currentVisit.visitType)}<br>` +
@@ -188,7 +203,7 @@ async function main() {
     btn.classList.add("is-saving");
     btn.textContent = "Saving…";
     try {
-      await addFieldReport({ school: currentVisit.school, county: currentVisit.county, visitType: currentVisit.visitType });
+      await addFieldReport({ schoolId: currentVisit.schoolId, visitType: currentVisit.visitType });
     } catch (err) {
       console.error("could not save field report:", err);
       toast("Couldn't submit this visit", friendlyError(err), "error");
@@ -209,6 +224,26 @@ async function main() {
   });
 
   resetWizard();
+
+  async function loadDirectory() {
+    $("#schoolsDirectory").innerHTML = skeleton(3, { avatar: false });
+    try {
+      directory = await getSchools();
+    } catch (err) {
+      console.error("could not load schools:", err);
+      $("#schoolsDirectory").innerHTML = errorState(friendlyError(err), loadDirectory);
+      return;
+    }
+    fillCounties();
+    if (user.county && directory.counties.includes(user.county)) {
+      countySelect.value = user.county;
+      countySelect.dispatchEvent(new Event("change"));
+      schoolField.hidden = false;
+    }
+    renderDirectory();
+    renderKpis();
+  }
+  loadDirectory();
 
   /* ---- Field surveys (KoboToolbox) ----
      The Education Team attaches a deployed Kobo survey; it shows here with

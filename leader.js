@@ -1,5 +1,5 @@
 import "./nav.js";
-import { $, $$, esc, initials, formatDuration, skeleton, emptyState, errorState, friendlyError, toast } from "./util.js";
+import { $, $$, esc, initials, schoolLine, formatDuration, skeleton, emptyState, errorState, friendlyError, toast } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { normalizeLibraryAudience } from "./data.js";
 import {
@@ -30,9 +30,9 @@ async function main() {
 
   $("#sideAvatar").textContent = initials(user.fullName);
   $("#sideName").textContent = user.fullName;
-  $("#sideMeta").textContent = `School Leader · ${user.county || "—"}`;
+  $("#sideMeta").textContent = `School Leader · ${user.userCode || user.county || "—"}`;
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
-  $("#topSub").textContent = `${user.school || "No school set"} · Term 2, 2026`;
+  $("#topSub").textContent = `${schoolLine(user)} · Term 2, 2026`;
 
   /* Everything on this dashboard is an aggregate — counts, percentages,
      grade-level rollups — never a single learner's name or row. That's

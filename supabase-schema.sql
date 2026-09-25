@@ -20,6 +20,34 @@
 --
 -- Safe to re-run against a fresh project.
 
+-- ---------------------------------------------------------------- schools & codes
+-- The programme's counties are a fixed list; the schools in each are
+-- managed by the education team and feed every County → School dropdown.
+-- Each school gets a code from its county (NRK-001 = Narok's first
+-- school: NRK Narok, LKP Laikipia, MRU Meru, ISL Isiolo). Everyone placed
+-- in a school — teachers, heads, learners — gets a personal code under it
+-- (NRK-001-T01, NRK-001-H01, NRK-001-L0001). school_code_counters only
+-- ever count up, so a code someone once had is never given to anyone
+-- else. A school with people in it can't be deleted (on delete restrict).
+create table if not exists public.schools (
+  id text primary key,
+  name text not null,
+  county text not null check (county in ('Narok','Laikipia','Meru','Isiolo')),
+  code text not null unique,
+  seq int not null,
+  created_by text not null default '',
+  created_at timestamptz not null default now(),
+  unique (county, seq)
+);
+create unique index if not exists schools_county_name_uidx on public.schools (county, lower(name));
+
+create table if not exists public.school_code_counters (
+  school_id text not null references public.schools(id) on delete cascade,
+  kind text not null check (kind in ('T','H','L')),
+  last int not null,
+  primary key (school_id, kind)
+);
+
 -- ---------------------------------------------------------------- accounts
 -- Staff accounts. Supabase Auth (`auth.users`) holds the email +
 -- password; this table holds the app-level profile. Role is assigned at
@@ -38,6 +66,10 @@ create table if not exists public.profiles (
   -- non-teachers and for teachers who skipped it — the Portal impact
   -- dashboard folds unset into "Not specified" rather than guessing.
   teacher_type text check (teacher_type in ('BOM','TSC')),
+  -- Teachers and heads: their school from the list + personal code. The
+  -- plain school/county text above is kept in sync with the school row.
+  school_id text references public.schools(id) on delete restrict,
+  user_code text unique,
   created_at timestamptz not null default now()
 );
 create index if not exists profiles_role_idx on public.profiles (role);
@@ -169,6 +201,9 @@ create table if not exists public.learners (
   grade text not null default '',
   school text not null default '',
   county text not null default '',
+  -- Always the creating teacher's school, with a personal code under it.
+  school_id text references public.schools(id) on delete restrict,
+  user_code text unique,
   failed_attempts int not null default 0,
   locked_until timestamptz,
   created_at timestamptz not null default now()
@@ -201,6 +236,7 @@ create table if not exists public.field_reports (
   school text not null,
   county text not null,
   visit_type text not null,
+  school_id text references public.schools(id) on delete set null,
   created_at timestamptz not null default now()
 );
 create index if not exists field_reports_officer_id_idx on public.field_reports (officer_id);
@@ -256,6 +292,8 @@ create table if not exists public.kobo_submissions (
 create index if not exists kobo_submissions_officer_idx on public.kobo_submissions (officer_id);
 
 -- ---------------------------------------------------------------- lock everything down
+alter table public.schools          enable row level security;
+alter table public.school_code_counters enable row level security;
 alter table public.profiles         enable row level security;
 alter table public.learners         enable row level security;
 alter table public.learner_sessions enable row level security;

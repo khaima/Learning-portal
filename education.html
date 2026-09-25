@@ -104,6 +104,16 @@
 
       <section class="dash-page" data-page="schools" hidden>
         <div class="panel">
+          <div class="panel-head"><h2>School list</h2><span class="shelf-count" id="schoolListCount"></span></div>
+          <p class="shelf-sub">Every County → School dropdown in the portal uses this list. Each school gets a code, and every teacher, school head and learner placed in it gets their own code under it (e.g. NRK-001-T01).</p>
+          <form id="addSchoolForm" class="school-add">
+            <select id="as_county" aria-label="County" required></select>
+            <input id="as_name" type="text" placeholder="School name, e.g. Aitong Primary" maxlength="80" aria-label="School name" required>
+            <button class="btn btn-primary" type="submit">Add school</button>
+          </form>
+          <div id="schoolList"></div>
+        </div>
+        <div class="panel">
           <div class="panel-head"><h2 id="schoolsHeading">Schools</h2></div>
           <div id="schoolsBody"><div class="empty-state">Loading…</div></div>
         </div>

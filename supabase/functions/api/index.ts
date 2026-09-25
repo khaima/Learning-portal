@@ -54,6 +54,82 @@ const safePath = (p: string) => String(p).split("/").map(safeSegment).join("/");
 const rid = (prefix: string) =>
   prefix + "_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
 
+// ---------------------------------------------------------------- schools & codes
+/* The portal's counties are a fixed list; the schools in each are the
+   `schools` table, managed by the education team. Every school gets a
+   code from its county (NRK-001 = Narok's first school), and everyone
+   placed in a school — teachers, school heads, learners — gets a
+   personal code under it: NRK-001-T01, NRK-001-H01, NRK-001-L0001.
+   The school row is the source of truth; the plain `school`/`county`
+   text on profiles/learners is kept in sync with it so every existing
+   report, filter and overview keeps working unchanged. */
+const COUNTY_CODE: Record<string, string> = { Narok: "NRK", Laikipia: "LKP", Meru: "MRU", Isiolo: "ISL" };
+const COUNTIES = Object.keys(COUNTY_CODE);
+const SCHOOL_ROLES = ["teacher", "school_leader"];
+const CODE_KIND: Record<string, { letter: string; width: number }> = {
+  teacher: { letter: "T", width: 2 },
+  school_leader: { letter: "H", width: 2 },
+  learner: { letter: "L", width: 4 },
+};
+type School = { id: string; name: string; county: string; code: string };
+
+const isUniqueViolation = (e: unknown) => (e as { code?: string } | null)?.code === "23505";
+
+async function loadSchool(id: unknown): Promise<School | null> {
+  if (!id) return null;
+  const { data } = await admin.from("schools").select("id, name, county, code").eq("id", String(id)).maybeSingle();
+  return (data as School) ?? null;
+}
+
+/** Next personal code in a school for this kind of person. Numbers come
+    from a per-school counter that only ever goes up, so a code that was
+    once someone's (who later moved school) is never handed to anyone
+    else. The counter is bumped with a compare-and-set, retried if two
+    requests race. */
+async function nextUserCode(school: School, role: string) {
+  const kind = CODE_KIND[role];
+  const prefix = `${school.code}-${kind.letter}`;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const { data: row } = await admin.from("school_code_counters").select("last")
+      .eq("school_id", school.id).eq("kind", kind.letter).maybeSingle();
+    let next: number | null = null;
+    if (!row) {
+      const table = role === "learner" ? "learners" : "profiles";
+      const { data } = await admin.from(table).select("user_code").like("user_code", `${prefix}%`);
+      const used = (data ?? []).map((r) => parseInt(String(r.user_code).slice(prefix.length), 10) || 0);
+      next = Math.max(0, ...used) + 1;
+      const { error } = await admin.from("school_code_counters")
+        .insert({ school_id: school.id, kind: kind.letter, last: next });
+      if (error) { if (isUniqueViolation(error)) continue; throw new Error(error.message); }
+    } else {
+      const { data: bumped, error } = await admin.from("school_code_counters")
+        .update({ last: (row.last as number) + 1 })
+        .eq("school_id", school.id).eq("kind", kind.letter).eq("last", row.last)
+        .select("last");
+      if (error) throw new Error(error.message);
+      if (!bumped?.length) continue; // someone else took that number — try again
+      next = bumped[0].last as number;
+    }
+    return `${prefix}${String(next).padStart(kind.width, "0")}`;
+  }
+  throw new Error("Could not generate a code — please try again");
+}
+
+/** Writes a school placement (school_id, synced school/county text and a
+    fresh personal code) onto one profile or learner row. Retries if two
+    people were given the same code at the same moment. */
+async function placeInSchool(table: "profiles" | "learners", id: string, school: School, role: string) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const user_code = await nextUserCode(school, role);
+    const { data, error } = await admin.from(table)
+      .update({ school_id: school.id, school: school.name, county: school.county, user_code })
+      .eq("id", id).select().single();
+    if (!error) return data;
+    if (!isUniqueViolation(error)) throw new Error(error.message);
+  }
+  throw new Error("Could not generate a code — please try again");
+}
+
 // ---------------------------------------------------------------- KoboToolbox
 
 type KoboConfig = { base_url: string; api_token: string; officer_field: string };
@@ -193,6 +269,11 @@ const mapProfile = (r: Record<string, unknown>) => ({
   email: r.email,
   school: r.school,
   county: r.county,
+  schoolId: r.school_id ?? null,
+  userCode: r.user_code ?? null,
+  // Teachers and heads made before schools had codes must pick theirs
+  // once before using their dashboard.
+  needsSchool: SCHOOL_ROLES.includes(r.role as string) && !r.school_id,
   grade: r.grade,
   teacherType: r.teacher_type ?? null,
 });
@@ -203,7 +284,10 @@ const mapLearnerSelf = (r: Record<string, unknown>) => ({
   username: r.username,
   grade: r.grade,
   school: r.school,
+  county: r.county,
+  userCode: r.user_code ?? null,
 });
+const LEARNER_ROSTER_COLS = "id, username, full_name, grade, school, county, user_code, created_at, locked_until";
 const mapRosterLearner = (r: Record<string, unknown>) => ({
   id: r.id,
   username: r.username,
@@ -211,8 +295,12 @@ const mapRosterLearner = (r: Record<string, unknown>) => ({
   grade: r.grade,
   school: r.school,
   county: r.county,
+  userCode: r.user_code ?? null,
   createdAt: r.created_at,
   locked: !!(r.locked_until && new Date(r.locked_until as string) > new Date()),
+});
+const mapSchool = (r: Record<string, unknown>) => ({
+  id: r.id, name: r.name, county: r.county, code: r.code,
 });
 const mapForm = (r: Record<string, unknown>) => ({
   id: r.id,
@@ -246,7 +334,7 @@ const mapReport = (r: Record<string, unknown>) => ({
 
 // ---------------------------------------------------------------- app
 
-type Actor = { id: string; role: Role; fullName: string; grade: string; school: string; county: string };
+type Actor = { id: string; role: Role; fullName: string; grade: string; school: string; county: string; schoolId: string | null };
 type Vars = {
   actorKind: "staff" | "learner";
   userId: string;
@@ -424,6 +512,7 @@ function withProfile(...roles: Role[]) {
       grade: profile.grade,
       school: profile.school,
       county: profile.county,
+      schoolId: profile.school_id ?? null,
     });
     return next();
   };
@@ -435,11 +524,11 @@ function withActor(...roles: Role[]) {
     let actor: Actor | null = null;
     if (c.get("actorKind") === "learner") {
       const l = await loadLearner(c.get("learnerId"));
-      if (l) actor = { id: l.id, role: "learner", fullName: l.full_name, grade: l.grade, school: l.school };
+      if (l) actor = { id: l.id, role: "learner", fullName: l.full_name, grade: l.grade, school: l.school, county: l.county, schoolId: l.school_id ?? null };
     } else {
       const p = await loadStaffProfile(c.get("userId"));
       if (!p) return c.json({ needsOnboarding: true, email: c.get("email") }, 428);
-      actor = { id: p.id, role: p.role, fullName: p.full_name, grade: p.grade, school: p.school };
+      actor = { id: p.id, role: p.role, fullName: p.full_name, grade: p.grade, school: p.school, county: p.county, schoolId: p.school_id ?? null };
     }
     if (!actor) return c.json({ error: "Invalid session" }, 401);
     if (roles.length && !roles.includes(actor.role)) {
@@ -475,12 +564,25 @@ app.post("/me", async (c) => {
   if (!String(b.fullName ?? "").trim()) {
     return c.json({ error: "Full name is required" }, 400);
   }
-  if (!String(b.school ?? "").trim()) return c.json({ error: "School / institution is required" }, 400);
-  if (!String(b.county ?? "").trim()) return c.json({ error: "County is required" }, 400);
   const teacherType = String(b.teacherType ?? "").trim().toUpperCase();
   if (teacherType && !["BOM", "TSC"].includes(teacherType)) {
     return c.json({ error: "Teacher type must be BOM or TSC" }, 400);
   }
+
+  // Where each role sits: teachers and heads in one school (picked from
+  // the list — never typed); field officers in a county (they pick the
+  // school per visit/form); the education team is portal-wide.
+  let school: School | null = null;
+  let county = "";
+  if (SCHOOL_ROLES.includes(b.role)) {
+    school = await loadSchool(b.schoolId);
+    if (!school) return c.json({ error: "Choose your county and school" }, 400);
+    county = school.county;
+  } else if (b.role === "field_officer") {
+    county = String(b.county ?? "").trim();
+    if (!COUNTIES.includes(county)) return c.json({ error: "Choose your county" }, 400);
+  }
+
   const { data, error } = await admin
     .from("profiles")
     .insert({
@@ -488,15 +590,137 @@ app.post("/me", async (c) => {
       role: b.role,
       full_name: String(b.fullName).trim(),
       email: c.get("email"),
-      school: String(b.school ?? "").trim(),
-      county: String(b.county ?? "").trim(),
+      school: school?.name ?? "",
+      county,
       grade: String(b.grade ?? "").trim(),
       teacher_type: b.role === "teacher" && teacherType ? teacherType : null,
     })
     .select()
     .single();
   if (error) return c.json({ error: error.message }, 400);
-  return c.json({ profile: mapProfile(data) });
+  if (!school) return c.json({ profile: mapProfile(data) });
+  try {
+    return c.json({ profile: mapProfile(await placeInSchool("profiles", data.id, school, b.role)) });
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+/* One-time: a teacher or head whose account predates school codes picks
+   their school. Only while they have none — changing school afterwards
+   is the education team's job (Users page), so nobody can move
+   themselves into another school's data. A teacher's existing learners
+   join the same school and get their codes too. */
+app.put("/me/school", withProfile("teacher", "school_leader"), async (c) => {
+  const actor = c.get("actor");
+  if (actor.schoolId) return c.json({ error: "Your school is already set — ask the Education Team to change it" }, 409);
+  const b = await c.req.json().catch(() => ({}));
+  const school = await loadSchool(b.schoolId);
+  if (!school) return c.json({ error: "Choose your county and school" }, 400);
+  try {
+    const profile = await placeInSchool("profiles", actor.id, school, actor.role);
+    if (actor.role === "teacher") await moveTeachersLearners(actor.id, school);
+    return c.json({ profile: mapProfile(profile) });
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+/** Every learner of this teacher that isn't already in `school` joins it
+    (with a code under it). */
+async function moveTeachersLearners(teacherId: string, school: School) {
+  const { data } = await admin.from("learners").select("id, school_id").eq("teacher_id", teacherId);
+  for (const l of data ?? []) {
+    if (l.school_id !== school.id) await placeInSchool("learners", l.id as string, school, "learner");
+  }
+}
+
+// ---- schools directory ----
+
+/* Any signed-in account can read the list (onboarding needs it before a
+   profile exists); only the education team adds, renames or removes.
+   The education team also gets head counts per school. */
+app.get("/schools", async (c) => {
+  const { data, error } = await admin.from("schools").select("*").order("county").order("seq");
+  if (error) return c.json({ error: error.message }, 500);
+  const schools = (data ?? []).map(mapSchool) as Record<string, unknown>[];
+  const me = c.get("actorKind") === "staff" ? await loadStaffProfile(c.get("userId")) : null;
+  if (me?.role === "education_team") {
+    const [{ data: profs }, { data: learners }] = await Promise.all([
+      admin.from("profiles").select("school_id, role").not("school_id", "is", null),
+      admin.from("learners").select("school_id").not("school_id", "is", null),
+    ]);
+    const count = (rows: Record<string, unknown>[] | null, id: unknown, role?: string) =>
+      (rows ?? []).filter((r) => r.school_id === id && (!role || r.role === role)).length;
+    for (const s of schools) {
+      s.teachers = count(profs, s.id, "teacher");
+      s.heads = count(profs, s.id, "school_leader");
+      s.learners = count(learners, s.id);
+    }
+  }
+  return c.json({ counties: COUNTIES, schools });
+});
+
+app.post("/schools", withProfile("education_team"), async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const name = String(b.name ?? "").trim().replace(/\s+/g, " ");
+  const county = String(b.county ?? "").trim();
+  if (!COUNTIES.includes(county)) return c.json({ error: "Choose a county" }, 400);
+  if (!name) return c.json({ error: "School name is required" }, 400);
+  const { data: dup } = await admin.from("schools").select("id").eq("county", county).ilike("name", name).maybeSingle();
+  if (dup) return c.json({ error: `${name} is already on the ${county} list` }, 409);
+
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const { data: last } = await admin.from("schools").select("seq").eq("county", county)
+      .order("seq", { ascending: false }).limit(1);
+    const seq = ((last?.[0]?.seq as number) ?? 0) + 1;
+    const { data, error } = await admin.from("schools").insert({
+      id: rid("sch"), name, county, seq,
+      code: `${COUNTY_CODE[county]}-${String(seq).padStart(3, "0")}`,
+      created_by: c.get("actor").fullName,
+    }).select().single();
+    if (!error) return c.json({ school: mapSchool(data) });
+    if (!isUniqueViolation(error)) return c.json({ error: error.message }, 400);
+  }
+  return c.json({ error: "Could not generate a school code — please try again" }, 500);
+});
+
+/* Rename only — the code never changes, so nobody's code changes either.
+   The synced school name on its people follows the new name. */
+app.patch("/schools/:id", withProfile("education_team"), async (c) => {
+  const school = await loadSchool(c.req.param("id"));
+  if (!school) return c.json({ error: "School not found" }, 404);
+  const b = await c.req.json().catch(() => ({}));
+  const name = String(b.name ?? "").trim().replace(/\s+/g, " ");
+  if (!name) return c.json({ error: "School name is required" }, 400);
+  const { data: dup } = await admin.from("schools").select("id").eq("county", school.county)
+    .ilike("name", name).neq("id", school.id).maybeSingle();
+  if (dup) return c.json({ error: `${name} is already on the ${school.county} list` }, 409);
+  const { data, error } = await admin.from("schools").update({ name }).eq("id", school.id).select().single();
+  if (error) return c.json({ error: error.message }, 400);
+  await Promise.all([
+    admin.from("profiles").update({ school: name }).eq("school_id", school.id),
+    admin.from("learners").update({ school: name }).eq("school_id", school.id),
+  ]);
+  return c.json({ school: mapSchool(data) });
+});
+
+/* Only an empty school can be removed — never strand people. */
+app.delete("/schools/:id", withProfile("education_team"), async (c) => {
+  const school = await loadSchool(c.req.param("id"));
+  if (!school) return c.json({ error: "School not found" }, 404);
+  const [{ count: staff }, { count: learners }] = await Promise.all([
+    admin.from("profiles").select("id", { count: "exact", head: true }).eq("school_id", school.id),
+    admin.from("learners").select("id", { count: "exact", head: true }).eq("school_id", school.id),
+  ]);
+  if ((staff ?? 0) + (learners ?? 0) > 0) {
+    return c.json({
+      error: `${school.name} still has ${staff ?? 0} staff and ${learners ?? 0} learner(s) — move them to another school first`,
+    }, 409);
+  }
+  const { error } = await admin.from("schools").delete().eq("id", school.id);
+  if (error) return c.json({ error: error.message }, 400);
+  return c.json({ ok: true });
 });
 
 // ---- teacher's learner roster ----
@@ -504,7 +728,7 @@ app.post("/me", async (c) => {
 app.get("/learners", withProfile("teacher"), async (c) => {
   const { data, error } = await admin
     .from("learners")
-    .select("id, username, full_name, grade, school, county, created_at, locked_until")
+    .select(LEARNER_ROSTER_COLS)
     .eq("teacher_id", c.get("actor").id)
     .order("full_name");
   if (error) return c.json({ error: error.message }, 500);
@@ -522,14 +746,17 @@ app.post("/learners", withProfile("teacher"), async (c) => {
   }
   if (!PIN_RE.test(pin)) return c.json({ error: "PIN must be exactly 4 digits" }, 400);
 
+  const teacher = c.get("actor");
+  // Always the teacher's own school — placed there automatically, never a
+  // field a client could set to another school.
+  const school = await loadSchool(teacher.schoolId);
+  if (!school) return c.json({ error: "Choose your school first — reload the page to pick it" }, 409);
+
   const { data: taken } = await admin
     .from("learners").select("id").eq("username", username).maybeSingle();
   if (taken) return c.json({ error: "That username is taken" }, 409);
 
   const salt = randomBytes(16).toString("hex");
-  const teacher = c.get("actor");
-  // Always the teacher's own school/county — placed there automatically,
-  // never a free-text field a client could set to something else.
   const { data, error } = await admin
     .from("learners")
     .insert({
@@ -539,13 +766,17 @@ app.post("/learners", withProfile("teacher"), async (c) => {
       pin_salt: salt,
       full_name: fullName,
       grade: String(b.grade ?? "").trim(),
-      school: teacher.school || "",
-      county: teacher.county || "",
+      school: school.name,
+      county: school.county,
     })
-    .select("id, username, full_name, grade, school, county, created_at, locked_until")
+    .select("id")
     .single();
   if (error) return c.json({ error: error.message }, 400);
-  return c.json({ learner: mapRosterLearner(data) });
+  try {
+    return c.json({ learner: mapRosterLearner(await placeInSchool("learners", data.id, school, "learner")) });
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
 });
 
 app.patch("/learners/:id", withProfile("teacher"), async (c) => {
@@ -595,7 +826,7 @@ app.patch("/learners/:id", withProfile("teacher"), async (c) => {
     .from("learners")
     .update(patch)
     .eq("id", id)
-    .select("id, username, full_name, grade, school, county, created_at, locked_until")
+    .select(LEARNER_ROSTER_COLS)
     .single();
   if (error) return c.json({ error: error.message }, 400);
   return c.json({ learner: mapRosterLearner(data) });
@@ -1234,7 +1465,8 @@ app.get("/field-reports", withProfile(), async (c) => {
 
 app.post("/field-reports", withProfile("field_officer"), async (c) => {
   const b = await c.req.json().catch(() => ({}));
-  if (!b.county || !b.school || !b.visitType) {
+  const school = await loadSchool(b.schoolId);
+  if (!school || !b.visitType) {
     return c.json({ error: "County, school and visit type are all required" }, 400);
   }
   const { data, error } = await admin
@@ -1242,8 +1474,9 @@ app.post("/field-reports", withProfile("field_officer"), async (c) => {
     .insert({
       id: rid("fr"),
       officer_id: c.get("actor").id,
-      school: b.school,
-      county: b.county,
+      school_id: school.id,
+      school: school.name,
+      county: school.county,
       visit_type: b.visitType,
     })
     .select()
@@ -1465,19 +1698,26 @@ app.get("/school/overview", withProfile("school_leader"), async (c) => {
   const actor = c.get("actor");
   const school = actor.school || "";
   const county = actor.county || "";
+  const schoolRec = await loadSchool(actor.schoolId);
+  if (!schoolRec) return c.json({ error: "Choose your school first — reload the page to pick it" }, 409);
 
-  const [profs, learnersRaw, reportsRaw] = await Promise.all([
-    admin.from("profiles").select("id, teacher_type").eq("role", "teacher").eq("school", school).eq("county", county),
-    admin.from("learners").select("id, grade").eq("school", school).eq("county", county),
-    admin.from("field_reports").select("*").eq("school", school).eq("county", county).order("created_at", { ascending: false }),
+  // Scoped by the school record itself, so two schools that happen to
+  // share a name never get mixed together. Visits logged before schools
+  // had records are matched by name + county as a fallback.
+  const [profs, learnersRaw, reportsById, reportsByName] = await Promise.all([
+    admin.from("profiles").select("id, teacher_type").eq("role", "teacher").eq("school_id", schoolRec.id),
+    admin.from("learners").select("id, grade").eq("school_id", schoolRec.id),
+    admin.from("field_reports").select("*").eq("school_id", schoolRec.id),
+    admin.from("field_reports").select("*").is("school_id", null).eq("school", school).eq("county", county),
   ]);
-  if (profs.error || learnersRaw.error || reportsRaw.error) {
+  if (profs.error || learnersRaw.error || reportsById.error || reportsByName.error) {
     return c.json({ error: "Could not load the school overview" }, 500);
   }
 
   const teacherRows = profs.data ?? [];
   const learnerRows = learnersRaw.data ?? [];
-  const visitRows = reportsRaw.data ?? [];
+  const visitRows = [...(reportsById.data ?? []), ...(reportsByName.data ?? [])]
+    .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
 
   const learnerIds = learnerRows.map((l) => l.id as string);
   const asg = learnerIds.length
@@ -1507,6 +1747,7 @@ app.get("/school/overview", withProfile("school_leader"), async (c) => {
 
   return c.json({
     school, county,
+    schoolCode: schoolRec.code,
     teacherCount: teacherRows.length,
     learnerCount: learnerRows.length,
     teachersByType: tally(teacherRows, "teacher_type"),
@@ -1531,6 +1772,8 @@ const mapUserRow = (r: Record<string, unknown>) => ({
   email: r.email,
   school: r.school,
   county: r.county,
+  schoolId: r.school_id ?? null,
+  userCode: r.user_code ?? null,
   teacherType: r.teacher_type ?? null,
   createdAt: r.created_at,
 });
@@ -1547,7 +1790,7 @@ app.get("/users", withProfile("education_team"), async (c) => {
 app.patch("/users/:id", withProfile("education_team"), async (c) => {
   const id = c.req.param("id");
   const { data: existing } = await admin
-    .from("profiles").select("id, role").eq("id", id).maybeSingle();
+    .from("profiles").select("id, role, school_id, county").eq("id", id).maybeSingle();
   if (!existing) return c.json({ error: "User not found" }, 404);
 
   const b = await c.req.json().catch(() => ({}));
@@ -1563,8 +1806,28 @@ app.patch("/users/:id", withProfile("education_team"), async (c) => {
     if (!STAFF_ROLES.includes(b.role)) return c.json({ error: "Invalid role" }, 400);
     patch.role = b.role;
   }
-  if (b.school !== undefined) patch.school = String(b.school).trim();
-  if (b.county !== undefined) patch.county = String(b.county).trim();
+
+  // Placement follows the role: teachers/heads need a school from the
+  // list (a new school or a new role letter means a new code); field
+  // officers a county; the education team neither.
+  let placeIn: School | null = null;
+  if (SCHOOL_ROLES.includes(nextRole)) {
+    const targetId = b.schoolId !== undefined ? b.schoolId : existing.school_id;
+    const target = await loadSchool(targetId);
+    if (!target) return c.json({ error: "Choose a county and school for this account" }, 400);
+    if (target.id !== existing.school_id || nextRole !== existing.role) placeIn = target;
+  } else {
+    patch.school_id = null;
+    patch.user_code = null;
+    patch.school = "";
+    if (nextRole === "field_officer") {
+      const county = b.county !== undefined ? String(b.county).trim() : existing.county;
+      if (!COUNTIES.includes(county)) return c.json({ error: "Choose a county for this field officer" }, 400);
+      patch.county = county;
+    } else {
+      patch.county = "";
+    }
+  }
   if (b.teacherType !== undefined) {
     const tt = String(b.teacherType ?? "").trim().toUpperCase();
     if (tt && !["BOM", "TSC"].includes(tt)) {
@@ -1581,7 +1844,7 @@ app.patch("/users/:id", withProfile("education_team"), async (c) => {
     newEmail = email;
   }
 
-  if (!Object.keys(patch).length && !newEmail) return c.json({ error: "Nothing to update" }, 400);
+  if (!Object.keys(patch).length && !newEmail && !placeIn) return c.json({ error: "Nothing to update" }, 400);
 
   if (newEmail) {
     const { error: authErr } = await admin.auth.admin.updateUserById(id, {
@@ -1599,10 +1862,23 @@ app.patch("/users/:id", withProfile("education_team"), async (c) => {
     patch.email = newEmail;
   }
 
-  const { data, error } = await admin
-    .from("profiles").update(patch).eq("id", id).select().single();
-  if (error) return c.json({ error: error.message }, 400);
-  return c.json({ user: mapUserRow(data) });
+  let data: Record<string, unknown> | null = null;
+  if (Object.keys(patch).length) {
+    const res = await admin.from("profiles").update(patch).eq("id", id).select().single();
+    if (res.error) return c.json({ error: res.error.message }, 400);
+    data = res.data;
+  }
+  if (placeIn) {
+    try {
+      data = await placeInSchool("profiles", id, placeIn, nextRole);
+      // A teacher's learners go wherever the teacher goes, so a class
+      // never ends up split across two schools.
+      if (nextRole === "teacher") await moveTeachersLearners(id, placeIn);
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 500);
+    }
+  }
+  return c.json({ user: mapUserRow(data!) });
 });
 
 app.post("/users/:id/reset-password", withProfile("education_team"), async (c) => {

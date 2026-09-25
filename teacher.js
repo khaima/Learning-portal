@@ -1,5 +1,5 @@
 import "./nav.js";
-import { $, $$, esc, initials, toast, formatDuration, skeleton, emptyState, errorState, friendlyError } from "./util.js";
+import { $, $$, esc, initials, schoolLine, toast, formatDuration, skeleton, emptyState, errorState, friendlyError } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { TEACHER_CONTENT, normalizeLibraryAudience } from "./data.js";
 import {
@@ -26,9 +26,9 @@ async function main() {
 
   $("#sideAvatar").textContent = initials(user.fullName);
   $("#sideName").textContent = user.fullName;
-  $("#sideMeta").textContent = `Teacher · ${user.county || "—"}`;
+  $("#sideMeta").textContent = `Teacher · ${user.userCode || user.county || "—"}`;
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
-  $("#topSub").textContent = `${user.school || "No school set"} · Term 2, 2026`;
+  $("#topSub").textContent = `${schoolLine(user)} · Term 2, 2026`;
 
   /* ------------------------------------------------------------ KPI row
      Real counts only — "assignments to review" / "completed this week"
@@ -193,7 +193,7 @@ async function main() {
       <div class="task-row" data-learner="${esc(l.id)}" data-username="${esc(l.username)}" data-grade="${esc(l.grade || "")}">
         <div style="flex:1">
           <button type="button" data-act="view" style="background:none;border:0;padding:0;font:inherit;cursor:pointer;color:var(--brand-fg);text-align:left"><b>${esc(l.fullName)}</b></button>
-          <span>@${esc(l.username)}${l.grade ? " · " + esc(l.grade) : ""}${l.locked ? ' · <span class="pill warm">Locked</span>' : ""}</span>
+          <span>${l.userCode ? `<span class="code-chip">${esc(l.userCode)}</span> ` : ""}@${esc(l.username)}${l.grade ? " · " + esc(l.grade) : ""}${l.locked ? ' · <span class="pill warm">Locked</span>' : ""}</span>
         </div>
         <div class="roster-actions">
           <button type="button" data-act="view">View activity</button>
@@ -264,7 +264,7 @@ async function main() {
       <div class="task-row" data-learner-activity="${esc(l.id)}">
         <div style="flex:1">
           <b>${esc(l.fullName)}</b>
-          <span>@${esc(l.username)}${l.grade ? " · " + esc(l.grade) : ""}${l.locked ? ' · <span class="pill warm">Locked</span>' : ""}</span>
+          <span>${l.userCode ? `<span class="code-chip">${esc(l.userCode)}</span> ` : ""}@${esc(l.username)}${l.grade ? " · " + esc(l.grade) : ""}${l.locked ? ' · <span class="pill warm">Locked</span>' : ""}</span>
         </div>
         <button type="button" class="pill" style="border:0;cursor:pointer" data-view-activity="${esc(l.id)}">View activity</button>
       </div>`;
@@ -278,7 +278,7 @@ async function main() {
     }
     const q = ($("#learnerActivitySearch")?.value || "").trim().toLowerCase();
     const filtered = q
-      ? learnerCache.filter((l) => `${l.fullName} ${l.username} ${l.grade || ""}`.toLowerCase().includes(q))
+      ? learnerCache.filter((l) => `${l.fullName} ${l.username} ${l.grade || ""} ${l.userCode || ""}`.toLowerCase().includes(q))
       : learnerCache;
     el.innerHTML = filtered.length
       ? filtered.map(learnerActivityRow).join("")
@@ -293,6 +293,13 @@ async function main() {
     const row = btn.closest("[data-learner-activity]");
     openLearnerActivity(btn.dataset.viewActivity, row.querySelector("b").textContent);
   });
+
+  // Learners always join this teacher's own school — shown up front so
+  // it's clear where they'll land and what code they'll get.
+  const schoolCode = user.userCode ? user.userCode.split("-").slice(0, 2).join("-") : "";
+  $("#nl_school_hint").innerHTML = user.school
+    ? `Placed automatically in <b>${esc(user.school)}</b>${schoolCode ? ` (${esc(schoolCode)})` : ""}${user.county ? ` · ${esc(user.county)} County` : ""}. Each learner gets their own code${schoolCode ? `, like <b>${esc(schoolCode)}-L0001</b>` : ""}.`
+    : "Placed automatically in your own school and county.";
 
   $("#addLearnerBtn").addEventListener("click", () => {
     addForm.hidden = false;
@@ -310,7 +317,7 @@ async function main() {
     const btn = addForm.querySelector("[type=submit]");
     btn.disabled = true;
     try {
-      await addLearner({
+      const learner = await addLearner({
         fullName: $("#nl_name").value.trim(),
         username: $("#nl_user").value.trim().toLowerCase(),
         grade: $("#nl_grade").value.trim(),
@@ -318,7 +325,8 @@ async function main() {
       });
       addForm.reset();
       addForm.hidden = true;
-      toast("Learner added", `They can sign in with @${$("#nl_user").value.trim().toLowerCase()}`);
+      toast("Learner added",
+        `${learner.fullName} is ${learner.userCode || "in your school"} and signs in with @${learner.username}.`, "success");
       renderRoster();
     } catch (err) {
       addError.textContent = friendlyError(err, "Could not add the learner. Check your connection and try again.");
@@ -380,15 +388,15 @@ async function main() {
 
     resultEl.innerHTML = `<div class="empty-state">Adding ${rows.length} learner(s)…</div>`;
     const taken = new Set(learnerCache.map((l) => l.username));
-    const created = []; // { fullName, username, pin }
+    const created = []; // { fullName, username, pin, code }
     const failed = []; // { fullName, error }
     for (const row of rows) {
       const username = row.username && !taken.has(row.username) ? row.username : suggestUsername(row.fullName || "learner", taken);
       const pin = /^\d{4}$/.test(row.pin) ? row.pin : randomPin();
       try {
-        await addLearner({ fullName: row.fullName, username, grade: row.grade, pin });
+        const learner = await addLearner({ fullName: row.fullName, username, grade: row.grade, pin });
         taken.add(username);
-        created.push({ fullName: row.fullName, username, pin });
+        created.push({ fullName: row.fullName, username, pin, code: learner.userCode });
       } catch (err) {
         failed.push({ fullName: row.fullName, error: friendlyError(err, "Could not add") });
       }
@@ -397,7 +405,7 @@ async function main() {
     resultEl.innerHTML = `
       ${created.length ? `<p class="hint" style="margin-bottom:.3rem"><b>${created.length} learner(s) added.</b> Sign-ins generated for anyone who didn't have one — write these down:</p>
         <div style="max-height:12rem;overflow:auto;border:1px solid var(--line);border-radius:.5rem;padding:.5rem .7rem;font-size:.85rem">
-          ${created.map((c) => `<div>${esc(c.fullName)} — <b>@${esc(c.username)}</b> · PIN ${esc(c.pin)}</div>`).join("")}
+          ${created.map((c) => `<div>${c.code ? `<span class="code-chip">${esc(c.code)}</span> ` : ""}${esc(c.fullName)} — <b>@${esc(c.username)}</b> · PIN ${esc(c.pin)}</div>`).join("")}
         </div>` : ""}
       ${failed.length ? `<p class="field-error" style="margin-top:.5rem">${failed.length} row(s) couldn't be added: ${failed.map((f) => `${esc(f.fullName)} (${esc(f.error)})`).join(", ")}</p>` : ""}
     `;

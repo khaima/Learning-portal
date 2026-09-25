@@ -230,13 +230,14 @@
                 </button>
               </div>
             </div>
-            <div class="field">
-              <label for="ob_school">School / institution</label>
-              <input id="ob_school" name="school" type="text" placeholder="e.g. Nyeri Hill Primary" required>
-            </div>
-            <div class="field">
+            <div class="field" id="ob_county_field">
               <label for="ob_county">County</label>
-              <input id="ob_county" name="county" type="text" placeholder="e.g. Nyeri" required>
+              <select id="ob_county"></select>
+            </div>
+            <div class="field" id="ob_school_field">
+              <label for="ob_school">School</label>
+              <select id="ob_school"></select>
+              <p class="field-hint" id="ob_code_hint"></p>
             </div>
             <div class="field" id="ob_grade_field" hidden>
               <label for="ob_grade">Grade / class</label>
@@ -255,6 +256,29 @@
           <div class="login-foot" style="margin-top:1rem">
             <span></span>
             <button type="button" id="onboardSignOut">Sign out</button>
+          </div>
+        </div>
+
+        <div id="stepSchool" hidden>
+          <div class="login-eyebrow">One quick step</div>
+          <h2>Choose your school</h2>
+          <p class="login-sub">Schools now have codes so every school's teachers and learners stay separate. Pick yours once — you'll get your own code under it.</p>
+          <form id="schoolForm">
+            <div class="field">
+              <label for="sp_county">County</label>
+              <select id="sp_county"></select>
+            </div>
+            <div class="field">
+              <label for="sp_school">School</label>
+              <select id="sp_school"></select>
+              <p class="field-hint" id="sp_code_hint"></p>
+            </div>
+            <div class="field-error" id="schoolError" hidden></div>
+            <button class="btn btn-primary btn-block" type="submit">Continue to my dashboard</button>
+          </form>
+          <div class="login-foot" style="margin-top:1rem">
+            <span>Can't find your school? Ask the Education Team to add it.</span>
+            <button type="button" id="schoolSignOut">Sign out</button>
           </div>
         </div>
 

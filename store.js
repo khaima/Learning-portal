@@ -399,9 +399,57 @@ export async function getFieldReports() {
   return reports || [];
 }
 
-export async function addFieldReport({ school, county, visitType }) {
-  const { report } = await apiSend("POST", "/field-reports", { school, county, visitType });
+export async function addFieldReport({ schoolId, visitType }) {
+  const { report } = await apiSend("POST", "/field-reports", { schoolId, visitType });
   return report;
+}
+
+/* ---------------------------------------------------------------- schools directory
+   The fixed county list and the education team's school list — every
+   County → School picker in the portal fills from here, never free text,
+   so a school is always the same school everywhere. Each school has a
+   code (NRK-001); everyone placed in it gets a personal code under it
+   (NRK-001-T01 teacher, -H01 head, -L0001 learner) from the API. */
+export async function getSchools() {
+  const { counties, schools } = await apiGet("/schools");
+  return { counties: counties || [], schools: schools || [] };
+}
+export async function createSchool(name, county) {
+  const { school } = await apiSend("POST", "/schools", { name, county });
+  return school;
+}
+export async function renameSchool(id, name) {
+  const { school } = await apiSend("PATCH", `/schools/${id}`, { name });
+  return school;
+}
+export async function deleteSchool(id) {
+  await apiSend("DELETE", `/schools/${id}`);
+}
+
+/* Fills a County <select> and a School <select> that narrows to the
+   picked county. Returns a small controller; `onChange(school)` fires
+   with the chosen school record (or null). */
+export function wireSchoolPicker(countySel, schoolSel, { counties, schools }, { countyId, schoolId, onChange } = {}) {
+  const selectedSchool = schools.find((s) => s.id === schoolId) || null;
+  countySel.innerHTML = `<option value="">Select county</option>${
+    counties.map((c) => `<option>${esc(c)}</option>`).join("")}`;
+  countySel.value = selectedSchool?.county || countyId || "";
+  const fillSchools = (keepId) => {
+    const list = schools.filter((s) => s.county === countySel.value);
+    schoolSel.disabled = !countySel.value || !list.length;
+    schoolSel.innerHTML = !countySel.value
+      ? `<option value="">Select a county first</option>`
+      : list.length
+        ? `<option value="">Select school</option>${list.map((s) =>
+            `<option value="${esc(s.id)}">${esc(s.name)} (${esc(s.code)})</option>`).join("")}`
+        : `<option value="">No schools listed for ${esc(countySel.value)} yet</option>`;
+    schoolSel.value = list.some((s) => s.id === keepId) ? keepId : "";
+  };
+  const current = () => schools.find((s) => s.id === schoolSel.value) || null;
+  fillSchools(selectedSchool?.id);
+  countySel.addEventListener("change", () => { fillSchools(); onChange?.(current()); });
+  schoolSel.addEventListener("change", () => onChange?.(current()));
+  return { current, county: () => countySel.value };
 }
 
 /* ---------------------------------------------------------------- stats */

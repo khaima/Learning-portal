@@ -2,9 +2,10 @@ import { $, $$, friendlyError } from "./util.js";
 import { supabase, setRememberMe, getRememberMe } from "./supabase.js";
 import {
   DASHBOARD_PATH, registerStaff, signInWithPassword, signInWithGoogle,
-  learnerLogin, getProfile, createProfile, signOut, sendPasswordResetLink,
+  learnerLogin, getProfile, createProfile, setMySchool, signOut, sendPasswordResetLink,
 } from "./auth.js";
 import { learnerToken } from "./api.js";
+import { getSchools, wireSchoolPicker } from "./store.js";
 import { ROLES } from "./data.js";
 
 const ROLE_LABEL = Object.fromEntries(ROLES.map((r) => [r.value, r.label]));
@@ -92,6 +93,7 @@ const steps = {
   password: $("#stepPassword"),
   resetPassword: $("#stepResetPassword"),
   onboard: $("#stepOnboard"),
+  school: $("#stepSchool"),
 };
 function show(name) {
   for (const [k, el] of Object.entries(steps)) el.hidden = k !== name;
@@ -184,6 +186,10 @@ async function route() {
     if (!data.session) { show("role"); return; }
   }
   const profile = await getProfile({ force: true });
+  if (profile?.needsSchool) {
+    showSchoolStep(profile);
+    return;
+  }
   if (profile && !profile.needsOnboarding) {
     if (profile.email && getRememberMe()) saveLastStaffLogin(profile.role, profile.email);
     goToDashboard(profile.role);
@@ -195,6 +201,7 @@ async function route() {
   $("#onboardEmail").textContent = profile?.email || "you";
   setOnboardRole(pendingRole());
   show("onboard");
+  loadOnboardSchools();
 }
 
 // ---- step 1: role ----
@@ -371,16 +378,48 @@ $("#googleBtn").addEventListener("click", async () => {
   }
 });
 
+// ---- where each role sits ----
+/* Teachers and school heads pick County → School from the Education
+   Team's list and get a personal code under that school's code; field
+   officers pick only their county (they choose a school per visit/form);
+   the Education Team is portal-wide and picks neither. */
+const SCHOOL_ROLES = ["teacher", "school_leader"];
+const CODE_LETTER = { teacher: "T", school_leader: "H" };
+
+function codeHint(el, school, role) {
+  el.textContent = school
+    ? `School code ${school.code}. Your personal code will be ${school.code}-${CODE_LETTER[role] || "T"}… — given to you as soon as you continue.`
+    : "";
+}
+
 // ---- onboarding (staff only) ----
 let selectedRole = "teacher";
+let onboardPicker = null;
 const roleCards = $$("#roleGrid .role-card");
 function setOnboardRole(role) {
   selectedRole = role;
   roleCards.forEach((c) => c.setAttribute("aria-pressed", String(c.dataset.role === role)));
   $("#ob_grade_field").hidden = role !== "learner";
   $("#ob_teacher_type_field").hidden = role !== "teacher";
+  $("#ob_county_field").hidden = !(SCHOOL_ROLES.includes(role) || role === "field_officer");
+  $("#ob_school_field").hidden = !SCHOOL_ROLES.includes(role);
+  codeHint($("#ob_code_hint"), onboardPicker?.current(), role);
 }
 roleCards.forEach((c) => c.addEventListener("click", () => setOnboardRole(c.dataset.role)));
+
+async function loadOnboardSchools() {
+  $("#ob_county").innerHTML = `<option value="">Loading…</option>`;
+  $("#ob_school").innerHTML = `<option value="">Loading…</option>`;
+  try {
+    const data = await getSchools();
+    onboardPicker = wireSchoolPicker($("#ob_county"), $("#ob_school"), data, {
+      onChange: (school) => codeHint($("#ob_code_hint"), school, selectedRole),
+    });
+  } catch (err) {
+    onboardError.textContent = friendlyError(err, "Couldn't load the list of schools. Check your connection and reload.");
+    onboardError.hidden = false;
+  }
+}
 
 const onboardForm = $("#onboardForm");
 const onboardError = $("#onboardError");
@@ -389,13 +428,25 @@ onboardForm.addEventListener("submit", async (e) => {
   onboardError.hidden = true;
   const btn = onboardForm.querySelector("[type=submit]");
   const fd = new FormData(onboardForm);
+  const school = onboardPicker?.current();
+  const county = onboardPicker?.county() || "";
+  if (SCHOOL_ROLES.includes(selectedRole) && !school) {
+    onboardError.textContent = "Choose your county and then your school.";
+    onboardError.hidden = false;
+    return;
+  }
+  if (selectedRole === "field_officer" && !county) {
+    onboardError.textContent = "Choose your county.";
+    onboardError.hidden = false;
+    return;
+  }
   btn.disabled = true;
   try {
     const profile = await createProfile({
       fullName: fd.get("fullName"),
       role: selectedRole,
-      school: fd.get("school"),
-      county: fd.get("county"),
+      schoolId: school?.id || null,
+      county,
       grade: fd.get("grade"),
       teacherType: fd.get("teacherType"),
     });
@@ -408,6 +459,48 @@ onboardForm.addEventListener("submit", async (e) => {
 });
 
 $("#onboardSignOut").addEventListener("click", async () => {
+  await signOut();
+  show("role");
+});
+
+// ---- one-time school pick (accounts made before school codes) ----
+let schoolPicker = null;
+const schoolForm = $("#schoolForm");
+const schoolError = $("#schoolError");
+async function showSchoolStep(profile) {
+  show("school");
+  schoolError.hidden = true;
+  try {
+    const data = await getSchools();
+    schoolPicker = wireSchoolPicker($("#sp_county"), $("#sp_school"), data, {
+      onChange: (school) => codeHint($("#sp_code_hint"), school, profile.role),
+    });
+  } catch (err) {
+    schoolError.textContent = friendlyError(err, "Couldn't load the list of schools. Check your connection and reload.");
+    schoolError.hidden = false;
+  }
+}
+schoolForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  schoolError.hidden = true;
+  const school = schoolPicker?.current();
+  if (!school) {
+    schoolError.textContent = "Choose your county and then your school.";
+    schoolError.hidden = false;
+    return;
+  }
+  const btn = schoolForm.querySelector("[type=submit]");
+  btn.disabled = true;
+  try {
+    const profile = await setMySchool(school.id);
+    goToDashboard(profile.role);
+  } catch (err) {
+    btn.disabled = false;
+    schoolError.textContent = friendlyError(err, "Couldn't save your school. Check your connection and try again.");
+    schoolError.hidden = false;
+  }
+});
+$("#schoolSignOut").addEventListener("click", async () => {
   await signOut();
   show("role");
 });

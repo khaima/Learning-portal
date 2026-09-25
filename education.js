@@ -12,6 +12,7 @@ import {
   koboConfig, saveKoboConfig, koboAssets, koboAssetPreview, koboForms, attachKoboForm,
   removeKoboForm, syncKobo, koboResults,
   getUsers, updateUser, resetUserPassword,
+  getSchools, createSchool, renameSchool, deleteSchool, wireSchoolPicker,
 } from "./store.js";
 import { openIframeViewer } from "./viewer.js";
 
@@ -1486,6 +1487,152 @@ async function main() {
     if (document.visibilityState === "visible" && srCurrent) loadSurveyResults();
   });
 
+  /* ------------------------------------------------------------ school list
+     The four programme counties are fixed; the schools in each are managed
+     here and feed every County → School dropdown in the portal. The API
+     gives each new school its code (NRK-001…); renaming never changes a
+     code, and a school can only be removed once nobody is in it. */
+  let schoolDir = { counties: [], schools: [] };
+  let renamingSchoolId = null;
+  const PIN_ICON = '<path d="M12 21s7-6.1 7-11.5A7 7 0 0 0 5 9.5C5 14.9 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/>';
+  const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+  function schoolItem(s) {
+    if (s.id === renamingSchoolId) return `
+      <div class="school-item" data-school-id="${esc(s.id)}">
+        <span class="code-chip">${esc(s.code)}</span>
+        <input class="school-rename-input" type="text" value="${esc(s.name)}" maxlength="80" aria-label="New name for ${esc(s.name)}">
+        <div class="school-item-actions">
+          <button type="button" data-act="save-rename">Save</button>
+          <button type="button" data-act="cancel-rename">Cancel</button>
+        </div>
+      </div>`;
+    const people = (s.teachers || 0) + (s.heads || 0) + (s.learners || 0);
+    return `
+      <div class="school-item" data-school-id="${esc(s.id)}" data-people="${people}" data-name="${esc(s.name)}">
+        <span class="code-chip">${esc(s.code)}</span>
+        <div class="school-item-main">
+          <b>${esc(s.name)}</b>
+          <span>${plural(s.teachers || 0, "teacher")} · ${plural(s.heads || 0, "head")} · ${plural(s.learners || 0, "learner")}</span>
+        </div>
+        <div class="school-item-actions">
+          <button type="button" data-act="rename">Rename</button>
+          <button type="button" data-act="remove" class="danger">Remove</button>
+        </div>
+      </div>`;
+  }
+
+  function renderSchoolListDom() {
+    const { counties, schools } = schoolDir;
+    $("#schoolListCount").textContent = plural(schools.length, "school");
+    $("#schoolList").innerHTML = counties.map((c) => {
+      const list = schools.filter((s) => s.county === c);
+      return `
+        <details class="lib-section" open>
+          <summary class="lib-section-head">
+            <span class="lib-section-ic">${svg(PIN_ICON)}</span>
+            <span class="lib-section-name">${esc(c)}</span>
+            <span class="count">${list.length}</span>
+          </summary>
+          <div class="lib-section-body school-list-body">${list.length
+            ? list.map(schoolItem).join("")
+            : `<div class="empty-state">No schools in ${esc(c)} yet — add one above.</div>`}</div>
+        </details>`;
+    }).join("");
+  }
+
+  async function renderSchoolList() {
+    $("#schoolList").innerHTML = skeleton(3, { avatar: false });
+    try {
+      schoolDir = await getSchools();
+    } catch (err) {
+      console.error("could not load schools:", err);
+      $("#schoolList").innerHTML = errorState(friendlyError(err), renderSchoolList);
+      return;
+    }
+    const keep = $("#as_county").value;
+    $("#as_county").innerHTML = `<option value="">County</option>${
+      schoolDir.counties.map((c) => `<option>${esc(c)}</option>`).join("")}`;
+    $("#as_county").value = keep;
+    renamingSchoolId = null;
+    renderSchoolListDom();
+  }
+
+  $("#addSchoolForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const county = $("#as_county").value;
+    const name = $("#as_name").value.trim();
+    if (!county || !name) return;
+    const btn = e.target.querySelector("[type=submit]");
+    btn.disabled = true;
+    try {
+      const school = await createSchool(name, county);
+      toast("School added", `${school.name} is ${school.code}.`, "success");
+      $("#as_name").value = "";
+      await renderSchoolList();
+    } catch (err) {
+      toast("Couldn't add that school", friendlyError(err), "error");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $("#schoolList").addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-act]");
+    if (!btn) return;
+    const item = btn.closest("[data-school-id]");
+    const id = item.dataset.schoolId;
+    const act = btn.dataset.act;
+    if (act === "rename") {
+      renamingSchoolId = id;
+      renderSchoolListDom();
+      $(`[data-school-id="${id}"] .school-rename-input`)?.select();
+    } else if (act === "cancel-rename") {
+      renamingSchoolId = null;
+      renderSchoolListDom();
+    } else if (act === "save-rename") {
+      const name = item.querySelector(".school-rename-input").value.trim();
+      if (!name) return;
+      btn.disabled = true;
+      try {
+        await renameSchool(id, name);
+        toast("School renamed", "Its code — and everyone's code in it — stays the same.", "success");
+        await renderSchoolList();
+      } catch (err) {
+        toast("Couldn't rename that school", friendlyError(err), "error");
+        btn.disabled = false;
+      }
+    } else if (act === "remove") {
+      const people = Number(item.dataset.people || 0);
+      if (people > 0) {
+        toast("Can't remove this school yet",
+          `${item.dataset.name} still has ${people === 1 ? "1 person" : `${people} people`} in it. Move them to another school on the Users page first.`, "error");
+        return;
+      }
+      const ok = await confirmDialog({
+        title: `Remove ${item.dataset.name}?`,
+        body: "It disappears from every County → School dropdown. Nobody is placed in it, so no one is affected.",
+        confirmLabel: "Remove", danger: true,
+      });
+      if (!ok) return;
+      btn.disabled = true;
+      try {
+        await deleteSchool(id);
+        toast("School removed", "", "success");
+        await renderSchoolList();
+      } catch (err) {
+        toast("Couldn't remove that school", friendlyError(err), "error");
+        btn.disabled = false;
+      }
+    }
+  });
+  $("#schoolList").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && e.target.matches(".school-rename-input")) {
+      e.preventDefault();
+      e.target.closest("[data-school-id]").querySelector('[data-act="save-rename"]').click();
+    }
+  });
+
   /* ------------------------------------------------------------ staff accounts
      Every teacher / school leader / field officer / education team
      sign-in — editable here, grouped under a title per role. Passwords are
@@ -1496,9 +1643,67 @@ async function main() {
      once by name, county, or school — all client-side against the one
      fetch, so it's instant. */
   let allUsers = [];
+  let editingUserId = null;
+  let userPicker = null;
+
+  /* Inline editor for one account. Where it sits follows the role:
+     teachers and heads pick County → School from the school list (a new
+     school, or a new role letter, gives them a new code — and a teacher's
+     learners move with them); field officers pick a county; the education
+     team neither. */
+  function userEditRow(u) {
+    return `
+      <div class="task-row lib-edit-row" data-user="${esc(u.id)}" data-email="${esc(u.email || "")}">
+        <div style="flex:1">
+          <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem">
+            <div class="field"><label>Full name</label><input class="ue-name" type="text" value="${esc(u.fullName || "")}"></div>
+            <div class="field"><label>Email</label><input class="ue-email" type="email" value="${esc(u.email || "")}"></div>
+          </div>
+          <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.6rem">
+            <div class="field"><label>Role</label><select class="ue-role">${STAFF_ROLES.map((r) =>
+              `<option value="${r.value}"${r.value === u.role ? " selected" : ""}>${esc(r.label)}</option>`).join("")}</select></div>
+            <div class="field ue-county-field"><label>County</label><select class="ue-county"></select></div>
+            <div class="field ue-school-field"><label>School</label><select class="ue-school"></select></div>
+          </div>
+          <div class="field ue-tt-field"><label>Employment type</label>
+            <select class="ue-tt">${["", "BOM", "TSC"].map((t) =>
+              `<option value="${t}"${t === (u.teacherType || "") ? " selected" : ""}>${t || "Not specified"}</option>`).join("")}</select></div>
+          <p class="field-hint ue-note"></p>
+          <div class="edit-actions">
+            <button type="button" class="btn btn-primary" data-act="save-user">Save changes</button>
+            <button type="button" class="btn btn-outline" data-act="cancel-user">Cancel</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function wireUserEditor(u) {
+    const row = $(`#usersList .lib-edit-row[data-user="${u.id}"]`);
+    if (!row) return;
+    userPicker = wireSchoolPicker(row.querySelector(".ue-county"), row.querySelector(".ue-school"), schoolDir,
+      { schoolId: u.schoolId, countyId: schoolDir.counties.includes(u.county) ? u.county : "", onChange: syncUserEditor });
+    row.querySelector(".ue-role").addEventListener("change", syncUserEditor);
+    function syncUserEditor() {
+      const role = row.querySelector(".ue-role").value;
+      const inSchool = role === "teacher" || role === "school_leader";
+      row.querySelector(".ue-county-field").hidden = !(inSchool || role === "field_officer");
+      row.querySelector(".ue-school-field").hidden = !inSchool;
+      row.querySelector(".ue-tt-field").hidden = role !== "teacher";
+      const school = userPicker.current();
+      const moving = inSchool && school && (school.id !== u.schoolId || role !== u.role);
+      row.querySelector(".ue-note").textContent = !inSchool
+        ? (role === "field_officer" ? "Field officers belong to a county, not a school — they pick the school per visit." : "The Education Team works across every school and county.")
+        : moving
+          ? `They'll get a new code under ${school.code}${role === "teacher" ? ", and their learners move to this school with new codes too" : ""}.`
+          : u.userCode ? `Code stays ${u.userCode}.` : "";
+    }
+    syncUserEditor();
+  }
 
   function userRow(u) {
+    if (u.id === editingUserId) return userEditRow(u);
     const meta = [
+      u.userCode ? `<span class="code-chip">${esc(u.userCode)}</span>` : "",
       esc(u.email),
       u.county ? esc(u.county) : "",
       u.school ? esc(u.school) : "",
@@ -1523,7 +1728,7 @@ async function main() {
 
   function userMatchesSearch(u, q) {
     if (!q) return true;
-    const hay = [u.fullName, u.email, u.county, u.school, u.teacherType, ROLE_LABEL[u.role]]
+    const hay = [u.fullName, u.email, u.county, u.school, u.userCode, u.teacherType, ROLE_LABEL[u.role]]
       .filter(Boolean).join(" ").toLowerCase();
     return hay.includes(q);
   }
@@ -1580,6 +1785,8 @@ async function main() {
           ${rows.map(userRow).join("")}
         </div>`;
     }).join("");
+    const editing = allUsers.find((u) => u.id === editingUserId);
+    if (editing) wireUserEditor(editing);
   }
 
   let usersFailed = false;
@@ -1599,17 +1806,6 @@ async function main() {
   $("#usersSearch").addEventListener("input", renderUsersList);
   $("#usersSort").addEventListener("change", renderUsersList);
 
-  /* Returns a role value, undefined for an out-of-range pick, or null if
-     the admin cancelled — the caller tells those apart. */
-  function pickRole(current) {
-    const lines = STAFF_ROLES.map((r, i) => `${i + 1}) ${r.label}`).join("\n");
-    const defaultIdx = STAFF_ROLES.findIndex((r) => r.value === current);
-    const input = prompt(`Role — enter a number:\n${lines}`, String(defaultIdx >= 0 ? defaultIdx + 1 : 1));
-    if (input === null) return null;
-    const idx = Number(input.trim()) - 1;
-    return STAFF_ROLES[idx] ? STAFF_ROLES[idx].value : undefined;
-  }
-
   $("#usersList").addEventListener("click", async (e) => {
     const btn = e.target.closest("button[data-act]");
     if (!btn) return;
@@ -1618,32 +1814,37 @@ async function main() {
 
     try {
       if (btn.dataset.act === "edit") {
-        const fullName = prompt("Full name", row.dataset.fullname);
-        if (fullName === null) return;
-        const email = prompt("Email address", row.dataset.email);
-        if (email === null) return;
-        const role = pickRole(row.dataset.role);
-        if (role === null) return;
-        if (role === undefined) {
-          toast("Couldn't do that", "Pick a number from the list.", "error");
+        if (!schoolDir.counties.length) await renderSchoolList();
+        editingUserId = id;
+        renderUsersList();
+      } else if (btn.dataset.act === "cancel-user") {
+        editingUserId = null;
+        renderUsersList();
+      } else if (btn.dataset.act === "save-user") {
+        const role = row.querySelector(".ue-role").value;
+        const inSchool = role === "teacher" || role === "school_leader";
+        const school = userPicker?.current();
+        const county = userPicker?.county() || "";
+        if (inSchool && !school) {
+          toast("Choose a school", "Teachers and school heads must be placed in a school from the list.", "error");
           return;
         }
-        const county = prompt("County", row.dataset.county);
-        if (county === null) return;
-        const school = prompt("School / institution", row.dataset.school);
-        if (school === null) return;
-        const patch = {
-          fullName: fullName.trim(), email: email.trim(), role,
-          county: county.trim(), school: school.trim(),
-        };
-        if (role === "teacher") {
-          const tt = prompt("Employment type — BOM, TSC, or leave blank", row.dataset.teachertype);
-          if (tt === null) return;
-          patch.teacherType = tt.trim();
+        if (role === "field_officer" && !county) {
+          toast("Choose a county", "Field officers belong to a county.", "error");
+          return;
         }
-        await updateUser(id, patch);
-        toast("Account updated successfully.", "", "success");
+        const patch = { fullName: row.querySelector(".ue-name").value.trim(), role };
+        const email = row.querySelector(".ue-email").value.trim();
+        if (email.toLowerCase() !== (row.dataset.email || "").toLowerCase()) patch.email = email;
+        if (inSchool) patch.schoolId = school.id;
+        if (role === "field_officer") patch.county = county;
+        if (role === "teacher") patch.teacherType = row.querySelector(".ue-tt").value;
+        btn.disabled = true;
+        const user = await updateUser(id, patch);
+        toast("Account updated", user.userCode ? `${user.fullName} is ${user.userCode}.` : "", "success");
+        editingUserId = null;
         renderUsers();
+        renderSchoolList();
       } else if (btn.dataset.act === "resetlink") {
         if (!confirm(`Email a "set a new password" link to ${row.dataset.email}?`)) return;
         await sendPasswordResetLink(row.dataset.email);
@@ -1660,10 +1861,12 @@ async function main() {
       }
     } catch (err) {
       toast("Couldn't do that", friendlyError(err), "error");
+      btn.disabled = false;
     }
   });
 
   renderStats();
+  renderSchoolList();
   renderLibrary();
   renderUsage();
   renderForms();

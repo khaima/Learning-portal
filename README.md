@@ -17,7 +17,8 @@ Edge Function API in front of a locked-down Postgres database. Six pages:
 - **`index.html`** — sign-in. Pick a role, then sign in — staff with an
   email + password, learners with a username + 4-digit PIN. New staff
   create an account (no email verification) and a one-step form captures
-  name and role.
+  name, role and — for teachers and school heads — County → School from
+  the school list (see "Schools and codes" below).
 - **`teacher.html`** — a teacher's classes, this week's grading queue,
   recent results, forms sent by the Education Team, Teacher Resources and
   the Digital Library, plus **My Learners**: an editable roster where the
@@ -35,7 +36,7 @@ Edge Function API in front of a locked-down Postgres database. Six pages:
   leadership specifically, never mixed into teachers' own resources) —
   and their own **My learning activity** panel.
 - **`field.html`** — a field officer's stats and the flagship flow: pick a
-  county, the school list narrows, pick a visit type, submit — the report
+  county, the school list (with codes) narrows, pick a visit type, submit — the report
   saves and appears immediately. Plus forms addressed to Field Officers,
   and **Field surveys** — KoboToolbox surveys attached by the Education
   Team, each with an **Open survey** button that launches Kobo's own web
@@ -131,6 +132,31 @@ The Education Team's dashboard has a **Field surveys (KoboToolbox)** panel:
   survey change, on **Refresh**, when the tab regains focus, and every
   45 seconds while the tab is open. Answers are never stored in the
   portal database — they are fetched from Kobo each time.
+
+### Schools and codes
+
+Schools come from one list, so a school is always the same school
+everywhere and no school's teachers or learners get mixed with another's.
+
+- **Counties** are fixed: Narok, Laikipia, Meru, Isiolo.
+- **Schools** are managed by the Education Team on **Schools → School
+  list**: pick a county, type the name, and the portal gives the school a
+  code from its county — `NRK-001` is Narok's first school (`NRK` Narok,
+  `LKP` Laikipia, `MRU` Meru, `ISL` Isiolo). Schools can be renamed (codes
+  never change) and removed once nobody is in them.
+- **Personal codes**: everyone placed in a school gets their own code under
+  it — `NRK-001-T01` for a teacher, `NRK-001-H01` for a school head,
+  `NRK-001-L0001` for a learner. Numbers only ever count up, so a code is
+  never given to a second person.
+- **Who picks what**: teachers and school heads choose County → School when
+  they set up their account; learners are placed automatically in the
+  school of the teacher who adds them; field officers choose a county and
+  pick the school per visit; the Education Team isn't tied to a school.
+- **Existing accounts** made before codes are asked once, on their next
+  sign-in, to choose their school (a teacher's learners join it too). Only
+  the Education Team can move someone to a different school afterwards
+  (Users → Edit), which gives them a new code — a teacher's learners move
+  with them.
 
 ## The backend
 

@@ -84,16 +84,8 @@ export const LEADER_CONTENT = {
   },
 };
 
-/* Field Officer: schools assigned by county, and a real (if small)
-   version of the production app's flagship flow — pick a county, the
-   school list narrows to that county, pick a visit type, submit. See
-   field.js for the interactive form; this is just the seed list it
-   appends to. */
-export const FIELD_SCHOOLS_BY_COUNTY = {
-  Nyeri: ["Nyeri Hill Primary", "Chaka Primary"],
-  Narok: ["Narok Hope Primary", "Narok Grace Primary"],
-  Nairobi: ["Nairobi Faith Academy"],
-};
+/* Field Officer visit types. Counties and schools are not listed here —
+   they come from the Education Team's school list (GET /api/schools). */
 export const VISIT_TYPES = ["Learning", "Infrastructure", "ICT", "MEP"];
 
 export const FIELD_CONTENT = {

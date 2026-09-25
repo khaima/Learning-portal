@@ -12,6 +12,15 @@ export const esc = (s = "") =>
 export const initials = (name = "") =>
   name.trim().split(/\s+/).slice(0, 2).map((p) => p[0] || "").join("").toUpperCase() || "?";
 
+/* "Aitong Primary (NRK-003) · Narok" — the school line under a dashboard
+   title. A personal code is the school code plus a suffix
+   (NRK-003-T02), so the school's code is its first two parts. */
+export function schoolLine(user) {
+  if (!user.school) return "No school set";
+  const schoolCode = user.userCode ? user.userCode.split("-").slice(0, 2).join("-") : "";
+  return `${user.school}${schoolCode ? ` (${schoolCode})` : ""}${user.county ? ` · ${user.county}` : ""}`;
+}
+
 /* "1h 24m" / "24m" / "45s" — used everywhere library-usage time is shown. */
 export function formatDuration(totalSeconds) {
   const s = Math.max(0, Math.round(totalSeconds || 0));

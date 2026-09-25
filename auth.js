@@ -154,6 +154,14 @@ export async function createProfile(fields) {
   return res.profile;
 }
 
+/** One-time school pick for a teacher/head whose account predates school
+    codes (profile.needsSchool). */
+export async function setMySchool(schoolId) {
+  const res = await rawRequest("PUT", "/me/school", { schoolId });
+  cachedProfile = res.profile;
+  return res.profile;
+}
+
 export async function signOut() {
   const lt = learnerToken();
   cachedProfile = null;
@@ -167,10 +175,11 @@ export async function signOut() {
 
 /* Call at the top of every dashboard. Async: checks the real session and
    the server-side profile, and sends anyone who isn't signed in, isn't
-   onboarded, or is the wrong role back to the front door. */
+   onboarded, still has to pick their school, or is the wrong role back
+   to the front door (which shows them the right step). */
 export async function requireRole(role) {
   const profile = await getProfile();
-  if (!profile || profile.needsOnboarding || profile.role !== role) {
+  if (!profile || profile.needsOnboarding || profile.needsSchool || profile.role !== role) {
     location.href = "index.html";
     return null;
   }

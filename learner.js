@@ -1,5 +1,5 @@
 import "./nav.js";
-import { $, $$, esc, initials, formatDuration, skeleton, emptyState, errorState, friendlyError, toast } from "./util.js";
+import { $, $$, esc, initials, schoolLine, formatDuration, skeleton, emptyState, errorState, friendlyError, toast } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { LEARNER_CONTENT, SUBJECT_ICON_PATHS, normalizeLibraryAudience } from "./data.js";
 import {
@@ -16,9 +16,9 @@ async function main() {
 
   $("#sideAvatar").textContent = initials(user.fullName);
   $("#sideName").textContent = user.fullName;
-  $("#sideMeta").textContent = `Learner · ${user.grade || "—"}`;
+  $("#sideMeta").textContent = `Learner · ${user.userCode || user.grade || "—"}`;
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
-  $("#topSub").textContent = `${user.school || "No school set"} · ${user.grade || "—"}`;
+  $("#topSub").textContent = `${schoolLine(user)}${user.grade ? ` · ${user.grade}` : ""}`;
 
   /* ------------------------------------------------------------ classes
      (Home shows the first few; My Learning shows all of them.) */
