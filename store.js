@@ -222,23 +222,27 @@ export function libraryTypeIcon(type) {
   return `<span class="lib-ic" data-type="${esc(type || "")}">${svgIcon(TYPE_ICON[type] || BOOK_ICON)}</span>`;
 }
 
-/* Read-only row, for everyone who uses the library rather than manages it. */
-export function libraryItemRow(it, { compact = false } = {}) {
+/* Read-only card, for everyone who uses the library rather than manages
+   it. data-open-card makes the whole box clickable (nav.js forwards the
+   click to its View / Open button). */
+export function libraryItemCard(it) {
   return `
-    <div class="lib-row${compact ? " compact" : ""}">
-      ${libraryTypeIcon(it.type)}
-      <div class="lib-main">
-        <div class="lib-title-line"><b>${esc(it.title)}</b></div>
-        <div class="lib-meta"><span>${esc(it.subject)}</span><span>${esc(it.type || "Other")}</span></div>
-        ${it.description && !compact ? `<p class="lib-desc">${esc(it.description)}</p>` : ""}
-        <div class="lib-row-foot">${libraryFilesHtml(it)}</div>
+    <article class="lib-card" data-open-card>
+      <div class="lib-card-top">
+        ${libraryTypeIcon(it.type)}
+        <span class="lib-card-type">${esc(it.type || "Other")}</span>
       </div>
-    </div>`;
+      <b class="lib-card-title" title="${esc(it.title)}">${esc(it.title)}</b>
+      <span class="lib-card-meta">${esc(it.subject)}</span>
+      ${it.description ? `<p class="lib-card-desc">${esc(it.description)}</p>` : ""}
+      <div class="lib-card-foot">${libraryFilesHtml(it)}</div>
+    </article>`;
 }
 
-/* Folder sections (collapsible), "Unfiled" last — `rowFn` lets the
-   education team pass its own row with management actions. */
-export function librarySectionsHtml(items, folders, { rowFn = libraryItemRow, folderMeta } = {}) {
+/* Folder sections (collapsible), "Unfiled" last, each a grid of cards —
+   `rowFn` lets the education team pass its own card with management
+   actions. */
+export function librarySectionsHtml(items, folders, { rowFn = libraryItemCard, folderMeta } = {}) {
   return groupByFolder(items, folders).map(({ id, name, items: rows }) => `
     <details class="lib-section" open>
       <summary class="lib-section-head">
@@ -247,7 +251,7 @@ export function librarySectionsHtml(items, folders, { rowFn = libraryItemRow, fo
         ${folderMeta && id ? `<span class="lib-section-dest">${esc(folderMeta(id) || "")}</span>` : ""}
         <span class="count">${rows.length}</span>
       </summary>
-      <div class="lib-section-body">${rows.map((r) => rowFn(r)).join("")}</div>
+      <div class="lib-section-body lib-grid">${rows.map((r) => rowFn(r)).join("")}</div>
     </details>`).join("");
 }
 
@@ -281,12 +285,12 @@ export function mountLibraryShelves(shelves, folders, searchInput) {
   draw();
 }
 
-/* Home-page teaser: the newest few items as compact rows, then a link
-   to the full shelf. */
+/* Home-page teaser: the newest few items as cards, then a link to the
+   full shelf. */
 export function libraryPreviewHtml(items, { emptyMsg, limit = 4, moreHref = "#resources" } = {}) {
   if (!items.length) return `<div class="empty-state">${esc(emptyMsg)}</div>`;
   const more = items.length - limit;
-  return `<div class="lib-preview">${items.slice(0, limit).map((it) => libraryItemRow(it, { compact: true })).join("")}</div>${
+  return `<div class="lib-grid">${items.slice(0, limit).map(libraryItemCard).join("")}</div>${
     more > 0 ? `<a class="shelf-more" href="${esc(moreHref)}">+${more} more — see all</a>` : ""}`;
 }
 

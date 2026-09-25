@@ -77,10 +77,21 @@ function ensureOverlay() {
         </button>
         <b class="viewer-title"></b>
         <span class="viewer-note" hidden>View only</span>
+        <button type="button" class="viewer-fs" hidden>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg><span>Full screen</span>
+        </button>
       </div>
       <div class="viewer-body"></div>
     </div>`;
   document.body.appendChild(overlay);
+  const fsBtn = overlay.querySelector(".viewer-fs");
+  fsBtn.addEventListener("click", () => {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else enterFullscreen();
+  });
+  document.addEventListener("fullscreenchange", () => {
+    fsBtn.querySelector("span").textContent = document.fullscreenElement ? "Exit full screen" : "Full screen";
+  });
   overlay.addEventListener("click", (e) => { if (e.target === overlay) closeViewer(); });
   overlay.addEventListener("contextmenu", (e) => {
     if (overlay.querySelector(".viewer-frame").dataset.locked) e.preventDefault();
@@ -92,7 +103,17 @@ function ensureOverlay() {
   return overlay;
 }
 
-function showOverlay(title, node, onClose, kind) {
+/* Real browser full screen for reading (hides the browser's own bars
+   and the taskbar). Browsers only allow it straight from a click, which
+   is why nav.js opens the viewer synchronously in its click handler. If
+   it's refused or unsupported (e.g. iPhone Safari), the full-page reader
+   is still there. */
+function enterFullscreen() {
+  if (document.fullscreenElement || !overlay?.requestFullscreen) return;
+  overlay.requestFullscreen().catch(() => {});
+}
+
+function showOverlay(title, node, onClose, kind, { fullscreen = false } = {}) {
   const el = ensureOverlay();
   onCloseCb = onClose || null;
   openSeq += 1;
@@ -111,6 +132,8 @@ function showOverlay(title, node, onClose, kind) {
   }
   el.classList.add("is-open");
   document.body.classList.add("viewer-locked");
+  el.querySelector(".viewer-fs").hidden = !(fullscreen && document.fullscreenEnabled);
+  if (fullscreen) enterFullscreen();
 }
 
 /** True while a viewer session is on screen — nav.js checks this before
@@ -147,10 +170,11 @@ export function openViewer({ title, url, name, allowDownload = false }, onClose)
   let node;
   if (kind === "pdf" || kind === "text") {
     node = document.createElement("iframe");
-    // "view=Fit" (Chrome/Edge) and "zoom=page-fit" (Firefox) open a PDF
-    // with the whole page fitted to the screen.
+    // "view=FitH" (Chrome/Edge) and "zoom=page-width" (Firefox) open a
+    // PDF with the page as wide as the screen — large, readable text,
+    // scrolling down the pages — rather than shrinking a whole page to fit.
     node.src = kind === "pdf"
-      ? `${url}#view=Fit&zoom=page-fit${locked ? "&toolbar=0&navpanes=0" : ""}`
+      ? `${url}#view=FitH&zoom=page-width${locked ? "&toolbar=0&navpanes=0" : ""}`
       : url;
     node.title = title || name || "";
   } else if (kind === "office") {
@@ -183,7 +207,7 @@ export function openViewer({ title, url, name, allowDownload = false }, onClose)
     node.innerHTML = `<div class="viewer-audio-icon">&#127925;</div><b>${esc(title || name || "Audio")}</b>`;
     node.appendChild(audio);
   }
-  showOverlay(title || name, node, onClose, kind);
+  showOverlay(title || name, node, onClose, kind, { fullscreen: true });
   overlay.querySelector(".viewer-frame").dataset.locked = locked ? "1" : "";
   overlay.querySelector(".viewer-note").hidden = !locked;
   return true;
@@ -197,7 +221,7 @@ export function openYouTubeViewer({ title, embedUrl }, onClose) {
   node.title = title || "";
   node.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
   node.allowFullscreen = true;
-  showOverlay(title, node, onClose, "video");
+  showOverlay(title, node, onClose, "video", { fullscreen: true });
 }
 
 /** Opens any already-embeddable URL inline (e.g. a KoboToolbox survey's
@@ -232,9 +256,11 @@ export function showBadgeCelebration({ title } = {}) {
   if (!badgeEl) {
     badgeEl = document.createElement("div");
     badgeEl.className = "badge-toast";
-    document.body.appendChild(badgeEl);
     badgeEl.addEventListener("click", () => badgeEl.classList.remove("is-open"));
   }
+  // In full screen only the reader itself is drawn, so the popup has to
+  // live inside it to be seen.
+  (document.fullscreenElement || document.body).appendChild(badgeEl);
   badgeEl.innerHTML = `
     <div class="badge-toast-card">
       <div class="badge-toast-icon">&#127942;</div>
@@ -250,6 +276,7 @@ export function showBadgeCelebration({ title } = {}) {
 
 export function closeViewer() {
   if (!overlay || !overlay.classList.contains("is-open")) return;
+  if (document.fullscreenElement === overlay) document.exitFullscreen().catch(() => {});
   overlay.classList.remove("is-open");
   document.body.classList.remove("viewer-locked");
   overlay.querySelector(".viewer-body").innerHTML = ""; // stop any video/audio playback

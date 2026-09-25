@@ -622,32 +622,29 @@ async function main() {
     const dest = AUDIENCE_PILL[audience];
     const folderOpts = foldersFor(audience);
     return `
-      <div class="lib-row" data-lib-id="${esc(it.id)}">
-        ${libraryTypeIcon(it.type)}
-        <div class="lib-main">
-          <div class="lib-title-line">
-            <b>${esc(it.title)}</b>
-            <span class="pill ${it.published ? "ok" : "warm"}">${it.published ? "Published" : "Draft"}</span>
-          </div>
-          <div class="lib-meta">
-            <span>${esc(it.subject)}</span><span>${esc(it.type || "Other")}</span><span class="lib-dest${dest.cls}">${dest.label}</span>
-          </div>
-          ${it.description ? `<p class="lib-desc">${esc(it.description)}</p>` : ""}
-          <div class="lib-row-foot">
-            ${libraryFilesHtml(it)}
-            <div class="roster-actions lib-row-actions">
-              <button type="button" data-act="publish">${it.published ? "Unpublish" : "Publish"}</button>
-              <button type="button" data-act="edit">Edit</button>
-              <button type="button" data-act="delete" class="danger">Delete</button>
-              ${folderOpts.length ? `
-                <select class="inline-select" data-act="move" aria-label="Move to folder">
-                  <option value="">Unfiled</option>
-                  ${folderOpts.map((f) => `<option value="${esc(f.id)}"${f.id === it.folderId ? " selected" : ""}>${esc(f.name)}</option>`).join("")}
-                </select>` : ""}
-            </div>
-          </div>
+      <article class="lib-card" data-lib-id="${esc(it.id)}">
+        <div class="lib-card-top">
+          ${libraryTypeIcon(it.type)}
+          <span class="pill ${it.published ? "ok" : "warm"}">${it.published ? "Published" : "Draft"}</span>
         </div>
-      </div>`;
+        <b class="lib-card-title" title="${esc(it.title)}">${esc(it.title)}</b>
+        <span class="lib-card-meta">${esc(it.subject)} · ${esc(it.type || "Other")}</span>
+        <span class="lib-dest${dest.cls}">${dest.label}</span>
+        ${it.description ? `<p class="lib-card-desc">${esc(it.description)}</p>` : ""}
+        <div class="lib-card-foot">
+          ${libraryFilesHtml(it)}
+          <div class="lib-card-actions">
+            <button type="button" data-act="publish">${it.published ? "Unpublish" : "Publish"}</button>
+            <button type="button" data-act="edit">Edit</button>
+            <button type="button" data-act="delete" class="danger">Delete</button>
+          </div>
+          ${folderOpts.length ? `
+            <select class="inline-select lib-card-move" data-act="move" aria-label="Move to folder">
+              <option value="">Unfiled</option>
+              ${folderOpts.map((f) => `<option value="${esc(f.id)}"${f.id === it.folderId ? " selected" : ""}>${esc(f.name)}</option>`).join("")}
+            </select>` : ""}
+        </div>
+      </article>`;
   }
 
   $("#libraryList").addEventListener("click", async (e) => {

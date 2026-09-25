@@ -56,6 +56,26 @@ function scheduleBadgeCheck(itemId, title) {
    literal measurement of reading time. */
 const pendingInteractions = [];
 
+/* Opens the viewer right away, still inside the click — browsers only
+   allow full screen from a click, and it feels instant — then records
+   the visit in the background. If the viewer is closed before the
+   record comes back, it's completed as soon as it does. */
+function openTracked(itemId, title, open) {
+  let interactionId = null;
+  let closed = false;
+  open(() => {
+    closed = true;
+    if (interactionId) completeLibraryInteraction(interactionId).catch(() => {});
+  });
+  scheduleBadgeCheck(itemId, title);
+  startLibraryInteraction(itemId)
+    .then((interaction) => {
+      interactionId = interaction?.id || null;
+      if (closed && interactionId) completeLibraryInteraction(interactionId).catch(() => {});
+    })
+    .catch(() => {}); // tracking must never get in the way of reading
+}
+
 document.addEventListener("click", (e) => {
   const link = e.target.closest("[data-track-item]");
   if (!link) return;
@@ -66,16 +86,7 @@ document.addEventListener("click", (e) => {
   if (ytEmbed) {
     e.preventDefault();
     const title = link.dataset.itemTitle || "";
-    startLibraryInteraction(itemId)
-      .then((interaction) => {
-        const id = interaction?.id;
-        openYouTubeViewer(
-          { title, embedUrl: ytEmbed },
-          () => { if (id) completeLibraryInteraction(id).catch(() => {}); },
-        );
-        scheduleBadgeCheck(itemId, title);
-      })
-      .catch(() => window.open(link.href, "_blank", "noopener"));
+    openTracked(itemId, title, (onClose) => openYouTubeViewer({ title, embedUrl: ytEmbed }, onClose));
     return;
   }
 
@@ -101,20 +112,25 @@ document.addEventListener("click", (e) => {
       }
       return;
     }
-    const open = (onClose) => openViewer({ title, url: viewUrl, name: fileName, allowDownload: canDownload }, onClose);
-    startLibraryInteraction(itemId)
-      .then((interaction) => {
-        const id = interaction?.id;
-        open(() => { if (id) completeLibraryInteraction(id).catch(() => {}); });
-        scheduleBadgeCheck(itemId, title);
-      })
-      .catch(() => open()); // tracking failed — still let them read it
+    openTracked(itemId, title, (onClose) =>
+      openViewer({ title, url: viewUrl, name: fileName, allowDownload: canDownload }, onClose));
     return;
   }
 
   startLibraryInteraction(itemId)
     .then((interaction) => { if (interaction) pendingInteractions.push(interaction.id); })
     .catch(() => {}); // tracking must never block or break the actual link
+});
+
+/* A library card (store.js libraryItemCard) is clickable as a whole —
+   anywhere on the box that isn't already a button, link or control
+   opens it, exactly as its own View / Open button would. */
+document.addEventListener("click", (e) => {
+  const card = e.target.closest("[data-open-card]");
+  if (!card) return;
+  const control = e.target.closest("a, button, select, input, summary, .lib-folder");
+  if (control && card.contains(control)) return;
+  card.querySelector(".lib-open")?.click();
 });
 
 document.addEventListener("visibilitychange", () => {
