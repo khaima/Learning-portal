@@ -1,9 +1,9 @@
 import "./nav.js";
-import { $, $$, esc, initials, formatDuration, groupByType, groupByFolder, skeleton, emptyState, errorState, friendlyError, toast } from "./util.js";
+import { $, $$, esc, initials, formatDuration, skeleton, emptyState, errorState, friendlyError, toast } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
-import { LEARNER_CONTENT, SUBJECT_ICON_PATHS, normalizeLibraryAudience, CONTENT_TYPES } from "./data.js";
+import { LEARNER_CONTENT, SUBJECT_ICON_PATHS, normalizeLibraryAudience } from "./data.js";
 import {
-  getLibrary, getLibraryFolders, libraryFilesHtml, getAssignments, markAssignmentDone, getMyLibraryUsage,
+  getLibrary, getLibraryFolders, libraryFilesHtml, mountLibraryShelves, libraryPreviewHtml, getAssignments, markAssignmentDone, getMyLibraryUsage,
 } from "./store.js";
 
 const CIRCUMFERENCE = 2 * Math.PI * 34;
@@ -187,31 +187,13 @@ async function main() {
       return;
     }
     const forLearners = library.filter((l) => normalizeLibraryAudience(l.audience) === "library");
-    const card = (l) => `
-        <div class="lib-item">
-          <span class="li-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${SUBJECT_ICON_PATHS[l.subject] || ""}</svg></span>
-          <b>${esc(l.title)}</b><span>${esc(l.subject)}</span>
-          ${libraryFilesHtml(l)}
-        </div>`;
-    const byType = (items) => groupByType(items, CONTENT_TYPES).map(({ type, items: t }) => `
-        <div class="list-group">
-          <div class="list-group-title">${esc(type)}<span class="count">${t.length}</span></div>
-          <div class="lib-strip">${t.map(card).join("")}</div>
-        </div>`).join("");
-
-    // Organizational folders (the education team's own groupings) come
-    // first; each folder's items still sub-group by type underneath.
-    $("#libraryStrip").innerHTML = forLearners.length
-      ? groupByFolder(forLearners, folders).map(({ name, items }) => `
-        <div class="folder-group">
-          <div class="folder-group-title">${esc(name)}<span class="count">${items.length}</span></div>
-          ${byType(items)}
-        </div>`).join("")
-      : `<div class="empty-state">Nothing in the library yet.</div>`;
-
-    $("#homeResources").innerHTML = forLearners.length
-      ? `<div class="lib-strip">${forLearners.slice(0, HOME_TEASER_LIMIT).map(card).join("")}</div>`
-      : `<div class="empty-state">Nothing in the library yet.</div>`;
+    // Same shelf layout as every other dashboard — see "library shelves" in store.js.
+    mountLibraryShelves([
+      { el: $("#libraryStrip"), countEl: $("#libraryCount"), items: forLearners, emptyMsg: "Nothing in the library yet." },
+    ], folders, $("#shelfSearch"));
+    $("#homeResources").innerHTML = libraryPreviewHtml(forLearners, {
+      emptyMsg: "Nothing in the library yet.", limit: HOME_TEASER_LIMIT,
+    });
   }
 
   function renderActivity(usage, onRetry) {

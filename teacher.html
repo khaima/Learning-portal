@@ -148,13 +148,18 @@
       </section>
 
       <section class="dash-page" data-page="resources" hidden>
-        <div class="panel">
-          <div class="panel-head"><h2>Digital Library</h2></div>
-          <div id="libraryList"></div>
+        <div class="shelf-toolbar">
+          <input type="search" id="shelfSearch" placeholder="Search resources by title, subject or type…" aria-label="Search resources">
         </div>
         <div class="panel">
-          <div class="panel-head"><h2>Teacher Resources</h2></div>
+          <div class="panel-head"><h2>Teacher Resources</h2><span class="shelf-count" id="teacherResourceCount"></span></div>
+          <p class="shelf-sub">For teachers and the head of institution — learners never see these.</p>
           <div id="teacherResourceList"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Digital Library</h2><span class="shelf-count" id="libraryCount"></span></div>
+          <p class="shelf-sub">Learner-facing content — your learners see this shelf too.</p>
+          <div id="libraryList"></div>
         </div>
       </section>
 

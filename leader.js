@@ -1,9 +1,9 @@
 import "./nav.js";
-import { $, $$, esc, initials, formatDuration, groupByType, groupByFolder, skeleton, emptyState, errorState, friendlyError, toast } from "./util.js";
+import { $, $$, esc, initials, formatDuration, skeleton, emptyState, errorState, friendlyError, toast } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
-import { normalizeLibraryAudience, CONTENT_TYPES } from "./data.js";
+import { normalizeLibraryAudience } from "./data.js";
 import {
-  getForms, getResponses, addResponse, getLibrary, getLibraryFolders, libraryFilesHtml, getMyLibraryUsage,
+  getForms, getResponses, addResponse, getLibrary, getLibraryFolders, mountLibraryShelves, libraryPreviewHtml, getMyLibraryUsage,
   getSchoolOverview,
 } from "./store.js";
 
@@ -292,36 +292,15 @@ async function main() {
       $("#leadershipResources").innerHTML = msg;
       return;
     }
-    const row = (l) => `
-      <div class="task-row"><div><b>${esc(l.title)}</b><span>${esc(l.subject)}${
-        l.description ? " — " + esc(l.description) : ""}</span>${libraryFilesHtml(l)}</div></div>`;
-    const byType = (list) => groupByType(list, CONTENT_TYPES).map(({ type, items }) => `
-      <div class="list-group">
-        <div class="list-group-title">${esc(type)}<span class="count">${items.length}</span></div>
-        ${items.map(row).join("")}
-      </div>`).join("");
-    // Organizational folders (the education team's own groupings) come
-    // first; each folder's items still sub-group by type underneath.
-    const shelf = (list) => groupByFolder(list, folders).map(({ name, items }) => `
-      <div class="folder-group">
-        <div class="folder-group-title">${esc(name)}<span class="count">${items.length}</span></div>
-        ${byType(items)}
-      </div>`).join("");
     const resources = library.filter((l) => normalizeLibraryAudience(l.audience) === "staff");
     const shared = library.filter((l) => normalizeLibraryAudience(l.audience) === "library");
     const headOnly = library.filter((l) => normalizeLibraryAudience(l.audience) === "school_leader");
-    $("#resourceList").innerHTML = resources.length
-      ? shelf(resources)
-      : `<div class="empty-state">No teacher resources uploaded yet.</div>`;
-    $("#libraryList").innerHTML = shared.length
-      ? shelf(shared)
-      : `<div class="empty-state">Nothing in the library yet.</div>`;
-    $("#headOnlyList").innerHTML = headOnly.length
-      ? shelf(headOnly)
-      : `<div class="empty-state">Nothing addressed to school heads yet.</div>`;
-    $("#leadershipResources").innerHTML = headOnly.length
-      ? headOnly.slice(0, 5).map(row).join("") + (headOnly.length > 5 ? `<p class="hint" style="margin-top:.4rem">+${headOnly.length - 5} more — view all.</p>` : "")
-      : `<div class="empty-state">Nothing addressed to school heads yet.</div>`;
+    mountLibraryShelves([
+      { el: $("#headOnlyList"), countEl: $("#headOnlyCount"), items: headOnly, emptyMsg: "Nothing addressed to school heads yet." },
+      { el: $("#resourceList"), countEl: $("#resourceCount"), items: resources, emptyMsg: "No teacher resources uploaded yet." },
+      { el: $("#libraryList"), countEl: $("#libraryCount"), items: shared, emptyMsg: "Nothing in the library yet." },
+    ], folders, $("#shelfSearch"));
+    $("#leadershipResources").innerHTML = libraryPreviewHtml(headOnly, { emptyMsg: "Nothing addressed to school heads yet." });
   }
   renderLibraryShelves();
 

@@ -459,11 +459,6 @@ a{ color:inherit; }
 .learn-card .lc-next{ margin-top:.7rem; padding-top:.7rem; border-top:1px dashed var(--line); font-size:.78rem; color:var(--ink-soft); }
 .learn-card .lc-next b{ display:inline; font-size:.78rem; color:var(--ink); }
 
-.lib-strip{ display:flex; gap:.9rem; overflow-x:auto; padding-bottom:.3rem; }
-.lib-item{ flex:none; width:11.5rem; background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius-md); padding:.85rem .9rem; }
-.lib-item .li-icon{ width:32px; height:32px; border-radius:9px; background:var(--accent-soft); color:var(--accent-fg); display:flex; align-items:center; justify-content:center; margin-bottom:.55rem; }
-.lib-item b{ font-size:.83rem; display:block; margin-bottom:.15rem; }
-.lib-item span{ font-size:.74rem; color:var(--ink-soft); }
 
 .empty-state{ text-align:center; padding:2rem 1rem; color:var(--ink-soft); font-size:.88rem; }
 .empty-state b{ display:block; color:var(--ink); font-size:.92rem; margin-bottom:.25rem; }
@@ -686,6 +681,46 @@ a{ color:inherit; }
 .lib-row-foot .lib-folder{ flex-basis:100%; }
 .lib-row-actions{ margin-top:.4rem; margin-left:auto; }
 .lib-panel .lib-edit-row{ margin:.6rem 0; }
+
+/* ---- the same library, on every other dashboard (store.js "library
+   shelves"): one search bar over a Resources page's shelves, each shelf
+   titled with its item count and a one-line "who sees this" note, and
+   compact rows for the Home-page previews. */
+.shelf-toolbar{ margin-bottom:1rem; }
+.shelf-toolbar input{
+  width:100%; box-sizing:border-box; padding:.75rem 1rem .75rem 2.5rem;
+  border:1.5px solid var(--line); border-radius:999px; font:inherit; font-size:.9rem;
+  color:var(--ink); background:var(--paper-raised)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238a8f9c' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E")
+    no-repeat 1rem center;
+}
+.shelf-toolbar input:focus{ border-color:var(--brand); outline:none; }
+.shelf-count{
+  font-size:.74rem; font-weight:600; color:var(--ink-soft);
+  background:var(--paper-sunk); border-radius:999px; padding:.18rem .65rem;
+}
+.shelf-count:empty{ display:none; }
+.shelf-sub{ margin:-.35rem 0 .9rem; font-size:.8rem; color:var(--ink-soft); }
+.lib-preview .lib-row{ padding:.65rem 0; }
+.lib-row.compact{ gap:.7rem; align-items:center; }
+.lib-row.compact .lib-ic{ width:2rem; height:2rem; border-radius:.6rem; }
+.lib-row.compact .lib-ic .icon{ width:16px; height:16px; }
+.lib-row.compact .lib-main{ display:grid; grid-template-columns:minmax(0,1fr) auto; column-gap:.8rem; align-items:center; }
+.lib-row.compact .lib-title-line,
+.lib-row.compact .lib-meta{ grid-column:1; }
+.lib-row.compact .lib-title-line b{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block; }
+.lib-row.compact .lib-row-foot{ grid-column:2; grid-row:1 / span 2; }
+.lib-row.compact .lib-open,
+.lib-row.compact .lib-download{ margin-top:0; }
+.shelf-more{
+  display:inline-block; margin-top:.6rem; font-size:.8rem; font-weight:600; color:var(--brand); text-decoration:none;
+}
+.shelf-more:hover{ text-decoration:underline; }
+@media (max-width:480px){
+  .lib-row.compact .lib-main{ grid-template-columns:1fr; }
+  .lib-row.compact .lib-row-foot{ grid-column:1; grid-row:auto; }
+  .lib-row.compact .lib-open{ margin-top:.35rem; }
+}
 @media (max-width:768px){
   .lib-row-actions{ margin-left:0; flex:1 1 100%; }
 }
@@ -933,44 +968,6 @@ body.viewer-locked{ overflow:hidden; }
   font-family:"Work Sans",sans-serif; font-weight:600; font-size:.72rem; color:var(--ink-soft);
   background:var(--paper-sunk); border-radius:999px; padding:.1rem .55rem;
 }
-
-/* ---- content library organizational folders (library_folders) — a
-   named grouping the education team creates to separate content, one
-   level above the existing by-type .list-group sections. Wraps them,
-   doesn't replace them: each folder's items still sub-group by type. */
-.folder-group{ margin-top:1.7rem; }
-.folder-group:first-child{ margin-top:.6rem; }
-.folder-group-title{
-  display:flex; align-items:center; gap:.4rem; font-family:"Baloo 2",sans-serif;
-  font-weight:700; font-size:.95rem; color:var(--ink);
-}
-.folder-group-title .icon{ width:15px; height:15px; color:var(--brand); flex:none; }
-.folder-group-title .count{
-  font-family:"Work Sans",sans-serif; font-weight:600; font-size:.72rem; color:var(--ink-soft);
-  background:var(--paper-sunk); border-radius:999px; padding:.1rem .55rem;
-}
-.folder-group .list-group{ margin-top:.7rem; padding-left:.2rem; border-left:2px solid var(--line); }
-.folder-group .list-group:first-child{ margin-top:.7rem; }
-
-/* Content Library management (education.js) renders these groups as
-   <details>/<summary> instead of plain <div>s — collapsible, so a long
-   library stays scannable — while every other dashboard keeps the same
-   classes on plain <div>s (unaffected, since these rules only match a
-   real <summary>). Open by default; a small chevron shows state. */
-details > summary.folder-group-title,
-details > summary.list-group-title{
-  cursor:pointer; list-style:none; user-select:none;
-}
-details > summary.folder-group-title::-webkit-details-marker,
-details > summary.list-group-title::-webkit-details-marker{ display:none; }
-details > summary.folder-group-title::before,
-details > summary.list-group-title::before{
-  content:""; flex:none; width:0; height:0; margin-right:.15rem;
-  border-left:5px solid var(--ink-soft); border-top:4px solid transparent; border-bottom:4px solid transparent;
-  transition:transform .15s ease;
-}
-details[open] > summary.folder-group-title::before,
-details[open] > summary.list-group-title::before{ transform:rotate(90deg); }
 
 /* ---- inline "edit this item" row (Content Library) — expands a normal
    .task-row into a compact editor in place, so fixing a wrong subject or

@@ -1,5 +1,5 @@
 import "./nav.js";
-import { $, $$, esc, initials, toast, formatDuration, groupByFolder, skeleton, errorState, friendlyError, confirmDialog } from "./util.js";
+import { $, $$, esc, initials, toast, formatDuration, skeleton, errorState, friendlyError, confirmDialog } from "./util.js";
 import { requireRole, signOut, sendPasswordResetLink } from "./auth.js";
 import {
   CONTENT_TYPES, LIBRARY_SUBJECTS, LIBRARY_AUDIENCES, FORM_AUDIENCES, QUESTION_TYPES, ROLES,
@@ -7,7 +7,7 @@ import {
 } from "./data.js";
 import {
   getLibrary, addLibraryItem, setLibraryPublished, deleteLibraryItem, updateLibraryItem, getForms, addForm, getResponses, getStats,
-  uploadLibraryFiles, libraryFilesHtml, getLibraryUsage,
+  uploadLibraryFiles, libraryFilesHtml, libraryTypeIcon, librarySectionsHtml, getLibraryUsage,
   getLibraryFolders, createLibraryFolder, deleteLibraryFolder, setLibraryFolder,
   koboConfig, saveKoboConfig, koboAssets, koboAssetPreview, koboForms, attachKoboForm,
   removeKoboForm, syncKobo, koboResults,
@@ -616,15 +616,6 @@ async function main() {
      assigns or clears which folder the item sits in. Editing updates
      this SAME row — never a new one, so the published state and every
      other dashboard's copy stay put. */
-  const TYPE_ICON = {
-    Video: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="m10 9 5 3-5 3V9Z"/>',
-    Worksheet: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/>',
-    Reading: ICON.library,
-    "Lesson plan": '<rect x="4" y="5" width="16" height="16" rx="2"/><path d="M8 3v4M16 3v4M4 10h16"/>',
-    Assessment: '<path d="m9 11 3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/>',
-  };
-  const FOLDER_ICON = '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>';
-
   function libraryRow(it) {
     if (it.id === editingItemId) return editRow(it);
     const audience = normalizeLibraryAudience(it.audience);
@@ -632,7 +623,7 @@ async function main() {
     const folderOpts = foldersFor(audience);
     return `
       <div class="lib-row" data-lib-id="${esc(it.id)}">
-        <span class="lib-ic" data-type="${esc(it.type || "")}">${svg(TYPE_ICON[it.type] || ICON.library)}</span>
+        ${libraryTypeIcon(it.type)}
         <div class="lib-main">
           <div class="lib-title-line">
             <b>${esc(it.title)}</b>
@@ -796,19 +787,10 @@ async function main() {
     }
 
     const folderById = new Map(allFolders.map((f) => [f.id, f]));
-    $("#libraryList").innerHTML = groupByFolder(shown, allFolders).map(({ id, name, items: rows }) => {
-      const folder = id ? folderById.get(id) : null;
-      return `
-        <details class="lib-section" open>
-          <summary class="lib-section-head">
-            <span class="lib-section-ic">${svg(FOLDER_ICON)}</span>
-            <span class="lib-section-name">${esc(name)}</span>
-            ${folder ? `<span class="lib-section-dest">${esc(AUDIENCE_PILL[folder.audience]?.label || "")}</span>` : ""}
-            <span class="count">${rows.length}</span>
-          </summary>
-          <div class="lib-section-body">${rows.map(libraryRow).join("")}</div>
-        </details>`;
-    }).join("");
+    $("#libraryList").innerHTML = librarySectionsHtml(shown, allFolders, {
+      rowFn: libraryRow,
+      folderMeta: (id) => AUDIENCE_PILL[folderById.get(id)?.audience]?.label,
+    });
   }
 
   $("#libFilterDest").innerHTML = `<option value="">All destinations</option>${

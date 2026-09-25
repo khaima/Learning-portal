@@ -1,9 +1,9 @@
 import "./nav.js";
-import { $, $$, esc, initials, toast, formatDuration, groupByType, groupByFolder, skeleton, emptyState, errorState, friendlyError } from "./util.js";
+import { $, $$, esc, initials, toast, formatDuration, skeleton, emptyState, errorState, friendlyError } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
-import { TEACHER_CONTENT, normalizeLibraryAudience, CONTENT_TYPES } from "./data.js";
+import { TEACHER_CONTENT, normalizeLibraryAudience } from "./data.js";
 import {
-  getLibrary, getLibraryFolders, getForms, getResponses, addResponse, libraryFilesHtml,
+  getLibrary, getLibraryFolders, getForms, getResponses, addResponse, mountLibraryShelves, libraryPreviewHtml,
   getLearners, addLearner, updateLearner, deleteLearner, getMyLibraryUsage, getLearnerActivity,
   setAssignmentDone, getTeacherAssignments,
 } from "./store.js";
@@ -535,7 +535,8 @@ async function main() {
      Teacher Resources go to teachers and the head of institution only —
      never the Learner dashboard; the Digital Library is the learner-facing
      shelf, which teachers and heads can see too. Home gets a short preview
-     of each with a link to the full folder-grouped view here. */
+     of each with a link to the full folder-grouped view here (shared
+     layout — see "library shelves" in store.js). */
   $("#teacherResourceList").innerHTML = skeleton(3);
   $("#libraryList").innerHTML = skeleton(3);
   $("#homeTeacherResources").innerHTML = skeleton(2, { avatar: false });
@@ -553,33 +554,14 @@ async function main() {
       $("#homeLibrary").innerHTML = msg;
       return;
     }
-    const row = (l) => `
-        <div class="task-row"><div><b>${esc(l.title)}</b><span>${esc(l.subject)}${l.description ? " — " + esc(l.description) : ""}</span>${libraryFilesHtml(l)}</div></div>`;
-    const byType = (list) => groupByType(list, CONTENT_TYPES).map(({ type, items }) => `
-      <div class="list-group">
-        <div class="list-group-title">${esc(type)}<span class="count">${items.length}</span></div>
-        ${items.map(row).join("")}
-      </div>`).join("");
-    // Organizational folders (the education team's own groupings) come
-    // first; each folder's items still sub-group by type underneath.
-    const shelf = (list) => groupByFolder(list, folders).map(({ name, items }) => `
-      <div class="folder-group">
-        <div class="folder-group-title">${esc(name)}<span class="count">${items.length}</span></div>
-        ${byType(items)}
-      </div>`).join("");
-    const preview = (list, emptyMsg) => list.length
-      ? list.slice(0, 5).map(row).join("") + (list.length > 5 ? `<p class="hint" style="margin-top:.4rem">+${list.length - 5} more — view all.</p>` : "")
-      : `<div class="empty-state">${emptyMsg}</div>`;
     const resources = library.filter((l) => normalizeLibraryAudience(l.audience) === "staff");
     const shared = library.filter((l) => normalizeLibraryAudience(l.audience) === "library");
-    $("#teacherResourceList").innerHTML = resources.length
-      ? shelf(resources)
-      : `<div class="empty-state">No teacher resources uploaded yet.</div>`;
-    $("#libraryList").innerHTML = shared.length
-      ? shelf(shared)
-      : `<div class="empty-state">Nothing in the library yet.</div>`;
-    $("#homeTeacherResources").innerHTML = preview(resources, "No teacher resources uploaded yet.");
-    $("#homeLibrary").innerHTML = preview(shared, "Nothing in the library yet.");
+    mountLibraryShelves([
+      { el: $("#teacherResourceList"), countEl: $("#teacherResourceCount"), items: resources, emptyMsg: "No teacher resources uploaded yet." },
+      { el: $("#libraryList"), countEl: $("#libraryCount"), items: shared, emptyMsg: "Nothing in the library yet." },
+    ], folders, $("#shelfSearch"));
+    $("#homeTeacherResources").innerHTML = libraryPreviewHtml(resources, { emptyMsg: "No teacher resources uploaded yet." });
+    $("#homeLibrary").innerHTML = libraryPreviewHtml(shared, { emptyMsg: "Nothing in the library yet." });
   }
   renderLibraryShelves();
 

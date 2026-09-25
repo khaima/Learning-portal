@@ -7,7 +7,7 @@
    on each file.
    ============================================================ */
 
-import { esc } from "./util.js";
+import { esc, groupByFolder } from "./util.js";
 import { supabase } from "./supabase.js";
 import { apiGet, apiSend } from "./api.js";
 import { youTubeEmbedUrl } from "./viewer.js";
@@ -199,6 +199,95 @@ export function libraryFilesHtml(item) {
     <summary><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>
     ${files.length} files${item.fileSize ? ` <span class="lib-size">${esc(formatBytes(item.fileSize))}</span>` : ""}</summary>
     <ul>${rows}</ul></details>`;
+}
+
+/* ------------------------------------------------------------ library shelves
+   One look for the library everywhere: the Education Team's Content
+   Library and every other dashboard's Teacher Resources / Digital
+   Library / For School Head shelves share the same folder sections and
+   the same item row (type icon, title, subject · type, description,
+   View). The education team's row adds management actions on top. */
+const svgIcon = (paths) => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${paths}</svg>`;
+const BOOK_ICON = '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/>';
+const TYPE_ICON = {
+  Video: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="m10 9 5 3-5 3V9Z"/>',
+  Worksheet: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/>',
+  Reading: BOOK_ICON,
+  "Lesson plan": '<rect x="4" y="5" width="16" height="16" rx="2"/><path d="M8 3v4M16 3v4M4 10h16"/>',
+  Assessment: '<path d="m9 11 3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/>',
+};
+export const FOLDER_ICON_SVG = svgIcon('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>');
+
+export function libraryTypeIcon(type) {
+  return `<span class="lib-ic" data-type="${esc(type || "")}">${svgIcon(TYPE_ICON[type] || BOOK_ICON)}</span>`;
+}
+
+/* Read-only row, for everyone who uses the library rather than manages it. */
+export function libraryItemRow(it, { compact = false } = {}) {
+  return `
+    <div class="lib-row${compact ? " compact" : ""}">
+      ${libraryTypeIcon(it.type)}
+      <div class="lib-main">
+        <div class="lib-title-line"><b>${esc(it.title)}</b></div>
+        <div class="lib-meta"><span>${esc(it.subject)}</span><span>${esc(it.type || "Other")}</span></div>
+        ${it.description && !compact ? `<p class="lib-desc">${esc(it.description)}</p>` : ""}
+        <div class="lib-row-foot">${libraryFilesHtml(it)}</div>
+      </div>
+    </div>`;
+}
+
+/* Folder sections (collapsible), "Unfiled" last — `rowFn` lets the
+   education team pass its own row with management actions. */
+export function librarySectionsHtml(items, folders, { rowFn = libraryItemRow, folderMeta } = {}) {
+  return groupByFolder(items, folders).map(({ id, name, items: rows }) => `
+    <details class="lib-section" open>
+      <summary class="lib-section-head">
+        <span class="lib-section-ic">${FOLDER_ICON_SVG}</span>
+        <span class="lib-section-name">${esc(name)}</span>
+        ${folderMeta && id ? `<span class="lib-section-dest">${esc(folderMeta(id) || "")}</span>` : ""}
+        <span class="count">${rows.length}</span>
+      </summary>
+      <div class="lib-section-body">${rows.map((r) => rowFn(r)).join("")}</div>
+    </details>`).join("");
+}
+
+/* A Resources page: every shelf on it plus one search box that filters
+   all of them together. Safe to call again (e.g. from a retry) — the
+   search box keeps a single listener that always redraws the latest
+   shelves. `shelves`: [{ el, countEl?, items, emptyMsg }]. */
+export function mountLibraryShelves(shelves, folders, searchInput) {
+  const draw = () => {
+    const q = (searchInput?.value || "").trim().toLowerCase();
+    for (const s of shelves) {
+      const shown = q
+        ? s.items.filter((it) => [it.title, it.subject, it.type, it.description]
+            .some((v) => (v || "").toLowerCase().includes(q)))
+        : s.items;
+      if (s.countEl) s.countEl.textContent = s.items.length ? `${s.items.length} item${s.items.length === 1 ? "" : "s"}` : "";
+      s.el.innerHTML = !s.items.length
+        ? `<div class="empty-state">${esc(s.emptyMsg)}</div>`
+        : shown.length
+          ? librarySectionsHtml(shown, folders)
+          : `<div class="empty-state">Nothing here matches “${esc(q)}”.</div>`;
+    }
+  };
+  if (searchInput) {
+    searchInput._drawShelves = draw;
+    if (!searchInput._shelfListener) {
+      searchInput._shelfListener = true;
+      searchInput.addEventListener("input", () => searchInput._drawShelves());
+    }
+  }
+  draw();
+}
+
+/* Home-page teaser: the newest few items as compact rows, then a link
+   to the full shelf. */
+export function libraryPreviewHtml(items, { emptyMsg, limit = 4, moreHref = "#resources" } = {}) {
+  if (!items.length) return `<div class="empty-state">${esc(emptyMsg)}</div>`;
+  const more = items.length - limit;
+  return `<div class="lib-preview">${items.slice(0, limit).map((it) => libraryItemRow(it, { compact: true })).join("")}</div>${
+    more > 0 ? `<a class="shelf-more" href="${esc(moreHref)}">+${more} more — see all</a>` : ""}`;
 }
 
 /* ------------------------------------------------------------ content-library usage
