@@ -1792,9 +1792,28 @@ app.get("/field-reports", withProfile(), async (c) => {
   return c.json({ reports: (data ?? []).map(mapReport) });
 });
 
+/* The visit's id from the device (made when the visit starts), so sending
+   the same visit twice — a retry after the connection dropped mid-submit,
+   or the offline queue — returns the visit already saved instead of
+   filing a duplicate. */
+const CLIENT_REF_RE = /^[A-Za-z0-9_-]{8,64}$/;
+async function findVisitByClientRef(clientRef: string) {
+  const { data } = await admin.from("field_reports").select("*").eq("client_ref", clientRef).maybeSingle();
+  return data;
+}
+
 app.post("/field-reports", withProfile("field_officer"), async (c) => {
   const b = await c.req.json().catch(() => ({}));
   const actor = c.get("actor");
+  const clientRef = b.clientRef ? String(b.clientRef) : null;
+  if (clientRef && !CLIENT_REF_RE.test(clientRef)) return c.json({ error: "Invalid visit reference" }, 400);
+  if (clientRef) {
+    const existing = await findVisitByClientRef(clientRef);
+    if (existing) {
+      if (existing.officer_id !== actor.id) return c.json({ error: "Invalid visit reference" }, 409);
+      return c.json({ report: mapReport(existing), alreadySaved: true });
+    }
+  }
   const school = await loadSchool(b.schoolId);
   if (!school || !b.visitType) {
     return c.json({ error: "County, school and visit type are all required" }, 400);
@@ -1834,10 +1853,18 @@ app.post("/field-reports", withProfile("field_officer"), async (c) => {
       school: school.name,
       county: school.county,
       visit_type: b.visitType,
+      client_ref: clientRef,
     })
     .select()
     .single();
-  if (error) return c.json({ error: error.message }, 400);
+  if (error) {
+    // Two copies of the same visit arrived at once: the other one won.
+    if (clientRef && isUniqueViolation(error)) {
+      const existing = await findVisitByClientRef(clientRef);
+      if (existing?.officer_id === actor.id) return c.json({ report: mapReport(existing), alreadySaved: true });
+    }
+    return c.json({ error: error.message }, 400);
+  }
 
   if (formIds.length) {
     const rows = formIds.map((id) => {

@@ -51,6 +51,14 @@
         <div class="panel">
           <!-- Stage: idle — the one obvious primary action -->
           <div id="visitIdle">
+            <!-- An unfinished visit saved on this device (field.js) -->
+            <div class="alert alert-warn" id="visitResume" hidden>
+              <div><b>Unfinished visit on this device</b><span id="visitResumeText"></span></div>
+              <div style="display:flex;gap:.5rem;margin-top:.6rem;flex-wrap:wrap">
+                <button type="button" class="btn btn-primary" id="resumeVisitBtn">Resume visit</button>
+                <button type="button" class="btn btn-ghost" id="discardVisitBtn">Discard it</button>
+              </div>
+            </div>
             <button type="button" class="btn btn-primary btn-block visit-cta" id="startVisitCta">Start School Visit</button>
             <p class="hint" style="text-align:center;margin-top:.6rem">County → school → visit type → done, in a few taps.</p>
           </div>
@@ -85,6 +93,7 @@
           <div id="visitActive" hidden>
             <div class="panel-head"><h2>Visit in progress</h2></div>
             <div class="alert alert-info" id="activeVisitSummary"></div>
+            <p class="field-hint" id="visitDraftStatus" role="status" style="margin:0 0 .8rem"></p>
             <div id="visitFormsFill"></div>
             <button type="button" class="btn btn-primary btn-block" id="completeVisitBtn">5 · Complete &amp; submit visit report</button>
             <button type="button" class="btn btn-ghost btn-block" id="cancelActiveBtn" style="margin-top:.5rem">Cancel visit</button>

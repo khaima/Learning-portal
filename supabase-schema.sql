@@ -254,6 +254,10 @@ create table if not exists public.field_reports (
   created_at timestamptz not null default now()
 );
 create index if not exists field_reports_officer_id_idx on public.field_reports (officer_id);
+-- The visit's id from the officer's device: sending the same visit twice
+-- (a retry, or the offline queue) returns the saved one, never a duplicate.
+alter table public.field_reports add column if not exists client_ref text;
+create unique index if not exists field_reports_client_ref_uidx on public.field_reports (client_ref) where client_ref is not null;
 
 -- ---------------------------------------------------------------- form kinds, targeting & visit forms
 -- A form is built in the portal (kind 'questions'), an uploaded file

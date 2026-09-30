@@ -181,11 +181,143 @@ async function main() {
     $("#visitFormsPreview").hidden = true;
     $("#visitFormsFill").innerHTML = "";
     showStage("idle");
+    showResumeOffer();
   }
+
+  /* ---- the visit draft, saved on this device ----
+     Everything filled into a visit is saved in this browser as it's
+     typed, so a dropped connection, a closed tab or a flat battery never
+     loses a visit: opening the page again offers to resume it. The draft
+     carries the visit's own id (clientRef), so sending it more than once —
+     a retry, or the automatic send when the connection comes back — files
+     one visit, never two. Browsers can't keep chosen files, so after a
+     resume the filled copies have to be picked again. */
+  const DRAFT_KEY = `hpf_visit_draft_${user.id}`;
+  const PENDING_MSG = "Not sent yet — no connection. Saved on this device; it will be sent automatically when you're back online.";
+  const loadDraft = () => { try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || "null"); } catch { return null; } };
+  const clearDraft = () => { try { localStorage.removeItem(DRAFT_KEY); } catch { /* private mode etc. */ } };
+  const newVisitRef = () => crypto.randomUUID
+    ? crypto.randomUUID()
+    : `v${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
+  const setDraftStatus = (msg) => { $("#visitDraftStatus").textContent = msg; };
+
+  function captureAnswers() {
+    const out = {};
+    $$("#visitFormsFill [data-visit-form]").forEach((box) => {
+      const q = {};
+      box.querySelectorAll("[data-q]").forEach((el) => { q[el.dataset.q] = el.value; });
+      out[box.dataset.visitForm] = {
+        q,
+        done: !!box.querySelector("[data-f-done]")?.checked,
+        file: box.querySelector("[data-f-file]")?.files?.[0]?.name || null,
+      };
+    });
+    return out;
+  }
+
+  /* Puts saved answers back; returns the names of files to pick again. A
+     form whose filled copy was chosen goes back to "not filled" until the
+     file is chosen again (or the box ticked), so it's never sent without it
+     by accident. */
+  function restoreAnswers(answers = {}) {
+    const needFiles = [];
+    $$("#visitFormsFill [data-visit-form]").forEach((box) => {
+      const a = answers[box.dataset.visitForm];
+      if (!a) return;
+      box.querySelectorAll("[data-q]").forEach((el) => {
+        if (a.q?.[el.dataset.q] != null) el.value = a.q[el.dataset.q];
+      });
+      const done = box.querySelector("[data-f-done]");
+      if (done) done.checked = !!a.done && !a.file;
+      if (a.file) needFiles.push(a.file);
+    });
+    return needFiles;
+  }
+
+  function saveDraft(extra = {}) {
+    if (!currentVisit) return;
+    const draft = {
+      ...(loadDraft() || {}), ...extra,
+      clientRef: currentVisit.clientRef, schoolId: currentVisit.schoolId, school: currentVisit.school,
+      county: currentVisit.county, visitType: currentVisit.visitType,
+      startedAt: currentVisit.startedAt.toISOString(), forms: currentVisit.forms,
+      answers: captureAnswers(), savedAt: new Date().toISOString(),
+    };
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+      setDraftStatus(draft.pending ? PENDING_MSG : "Answers are saved on this device as you go.");
+    } catch {
+      setDraftStatus("This browser can't save a draft — keep this page open until the visit is sent.");
+    }
+  }
+
+  function showResumeOffer() {
+    const d = loadDraft();
+    $("#visitResume").hidden = !d || !!currentVisit;
+    if (!d) return;
+    const started = new Date(d.startedAt);
+    $("#visitResumeText").textContent = `${d.school} · ${d.visitType} · started ${
+      started.toLocaleDateString([], { day: "numeric", month: "short" })} ${
+      started.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}${d.pending ? " · not sent yet" : ""}`;
+  }
+
+  /* Shows the "visit in progress" stage for a new or resumed visit. */
+  function openVisit(visit, answers) {
+    currentVisit = visit;
+    $("#visitResume").hidden = true;
+    $("#activeVisitSummary").innerHTML =
+      `<div><b>${esc(visit.school)}</b><br>${esc(visit.county)} · ${esc(visit.visitType)}<br>` +
+      `Started ${visit.startedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>`;
+    const fill = $("#visitFormsFill");
+    if (visit.forms.length) {
+      fill.innerHTML = `<div class="visit-forms-head"><b>Fill in the visit's forms</b><span class="count">${visit.forms.length}</span></div><div class="visit-forms-body"></div>`;
+      renderVisitForms(fill.querySelector(".visit-forms-body"), visit.forms);
+    } else {
+      fill.innerHTML = "";
+    }
+    const needFiles = answers ? restoreAnswers(answers) : [];
+    showStage("active");
+    saveDraft();
+    return needFiles;
+  }
+
+  $("#visitFormsFill").addEventListener("input", () => saveDraft());
+  $("#visitFormsFill").addEventListener("change", () => saveDraft());
+
+  $("#resumeVisitBtn").addEventListener("click", () => {
+    const d = loadDraft();
+    if (!d) { showResumeOffer(); return; }
+    const needFiles = openVisit({
+      clientRef: d.clientRef, schoolId: d.schoolId, school: d.school, county: d.county,
+      visitType: d.visitType, startedAt: new Date(d.startedAt), forms: d.forms || [],
+    }, d.answers);
+    if (needFiles.length) {
+      toast("Choose the files again", `Browsers can't keep chosen files. Pick the filled copy again for: ${needFiles.join(", ")}.`);
+    }
+  });
+  $("#discardVisitBtn").addEventListener("click", async () => {
+    const ok = await confirmDialog({
+      title: "Discard the unfinished visit?",
+      body: "What was filled in is deleted from this device. This can't be undone.",
+      confirmLabel: "Discard visit", danger: true,
+    });
+    if (!ok) return;
+    clearDraft();
+    showResumeOffer();
+  });
 
   $("#startVisitCta").addEventListener("click", () => showStage("select"));
   $("#cancelSelectBtn").addEventListener("click", resetWizard);
-  $("#cancelActiveBtn").addEventListener("click", resetWizard);
+  $("#cancelActiveBtn").addEventListener("click", async () => {
+    const ok = await confirmDialog({
+      title: "Cancel this visit?",
+      body: "What you've filled in is deleted from this device and nothing is sent.",
+      confirmLabel: "Cancel visit", cancelLabel: "Keep filling in", danger: true,
+    });
+    if (!ok) return;
+    clearDraft();
+    resetWizard();
+  });
   $("#logAnotherBtn").addEventListener("click", resetWizard);
 
   countySelect.addEventListener("change", () => {
@@ -213,63 +345,84 @@ async function main() {
   startVisitBtn.addEventListener("click", () => {
     const school = directory.schools.find((s) => s.id === schoolSelect.value);
     if (!school) return;
-    currentVisit = {
+    clearDraft(); // a new visit replaces any draft the officer chose not to resume
+    openVisit({
+      clientRef: newVisitRef(),
       schoolId: school.id, school: `${school.name} (${school.code})`, county: school.county,
       visitType: visitTypeSelect.value, startedAt: new Date(),
       forms: visitForms(visitTypeSelect.value, school.county),
-    };
-    $("#activeVisitSummary").innerHTML =
-      `<div><b>${esc(currentVisit.school)}</b><br>${esc(currentVisit.county)} · ${esc(currentVisit.visitType)}<br>` +
-      `Started ${currentVisit.startedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>`;
-    const fill = $("#visitFormsFill");
-    if (currentVisit.forms.length) {
-      fill.innerHTML = `<div class="visit-forms-head"><b>Fill in the visit's forms</b><span class="count">${currentVisit.forms.length}</span></div><div class="visit-forms-body"></div>`;
-      renderVisitForms(fill.querySelector(".visit-forms-body"), currentVisit.forms);
-    } else {
-      fill.innerHTML = "";
-    }
-    showStage("active");
+    });
   });
 
-  $("#completeVisitBtn").addEventListener("click", async (e) => {
-    if (!currentVisit) return;
-    const btn = e.currentTarget;
+  const SUBMIT_LABEL = "5 · Complete & submit visit report";
+  /* A failure caused by the connection (not a refusal from the server). */
+  const isConnectionError = (err) =>
+    !navigator.onLine || err instanceof TypeError ||
+    /failed to fetch|networkerror|load failed|network request failed/i.test(err?.message || "");
+
+  let submitting = false;
+  async function submitVisit({ auto = false } = {}) {
+    if (!currentVisit || submitting) return;
+    const btn = $("#completeVisitBtn");
     const formsBox = $("#visitFormsFill .visit-forms-body");
-    const unfilled = formsBox ? unfilledVisitForms(formsBox, currentVisit.forms) : [];
-    if (unfilled.length) {
-      const ok = await confirmDialog({
-        title: `${unfilled.length} form${unfilled.length === 1 ? "" : "s"} not filled in yet`,
-        body: `${unfilled.map((f) => f.title).join(", ")}. Submit the visit anyway? Only the filled forms are sent.`,
-        confirmLabel: "Submit anyway",
-      });
-      if (!ok) return;
+    // An automatic resend follows a submit the officer already confirmed.
+    if (!auto) {
+      const unfilled = formsBox ? unfilledVisitForms(formsBox, currentVisit.forms) : [];
+      if (unfilled.length) {
+        const ok = await confirmDialog({
+          title: `${unfilled.length} form${unfilled.length === 1 ? "" : "s"} not filled in yet`,
+          body: `${unfilled.map((f) => f.title).join(", ")}. Submit the visit anyway? Only the filled forms are sent.`,
+          confirmLabel: "Submit anyway",
+        });
+        if (!ok) return;
+      }
     }
+    submitting = true;
     btn.disabled = true;
     btn.classList.add("is-saving");
-    btn.textContent = "Saving…";
+    btn.textContent = auto ? "Back online — sending…" : "Saving…";
+    const done = () => {
+      submitting = false;
+      btn.disabled = false;
+      btn.classList.remove("is-saving");
+      btn.textContent = SUBMIT_LABEL;
+    };
     try {
       const responses = formsBox ? await collectVisitResponses(formsBox, currentVisit.forms) : [];
-      await addFieldReport({ schoolId: currentVisit.schoolId, visitType: currentVisit.visitType, responses });
+      await addFieldReport({
+        schoolId: currentVisit.schoolId, visitType: currentVisit.visitType, responses,
+        clientRef: currentVisit.clientRef,
+      });
       currentVisit.formsSent = responses.length;
     } catch (err) {
       console.error("could not save field report:", err);
-      toast("Couldn't submit this visit", friendlyError(err), "error");
-      btn.disabled = false;
-      btn.classList.remove("is-saving");
-      btn.textContent = "5 · Complete & submit visit report";
+      done();
+      if (isConnectionError(err)) {
+        saveDraft({ pending: true });
+        toast("No connection — visit saved on this device",
+          "It will be sent automatically when you're back online. You can also close the page and resume it later.", "error");
+      } else {
+        toast("Couldn't submit this visit", friendlyError(err), "error");
+      }
       return;
     }
-    btn.disabled = false;
-    btn.classList.remove("is-saving");
-    btn.textContent = "5 · Complete & submit visit report";
+    done();
+    clearDraft();
     toast("Visit report submitted successfully.", "", "success");
     $("#confirmedSummary").innerHTML =
       `<div><b>Visit report submitted</b><br>${esc(currentVisit.school)} · ${esc(currentVisit.county)} · ${esc(currentVisit.visitType)}` +
       `${currentVisit.forms.length ? `<br>${currentVisit.formsSent} of ${currentVisit.forms.length} form${currentVisit.forms.length === 1 ? "" : "s"} sent` : ""}</div>`;
     $("#visitFormsFill").innerHTML = "";
+    setDraftStatus("");
     currentVisit = null;
     showStage("confirmed");
     refreshReports();
+  }
+
+  $("#completeVisitBtn").addEventListener("click", () => submitVisit());
+  // A visit that couldn't be sent goes out by itself when the connection returns.
+  window.addEventListener("online", () => {
+    if (currentVisit && loadDraft()?.pending) submitVisit({ auto: true });
   });
 
   resetWizard();

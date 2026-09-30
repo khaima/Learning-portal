@@ -446,8 +446,10 @@ export async function getFieldReports() {
 
 /* `responses`: the visit's forms as filled in during it —
    [{ formId, answers?, files? }] — saved together with the report. */
-export async function addFieldReport({ schoolId, visitType, responses = [] }) {
-  const { report } = await apiSend("POST", "/field-reports", { schoolId, visitType, responses });
+/* `clientRef` is the visit's own id from this device: sending the same
+   visit again returns the saved one instead of a duplicate. */
+export async function addFieldReport({ schoolId, visitType, responses = [], clientRef }) {
+  const { report } = await apiSend("POST", "/field-reports", { schoolId, visitType, responses, clientRef });
   return report;
 }
 
