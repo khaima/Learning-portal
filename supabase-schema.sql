@@ -225,8 +225,11 @@ create table if not exists public.learner_sessions (
   token text primary key,
   learner_id uuid not null references public.learners(id) on delete cascade,
   created_at timestamptz not null default now(),
-  expires_at timestamptz not null default (now() + interval '30 days')
+  expires_at timestamptz not null default (now() + interval '12 hours')
 );
+-- Shared school devices: one school day, not 30 days (the API also
+-- enforces this from created_at).
+alter table public.learner_sessions alter column expires_at set default (now() + interval '12 hours');
 create index if not exists learner_sessions_learner_id_idx on public.learner_sessions (learner_id);
 
 -- ---------------------------------------------------------------- learner assignments

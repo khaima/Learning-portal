@@ -28,7 +28,7 @@ function clearLastStaffLogin() {
   try { localStorage.removeItem(LAST_STAFF_KEY); } catch { /* ignore */ }
 }
 /* Ask the browser's own password manager to remember this login — what
-   actually makes it autofill email+password (or username+PIN) next time
+   actually makes it autofill email+password next time (staff only)
    instead of retyping it, on top of the "remember me" session/prefill
    above. Chrome/Edge support the Credential Management API used here;
    Safari/Firefox just don't have `PasswordCredential` and this quietly
@@ -250,9 +250,10 @@ learnerForm.addEventListener("submit", async (e) => {
     $("#ln_pin").value = "";
     return;
   }
+  // Learners share school devices, so their PIN is never offered to the
+  // browser's password manager — only the username is remembered.
   if (remember) {
     saveLastLearnerUsername(username);
-    await offerToSaveCredential(username, $("#ln_pin").value);
   } else {
     clearLastLearnerUsername();
   }

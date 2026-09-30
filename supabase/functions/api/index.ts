@@ -41,7 +41,9 @@ type Role = (typeof ALL_ROLES)[number];
 
 const LIBRARY_BUCKET = "library";
 const DOWNLOAD_TTL = 60 * 60; // 1 h signed download URLs
-const LEARNER_SESSION_TTL_DAYS = 30;
+// Learners mostly sign in on shared school devices — keep a session to
+// one school day rather than letting the next child inherit it.
+const LEARNER_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const PIN_MAX_ATTEMPTS = 5;
 const PIN_LOCK_MINUTES = 15;
 const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{2,31}$/;
@@ -466,9 +468,7 @@ app.post("/learner/login", async (c) => {
   await admin.from("learner_sessions").insert({
     token,
     learner_id: learner.id,
-    expires_at: new Date(
-      Date.now() + LEARNER_SESSION_TTL_DAYS * 86400_000,
-    ).toISOString(),
+    expires_at: new Date(Date.now() + LEARNER_SESSION_TTL_MS).toISOString(),
   });
   return c.json({ token, learner: mapLearnerSelf(learner) });
 });
@@ -489,10 +489,17 @@ app.use("*", async (c, next) => {
   if (raw.startsWith("hpl_")) {
     const { data } = await admin
       .from("learner_sessions")
-      .select("learner_id, expires_at")
+      .select("learner_id, created_at, expires_at")
       .eq("token", raw.slice(4))
       .maybeSingle();
-    if (!data || new Date(data.expires_at) < new Date()) {
+    // The created_at check also retires sessions issued under the old
+    // 30-day expiry.
+    const now = Date.now();
+    if (
+      !data ||
+      new Date(data.expires_at).getTime() < now ||
+      now - new Date(data.created_at).getTime() > LEARNER_SESSION_TTL_MS
+    ) {
       return c.json({ error: "Invalid session" }, 401);
     }
     c.set("actorKind", "learner");

@@ -185,13 +185,15 @@ from `HPF-digital-portal-2026`:
      (scrypt-hashed, locks after 5 wrong tries) and issues its own session
      token.
    - **Remember me** — every sign-in form (password, learner PIN) has a
-     "Remember me on this device" checkbox, checked by default. Checked, the
+     "Remember me on this device" checkbox, **unchecked by default** because
+     most devices in schools are shared. Checked, the
      session/token is kept in `localStorage` (survives closing the browser)
      and the last email/username used is remembered so the field is
      pre-filled next time. Unchecked, it goes in `sessionStorage` instead —
      gone the moment the tab or browser closes — and nothing is
      remembered for next time. No password or PIN is ever stored, only the
-     identifier.
+     identifier; learner PINs are never offered to the browser's password
+     manager. A learner session lasts at most 12 hours either way.
 2. **API** — one Edge Function, [`supabase/functions/api`](supabase/functions/api/index.ts)
    (Deno + Hono). Every read and write goes through it. It verifies the
    caller's JWT, loads their role from the `profiles` table (never trusts
