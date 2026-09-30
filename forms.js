@@ -49,20 +49,21 @@ export function formFillHtml(form) {
     <div class="field">
       <label>${esc(q.prompt)}</label>
       ${q.type === "rating"
-        ? `<select data-q="${esc(q.id)}"><option value="5">5 — Excellent</option><option value="4">4 — Good</option><option value="3" selected>3 — Okay</option><option value="2">2 — Weak</option><option value="1">1 — Poor</option></select>`
+        ? `<select data-q="${esc(q.id)}"><option value="" selected disabled>Choose…</option><option value="5">5 — Excellent</option><option value="4">4 — Good</option><option value="3">3 — Okay</option><option value="2">2 — Weak</option><option value="1">1 — Poor</option></select>`
         : `<input type="text" data-q="${esc(q.id)}" placeholder="Your answer">`}
     </div>`).join("");
 }
 
 /** Has this fill-in area been completed? (A file form counts once a
     filled copy is chosen or the box is ticked; a question form once every
-    short answer has something in it.) */
+    rating is chosen and every short answer has something in it — ratings
+    start unchosen, so a skipped one is never saved as a real score.) */
 export function isFormFilled(box, form) {
   if (form.kind === "link") return !!box.querySelector("[data-f-done]")?.checked;
   if (form.kind === "file") {
     return !!box.querySelector("[data-f-done]")?.checked || !!box.querySelector("[data-f-file]")?.files?.length;
   }
-  return [...box.querySelectorAll("input[data-q]")].every((i) => i.value.trim());
+  return [...box.querySelectorAll("[data-q]")].every((i) => (i.value || "").trim());
 }
 
 /** Reads a completed fill-in area into { formId, answers, files },

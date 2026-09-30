@@ -1625,6 +1625,33 @@ app.post("/forms/:id/response-upload", withProfile(), async (c) => {
   return c.json({ upload: { name, path, token: data.token, signedUrl: data.signedUrl, size: Number(b.size) || 0 } });
 });
 
+/** Checks a question form's answers against its own questions: every
+    question answered, ratings a whole number 1–5, short answers non-empty
+    text (capped), and nothing for questions the form doesn't have. */
+const MAX_ANSWER_LENGTH = 2000;
+function cleanAnswers(form: Record<string, unknown>, raw: unknown):
+  { answers: { questionId: string; value: string }[] } | { error: string } {
+  const questions = (form.questions as { id: string; prompt?: string; type?: string }[]) ?? [];
+  const given = new Map<string, unknown>();
+  for (const a of Array.isArray(raw) ? raw : []) {
+    if (a && typeof a === "object" && typeof (a as { questionId?: unknown }).questionId === "string") {
+      given.set((a as { questionId: string }).questionId, (a as { value?: unknown }).value);
+    }
+  }
+  const answers: { questionId: string; value: string }[] = [];
+  for (const q of questions) {
+    const value = String(given.get(q.id) ?? "").trim();
+    const title = String(form.title ?? "this form");
+    if (q.type === "rating") {
+      if (!/^[1-5]$/.test(value)) return { error: `Choose a rating from 1 to 5 for every question in "${title}".` };
+    } else if (!value) {
+      return { error: `Answer every question in "${title}".` };
+    }
+    answers.push({ questionId: q.id, value: value.slice(0, MAX_ANSWER_LENGTH) });
+  }
+  return { answers };
+}
+
 /** Only keeps filled-copy files this person actually uploaded for this form. */
 function cleanResponseFiles(raw: unknown, formId: string, actorId: string): LibFile[] {
   const prefix = `form-responses/${formId}/${actorId}/`;
@@ -1659,10 +1686,16 @@ app.post("/responses", withProfile(), async (c) => {
   const { data: form } = await admin.from("forms").select("*").eq("id", String(b.formId ?? "")).maybeSingle();
   if (!form || form.archived_at || !formReaches(form, p)) return c.json({ error: "Form not found" }, 404);
   if (form.visit_type) return c.json({ error: "This form is filled in during a school visit" }, 400);
+  let answers: { questionId: string; value: string }[] = [];
+  if (form.kind === "questions") {
+    const checked = cleanAnswers(form, b.answers);
+    if ("error" in checked) return c.json({ error: checked.error }, 400);
+    answers = checked.answers;
+  }
   const row = {
     respondent_name: p.fullName,
     respondent_role: p.role,
-    answers: form.kind === "questions" && Array.isArray(b.answers) ? b.answers : [],
+    answers,
     files: form.kind === "file" ? cleanResponseFiles(b.files, form.id, p.id) : [],
     submitted_at: new Date().toISOString(),
   };
@@ -1781,6 +1814,16 @@ app.post("/field-reports", withProfile("field_officer"), async (c) => {
       return c.json({ error: "One of the forms doesn't belong to this visit — reload and try again" }, 400);
     }
   }
+  // Check every question form's answers before anything is saved.
+  const answersByForm = new Map<string, { questionId: string; value: string }[]>();
+  for (const id of formIds) {
+    const f = formById.get(id)!;
+    if (f.kind !== "questions") continue;
+    const r = filled.find((x: { formId?: string }) => x?.formId === id);
+    const checked = cleanAnswers(f, r?.answers);
+    if ("error" in checked) return c.json({ error: checked.error }, 400);
+    answersByForm.set(id as string, checked.answers);
+  }
 
   const { data, error } = await admin
     .from("field_reports")
@@ -1808,7 +1851,7 @@ app.post("/field-reports", withProfile("field_officer"), async (c) => {
         respondent_role: actor.role,
         visit_id: data.id,
         school: `${school.name} (${school.code})`,
-        answers: f.kind === "questions" && Array.isArray(r?.answers) ? r.answers : [],
+        answers: answersByForm.get(id as string) ?? [],
         files: f.kind === "file" ? cleanResponseFiles(r?.files, id as string, actor.id) : [],
       };
     });
