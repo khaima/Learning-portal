@@ -248,7 +248,7 @@ async function main() {
     const s = lastStats;
     const items = [];
     for (const f of formsCache.filter((f) => !responsesCache.some((r) => r.formId === f.id)).slice(0, 5)) {
-      items.push({ tone: "warn", title: "Form with no responses yet", detail: `"${f.title}" (sent to ${esc(AUDIENCE_LABEL[f.audience] || f.audience)}) has no responses yet.` });
+      items.push({ tone: "warn", title: "Form with no responses yet", detail: `"${f.title}" (sent to ${AUDIENCE_LABEL[f.audience] || f.audience}) has no responses yet.` });
     }
     if (!koboState.configured) {
       items.push({ tone: "info", title: "KoboToolbox not connected", detail: "Connect a KoboToolbox account to attach field surveys — see Kobo Surveys." });
@@ -259,8 +259,10 @@ async function main() {
         items.push({ tone: "warn", title: "No field visits recorded", detail: `${name} has no field visit on record${s.county ? " in " + esc(s.county) : ""}.` });
       }
     }
+    // Details are plain text (form titles and school names come from users)
+    // — escaped here, once, so nothing in them can run as HTML.
     $("#attentionList").innerHTML = items.length
-      ? items.map((it) => `<div class="alert alert-${it.tone}"><div><b>${esc(it.title)}</b>${it.detail}</div></div>`).join("")
+      ? items.map((it) => `<div class="alert alert-${it.tone}"><div><b>${esc(it.title)}</b>${esc(it.detail)}</div></div>`).join("")
       : `<div class="empty-state">${emptyMsg("Nothing needs attention right now.")}</div>`;
   }
 
