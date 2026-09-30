@@ -365,8 +365,19 @@ export async function addForm(form) {
   return saved;
 }
 
+/* Only for a form nobody has answered — the API refuses otherwise. */
 export async function deleteForm(id) {
   await apiSend("DELETE", `/forms/${id}`);
+}
+
+/* Archive: stops reaching anyone, keeps every response. Restore undoes it. */
+export async function archiveForm(id) {
+  const { form } = await apiSend("POST", `/forms/${id}/archive`);
+  return form;
+}
+export async function restoreForm(id) {
+  const { form } = await apiSend("POST", `/forms/${id}/restore`);
+  return form;
 }
 
 /* Uploads a filled copy of a `file` form; returns the reference to send
@@ -619,8 +630,12 @@ export async function attachKoboForm(assetUid) {
   return form;
 }
 
+/* Archives the survey (hidden from field officers, history kept). */
 export async function removeKoboForm(id) {
   return apiSend("DELETE", `/kobo/forms/${id}`);
+}
+export async function restoreKoboForm(id) {
+  return apiSend("POST", `/kobo/forms/${id}/restore`);
 }
 
 /* Education Team: pull submissions from KoboToolbox and match officers. */

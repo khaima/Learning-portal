@@ -185,8 +185,8 @@ create table if not exists public.forms (
 
 create table if not exists public.responses (
   id text primary key,
-  form_id text not null references public.forms(id) on delete cascade,
-  respondent_id uuid not null references public.profiles(id) on delete cascade,
+  form_id text not null references public.forms(id) on delete restrict,
+  respondent_id uuid not null references public.profiles(id) on delete restrict,
   respondent_name text not null default '',
   respondent_role text not null default '',
   submitted_at timestamptz not null default now(),
@@ -204,7 +204,7 @@ create index if not exists responses_form_id_idx on public.responses (form_id);
 -- gates coursework/library access, nothing sensitive.
 create table if not exists public.learners (
   id uuid primary key default gen_random_uuid(),
-  teacher_id uuid not null references public.profiles(id) on delete cascade,
+  teacher_id uuid not null references public.profiles(id) on delete restrict,
   username text not null unique,
   pin_hash text not null,
   pin_salt text not null,
@@ -246,7 +246,7 @@ create index if not exists assignments_learner_id_idx on public.assignments (lea
 -- ---------------------------------------------------------------- field reports
 create table if not exists public.field_reports (
   id text primary key,
-  officer_id uuid not null references public.profiles(id) on delete cascade,
+  officer_id uuid not null references public.profiles(id) on delete restrict,
   school text not null,
   county text not null,
   visit_type text not null,
@@ -270,7 +270,7 @@ alter table public.forms add column if not exists county text references public.
 alter table public.forms add column if not exists visit_type text;
 alter table public.forms add column if not exists files jsonb not null default '[]'::jsonb;
 alter table public.forms add column if not exists external_url text;
-alter table public.responses add column if not exists visit_id text references public.field_reports(id) on delete cascade;
+alter table public.responses add column if not exists visit_id text references public.field_reports(id) on delete restrict;
 alter table public.responses add column if not exists school text not null default '';
 alter table public.responses add column if not exists files jsonb not null default '[]'::jsonb;
 alter table public.responses drop constraint if exists responses_form_id_respondent_id_key;
@@ -320,14 +320,45 @@ create table if not exists public.kobo_forms (
 );
 
 create table if not exists public.kobo_submissions (
-  kobo_form_id text not null references public.kobo_forms(id) on delete cascade,
-  officer_id uuid not null references public.profiles(id) on delete cascade,
+  kobo_form_id text not null references public.kobo_forms(id) on delete restrict,
+  officer_id uuid not null references public.profiles(id) on delete restrict,
   kobo_submission_id text,
   source text not null default 'sync' check (source in ('sync','manual')),
   submitted_at timestamptz not null default now(),
   primary key (kobo_form_id, officer_id)
 );
 create index if not exists kobo_submissions_officer_idx on public.kobo_submissions (officer_id);
+
+-- ---------------------------------------------------------------- keep history
+-- Responses, field visits, learners and Kobo submission records are
+-- programme history, so nothing deletes them as a side effect any more:
+--   * a form with responses is archived (archived_at), not deleted — it
+--     stops reaching anyone but keeps every response;
+--   * a Kobo survey is archived with kobo_forms.active = false;
+--   * the links below are ON DELETE RESTRICT, so deleting a form, a visit
+--     or a staff account (including from the Supabase dashboard, which
+--     cascades auth.users -> profiles) is refused while records still
+--     point at it.
+alter table public.forms add column if not exists archived_at timestamptz;
+
+do $$
+declare r record;
+begin
+  for r in select * from (values
+    ('responses',        'responses_form_id_fkey',             'form_id',      'public.forms(id)'),
+    ('responses',        'responses_respondent_id_fkey',       'respondent_id','public.profiles(id)'),
+    ('responses',        'responses_visit_id_fkey',            'visit_id',     'public.field_reports(id)'),
+    ('field_reports',    'field_reports_officer_id_fkey',      'officer_id',   'public.profiles(id)'),
+    ('learners',         'learners_teacher_id_fkey',           'teacher_id',   'public.profiles(id)'),
+    ('kobo_submissions', 'kobo_submissions_kobo_form_id_fkey', 'kobo_form_id', 'public.kobo_forms(id)'),
+    ('kobo_submissions', 'kobo_submissions_officer_id_fkey',   'officer_id',   'public.profiles(id)')
+  ) as t(tbl, con, col, ref)
+  loop
+    execute format('alter table public.%I drop constraint if exists %I', r.tbl, r.con);
+    execute format('alter table public.%I add constraint %I foreign key (%I) references %s on delete restrict',
+                   r.tbl, r.con, r.col, r.ref);
+  end loop;
+end $$;
 
 -- ---------------------------------------------------------------- lock everything down
 alter table public.counties         enable row level security;

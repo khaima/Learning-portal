@@ -338,6 +338,7 @@ const mapForm = async (r: Record<string, unknown>) => ({
   files: await signFiles((r.files as LibFile[]) ?? [], true),
   createdBy: r.created_by,
   createdAt: r.created_at,
+  archivedAt: r.archived_at ?? null,
   questions: r.questions ?? [],
 });
 /* Filled copies uploaded with a response: the education team can
@@ -1428,6 +1429,8 @@ app.get("/library/usage", withProfile("education_team"), async (c) => {
    against that school when the visit is submitted, not here. */
 function formReaches(f: Record<string, unknown>, actor: Actor) {
   if (actor.role === "education_team") return true;
+  // An archived form keeps its responses but is no longer sent to anyone.
+  if (f.archived_at) return false;
   if (f.audience !== actor.role) return false;
   if (actor.role === "field_officer" && f.visit_type) return true;
   return !f.county || f.county === actor.county;
@@ -1500,20 +1503,45 @@ app.post("/forms", withProfile("education_team"), async (c) => {
   return c.json({ form: await mapForm(data), uploads });
 });
 
-/* Removes a form, its responses (cascade) and every file behind them. */
+/* Permanently removes a form nobody has answered, with its blank file.
+   A form with responses is archived instead (below) — responses are
+   programme records, including ones filed during past school visits, and
+   the database refuses to delete a form that still has any. */
 app.delete("/forms/:id", withProfile("education_team"), async (c) => {
   const id = c.req.param("id");
   const { data: form } = await admin.from("forms").select("files").eq("id", id).maybeSingle();
   if (!form) return c.json({ error: "Form not found" }, 404);
-  const { data: resp } = await admin.from("responses").select("files").eq("form_id", id);
-  const paths = [
-    ...((form.files as LibFile[]) ?? []),
-    ...(resp ?? []).flatMap((r) => (r.files as LibFile[]) ?? []),
-  ].map((f) => f.path);
-  if (paths.length) await admin.storage.from(LIBRARY_BUCKET).remove(paths);
+  const { count } = await admin.from("responses")
+    .select("id", { count: "exact", head: true }).eq("form_id", id);
+  if ((count ?? 0) > 0) {
+    return c.json({ error: `This form has ${count} response(s). Archive it instead so they're kept.` }, 409);
+  }
   const { error } = await admin.from("forms").delete().eq("id", id);
   if (error) return c.json({ error: error.message }, 400);
+  const paths = ((form.files as LibFile[]) ?? []).map((f) => f.path);
+  if (paths.length) await admin.storage.from(LIBRARY_BUCKET).remove(paths);
   return c.json({ ok: true });
+});
+
+/* Archive: the form stops reaching anyone and can't be answered, but it
+   and all its responses and files stay, visible to the Education Team.
+   Restore sends it out again. */
+app.post("/forms/:id/archive", withProfile("education_team"), async (c) => {
+  const { data, error } = await admin.from("forms")
+    .update({ archived_at: new Date().toISOString() })
+    .eq("id", c.req.param("id")).select().maybeSingle();
+  if (error) return c.json({ error: error.message }, 400);
+  if (!data) return c.json({ error: "Form not found" }, 404);
+  return c.json({ form: await mapForm(data) });
+});
+
+app.post("/forms/:id/restore", withProfile("education_team"), async (c) => {
+  const { data, error } = await admin.from("forms")
+    .update({ archived_at: null })
+    .eq("id", c.req.param("id")).select().maybeSingle();
+  if (error) return c.json({ error: error.message }, 400);
+  if (!data) return c.json({ error: "Form not found" }, 404);
+  return c.json({ form: await mapForm(data) });
 });
 
 /* A signed upload slot for a filled copy of a `file` form. The response
@@ -1521,7 +1549,9 @@ app.delete("/forms/:id", withProfile("education_team"), async (c) => {
 app.post("/forms/:id/response-upload", withProfile(), async (c) => {
   const actor = c.get("actor");
   const { data: form } = await admin.from("forms").select("*").eq("id", c.req.param("id")).maybeSingle();
-  if (!form || form.kind !== "file" || !formReaches(form, actor)) return c.json({ error: "Form not found" }, 404);
+  if (!form || form.archived_at || form.kind !== "file" || !formReaches(form, actor)) {
+    return c.json({ error: "Form not found" }, 404);
+  }
   const b = await c.req.json().catch(() => ({}));
   const name = String(b.name ?? "").trim();
   if (!name) return c.json({ error: "Missing file name" }, 400);
@@ -1559,7 +1589,7 @@ app.post("/responses", withProfile(), async (c) => {
   const b = await c.req.json().catch(() => ({}));
   const p = c.get("actor");
   const { data: form } = await admin.from("forms").select("*").eq("id", String(b.formId ?? "")).maybeSingle();
-  if (!form || !formReaches(form, p)) return c.json({ error: "Form not found" }, 404);
+  if (!form || form.archived_at || !formReaches(form, p)) return c.json({ error: "Form not found" }, 404);
   if (form.visit_type) return c.json({ error: "This form is filled in during a school visit" }, 400);
   const row = {
     respondent_name: p.fullName,
@@ -1673,7 +1703,7 @@ app.post("/field-reports", withProfile("field_officer"), async (c) => {
   const formById = new Map((formRows ?? []).map((f) => [f.id, f]));
   for (const id of formIds) {
     const f = formById.get(id);
-    if (!f || f.audience !== "field_officer" || f.visit_type !== b.visitType || (f.county && f.county !== school.county)) {
+    if (!f || f.archived_at || f.audience !== "field_officer" || f.visit_type !== b.visitType || (f.county && f.county !== school.county)) {
       return c.json({ error: "One of the forms doesn't belong to this visit — reload and try again" }, 400);
     }
   }
@@ -2225,8 +2255,13 @@ app.post("/kobo/forms", withProfile("education_team"), async (c) => {
   if (!uid) return c.json({ error: "Pick a survey" }, 400);
 
   const { data: existing } = await admin
-    .from("kobo_forms").select("id").eq("asset_uid", uid).maybeSingle();
-  if (existing) return c.json({ error: "That survey is already attached" }, 409);
+    .from("kobo_forms").select("id, title, asset_uid, active").eq("asset_uid", uid).maybeSingle();
+  if (existing?.active) return c.json({ error: "That survey is already attached" }, 409);
+  if (existing) {
+    // Attaching an archived survey again restores it, with its history.
+    await admin.from("kobo_forms").update({ active: true }).eq("id", existing.id);
+    return c.json({ form: { id: existing.id, title: existing.title, assetUid: existing.asset_uid } });
+  }
 
   let asset;
   try {
@@ -2280,9 +2315,22 @@ app.get("/kobo/assets/:uid/preview", withProfile("education_team"), async (c) =>
   return c.json({ previewUrl, title: asset.name || "(untitled survey)" });
 });
 
+/* "Remove" archives: field officers stop seeing the survey and sync skips
+   it, but which officers submitted it stays on record. Restore (or
+   attaching the same survey again) brings it back. */
 app.delete("/kobo/forms/:id", withProfile("education_team"), async (c) => {
-  const { error } = await admin.from("kobo_forms").delete().eq("id", c.req.param("id"));
+  const { data, error } = await admin.from("kobo_forms")
+    .update({ active: false }).eq("id", c.req.param("id")).select("id").maybeSingle();
   if (error) return c.json({ error: error.message }, 400);
+  if (!data) return c.json({ error: "Survey not found" }, 404);
+  return c.json({ ok: true, archived: true });
+});
+
+app.post("/kobo/forms/:id/restore", withProfile("education_team"), async (c) => {
+  const { data, error } = await admin.from("kobo_forms")
+    .update({ active: true }).eq("id", c.req.param("id")).select("id").maybeSingle();
+  if (error) return c.json({ error: error.message }, 400);
+  if (!data) return c.json({ error: "Survey not found" }, 404);
   return c.json({ ok: true });
 });
 

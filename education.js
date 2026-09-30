@@ -6,11 +6,11 @@ import {
   normalizeLibraryAudience, VISIT_TYPES,
 } from "./data.js";
 import {
-  getLibrary, addLibraryItem, setLibraryPublished, deleteLibraryItem, updateLibraryItem, getForms, addForm, deleteForm, getResponses, getStats,
+  getLibrary, addLibraryItem, setLibraryPublished, deleteLibraryItem, updateLibraryItem, getForms, addForm, deleteForm, archiveForm, restoreForm, getResponses, getStats,
   uploadLibraryFiles, libraryFilesHtml, libraryTypeIcon, librarySectionsHtml, getLibraryUsage,
   getLibraryFolders, createLibraryFolder, deleteLibraryFolder, setLibraryFolder,
   koboConfig, saveKoboConfig, koboAssets, koboAssetPreview, koboForms, attachKoboForm,
-  removeKoboForm, syncKobo, koboResults,
+  removeKoboForm, restoreKoboForm, syncKobo, koboResults,
   getUsers, updateUser, resetUserPassword,
   watchSchools, createSchool, renameSchool, deleteSchool, createCounty, deleteCounty, wireSchoolPicker,
 } from "./store.js";
@@ -247,7 +247,7 @@ async function main() {
     if (!lastStats) return;
     const s = lastStats;
     const items = [];
-    for (const f of formsCache.filter((f) => !responsesCache.some((r) => r.formId === f.id)).slice(0, 5)) {
+    for (const f of formsCache.filter((f) => !f.archivedAt && !responsesCache.some((r) => r.formId === f.id)).slice(0, 5)) {
       items.push({ tone: "warn", title: "Form with no responses yet", detail: `"${f.title}" (sent to ${AUDIENCE_LABEL[f.audience] || f.audience}) has no responses yet.` });
     }
     if (!koboState.configured) {
@@ -1187,8 +1187,7 @@ async function main() {
     const when = (d) => d ? new Date(d).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "";
     // Who answered — plus the school, for forms filled in during a visit.
     const who = (r) => `${esc(r.respondentName)}${r.school ? ` · ${esc(r.school)}` : ""}`;
-    $("#formsList").innerHTML = forms.length
-      ? forms.map((f) => {
+    const formCard = (f) => {
           const answers = responses.filter((r) => r.formId === f.id);
           let body;
           if (f.kind === "questions") {
@@ -1226,40 +1225,71 @@ async function main() {
                 : none
             }</div>`;
           }
+          // A form with responses can only be archived — its responses are
+          // programme records. Delete is offered only while nobody has answered.
+          const action = f.archivedAt
+            ? `<button type="button" class="btn btn-ghost" data-form-act="restore" data-form-id="${esc(f.id)}">Restore form</button>`
+            : answers.length
+              ? `<button type="button" class="btn btn-ghost" data-form-act="archive" data-form-id="${esc(f.id)}">Archive form</button>`
+              : `<button type="button" class="btn btn-ghost" data-form-act="delete" data-form-id="${esc(f.id)}">Delete form</button>`;
           return `
             <div class="form-card">
-              <div class="fc-head"><h3>${esc(f.title)}</h3><span class="pill">${esc(AUDIENCE_LABEL[f.audience] || f.audience)}</span></div>
+              <div class="fc-head"><h3>${esc(f.title)}</h3><span class="pill">${f.archivedAt ? "Archived" : esc(AUDIENCE_LABEL[f.audience] || f.audience)}</span></div>
               <div class="form-tags">${formTagsHtml(f)}</div>
               <div class="fc-meta">${answers.length} response(s)${f.description ? " · " + esc(f.description) : ""}</div>
               ${body}
-              <div class="fc-actions"><button type="button" class="btn btn-ghost" data-delete-form="${esc(f.id)}">Delete form</button></div>
+              <div class="fc-actions">${action}</div>
             </div>`;
-        }).join("")
-      : `<div class="empty-state">No forms created yet.</div>`;
+    };
+    const active = forms.filter((f) => !f.archivedAt);
+    const archived = forms.filter((f) => f.archivedAt);
+    $("#formsList").innerHTML =
+      (active.length ? active.map(formCard).join("") : `<div class="empty-state">No forms created yet.</div>`) +
+      (archived.length
+        ? `<div class="list-group" style="margin-top:1rem">
+             <div class="list-group-title">Archived<span class="count">${archived.length}</span></div>
+             <p class="field-hint" style="margin:0 0 .5rem">No longer sent to anyone. Every response is kept; restore a form to send it out again.</p>
+             ${archived.map(formCard).join("")}
+           </div>`
+        : "");
   }
 
   $("#formsList").addEventListener("click", async (e) => {
-    const btn = e.target.closest("[data-delete-form]");
+    const btn = e.target.closest("[data-form-act]");
     if (!btn) return;
-    const form = formsCache.find((f) => f.id === btn.dataset.deleteForm);
+    const form = formsCache.find((f) => f.id === btn.dataset.formId);
     if (!form) return;
+    const act = btn.dataset.formAct;
     const n = responsesCache.filter((r) => r.formId === form.id).length;
-    const ok = await confirmDialog({
-      title: `Delete "${form.title}"?`,
-      body: `It disappears from every dashboard${n ? `, and its ${n} response(s) are deleted too` : ""}. This can't be undone.`,
-      confirmLabel: "Delete form",
-      danger: true,
-    });
-    if (!ok) return;
+    const dialog = {
+      delete: {
+        title: `Delete "${form.title}"?`,
+        body: "Nobody has answered it yet. It disappears from every dashboard. This can't be undone.",
+        confirmLabel: "Delete form", danger: true,
+      },
+      archive: {
+        title: `Archive "${form.title}"?`,
+        body: `It stops being sent and can't be answered any more. Its ${n} response(s) are kept, and you can restore it later.`,
+        confirmLabel: "Archive form",
+      },
+      restore: {
+        title: `Restore "${form.title}"?`,
+        body: "It's sent to its audience again and can be answered.",
+        confirmLabel: "Restore form",
+      },
+    }[act];
+    if (!dialog || !(await confirmDialog(dialog))) return;
     btn.disabled = true;
     try {
-      await deleteForm(form.id);
-      toast("Form deleted.", "", "success");
+      if (act === "delete") await deleteForm(form.id);
+      else if (act === "archive") await archiveForm(form.id);
+      else await restoreForm(form.id);
+      toast(act === "delete" ? "Form deleted." : act === "archive" ? "Form archived." : "Form restored.", "", "success");
       renderForms();
       renderStats();
     } catch (err) {
       btn.disabled = false;
-      toast("Couldn't delete the form", friendlyError(err), "error");
+      toast(`Couldn't ${act} the form`, friendlyError(err), "error");
     }
   });
 
@@ -1325,8 +1355,7 @@ async function main() {
       $("#koboFormList").innerHTML = errorState(friendlyError(err), renderKoboForms);
       return;
     }
-    $("#koboFormList").innerHTML = forms.length
-      ? forms.map((f) => `
+    const koboCard = (f) => `
         <div class="form-card">
           <div class="kobo-row">
             <div>
@@ -1336,20 +1365,45 @@ async function main() {
               }</div>
             </div>
             <div class="kobo-actions">
-              <button type="button" data-kobo-remove="${esc(f.id)}" class="danger">Remove</button>
+              ${f.active
+                ? `<button type="button" data-kobo-archive="${esc(f.id)}" class="danger">Archive</button>`
+                : `<button type="button" data-kobo-restore="${esc(f.id)}">Restore</button>`}
             </div>
           </div>
-        </div>`).join("")
-      : `<div class="empty-state">No surveys attached yet.</div>`;
+        </div>`;
+    const activeSurveys = forms.filter((f) => f.active);
+    const archivedSurveys = forms.filter((f) => !f.active);
+    $("#koboFormList").innerHTML =
+      (activeSurveys.length ? activeSurveys.map(koboCard).join("") : `<div class="empty-state">No surveys attached yet.</div>`) +
+      (archivedSurveys.length
+        ? `<div class="list-group" style="margin-top:1rem">
+             <div class="list-group-title">Archived<span class="count">${archivedSurveys.length}</span></div>
+             <p class="field-hint" style="margin:0 0 .5rem">Hidden from field officers and skipped by sync. Who submitted is kept.</p>
+             ${archivedSurveys.map(koboCard).join("")}
+           </div>`
+        : "");
 
-    $$("[data-kobo-remove]").forEach((btn) => btn.addEventListener("click", async () => {
+    $$("[data-kobo-archive]").forEach((btn) => btn.addEventListener("click", async () => {
       btn.disabled = true;
       try {
-        await removeKoboForm(btn.dataset.koboRemove);
+        await removeKoboForm(btn.dataset.koboArchive);
+        toast("Survey archived.", "Field officers no longer see it. Its submission record is kept.", "success");
         renderKoboForms();
         refreshSurveyPicker();
       } catch (err) {
-        toast("Couldn't remove it", friendlyError(err), "error");
+        toast("Couldn't archive it", friendlyError(err), "error");
+        btn.disabled = false;
+      }
+    }));
+    $$("[data-kobo-restore]").forEach((btn) => btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      try {
+        await restoreKoboForm(btn.dataset.koboRestore);
+        toast("Survey restored.", "Field officers can open it again.", "success");
+        renderKoboForms();
+        refreshSurveyPicker();
+      } catch (err) {
+        toast("Couldn't restore it", friendlyError(err), "error");
         btn.disabled = false;
       }
     }));
@@ -1478,7 +1532,7 @@ async function main() {
     srRefresh.hidden = false;
     const prev = srCurrent;
     srPicker.innerHTML = forms
-      .map((f) => `<option value="${esc(f.id)}">${esc(f.title)} — ${f.submissionCount} submission${f.submissionCount === 1 ? "" : "s"}</option>`)
+      .map((f) => `<option value="${esc(f.id)}">${esc(f.title)}${f.active ? "" : " (archived)"} — ${f.submissionCount} submission${f.submissionCount === 1 ? "" : "s"}</option>`)
       .join("");
     srCurrent = forms.some((f) => f.id === prev) ? prev : forms[0].id;
     srPicker.value = srCurrent;

@@ -58,7 +58,10 @@ Edge Function API in front of a locked-down Postgres database. Six pages:
   type so it's filled in during every visit of that type. Each form
   reaches exactly those people automatically. Watch responses roll in
   (live rating averages, filled copies to download, the school for visit
-  forms),
+  forms). A form that has responses can only be **archived** — it stops
+  being sent but every response is kept, and it can be restored; only an
+  unanswered form can be deleted. The database refuses to delete forms,
+  visits or staff accounts that still have records attached. Also
   connect **KoboToolbox** to publish field surveys (see below), see a
   **Content usage report** (see below), and see a **Portal impact**
   dashboard (see below).
