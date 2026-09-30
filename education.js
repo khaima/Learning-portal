@@ -1482,8 +1482,12 @@ async function main() {
     koboSyncBtn.disabled = true;
     koboSyncBtn.textContent = "Syncing…";
     try {
-      const { matched } = await syncKobo();
-      toast("Synced with KoboToolbox", `${matched} officer submission(s) matched.`);
+      const { matched, failed = [] } = await syncKobo();
+      toast(
+        failed.length ? "Synced, with problems" : "Synced with KoboToolbox",
+        `${matched} officer submission(s) matched.${failed.length ? ` Couldn't reach: ${failed.join(", ")}.` : ""}`,
+        failed.length ? "error" : "info",
+      );
       renderKoboForms();
       refreshSurveyPicker();
     } catch (err) {
@@ -1541,14 +1545,14 @@ async function main() {
     startSrPolling();
   }
 
-  async function loadSurveyResults() {
+  async function loadSurveyResults({ fresh = false } = {}) {
     if (!srCurrent || srBusy) return;
     srBusy = true;
     const wanted = srCurrent;
     const firstView = srBody.dataset.for !== wanted;
     if (firstView) srBody.innerHTML = skeleton(3);
     try {
-      const res = await koboResults(wanted);
+      const res = await koboResults(wanted, { fresh });
       if (res.id !== srCurrent) return; // survey switched mid-flight
       srBody.dataset.for = srCurrent;
       renderSurveyResults(res);
@@ -1563,6 +1567,7 @@ async function main() {
   function renderSurveyResults(res) {
     const bits = [];
     if (res.submissionCount) bits.push(`${res.submissionCount} submission${res.submissionCount === 1 ? "" : "s"}`);
+    if (res.excludedNotApproved) bits.push(`${res.excludedNotApproved} marked “Not approved” in Kobo left out`);
     if (res.lastSubmission) bits.push(`last ${new Date(res.lastSubmission).toLocaleString()}`);
     bits.push(`updated ${new Date().toLocaleTimeString()}`);
     srMeta.textContent = bits.join(" · ");
@@ -1650,9 +1655,10 @@ async function main() {
 
   function startSrPolling() {
     stopSrPolling();
+    // Every 2 minutes: each refresh can mean a full download from Kobo.
     srTimer = setInterval(() => {
       if (document.visibilityState === "visible" && srCurrent) loadSurveyResults();
-    }, 45000);
+    }, 120000);
   }
   function stopSrPolling() {
     if (srTimer) { clearInterval(srTimer); srTimer = null; }
@@ -1666,7 +1672,7 @@ async function main() {
   srRefresh.addEventListener("click", async () => {
     srRefresh.disabled = true;
     srRefresh.textContent = "Refreshing…";
-    await loadSurveyResults();
+    await loadSurveyResults({ fresh: true });
     srRefresh.disabled = false;
     srRefresh.textContent = "Refresh";
   });

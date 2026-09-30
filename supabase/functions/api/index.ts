@@ -58,6 +58,24 @@ const safePath = (p: string) => String(p).split("/").map(safeSegment).join("/");
 const rid = (prefix: string) =>
   prefix + "_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
 
+/* Supabase's API returns at most 1,000 rows per request and says nothing
+   when it stops, so any read that feeds a total, a chart or a full list
+   pages through with range() until a short page comes back. `build` must
+   return a fresh query each call, ordered by a unique key (or ending with
+   one as a tie-breaker) so pages never overlap or skip rows. */
+const PAGE_SIZE = 1000;
+// deno-lint-ignore no-explicit-any
+async function selectAll(build: () => any): Promise<{ data: Record<string, any>[]; error: { message: string } | null }> {
+  // deno-lint-ignore no-explicit-any
+  const rows: Record<string, any>[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await build().range(from, from + PAGE_SIZE - 1);
+    if (error) return { data: rows, error };
+    rows.push(...(data ?? []));
+    if (!data || data.length < PAGE_SIZE) return { data: rows, error: null };
+  }
+}
+
 // ---------------------------------------------------------------- schools & codes
 /* Counties (`counties`) and the schools in each (`schools`) are both
    managed by the education team, and are the one source for every
@@ -193,11 +211,44 @@ function koboLabel(label: unknown, fallback: string): string {
   return fallback;
 }
 
-/** Read a question's value off a submission row (bare or group-prefixed name). */
-function rowValue(row: Record<string, unknown>, name: string): unknown {
-  if (row[name] !== undefined) return row[name];
-  const k = Object.keys(row).find((kk) => kk === name || kk.endsWith("/" + name));
-  return k ? row[k] : undefined;
+/** Every answer to a question in one submission: a plain or grouped
+    question gives one value; a question inside a repeat group gives one
+    per repeat (Kobo nests those as an array of objects under the
+    repeat's own key). Kobo's own `_…` fields are never searched. */
+function rowValues(row: Record<string, unknown>, name: string): unknown[] {
+  const out: unknown[] = [];
+  for (const [k, v] of Object.entries(row)) {
+    if (k.startsWith("_")) continue;
+    if (k === name || k.endsWith("/" + name)) out.push(v);
+    else if (Array.isArray(v)) {
+      for (const item of v) {
+        if (item && typeof item === "object" && !Array.isArray(item)) {
+          out.push(...rowValues(item as Record<string, unknown>, name));
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/** A submission a reviewer marked "Not approved" in KoboToolbox. */
+function koboRejected(row: Record<string, unknown>): boolean {
+  const vs = row._validation_status as { uid?: string } | undefined;
+  return vs?.uid === "validation_status_not_approved";
+}
+
+/* Every submission for one survey. Kobo returns at most 30,000 rows per
+   request and signals more only through `next`, so read page by page. */
+const KOBO_PAGE_SIZE = 5000;
+async function koboAllSubmissions(cfg: KoboConfig, assetUid: string): Promise<Record<string, unknown>[]> {
+  const rows: Record<string, unknown>[] = [];
+  const base = `/api/v2/assets/${encodeURIComponent(assetUid)}/data/?format=json&limit=${KOBO_PAGE_SIZE}`;
+  for (let start = 0; ; start += KOBO_PAGE_SIZE) {
+    const page = await koboJson(cfg, `${base}&start=${start}`);
+    const batch: Record<string, unknown>[] = page.results ?? [];
+    rows.push(...batch);
+    if (!page.next || !batch.length) return rows;
+  }
 }
 
 const KOBO_SKIP_TYPES = new Set([
@@ -696,7 +747,7 @@ const ilikeExact = (s: string) => s.replace(/[\\%_]/g, "\\$&");
    The education team also gets head counts per school. */
 app.get("/schools", async (c) => {
   const [{ data, error }, counties] = await Promise.all([
-    admin.from("schools").select("*").order("seq"),
+    selectAll(() => admin.from("schools").select("*").order("seq").order("id")),
     loadCounties().catch(() => null),
   ]);
   if (error || !counties) return c.json({ error: error?.message || "Could not load counties" }, 500);
@@ -707,8 +758,8 @@ app.get("/schools", async (c) => {
   const me = c.get("actorKind") === "staff" ? await loadStaffProfile(c.get("userId")) : null;
   if (me?.role === "education_team") {
     const [{ data: profs }, { data: learners }] = await Promise.all([
-      admin.from("profiles").select("school_id, role").not("school_id", "is", null),
-      admin.from("learners").select("school_id").not("school_id", "is", null),
+      selectAll(() => admin.from("profiles").select("school_id, role").not("school_id", "is", null).order("id")),
+      selectAll(() => admin.from("learners").select("school_id").not("school_id", "is", null).order("id")),
     ]);
     const count = (rows: Record<string, unknown>[] | null, id: unknown, role?: string) =>
       (rows ?? []).filter((r) => r.school_id === id && (!role || r.role === role)).length;
@@ -986,10 +1037,11 @@ app.get("/learners/:id/activity", withProfile("teacher"), async (c) => {
 
 app.get("/library", withActor(), async (c) => {
   const role = c.get("actor").role;
-  const { data, error } = await admin
+  const { data, error } = await selectAll(() => admin
     .from("library_items")
     .select("*")
-    .order("uploaded_at", { ascending: false });
+    .order("uploaded_at", { ascending: false })
+    .order("id"));
   if (error) return c.json({ error: error.message }, 500);
   // A draft is only visible to the education team — everyone else only
   // ever sees what's actually been published, same as the audience check
@@ -1147,8 +1199,8 @@ app.patch("/library/:id", withProfile("education_team"), async (c) => {
 app.get("/library/folders", withActor(), async (c) => {
   const role = c.get("actor").role;
   const [{ data: folders, error: fErr }, { data: items, error: iErr }] = await Promise.all([
-    admin.from("library_folders").select("*").order("name"),
-    admin.from("library_items").select("folder_id, audience, published"),
+    selectAll(() => admin.from("library_folders").select("*").order("name").order("id")),
+    selectAll(() => admin.from("library_items").select("folder_id, audience, published").order("id")),
   ]);
   if (fErr) return c.json({ error: fErr.message }, 500);
   if (iErr) return c.json({ error: iErr.message }, 500);
@@ -1275,13 +1327,19 @@ app.patch("/library/interactions/:id/complete", withActor(), async (c) => {
    one of their learners (/learners/:id/activity) — same shape either way,
    just a different actorId. */
 async function loadLibraryUsage(actorId: string) {
-  const [{ data, error }, { data: badgeRows }] = await Promise.all([
+  // The list shows the latest 200 visits; the totals come from every visit.
+  const [{ data, error }, all, { data: badgeRows }] = await Promise.all([
     admin
       .from("library_interactions")
       .select("*, library_items(title)")
       .eq("actor_id", actorId)
       .order("started_at", { ascending: false })
       .limit(200),
+    selectAll(() => admin
+      .from("library_interactions")
+      .select("library_item_id, duration_seconds")
+      .eq("actor_id", actorId)
+      .order("id")),
     admin
       .from("library_badges")
       .select("id, badge, awarded_at, library_items(title)")
@@ -1289,12 +1347,13 @@ async function loadLibraryUsage(actorId: string) {
       .order("awarded_at", { ascending: false }),
   ]);
   if (error) throw new Error(error.message);
+  if (all.error) throw new Error(all.error.message);
   const rows = data ?? [];
-  const completed = rows.filter((r) => r.duration_seconds != null);
+  const completed = all.data.filter((r) => r.duration_seconds != null);
   const badges = badgeRows ?? [];
   return {
     totalSeconds: completed.reduce((s, r) => s + (r.duration_seconds as number), 0),
-    resourcesOpened: new Set(rows.map((r) => r.library_item_id)).size,
+    resourcesOpened: new Set(all.data.map((r) => r.library_item_id)).size,
     interactions: rows.map(mapInteraction),
     badgesEarned: badges.length,
     badges: badges.map((b: any) => ({
@@ -1364,9 +1423,13 @@ app.get("/library/usage", withProfile("education_team"), async (c) => {
   const school = String(c.req.query("school") ?? "").trim();
 
   const [itemsRes, interRes] = await Promise.all([
-    admin.from("library_items").select("id, title"),
-    admin.from("library_interactions").select("*"),
+    selectAll(() => admin.from("library_items").select("id, title").order("id")),
+    selectAll(() => admin.from("library_interactions")
+      .select("library_item_id, actor_id, school, duration_seconds").order("id")),
   ]);
+  // A failed read must not render as "nobody used the library".
+  const usageErr = itemsRes.error || interRes.error;
+  if (usageErr) return c.json({ error: usageErr.message }, 500);
   const items = itemsRes.data ?? [];
   const titleOf: Record<string, string> = {};
   for (const it of items) titleOf[it.id as string] = it.title as string;
@@ -1438,7 +1501,8 @@ function formReaches(f: Record<string, unknown>, actor: Actor) {
 
 app.get("/forms", withProfile(), async (c) => {
   const p = c.get("actor");
-  const { data, error } = await admin.from("forms").select("*").order("created_at", { ascending: false });
+  const { data, error } = await selectAll(() =>
+    admin.from("forms").select("*").order("created_at", { ascending: false }).order("id"));
   if (error) return c.json({ error: error.message }, 500);
   const forms = await Promise.all((data ?? []).filter((f) => formReaches(f, p)).map(mapForm));
   return c.json({ forms });
@@ -1571,12 +1635,16 @@ function cleanResponseFiles(raw: unknown, formId: string, actorId: string): LibF
 
 app.get("/responses", withProfile(), async (c) => {
   const p = c.get("actor");
-  let q = admin
-    .from("responses")
-    .select("*")
-    .order("submitted_at", { ascending: false });
-  if (p.role !== "education_team") q = q.eq("respondent_id", p.id);
-  const { data, error } = await q;
+  // Every response: the Education Team's averages are computed from this list.
+  const { data, error } = await selectAll(() => {
+    let q = admin
+      .from("responses")
+      .select("*")
+      .order("submitted_at", { ascending: false })
+      .order("id");
+    if (p.role !== "education_team") q = q.eq("respondent_id", p.id);
+    return q;
+  });
   if (error) return c.json({ error: error.message }, 500);
   const responses = await Promise.all((data ?? []).map((r) => mapResponse(r, p.role === "education_team")));
   return c.json({ responses });
@@ -1615,9 +1683,11 @@ app.get("/assignments", withActor(), async (c) => {
   if (a.role !== "learner" && a.role !== "education_team") {
     return c.json({ assignments: [] });
   }
-  let q = admin.from("assignments").select("*").order("id");
-  if (a.role === "learner") q = q.eq("learner_id", a.id);
-  const { data, error } = await q;
+  const { data, error } = await selectAll(() => {
+    let q = admin.from("assignments").select("*").order("id");
+    if (a.role === "learner") q = q.eq("learner_id", a.id);
+    return q;
+  });
   if (error) return c.json({ error: error.message }, 500);
   return c.json({ assignments: (data ?? []).map(mapAssignment) });
 });
@@ -1628,11 +1698,12 @@ app.get("/assignments", withActor(), async (c) => {
    "view activity" panel already covers that case via /learners/:id/activity). */
 app.get("/teacher/assignments", withProfile("teacher"), async (c) => {
   const teacherId = c.get("actor").id;
-  const { data, error } = await admin
+  const { data, error } = await selectAll(() => admin
     .from("assignments")
     .select("id, title, subject, due, done, learner_id, learners!inner(full_name, teacher_id)")
     .eq("learners.teacher_id", teacherId)
-    .order("due");
+    .order("due")
+    .order("id"));
   if (error) return c.json({ error: error.message }, 500);
   const assignments = (data ?? []).map((r: Record<string, unknown>) => ({
     ...mapAssignment(r),
@@ -1675,12 +1746,15 @@ app.get("/field-reports", withProfile(), async (c) => {
   if (p.role !== "field_officer" && p.role !== "education_team") {
     return c.json({ reports: [] });
   }
-  let q = admin
-    .from("field_reports")
-    .select("*")
-    .order("created_at", { ascending: false });
-  if (p.role === "field_officer") q = q.eq("officer_id", p.id);
-  const { data, error } = await q;
+  const { data, error } = await selectAll(() => {
+    let q = admin
+      .from("field_reports")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .order("id");
+    if (p.role === "field_officer") q = q.eq("officer_id", p.id);
+    return q;
+  });
   if (error) return c.json({ error: error.message }, 500);
   return c.json({ reports: (data ?? []).map(mapReport) });
 });
@@ -1810,16 +1884,20 @@ app.get("/stats", withProfile("education_team"), async (c) => {
   };
 
   const [profs, learnersRaw, asg, reportsRaw, forms, responses, library, schoolsReg, countiesReg] = await Promise.all([
-    admin.from("profiles").select("id, role, county, school, teacher_type"),
-    admin.from("learners").select("id, teacher_id, grade, school, created_at"),
-    admin.from("assignments").select("learner_id, done"),
-    admin.from("field_reports").select("county, visit_type, school, created_at"),
-    admin.from("forms").select("id, audience"),
-    admin.from("responses").select("form_id"),
-    admin.from("library_items").select("audience, subject"),
-    admin.from("schools").select("name, county, code, seq").order("seq"),
+    selectAll(() => admin.from("profiles").select("id, role, county, school, teacher_type").order("id")),
+    selectAll(() => admin.from("learners").select("id, teacher_id, grade, school, created_at").order("id")),
+    selectAll(() => admin.from("assignments").select("learner_id, done").order("id")),
+    selectAll(() => admin.from("field_reports").select("county, visit_type, school, created_at").order("id")),
+    selectAll(() => admin.from("forms").select("id, audience").order("id")),
+    selectAll(() => admin.from("responses").select("form_id").order("id")),
+    selectAll(() => admin.from("library_items").select("audience, subject").order("id")),
+    selectAll(() => admin.from("schools").select("name, county, code, seq").order("seq").order("id")),
     loadCounties().catch(() => [] as County[]),
   ]);
+  // A failed read must not render as zeros on the dashboard.
+  const statsErr = [profs, learnersRaw, asg, reportsRaw, forms, responses, library, schoolsReg]
+    .find((r) => r.error)?.error;
+  if (statsErr) return c.json({ error: statsErr.message }, 500);
 
   const allProfiles = profs.data ?? [];
   const allLearners = learnersRaw.data ?? [];
@@ -1968,13 +2046,17 @@ app.get("/school/overview", withProfile("school_leader"), async (c) => {
   // Scoped by the school record itself, so two schools that happen to
   // share a name never get mixed together. Visits logged before schools
   // had records are matched by name + county as a fallback.
-  const [profs, learnersRaw, reportsById, reportsByName] = await Promise.all([
-    admin.from("profiles").select("id, teacher_type").eq("role", "teacher").eq("school_id", schoolRec.id),
-    admin.from("learners").select("id, grade").eq("school_id", schoolRec.id),
-    admin.from("field_reports").select("*").eq("school_id", schoolRec.id),
-    admin.from("field_reports").select("*").is("school_id", null).eq("school", school).eq("county", county),
+  const [profs, learnersRaw, reportsById, reportsByName, asg] = await Promise.all([
+    selectAll(() => admin.from("profiles").select("id, teacher_type").eq("role", "teacher").eq("school_id", schoolRec.id).order("id")),
+    selectAll(() => admin.from("learners").select("id, grade").eq("school_id", schoolRec.id).order("id")),
+    selectAll(() => admin.from("field_reports").select("*").eq("school_id", schoolRec.id).order("id")),
+    selectAll(() => admin.from("field_reports").select("*").is("school_id", null).eq("school", school).eq("county", county).order("id")),
+    // Joined on the learner's school rather than an id list, which would
+    // overflow the request URL for a large school.
+    selectAll(() => admin.from("assignments").select("learner_id, done, learners!inner(school_id)")
+      .eq("learners.school_id", schoolRec.id).order("id")),
   ]);
-  if (profs.error || learnersRaw.error || reportsById.error || reportsByName.error) {
+  if (profs.error || learnersRaw.error || reportsById.error || reportsByName.error || asg.error) {
     return c.json({ error: "Could not load the school overview" }, 500);
   }
 
@@ -1983,11 +2065,6 @@ app.get("/school/overview", withProfile("school_leader"), async (c) => {
   const visitRows = [...(reportsById.data ?? []), ...(reportsByName.data ?? [])]
     .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
 
-  const learnerIds = learnerRows.map((l) => l.id as string);
-  const asg = learnerIds.length
-    ? await admin.from("assignments").select("learner_id, done").in("learner_id", learnerIds)
-    : { data: [] as Record<string, unknown>[], error: null as unknown };
-  if (asg.error) return c.json({ error: "Could not load the school overview" }, 500);
   const assignmentRows = asg.data ?? [];
 
   const gradeOfLearner: Record<string, string> = {};
@@ -2043,10 +2120,11 @@ const mapUserRow = (r: Record<string, unknown>) => ({
 });
 
 app.get("/users", withProfile("education_team"), async (c) => {
-  const { data, error } = await admin
+  const { data, error } = await selectAll(() => admin
     .from("profiles")
     .select("*")
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .order("id"));
   if (error) return c.json({ error: error.message }, 500);
   return c.json({ users: (data ?? []).map(mapUserRow) });
 });
@@ -2231,7 +2309,8 @@ app.get("/kobo/assets", withProfile("education_team"), async (c) => {
 app.get("/kobo/forms", withProfile("education_team"), async (c) => {
   const { data } = await admin
     .from("kobo_forms").select("*").order("created_at", { ascending: false });
-  const { data: subs } = await admin.from("kobo_submissions").select("kobo_form_id");
+  const { data: subs } = await selectAll(() =>
+    admin.from("kobo_submissions").select("kobo_form_id").order("kobo_form_id").order("officer_id"));
   const counts: Record<string, number> = {};
   for (const s of subs ?? []) counts[s.kobo_form_id] = (counts[s.kobo_form_id] ?? 0) + 1;
   return c.json({
@@ -2338,20 +2417,22 @@ app.post("/kobo/sync", withProfile("education_team"), async (c) => {
   const cfg = await loadKoboConfig();
   if (!cfg) return c.json({ error: "Connect KoboToolbox first" }, 400);
   const { data: forms } = await admin.from("kobo_forms").select("*").eq("active", true);
-  const { data: profs } = await admin.from("profiles").select("id");
+  const { data: profs } = await selectAll(() => admin.from("profiles").select("id").order("id"));
   const validIds = new Set((profs ?? []).map((p) => p.id));
 
   let matched = 0;
+  const failed: string[] = [];
   for (const f of forms ?? []) {
-    let data;
+    let rows: Record<string, unknown>[];
     try {
-      data = await koboJson(cfg, `/api/v2/assets/${f.asset_uid}/data/?format=json&limit=30000`);
+      rows = await koboAllSubmissions(cfg, f.asset_uid as string);
     } catch {
+      failed.push(f.title as string);
       continue;
     }
-    const rows: any[] = data.results ?? [];
-    const upserts: any[] = [];
+    const upserts: Record<string, unknown>[] = [];
     for (const r of rows) {
+      if (koboRejected(r)) continue;
       const ref = pickOfficerRef(r, cfg.officer_field);
       if (ref && validIds.has(ref)) {
         upserts.push({
@@ -2371,14 +2452,21 @@ app.post("/kobo/sync", withProfile("education_team"), async (c) => {
       matched += upserts.length;
     }
     await admin.from("kobo_forms").update({
-      submission_count: data.count ?? rows.length,
+      submission_count: rows.length,
       synced_at: new Date().toISOString(),
     }).eq("id", f.id);
+    koboResultsCache.delete(f.id as string);
   }
-  return c.json({ ok: true, matched });
+  return c.json({ ok: true, matched, failed });
 });
 
 // ---- KoboToolbox: aggregated survey results (charts) ----
+
+/* The results panel refreshes every couple of minutes per open dashboard.
+   A short per-instance cache stops each refresh re-downloading every
+   submission from Kobo; the Refresh button asks for ?fresh=1. */
+const KOBO_RESULTS_TTL_MS = 60_000;
+const koboResultsCache = new Map<string, { at: number; body: Record<string, unknown> }>();
 
 app.get("/kobo/forms/:id/results", withProfile("education_team"), async (c) => {
   const cfg = await loadKoboConfig();
@@ -2387,15 +2475,22 @@ app.get("/kobo/forms/:id/results", withProfile("education_team"), async (c) => {
     .from("kobo_forms").select("*").eq("id", c.req.param("id")).maybeSingle();
   if (!form) return c.json({ error: "Survey not found" }, 404);
 
-  let asset: any, sub: any;
+  const cached = koboResultsCache.get(form.id);
+  if (cached && !c.req.query("fresh") && Date.now() - cached.at < KOBO_RESULTS_TTL_MS) {
+    return c.json(cached.body);
+  }
+
+  let asset: any, allRows: Record<string, unknown>[];
   try {
-    asset = await koboJson(cfg, `/api/v2/assets/${form.asset_uid}/?format=json`);
-    sub = await koboJson(cfg, `/api/v2/assets/${form.asset_uid}/data/?format=json&limit=30000`);
+    asset = await koboJson(cfg, `/api/v2/assets/${encodeURIComponent(form.asset_uid)}/?format=json`);
+    allRows = await koboAllSubmissions(cfg, form.asset_uid);
   } catch (e) {
     return c.json({ error: (e as Error).message }, 502);
   }
 
-  const rows: Record<string, unknown>[] = sub.results ?? [];
+  // Submissions a reviewer rejected in Kobo don't count; say how many.
+  const rows = allRows.filter((r) => !koboRejected(r));
+  const excludedNotApproved = allRows.length - rows.length;
   const content = asset.content ?? {};
   const surveyDef: any[] = content.survey ?? [];
 
@@ -2442,7 +2537,8 @@ app.get("/kobo/forms/:id/results", withProfile("education_team"), async (c) => {
     const name = String(q.name ?? q.$autoname ?? "");
     if (!name || name === cfg.officer_field) continue;
     const label = koboLabel(q.label, name);
-    const raw = rows.map((r) => rowValue(r, name));
+    // Repeat-group questions contribute one answer per repeat.
+    const raw = rows.flatMap((r) => rowValues(r, name));
     const answered = raw.filter((v) => v !== undefined && v !== null && String(v).trim() !== "");
 
     if (type === "select_one" || type === "select_multiple") {
@@ -2494,7 +2590,7 @@ app.get("/kobo/forms/:id/results", withProfile("education_team"), async (c) => {
     } else {
       // text / date / time / datetime / geopoint / etc. -> recent answers
       const withTime = rows
-        .map((r) => ({ v: rowValue(r, name), t: String(r._submission_time ?? "") }))
+        .flatMap((r) => rowValues(r, name).map((v) => ({ v, t: String(r._submission_time ?? "") })))
         .filter((x) => x.v !== undefined && x.v !== null && String(x.v).trim() !== "");
       withTime.sort((a, b) => b.t.localeCompare(a.t));
       questions.push({
@@ -2505,13 +2601,16 @@ app.get("/kobo/forms/:id/results", withProfile("education_team"), async (c) => {
   }
 
   const times = rows.map((r) => String(r._submission_time ?? "")).filter(Boolean).sort();
-  return c.json({
+  const body = {
     id: form.id,
     title: form.title,
     submissionCount: rows.length,
+    excludedNotApproved,
     lastSubmission: times.length ? times[times.length - 1] : null,
     questions,
-  });
+  };
+  koboResultsCache.set(form.id, { at: Date.now(), body });
+  return c.json(body);
 });
 
 // ---- KoboToolbox: field-officer surveys ----
