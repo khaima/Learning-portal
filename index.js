@@ -199,6 +199,7 @@ async function route() {
   // Staff signed in but not onboarded yet (first Google sign-in lands here too).
   if (profile?.email && getRememberMe()) saveLastStaffLogin(pendingRole(), profile.email);
   $("#onboardEmail").textContent = profile?.email || "you";
+  $("#ob_role_hint").hidden = pendingRole() !== "education_team";
   setOnboardRole(pendingRole());
   show("onboard");
   loadOnboardSchools();
@@ -385,6 +386,9 @@ $("#googleBtn").addEventListener("click", async () => {
    the Education Team is portal-wide and picks neither. */
 const SCHOOL_ROLES = ["teacher", "school_leader"];
 const CODE_LETTER = { teacher: "T", school_leader: "H" };
+/* Roles a new account can pick for itself — the API refuses anything
+   else. Education Team is granted by an existing Education Team member. */
+const ONBOARD_ROLES = ["teacher", "school_leader", "field_officer"];
 
 function codeHint(el, school, role) {
   el.textContent = school
@@ -397,6 +401,7 @@ let selectedRole = "teacher";
 let onboardPicker = null;
 const roleCards = $$("#roleGrid .role-card");
 function setOnboardRole(role) {
+  if (!ONBOARD_ROLES.includes(role)) role = "teacher";
   selectedRole = role;
   roleCards.forEach((c) => c.setAttribute("aria-pressed", String(c.dataset.role === role)));
   $("#ob_grade_field").hidden = role !== "learner";

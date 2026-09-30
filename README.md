@@ -234,7 +234,9 @@ immediately for both new sign-ups and returning accounts.
 
 Worth trying end to end:
 
-1. Create a staff account → onboard as **Education Team**.
+1. Sign in as an **Education Team** account. (A new account can't choose
+   Education Team itself — an existing Education Team member changes its
+   role on the **Users** page.)
 2. Upload content — attach a file or folder — to **Teacher Resources**,
    the **Digital Library**, or **For School Head**, and/or send a form to
    Teachers, School Leaders, or Field Officers.
@@ -258,10 +260,12 @@ same data everywhere, because the database is the source of truth.
 ## What it does NOT have yet
 
 - **No M&E or Admin roles.** Scoped to the five roles above.
-- **Staff role is self-selected at onboarding.** Fine for a pilot; a real
-  deployment would have an admin assign or approve roles rather than let
-  anyone pick "Education Team". (Learners don't self-onboard — a teacher
-  creates them.)
+- **Working roles are self-selected at onboarding.** A new account picks
+  Teacher, School Leader or Field Officer; **Education Team** can only be
+  granted by an existing Education Team member (Users page), and the last
+  Education Team account can't be demoted. There is no approval step for
+  the working roles yet. (Learners don't self-onboard — a teacher creates
+  them.)
 - **Learner PINs are 4 digits — intentionally weak.** They're
   teacher-managed and locked after 5 wrong tries; fine for coursework and
   library access, not for anything sensitive.

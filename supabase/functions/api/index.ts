@@ -35,6 +35,8 @@ const STAFF_ROLES = [
   "education_team",
 ] as const;
 const ALL_ROLES = [...STAFF_ROLES, "learner"] as const;
+/** Roles a new staff account may pick for itself at onboarding. */
+const SELF_ONBOARD_ROLES: string[] = ["teacher", "school_leader", "field_officer"];
 type Role = (typeof ALL_ROLES)[number];
 
 const LIBRARY_BUCKET = "library";
@@ -592,7 +594,15 @@ app.post("/me", async (c) => {
     return c.json({ error: "Profile already exists" }, 409);
   }
   const b = await c.req.json().catch(() => ({}));
-  if (!STAFF_ROLES.includes(b.role)) return c.json({ error: "Pick a role" }, 400);
+  // Anyone can register, so onboarding may only hand out working roles.
+  // Education Team is an admin role: only an existing Education Team
+  // member grants it, from the Users page (PATCH /users/:id).
+  if (b.role === "education_team") {
+    return c.json({
+      error: "Education Team access is given by an existing Education Team member. Pick your working role for now and ask them to change it.",
+    }, 403);
+  }
+  if (!SELF_ONBOARD_ROLES.includes(b.role)) return c.json({ error: "Pick a role" }, 400);
   if (!String(b.fullName ?? "").trim()) {
     return c.json({ error: "Full name is required" }, 400);
   }
@@ -2021,6 +2031,15 @@ app.patch("/users/:id", withProfile("education_team"), async (c) => {
   const nextRole = b.role !== undefined ? b.role : existing.role;
   if (b.role !== undefined) {
     if (!STAFF_ROLES.includes(b.role)) return c.json({ error: "Invalid role" }, 400);
+    // Never leave the portal without an Education Team account — nobody
+    // could grant the role back.
+    if (existing.role === "education_team" && b.role !== "education_team") {
+      const { count } = await admin.from("profiles")
+        .select("id", { count: "exact", head: true }).eq("role", "education_team");
+      if ((count ?? 0) <= 1) {
+        return c.json({ error: "This is the last Education Team account. Make someone else Education Team first." }, 409);
+      }
+    }
     patch.role = b.role;
   }
 

@@ -60,9 +60,10 @@ create table if not exists public.school_code_counters (
 
 -- ---------------------------------------------------------------- accounts
 -- Staff accounts. Supabase Auth (`auth.users`) holds the email +
--- password; this table holds the app-level profile. Role is assigned at
--- onboarding (self-selected in this build — a real deployment would gate
--- it behind an admin). No email is sent: the `api` /auth/register route
+-- password; this table holds the app-level profile. A new account picks
+-- teacher, school_leader or field_officer at onboarding; education_team is
+-- only ever granted by an existing Education Team member (the API refuses
+-- it at onboarding). No email is sent: the `api` /auth/register route
 -- creates the auth user already-confirmed.
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
