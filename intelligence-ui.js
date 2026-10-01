@@ -13,6 +13,10 @@
 import { esc, formatDuration } from "./util.js";
 
 const pct = (v) => (v == null ? "—" : `${Math.round(v)}%`);
+const KOBO_RULE_LABEL = {
+  required: "Required answers", type: "Answer types", school: "School code", county: "County",
+  officer: "Field officer", duplicate: "Duplicates", date: "Dates",
+};
 const mins = (m) => (m ? formatDuration(m * 60) : "0m");
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
@@ -186,9 +190,10 @@ export function dataCollectionHtml(d) {
   const D = d.dataCollection;
   const k = D.kobo;
   return `
-    ${D.notSchoolScoped ? `<p class="hint">Forms and Kobo surveys aren't tied to one school, so the school filter doesn't narrow them.</p>` : ""}
+    ${D.notSchoolScoped ? `<p class="hint">Forms aren't tied to one school, so the school filter doesn't narrow them. Kobo submissions follow the school each one names.</p>` : ""}
     <div class="stat-row">
-      ${tile("Kobo submissions", k.totalSubmissions, k.lastSynced ? `last synced ${new Date(k.lastSynced).toLocaleDateString()}` : "not synced yet")}
+      ${tile("Kobo submissions", k.totalSubmissions, `${k.counted} counted · ${k.lastSynced ? `synced ${new Date(k.lastSynced).toLocaleDateString()}` : "not synced yet"}`)}
+      ${tile("Need review", k.needsReview, `${k.byStatus.duplicate} duplicates · ${k.byStatus.rejected} rejected in Kobo`, k.needsReview ? "warn" : "")}
       ${tile("Officer surveys done", pct(k.officerCompletion.rate), `${k.officerCompletion.done}/${k.officerCompletion.expected} officer × survey`)}
       ${tile("Forms", D.forms.active, `${D.forms.archived} archived`)}
       ${tile("Feedback received", D.feedback.responses, `${D.feedback.thisTerm} this term`)}
@@ -197,8 +202,11 @@ export function dataCollectionHtml(d) {
     <div class="chart-grid">
       ${card("Response rates", "who each form reaches vs. who answered", table(["Form", "For", "Expected", "Received", "Rate"],
         D.responseRates.map((r) => [esc(r.label), esc(r.kind === "visit" ? "visit form" : r.audience), r.expected, r.received, pct(r.rate)])), { wide: true })}
-      ${card("Kobo surveys", "from the last sync", table(["Survey", "Submissions", "Rejected", "Not linked", "Officers done"],
-        k.forms.map((f) => [esc(f.title), f.submissions, f.rejected, f.unattributed, f.officersDone])), { wide: true })}
+      ${card("Kobo surveys", "validated in the portal — only “counted” reaches the dashboards", table(["Survey", "Received", "Counted", "Failing checks", "Duplicates", "Rejected in Kobo", "Officers done"],
+        k.forms.map((f) => [esc(f.title), f.submissions, f.counted, f.invalid, f.duplicate, f.rejected, f.officersDone])), { wide: true })}
+      ${card("Kobo checks", `${k.schoolsCovered} school${k.schoolsCovered === 1 ? "" : "s"} covered by counted submissions`,
+        bars(k.issuesByRule.map((r) => ({ label: KOBO_RULE_LABEL[r.rule] || r.rule, value: r.errors, w: r.warnings })), { note: (r) => r.w ? `+${r.w} warning${r.w === 1 ? "" : "s"}` : "" })
+        + `<p class="field-hint">Submissions failing each check. Open Kobo Surveys → Data pipeline to review them.</p>`)}
       ${card("Feedback by role", "", bars(D.feedback.byRole))}
       ${card("Forms by audience", "", bars(D.forms.byAudience))}
       ${card("Data quality", "checks on the records behind every number", `

@@ -152,12 +152,71 @@ The Education Team's dashboard has a **Field surveys (KoboToolbox)** panel:
   and the Education Team's **Sync now**); officers also have a manual
   "I've submitted this" fallback.
 - **Survey results** — a panel on the Education Team dashboard picks one
-  attached survey and draws a live chart per question (bar / donut /
-  number summary / recent-answers list, plus a submissions-by-officer
-  breakdown) straight from the KoboToolbox submissions. It re-reads on
-  survey change, on **Refresh**, when the tab regains focus, and every
-  45 seconds while the tab is open. Answers are never stored in the
-  portal database — they are fetched from Kobo each time.
+  attached survey and draws a chart per question (bar / donut / number
+  summary / recent answers, plus submissions by school and by officer)
+  from the portal's own validated records — see the pipeline below. The
+  county and school filters apply.
+
+### Kobo data pipeline
+
+Postgres is the source of truth; KoboToolbox is where data is collected.
+
+```
+KoboToolbox ─→ API ─→ raw submission (kept exactly as received)
+                  ─→ validation ─→ normalization ─→ kobo_records ─→ dashboards
+```
+
+- **Getting data in.** **Sync now** pulls every attached survey (its
+  questions and all its submissions). Optionally, **Live push** lets each
+  survey's KoboToolbox *REST Service* post every new submission to
+  `/api/kobo/hook` the moment it's sent: Kobo Surveys → *Set up the push*
+  gives the URL, a username and a password (Basic auth; shown once, only
+  its hash is stored). Only attached surveys are accepted. Sync still
+  catches edits, deletions and Kobo's own approvals.
+- **Raw** — every submission is stored as received (`kobo_raw_submissions`),
+  so it can be re-checked at any time without asking Kobo again.
+  Submissions deleted in Kobo are marked removed, never deleted here.
+- **Validation** (`kobo_pipeline.ts`) — each finding is an **error** (kept
+  off the dashboards until a person decides) or a **warning** (shown, still
+  counted):
+  - *Required fields* — a required question left blank (unless the form's
+    skip logic, or its group's, hides it).
+  - *Data types* — whole numbers, numbers, dates, times, GPS points, and
+    answers that must be one of the survey's own options.
+  - *School code* — a school code, a school name, or a saved alias must
+    match a portal school; near-misses get a "did you mean…".
+  - *County* — must be a portal county, and agree with the school's.
+  - *Officer* — the hidden officer reference must be a portal account
+    (warnings if it's inactive, not a field officer, or works elsewhere).
+  - *Duplicates* — the same submission sent twice (same answers and form
+    start time, or same Kobo instance) counts once; the same officer,
+    school and date twice is a warning.
+  - *Dates* — a visit date in the future or after Kobo received it is an
+    error; over a year before it, or a form finished before it started, a
+    warning.
+  - A submission a reviewer marked **Not approved** in Kobo is left out.
+- **Normalization** — trimmed text, real numbers, option lists, ISO dates,
+  GPS as coordinates; every submission linked to a **school**, **county**
+  and **officer** in the portal (`kobo_records`), with its findings in
+  `kobo_record_issues`.
+- **Data pipeline** (Kobo Surveys → a survey → *Data pipeline*) — what came
+  in and what counts; each check and how many fail it; **which questions
+  hold the school, county, officer and date** (guessed on first sync,
+  editable — saving re-checks everything); **school names it couldn't
+  place** (pick the school once and it's remembered for every survey);
+  and the **review queue**, where each flagged submission can be
+  **accepted** onto the dashboards or **excluded**, always with a reason
+  (audited). M&E can see all of it but change nothing.
+- **Dashboards** — Survey results and the Programme Intelligence *Data
+  collection* area read only the records that pass, or that a person
+  accepted.
+
+Survey answers can include personal data (for example learner names in an
+assessment). Like everything else they're reachable only through the API,
+by the Education Team, administrators and M&E.
+
+Airtable, if used, should be fed **from** the portal (a reporting layer),
+not straight from Kobo, so it sees the same validated data as the portal.
 
 ### Schools and codes
 
@@ -341,9 +400,12 @@ the caller's own row in the database — nothing the browser sends.
   through the school/class walls, learner enrollment, and the whole
   assignment cycle (visibility, hand-in, late work, marking, results).
   [`lms_test.ts`](supabase/functions/api/lms_test.ts) unit-tests the marking
-  and results rules, and [`intelligence_test.ts`](supabase/functions/api/intelligence_test.ts)
-  every number on the Programme Intelligence dashboard:
-  `cd supabase/functions/api && deno test --allow-env --config deno.json authz_test.ts lms_test.ts intelligence_test.ts`
+  and results rules, [`intelligence_test.ts`](supabase/functions/api/intelligence_test.ts)
+  every number on the Programme Intelligence dashboard, and
+  [`kobo_pipeline_test.ts`](supabase/functions/api/kobo_pipeline_test.ts)
+  every Kobo validation and normalization rule (the authorization tests
+  also run sync and the push against a stand-in KoboToolbox):
+  `cd supabase/functions/api && deno test --allow-env --config deno.json authz_test.ts lms_test.ts intelligence_test.ts kobo_pipeline_test.ts`
 
 ### Turning on Google sign-in
 
@@ -441,6 +503,7 @@ used).
 | `config.js` | Supabase URL, publishable key, API base URL |
 | `data.js` | Static UI constants (roles, subjects, question types) |
 | `util.js` | Tiny shared DOM / escaping / toast helpers |
+| `kobo-ui.js` | The Kobo data pipeline panel (checks, mapping, school aliases, review queue) and the live-push setup |
 | `intelligence-ui.js` | The Education Team's Programme Intelligence pages |
 | `assignments-ui.js` | Assignment builder, marking, results table, and the learner's assignment screen |
 | `learners-ui.js` | Shared learner dialogs: archive, history, transfer |

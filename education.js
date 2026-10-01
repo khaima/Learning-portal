@@ -20,6 +20,7 @@ import { openIframeViewer } from "./viewer.js";
 import { formTagsHtml } from "./forms.js";
 import { statusPill, openHistoryPanel, openTransferDialog } from "./learners-ui.js";
 import { overviewHtml, qualityAlerts, learningHtml, implementationHtml, dataCollectionHtml, impactHtml } from "./intelligence-ui.js";
+import { openKoboPipeline, webhookBoxHtml, wireWebhookBox } from "./kobo-ui.js";
 
 const AUDIENCE_LABEL = Object.fromEntries(FORM_AUDIENCES.map((a) => [a.value, a.label]));
 const STAFF_ROLES = ROLES.filter((r) => r.value !== "learner");
@@ -73,7 +74,6 @@ async function main() {
   hideUnless($(".county-manage"), "schools.manage");
   hideUnless($(".upload-panel"), "library.manage");
   hideUnless($("#formBuilder")?.closest(".panel"), "forms.manage");
-  hideUnless($("#koboSyncBtn")?.closest(".panel"), "kobo.manage");
 
   $("#sideAvatar").textContent = initials(user.fullName);
   $("#sideName").textContent = user.fullName;
@@ -1263,8 +1263,16 @@ async function main() {
     $("#koboFieldEcho").textContent = koboState.officerField || "officer_ref";
     renderAttention();
 
-    // Viewing results only (M&E): no connection, attach or sync controls.
-    if (!has("kobo.manage")) { refreshSurveyPicker(); return; }
+    // Viewing only (M&E): the surveys and their data pipeline, read-only —
+    // no connection, attach, sync or push controls.
+    if (!has("kobo.manage")) {
+      koboConnectForm.hidden = true;
+      koboManage.hidden = !koboState.configured;
+      $("#koboAttachForm").hidden = true;
+      if (koboState.configured) renderKoboForms();
+      refreshSurveyPicker();
+      return;
+    }
     if (!koboState.configured) { showKoboConnect(); refreshSurveyPicker(); return; }
 
     koboConnectForm.hidden = true;
@@ -1273,10 +1281,20 @@ async function main() {
     $("#koboServerEcho").textContent = (koboState.baseUrl || "").replace(/^https?:\/\//, "");
     $("#koboFieldEcho2").textContent = koboState.officerField || "officer_ref";
 
+    renderKoboPush();
     renderKoboAssets();
     renderKoboForms();
     refreshSurveyPicker();
   }
+
+  /* Kobo's live push (REST Service): set up / replace / turn off. */
+  function renderKoboPush() {
+    $("#koboPush").innerHTML = webhookBoxHtml(koboState, has("kobo.manage"));
+  }
+  wireWebhookBox($("#koboPush"), async () => {
+    try { koboState = await koboConfig(); } catch { /* keep the old state */ }
+    renderKoboPush();
+  });
 
   async function renderKoboAssets() {
     koboAssetSel.innerHTML = `<option value="">Loading surveys…</option>`;
@@ -1307,12 +1325,15 @@ async function main() {
           <div class="kobo-row">
             <div>
               <b style="font-size:.92rem">${esc(f.title)}</b>
-              <div class="fc-meta" style="margin:.2rem 0 0">${f.officerSubmissions} officer submission${f.officerSubmissions === 1 ? "" : "s"}${
-                f.syncedAt ? " · synced " + new Date(f.syncedAt).toLocaleString() : " · not synced yet"
-              }</div>
+              <div class="fc-meta" style="margin:.2rem 0 0">${f.processed
+                ? `${f.pipeline.received} received · <b>${f.pipeline.counted} counted</b>${f.pipeline.needsReview ? ` · <span class="kp-warn">${f.pipeline.needsReview} need review</span>` : ""}`
+                : "not checked yet — press Sync now"}${
+                f.syncedAt ? " · synced " + new Date(f.syncedAt).toLocaleString() : ""
+              } · ${f.officerSubmissions} officer${f.officerSubmissions === 1 ? "" : "s"} done</div>
             </div>
             <div class="kobo-actions">
-              ${f.active
+              <button type="button" data-kobo-pipeline="${esc(f.id)}">Data pipeline</button>
+              ${!has("kobo.manage") ? "" : f.active
                 ? `<button type="button" data-kobo-archive="${esc(f.id)}" class="danger">Archive</button>`
                 : `<button type="button" data-kobo-restore="${esc(f.id)}">Restore</button>`}
             </div>
@@ -1330,6 +1351,13 @@ async function main() {
            </div>`
         : "");
 
+    $$("[data-kobo-pipeline]").forEach((btn) => btn.addEventListener("click", async () => {
+      if (!schoolDir.schools.length) await renderSchoolList().catch(() => {});
+      openKoboPipeline(btn.dataset.koboPipeline, {
+        canManage: has("kobo.manage"), schools: schoolDir.schools,
+        onChange: () => { renderKoboForms(); loadSurveyResults(); renderIntelligence(); },
+      });
+    }));
     $$("[data-kobo-archive]").forEach((btn) => btn.addEventListener("click", async () => {
       btn.disabled = true;
       try {
@@ -1429,14 +1457,18 @@ async function main() {
     koboSyncBtn.disabled = true;
     koboSyncBtn.textContent = "Syncing…";
     try {
-      const { matched, failed = [] } = await syncKobo();
+      const { forms = [], failed = [] } = await syncKobo();
+      const sum = (k) => forms.reduce((t, f) => t + (f[k] || 0), 0);
+      const review = sum("invalid") + sum("duplicate");
       toast(
         failed.length ? "Synced, with problems" : "Synced with KoboToolbox",
-        `${matched} officer submission(s) matched.${failed.length ? ` Couldn't reach: ${failed.join(", ")}.` : ""}`,
-        failed.length ? "error" : "info",
+        `${sum("received")} submission(s) checked: ${sum("valid")} valid${review ? `, ${review} need review` : ""}${sum("rejected") ? `, ${sum("rejected")} rejected in Kobo` : ""}.`
+          + (failed.length ? ` Couldn't reach: ${failed.join(", ")}.` : ""),
+        failed.length ? "error" : "success",
       );
       renderKoboForms();
       refreshSurveyPicker();
+      renderIntelligence();
     } catch (err) {
       toast("Sync failed", friendlyError(err), "error");
     } finally {
@@ -1445,11 +1477,12 @@ async function main() {
     }
   });
 
-  /* ------------------------------------------------------------ survey results (live charts)
-     Picks one attached Kobo survey and draws a chart per question from
-     its live submissions — the API pulls the schema + data from Kobo and
-     tallies each answer. Re-runs on survey change, on Refresh, when the
-     tab regains focus, and every 45s while the tab is visible. */
+  /* ------------------------------------------------------------ survey results (charts)
+     Picks one attached Kobo survey and draws a chart per question from the
+     portal's own validated records (Postgres, not a live Kobo call): only
+     submissions that pass the checks, or that someone accepted. Narrowed by
+     the county / school filters. Re-runs on survey change, Refresh, focus,
+     and every couple of minutes while the tab is visible. */
   const srPicker = $("#srPicker");
   const srBody = $("#srBody");
   const srMeta = $("#srMeta");
@@ -1483,7 +1516,7 @@ async function main() {
     srRefresh.hidden = false;
     const prev = srCurrent;
     srPicker.innerHTML = forms
-      .map((f) => `<option value="${esc(f.id)}">${esc(f.title)}${f.active ? "" : " (archived)"} — ${f.submissionCount} submission${f.submissionCount === 1 ? "" : "s"}</option>`)
+      .map((f) => `<option value="${esc(f.id)}">${esc(f.title)}${f.active ? "" : " (archived)"} — ${f.pipeline.counted} counted</option>`)
       .join("");
     srCurrent = forms.some((f) => f.id === prev) ? prev : forms[0].id;
     srPicker.value = srCurrent;
@@ -1499,7 +1532,7 @@ async function main() {
     const firstView = srBody.dataset.for !== wanted;
     if (firstView) srBody.innerHTML = skeleton(3);
     try {
-      const res = await koboResults(wanted, { fresh });
+      const res = await koboResults(wanted, { county: gf.county, school: gf.school });
       if (res.id !== srCurrent) return; // survey switched mid-flight
       srBody.dataset.for = srCurrent;
       renderSurveyResults(res);
@@ -1513,8 +1546,18 @@ async function main() {
 
   function renderSurveyResults(res) {
     const bits = [];
-    if (res.submissionCount) bits.push(`${res.submissionCount} submission${res.submissionCount === 1 ? "" : "s"}`);
-    if (res.excludedNotApproved) bits.push(`${res.excludedNotApproved} marked “Not approved” in Kobo left out`);
+    if (res.needsSync) {
+      srMeta.textContent = "";
+      srBody.innerHTML = `<div class="empty-state">“${esc(res.title)}” hasn't been checked yet — press “Sync now” on Kobo Surveys.</div>`;
+      return;
+    }
+    bits.push(`${res.submissionCount} of ${res.received} submission${res.received === 1 ? "" : "s"} counted${res.filtered ? " (filtered)" : ""}`);
+    const x = res.excluded || {};
+    const left = [
+      x.invalid ? `${x.invalid} failing checks` : "", x.duplicate ? `${x.duplicate} duplicate${x.duplicate === 1 ? "" : "s"}` : "",
+      x.rejected ? `${x.rejected} rejected in Kobo` : "", x.byReview ? `${x.byReview} excluded by a person` : "",
+    ].filter(Boolean);
+    if (left.length) bits.push(`left out: ${left.join(", ")}`);
     if (res.lastSubmission) bits.push(`last ${new Date(res.lastSubmission).toLocaleString()}`);
     bits.push(`updated ${new Date().toLocaleTimeString()}`);
     srMeta.textContent = bits.join(" · ");

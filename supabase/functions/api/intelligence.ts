@@ -16,6 +16,7 @@
  * where something can't be scoped (a form isn't tied to a school) the
  * result says so rather than pretending.
  */
+import { counts as koboCounts, RULES as KOBO_RULES } from "./kobo_pipeline.ts";
 import {
   type Band, groupResults, pairsOf, round2, summarize,
   type ResultAssignment, type ResultSubmission, expectedFrom,
@@ -32,6 +33,8 @@ export type IntelligenceInput = {
   assignments: Row[]; submissions: Row[];
   fieldReports: Row[]; forms: Row[]; responses: Row[];
   koboForms: Row[]; koboSubmissions: Row[];
+  /** Validated, normalized Kobo submissions (kobo_records) and their issues. */
+  koboRecords: Row[]; koboIssues: Row[];
   libraryItems: Row[]; libraryInteractions: Row[];
   bands: Band[];
 };
@@ -213,23 +216,42 @@ export function buildIntelligence(d: IntelligenceInput, f: IntelligenceFilter = 
   const koboForms = d.koboForms.filter((k) => k.active !== false);
   const officerIds = new Set(officers.map((o) => o.id));
   const koboSubs = d.koboSubmissions.filter((s) => inRange(s.submitted_at) && (!f.county || officerIds.has(s.officer_id)));
-  const koboTotal = koboForms.reduce((t, k) => t + (Number(k.submission_count) || 0), 0);
-  const koboRejected = koboForms.reduce((t, k) => t + (Number(k.rejected_count) || 0), 0);
-  const koboUnattributed = koboForms.reduce((t, k) => t + (Number(k.unattributed_count) || 0), 0);
+  // Kobo submissions, as the ingestion pipeline left them: linked to a
+  // school (and county), so the county/school filters narrow them too.
+  const activeKobo = new Set(koboForms.map((k) => k.id));
+  const kRecs = d.koboRecords.filter((r) => r.status !== "removed" && activeKobo.has(r.kobo_form_id) &&
+    inRange(r.submitted_at) && (!f.county || r.county === f.county) && (!f.school || schoolIds.has(r.school_id)));
+  const kCounted = kRecs.filter((r) => koboCounts(r.status, r.review));
+  const kBy = (s: string) => kRecs.filter((r) => r.status === s).length;
+  const kNeedsReview = kRecs.filter((r) => (r.status === "invalid" || r.status === "duplicate") && !r.review).length;
+  const kIds = new Set(kRecs.map((r) => r.id));
+  const kIssues = d.koboIssues.filter((i) => kIds.has(i.record_id));
+  const koboTotal = kRecs.length;
   const officerPairsExpected = koboForms.length * officers.length;
   const officerPairsDone = new Set(koboSubs.filter((s) => koboForms.some((k) => k.id === s.kobo_form_id)).map((s) => `${s.kobo_form_id}|${s.officer_id}`)).size;
 
   const allVisits = d.fieldReports.filter((r) => (!f.county || r.county === f.county));
   const quality = [
     {
-      key: "kobo_rejected", label: "Kobo submissions rejected in review", value: koboRejected, total: koboTotal,
-      rate: pct(koboRejected, koboTotal), good: "low",
-      note: "Marked “not approved” in KoboToolbox — left out of the portal's results.",
+      key: "kobo_needs_review", label: "Kobo submissions failing validation, not yet reviewed", value: kNeedsReview, total: koboTotal,
+      rate: null as number | null, good: "low",
+      note: "Kept off the dashboards until someone accepts or excludes them (Kobo Surveys → Data pipeline).",
     },
     {
-      key: "kobo_unattributed", label: "Kobo submissions not linked to a field officer", value: koboUnattributed, total: koboTotal,
-      rate: pct(koboUnattributed, koboTotal), good: "low",
-      note: "No valid officer reference in the submission, so it can't count towards anyone's surveys.",
+      key: "kobo_no_school", label: "Kobo submissions not linked to a portal school",
+      value: kRecs.filter((r) => !r.school_id && r.status !== "rejected").length, total: koboTotal,
+      rate: null as number | null, good: "low",
+      note: "The school in the survey didn't match a school code, name or saved alias.",
+    },
+    {
+      key: "kobo_duplicates", label: "Kobo submissions sent twice", value: kBy("duplicate"), total: koboTotal,
+      rate: null as number | null, good: "low",
+      note: "Only the first copy counts.",
+    },
+    {
+      key: "kobo_rejected", label: "Kobo submissions rejected in Kobo's own review", value: kBy("rejected"), total: koboTotal,
+      rate: null as number | null, good: "low",
+      note: "Marked “not approved” in KoboToolbox — left out of the portal's results.",
     },
     {
       key: "visits_unlinked", label: "Field visits not linked to a school record", value: allVisits.filter((r) => !r.school_id).length,
@@ -261,12 +283,26 @@ export function buildIntelligence(d: IntelligenceInput, f: IntelligenceFilter = 
 
   const dataCollection = {
     kobo: {
-      forms: koboForms.map((k) => ({
-        title: k.title, submissions: Number(k.submission_count) || 0, rejected: Number(k.rejected_count) || 0,
-        unattributed: Number(k.unattributed_count) || 0, syncedAt: k.synced_at ?? null,
-        officersDone: new Set(koboSubs.filter((s) => s.kobo_form_id === k.id).map((s) => s.officer_id)).size,
-      })),
+      forms: koboForms.map((k) => {
+        const mine = kRecs.filter((r) => r.kobo_form_id === k.id);
+        return {
+          title: k.title, submissions: mine.length, counted: mine.filter((r) => koboCounts(r.status, r.review)).length,
+          invalid: mine.filter((r) => r.status === "invalid").length, duplicate: mine.filter((r) => r.status === "duplicate").length,
+          rejected: mine.filter((r) => r.status === "rejected").length, syncedAt: k.synced_at ?? null,
+          officersDone: new Set(koboSubs.filter((s) => s.kobo_form_id === k.id).map((s) => s.officer_id)).size,
+        };
+      }),
       totalSubmissions: koboTotal,
+      counted: kCounted.length,
+      needsReview: kNeedsReview,
+      byStatus: { valid: kBy("valid"), invalid: kBy("invalid"), duplicate: kBy("duplicate"), rejected: kBy("rejected") },
+      withWarnings: kRecs.filter((r) => Number(r.warning_count) > 0).length,
+      schoolsCovered: new Set(kCounted.map((r) => r.school_id).filter(Boolean)).size,
+      issuesByRule: KOBO_RULES.map((rule) => ({
+        rule,
+        errors: new Set(kIssues.filter((i) => i.rule === rule && i.severity === "error").map((i) => i.record_id)).size,
+        warnings: new Set(kIssues.filter((i) => i.rule === rule && i.severity === "warning").map((i) => i.record_id)).size,
+      })),
       inRange: koboSubs.length,
       officerCompletion: { expected: officerPairsExpected, done: officerPairsDone, rate: pct(officerPairsDone, officerPairsExpected) },
       lastSynced: koboForms.map((k) => k.synced_at).filter(Boolean).sort().pop() ?? null,
@@ -287,7 +323,8 @@ export function buildIntelligence(d: IntelligenceInput, f: IntelligenceFilter = 
       responseRates.reduce((t, r) => t + r.expected, 0),
     ),
     quality,
-    // Forms and Kobo aren't tied to a school: a school filter can't narrow them.
+    // Forms aren't tied to a school: a school filter can't narrow them.
+    // (Kobo submissions are, through the school each one names.)
     notSchoolScoped: !!f.school,
   };
 

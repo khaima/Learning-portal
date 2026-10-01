@@ -91,6 +91,21 @@ function world(): IntelligenceInput {
       { id: "k2", title: "Old survey", active: false, submission_count: 99, rejected_count: 9, unattributed_count: 9, synced_at: null },
     ],
     koboSubmissions: [{ kobo_form_id: "k1", officer_id: "fo", submitted_at: "2026-09-12T00:00:00Z" }],
+    koboRecords: [
+      { id: "kr1", kobo_form_id: "k1", status: "valid", review: null, school_id: "s1", county: "Narok", officer_id: "fo", submitted_at: "2026-09-12T00:00:00Z", warning_count: 1 },
+      { id: "kr2", kobo_form_id: "k1", status: "invalid", review: null, school_id: null, county: null, officer_id: "fo", submitted_at: "2026-09-13T00:00:00Z", warning_count: 0 },
+      { id: "kr3", kobo_form_id: "k1", status: "duplicate", review: null, school_id: "s1", county: "Narok", officer_id: "fo", submitted_at: "2026-09-14T00:00:00Z", warning_count: 0 },
+      { id: "kr4", kobo_form_id: "k1", status: "rejected", review: null, school_id: "s3", county: "Laikipia", officer_id: null, submitted_at: "2026-09-15T00:00:00Z", warning_count: 0 },
+      { id: "kr5", kobo_form_id: "k1", status: "invalid", review: "accepted", school_id: "s3", county: "Laikipia", officer_id: null, submitted_at: "2026-09-16T00:00:00Z", warning_count: 0 },
+      { id: "kr6", kobo_form_id: "k2", status: "valid", review: null, school_id: "s1", county: "Narok", officer_id: null, submitted_at: "2026-09-16T00:00:00Z", warning_count: 0 },
+      { id: "kr7", kobo_form_id: "k1", status: "removed", review: null, school_id: "s1", county: "Narok", officer_id: null, submitted_at: "2026-09-16T00:00:00Z", warning_count: 0 },
+    ],
+    koboIssues: [
+      { record_id: "kr1", rule: "officer", severity: "warning" },
+      { record_id: "kr2", rule: "school", severity: "error" },
+      { record_id: "kr3", rule: "duplicate", severity: "error" },
+      { record_id: "kr5", rule: "date", severity: "error" },
+    ],
     libraryItems: [{ id: "b1", title: "Reading book" }, { id: "b2", title: "Maths video" }],
     libraryInteractions: [
       { id: "i1", library_item_id: "b1", actor_kind: "learner", actor_id: "l1", school: "Aitong", started_at: "2026-09-03T00:00:00Z", completed_at: "2026-09-03T00:10:00Z", duration_seconds: 600 },
@@ -132,11 +147,18 @@ Deno.test("data collection: response rates, Kobo, and data-quality checks", () =
   const rates = Object.fromEntries(r.dataCollection.responseRates.map((x) => [x.label, [x.expected, x.received, x.rate]]));
   assertEquals(rates["Teacher survey"], [3, 1, 33.33], "3 active teachers, 1 answered");
   assertEquals(rates["Learning visit form"], [1, 1, 100], "one Learning visit, its form filled");
-  assertEquals(r.dataCollection.kobo.totalSubmissions, 20, "inactive Kobo forms are left out");
+  const k = r.dataCollection.kobo;
+  assertEquals([k.totalSubmissions, k.counted, k.needsReview, k.withWarnings, k.schoolsCovered], [5, 2, 2, 1, 2],
+    "inactive surveys and submissions deleted in Kobo are left out; an accepted record counts");
+  assertEquals(k.byStatus, { valid: 1, invalid: 2, duplicate: 1, rejected: 1 });
+  assertEquals(Object.fromEntries(k.issuesByRule.map((x) => [x.rule, [x.errors, x.warnings]])),
+    { required: [0, 0], type: [0, 0], school: [1, 0], county: [0, 0], officer: [0, 1], duplicate: [1, 0], date: [1, 0] });
   assertEquals(r.dataCollection.kobo.officerCompletion, { expected: 1, done: 1, rate: 100 });
   const q = Object.fromEntries(r.dataCollection.quality.map((x) => [x.key, [x.value, x.total]]));
-  assertEquals(q.kobo_rejected, [2, 20]);
-  assertEquals(q.kobo_unattributed, [3, 20]);
+  assertEquals(q.kobo_needs_review, [2, 5]);
+  assertEquals(q.kobo_no_school, [1, 5]);
+  assertEquals(q.kobo_duplicates, [1, 5]);
+  assertEquals(q.kobo_rejected, [1, 5]);
   assertEquals(q.visits_unlinked, [1, 3]);
   assertEquals(q.learners_no_class, [1, 4]);
   assertEquals(q.classes_no_teacher, [1, 3]);
@@ -165,10 +187,12 @@ Deno.test("filters: a county or school narrows every area; dates narrow dated ro
   const laikipia = buildIntelligence(world(), { county: "Laikipia" }, NOW);
   assertEquals([laikipia.learning.totals.learners, laikipia.learning.totals.schools, laikipia.learning.achievement.averagePercent], [1, 1, 40]);
   assertEquals(laikipia.implementation.visits, 0);
+  assertEquals([laikipia.dataCollection.kobo.totalSubmissions, laikipia.dataCollection.kobo.counted], [2, 1], "Kobo follows the county too");
   assertEquals(laikipia.impact.schoolPerformance.map((s) => s.school), ["Ndaragwa"]);
   const aitong = buildIntelligence(world(), { school: "Aitong" }, NOW);
   assertEquals([aitong.learning.totals.learners, aitong.learning.library.sessions], [3, 3]);
   assert(aitong.dataCollection.notSchoolScoped);
+  assertEquals(aitong.dataCollection.kobo.totalSubmissions, 2, "and the school");
   const term3 = buildIntelligence(world(), { from: "2026-09-01", to: "2026-12-31" }, NOW);
   assertEquals([term3.implementation.visits, term3.learning.library.sessions], [1, 3]);
 });

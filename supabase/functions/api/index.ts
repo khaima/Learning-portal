@@ -30,6 +30,10 @@ import {
   expectedFrom,
 } from "./lms.ts";
 import { buildIntelligence, VISIT_TYPES as INTEL_VISIT_TYPES } from "./intelligence.ts";
+import {
+  counts as countsOnDashboards, detectMapping, type KoboMapping, type KoboSchema, nameKey, parseKoboSchema,
+  type PipelineContext, processBatch, RULES as KOBO_RULES, sha256, stableStringify, suggestSchool, summarizeAnswers,
+} from "./kobo_pipeline.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY =
@@ -170,7 +174,7 @@ async function placeInSchool(table: "profiles" | "learners", id: string, school:
 
 // ---------------------------------------------------------------- KoboToolbox
 
-type KoboConfig = { base_url: string; api_token: string; officer_field: string };
+type KoboConfig = { base_url: string; api_token: string; officer_field: string; webhook_secret_hash?: string | null; webhook_secret_set_at?: string | null };
 
 async function loadKoboConfig(): Promise<KoboConfig | null> {
   const { data } = await admin.from("kobo_config").select("*").eq("id", 1).maybeSingle();
@@ -210,39 +214,6 @@ function pickOfficerRef(row: Record<string, unknown>, field: string): string | n
   return key && String(row[key]).trim() ? String(row[key]).trim() : null;
 }
 
-/** Kobo labels are a translation array, a bare string, or missing. */
-function koboLabel(label: unknown, fallback: string): string {
-  if (Array.isArray(label)) return String(label[0] ?? fallback);
-  if (typeof label === "string" && label.trim()) return label;
-  return fallback;
-}
-
-/** Every answer to a question in one submission: a plain or grouped
-    question gives one value; a question inside a repeat group gives one
-    per repeat (Kobo nests those as an array of objects under the
-    repeat's own key). Kobo's own `_…` fields are never searched. */
-function rowValues(row: Record<string, unknown>, name: string): unknown[] {
-  const out: unknown[] = [];
-  for (const [k, v] of Object.entries(row)) {
-    if (k.startsWith("_")) continue;
-    if (k === name || k.endsWith("/" + name)) out.push(v);
-    else if (Array.isArray(v)) {
-      for (const item of v) {
-        if (item && typeof item === "object" && !Array.isArray(item)) {
-          out.push(...rowValues(item as Record<string, unknown>, name));
-        }
-      }
-    }
-  }
-  return out;
-}
-
-/** A submission a reviewer marked "Not approved" in KoboToolbox. */
-function koboRejected(row: Record<string, unknown>): boolean {
-  const vs = row._validation_status as { uid?: string } | undefined;
-  return vs?.uid === "validation_status_not_approved";
-}
-
 /* Every submission for one survey. Kobo returns at most 30,000 rows per
    request and signals more only through `next`, so read page by page. */
 const KOBO_PAGE_SIZE = 5000;
@@ -256,13 +227,6 @@ async function koboAllSubmissions(cfg: KoboConfig, assetUid: string): Promise<Re
     if (!page.next || !batch.length) return rows;
   }
 }
-
-const KOBO_SKIP_TYPES = new Set([
-  "start", "end", "today", "deviceid", "subscriberid", "simserial", "phonenumber",
-  "username", "note", "calculate", "begin_group", "end_group", "begin_repeat",
-  "end_repeat", "begin_kobomatrix", "end_kobomatrix", "audit", "background-audio",
-  "hidden",
-]);
 
 function hashPin(pin: string, salt: string) {
   return scryptSync(pin, salt, 32).toString("hex");
@@ -585,6 +549,57 @@ app.post("/learner/logout", async (c) => {
   const b = await c.req.json().catch(() => ({}));
   const token = String(b.token ?? "").replace(/^hpl_/, "");
   if (token) await admin.from("learner_sessions").delete().eq("token", token);
+  return c.json({ ok: true });
+});
+
+// ---- KoboToolbox push (REST Service) ----
+// KoboToolbox posts each new submission here the moment it arrives. Not a
+// signed-in route: it carries the Basic-auth password the Education Team
+// generated (only its SHA-256 hash is stored). The submission is stored as
+// received and run through validation; nothing else is reachable from here.
+const KOBO_HOOK_USER = "hpf";
+const KOBO_HOOK_MAX_BYTES = 1_000_000;
+// deno-lint-ignore no-explicit-any
+function hookSecret(c: any): string {
+  const m = /^Basic\s+([A-Za-z0-9+/=]+)$/i.exec(String(c.req.header("Authorization") ?? "").trim());
+  if (m) {
+    try {
+      const decoded = atob(m[1]);
+      const i = decoded.indexOf(":");
+      return i >= 0 ? decoded.slice(i + 1) : "";
+    } catch { return ""; }
+  }
+  return String(c.req.header("X-HPF-Hook-Secret") ?? "");
+}
+
+app.post("/kobo/hook", async (c) => {
+  const cfg = await loadKoboConfig();
+  const secret = hookSecret(c);
+  if (!cfg?.webhook_secret_hash || !secret) return c.json({ error: "Not authorised" }, 401);
+  const a = Buffer.from(hashToken(secret));
+  const b = Buffer.from(String(cfg.webhook_secret_hash));
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return c.json({ error: "Not authorised" }, 401);
+  if (Number(c.req.header("content-length") ?? 0) > KOBO_HOOK_MAX_BYTES) return c.json({ error: "Too large" }, 413);
+  const text = await c.req.text();
+  if (text.length > KOBO_HOOK_MAX_BYTES) return c.json({ error: "Too large" }, 413);
+  let row: Record<string, any>;
+  try { row = JSON.parse(text); } catch { return c.json({ error: "Not JSON" }, 400); }
+  if (!row || typeof row !== "object" || Array.isArray(row) || !Number.isSafeInteger(Number(row._id))) {
+    return c.json({ error: "Not a KoboToolbox submission" }, 400);
+  }
+  // Kobo names the survey in _xform_id_string (its asset uid); ?asset= also works.
+  const uid = String(row._xform_id_string ?? c.req.query("asset") ?? "").trim();
+  const { data: attached } = uid ? await admin.from("kobo_forms").select("*").eq("asset_uid", uid).maybeSingle() : { data: null };
+  if (!attached || !attached.active) return c.json({ ok: true, ignored: "This survey isn't attached in the portal" }, 202);
+  try {
+    const form = attached.schema ? attached : await refreshKoboSchema(cfg, attached);
+    await storeKoboRaw(form, [row], "webhook");
+    await processKoboForm(form, cfg.officer_field);
+  } catch (e) {
+    // What was stored is processed again at the next sync; Kobo retries too.
+    console.error("kobo hook:", (e as Error).message);
+    return c.json({ error: "Couldn't process the submission" }, 500);
+  }
   return c.json({ ok: true });
 });
 
@@ -1042,6 +1057,10 @@ app.delete("/schools/:id", requirePermission("schools.manage"), async (c) => {
     return c.json({
       error: `${school.name} still has ${staff ?? 0} staff and ${learners ?? 0} learner(s) — move them to another school first`,
     }, 409);
+  }
+  const { count: surveys } = await admin.from("kobo_records").select("id", { count: "exact", head: true }).eq("school_id", school.id);
+  if ((surveys ?? 0) > 0) {
+    return c.json({ error: `${school.name} has ${surveys} Kobo survey submission(s) on record, so it can't be removed — rename it instead` }, 409);
   }
   const { error } = await admin.from("schools").delete().eq("id", school.id);
   if (error) return c.json({ error: error.message }, 400);
@@ -3952,7 +3971,7 @@ app.get("/intelligence", requirePermission("intelligence.view"), async (c) => {
     selectAll(() => admin.from(table).select(cols).order(order));
   const [
     schools, profiles, learners, enrollments, terms, classes, classTeachers, subjects, assignments, submissions,
-    fieldReports, forms, responses, koboForms, koboSubmissions, libraryItems, libraryInteractions,
+    fieldReports, forms, responses, koboForms, koboSubmissions, libraryItems, libraryInteractions, koboRecords, koboIssues,
   ] = await Promise.all([
     read("schools", "id, name, county, code"),
     read("profiles", "id, role, status, school_id, county"),
@@ -3971,9 +3990,11 @@ app.get("/intelligence", requirePermission("intelligence.view"), async (c) => {
     read("kobo_submissions", "kobo_form_id, officer_id, submitted_at", "kobo_form_id"),
     read("library_items", "id, title"),
     read("library_interactions", "id, library_item_id, actor_kind, actor_id, school, started_at, completed_at, duration_seconds"),
+    read("kobo_records", "id, kobo_form_id, status, review, school_id, county, officer_id, submitted_at, warning_count"),
+    read("kobo_record_issues", "id, record_id, rule, severity"),
   ]);
   const all = [schools, profiles, learners, enrollments, terms, classes, classTeachers, subjects, assignments, submissions,
-    fieldReports, forms, responses, koboForms, koboSubmissions, libraryItems, libraryInteractions];
+    fieldReports, forms, responses, koboForms, koboSubmissions, libraryItems, libraryInteractions, koboRecords, koboIssues];
   const failed = all.find((r) => r.error);
   // A failed read must never show up as zeros.
   if (failed) return c.json({ error: failed.error!.message }, 500);
@@ -3982,7 +4003,8 @@ app.get("/intelligence", requirePermission("intelligence.view"), async (c) => {
     terms: terms.data, classes: classes.data, classTeachers: classTeachers.data, subjects: subjects.data,
     assignments: assignments.data, submissions: submissions.data, fieldReports: fieldReports.data,
     forms: forms.data, responses: responses.data, koboForms: koboForms.data, koboSubmissions: koboSubmissions.data,
-    libraryItems: libraryItems.data, libraryInteractions: libraryInteractions.data, bands: await loadBands(),
+    libraryItems: libraryItems.data, libraryInteractions: libraryInteractions.data,
+    koboRecords: koboRecords.data, koboIssues: koboIssues.data, bands: await loadBands(),
   }, { county: q("county"), school: q("school"), from: date("from"), to: date("to") }));
 });
 
@@ -4429,6 +4451,12 @@ app.get("/kobo/config", requirePermission("kobo.manage", "kobo.results.view"), a
     configured: !!cfg,
     baseUrl: cfg?.base_url ?? "https://eu.kobotoolbox.org",
     officerField: cfg?.officer_field ?? "officer_ref",
+    webhook: {
+      configured: !!cfg?.webhook_secret_hash,
+      setAt: cfg?.webhook_secret_set_at ?? null,
+      url: `${SUPABASE_URL}/functions/v1/api/kobo/hook`,
+      username: KOBO_HOOK_USER,
+    },
   });
 });
 
@@ -4487,6 +4515,17 @@ app.get("/kobo/forms", requirePermission("kobo.manage", "kobo.results.view"), as
     admin.from("kobo_submissions").select("kobo_form_id").order("kobo_form_id").order("officer_id"));
   const counts: Record<string, number> = {};
   for (const s of subs ?? []) counts[s.kobo_form_id] = (counts[s.kobo_form_id] ?? 0) + 1;
+  // What the pipeline made of each survey.
+  const { data: recs } = await selectAll(() =>
+    admin.from("kobo_records").select("id, kobo_form_id, status, review").order("id"));
+  const pipe: Record<string, { received: number; counted: number; needsReview: number }> = {};
+  for (const r of recs ?? []) {
+    if (r.status === "removed") continue;
+    const p = (pipe[r.kobo_form_id] ||= { received: 0, counted: 0, needsReview: 0 });
+    p.received++;
+    if (countsOnDashboards(r.status, r.review)) p.counted++;
+    if ((r.status === "invalid" || r.status === "duplicate") && !r.review) p.needsReview++;
+  }
   return c.json({
     forms: (data ?? []).map((f) => ({
       id: f.id,
@@ -4496,6 +4535,8 @@ app.get("/kobo/forms", requirePermission("kobo.manage", "kobo.results.view"), as
       submissionCount: f.submission_count,
       officerSubmissions: counts[f.id] ?? 0,
       syncedAt: f.synced_at,
+      processed: !!f.schema,
+      pipeline: pipe[f.id] ?? { received: 0, counted: 0, needsReview: 0 },
     })),
   });
 });
@@ -4587,208 +4628,525 @@ app.post("/kobo/forms/:id/restore", requirePermission("kobo.manage"), async (c) 
   return c.json({ ok: true });
 });
 
+// ---- KoboToolbox: the ingestion pipeline ----
+// Kobo → API (raw, as received) → validation → normalization → kobo_records
+// → dashboards. The rules are in kobo_pipeline.ts; this part moves data.
+
+/** Kobo's _submission_time is UTC without a zone ("2026-09-20T10:00:00"). */
+function koboTime(v: unknown): string | null {
+  if (v == null || v === "") return null;
+  const s = String(v);
+  const t = Date.parse(/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? s : s + "Z");
+  return Number.isFinite(t) ? new Date(t).toISOString() : null;
+}
+
+/** The survey's questions and choice lists, refreshed from KoboToolbox. A
+    first guess at the field mapping is saved only if there isn't one yet. */
+async function refreshKoboSchema(cfg: KoboConfig, form: Record<string, any>) {
+  const asset = await koboJson(cfg, `/api/v2/assets/${encodeURIComponent(form.asset_uid)}/?format=json`);
+  const schema = parseKoboSchema(asset.content ?? {}, asset.version_id ?? null);
+  const patch: Record<string, unknown> = { schema, schema_version: schema.version, schema_synced_at: new Date().toISOString() };
+  if (!form.mapping) patch.mapping = detectMapping(schema, cfg.officer_field);
+  const { error } = await admin.from("kobo_forms").update(patch).eq("id", form.id);
+  if (error) throw new Error(error.message);
+  return { ...form, ...patch };
+}
+
+/** Stores submissions exactly as Kobo sent them. On a complete pull,
+    anything Kobo no longer has was deleted there and is marked removed. */
+async function storeKoboRaw(form: Record<string, any>, rows: Record<string, any>[], source: "sync" | "webhook", { complete = false } = {}) {
+  const { data: existing, error } = await selectAll(() => admin.from("kobo_raw_submissions")
+    .select("id, kobo_id, payload_hash, removed_at").eq("kobo_form_id", form.id).order("id"));
+  if (error) throw new Error(error.message);
+  const byKoboId = new Map(existing.map((e) => [Number(e.kobo_id), e]));
+  const now = new Date().toISOString();
+  const seen = new Set<number>();
+  const inserts: Record<string, unknown>[] = [];
+  const updates: Record<string, unknown>[] = [];
+  for (const row of rows) {
+    const kid = Number(row?._id);
+    if (!Number.isSafeInteger(kid)) continue;
+    seen.add(kid);
+    const hash = sha256(stableStringify(row));
+    const e = byKoboId.get(kid);
+    const fields = {
+      instance_id: String(row["meta/instanceID"] ?? row._uuid ?? "") || null,
+      payload: row, payload_hash: hash, kobo_submitted_at: koboTime(row._submission_time),
+      kobo_validation: row._validation_status?.uid ?? null, updated_at: now, removed_at: null,
+    };
+    if (!e) inserts.push({ id: rid("kraw"), kobo_form_id: form.id, kobo_id: kid, source, received_at: now, ...fields });
+    else if (e.payload_hash !== hash || e.removed_at) updates.push({ id: e.id, ...fields });
+  }
+  for (let i = 0; i < inserts.length; i += 200) {
+    // A webhook and a sync can race: the second copy is simply skipped.
+    const { error: iErr } = await admin.from("kobo_raw_submissions")
+      .upsert(inserts.slice(i, i + 200), { onConflict: "kobo_form_id,kobo_id", ignoreDuplicates: true });
+    if (iErr) throw new Error(iErr.message);
+  }
+  for (const u of updates) {
+    const { error: uErr } = await admin.from("kobo_raw_submissions").update(u).eq("id", u.id as string);
+    if (uErr) throw new Error(uErr.message);
+  }
+  let removed = 0;
+  // An empty pull with history on file looks like an outage, not a purge.
+  if (complete && (rows.length || !existing.length)) {
+    const gone = existing.filter((e) => !seen.has(Number(e.kobo_id)) && !e.removed_at).map((e) => e.id as string);
+    for (let i = 0; i < gone.length; i += 150) {
+      await admin.from("kobo_raw_submissions").update({ removed_at: now }).in("id", gone.slice(i, i + 150));
+    }
+    removed = gone.length;
+  }
+  return { added: inserts.length, changed: updates.length, removed };
+}
+
+/** The portal's reference data the rules check against. */
+async function koboContext(form: Record<string, any>, officerField: string): Promise<PipelineContext> {
+  const [schools, aliases, profiles, counties] = await Promise.all([
+    selectAll(() => admin.from("schools").select("id, name, code, county").order("id")),
+    selectAll(() => admin.from("kobo_school_aliases").select("value_key, school_id").order("value_key")),
+    selectAll(() => admin.from("profiles").select("id, role, status, county").order("id")),
+    loadCounties(),
+  ]);
+  const failed = [schools, aliases, profiles].find((r) => r.error);
+  if (failed) throw new Error(failed.error!.message);
+  const schema = form.schema as KoboSchema;
+  return {
+    schema,
+    mapping: (form.mapping as KoboMapping) ?? detectMapping(schema, officerField),
+    schools: schools.data as PipelineContext["schools"],
+    counties: counties.map((c) => ({ name: c.name, code: c.code })),
+    aliases: Object.fromEntries(aliases.data.map((a) => [a.value_key, a.school_id])),
+    profiles: Object.fromEntries(profiles.data.map((p) => [p.id, { role: p.role, status: p.status ?? "active", county: p.county || null }])),
+    now: new Date(),
+  };
+}
+
+/** Runs every stored submission of one survey through the rules and writes
+    the records that changed (with their issues). People's review decisions
+    are never touched. Returns the counts by status. */
+async function processKoboForm(form: Record<string, any>, officerField: string) {
+  if (!form.schema) return null;
+  const [raws, recs] = await Promise.all([
+    selectAll(() => admin.from("kobo_raw_submissions").select("*").eq("kobo_form_id", form.id).order("id")),
+    selectAll(() => admin.from("kobo_records").select("id, kobo_id, record_hash").eq("kobo_form_id", form.id).order("id")),
+  ]);
+  if (raws.error || recs.error) throw new Error((raws.error ?? recs.error)!.message);
+  const ctx = await koboContext(form, officerField);
+  const results = processBatch(raws.data.map((r) => ({
+    koboId: Number(r.kobo_id), instanceId: r.instance_id ?? null,
+    submittedAt: r.kobo_submitted_at ?? koboTime(r.payload?._submission_time),
+    koboValidation: r.kobo_validation ?? null, removed: !!r.removed_at, payload: r.payload,
+  })), ctx);
+  const rawIdByKobo = new Map(raws.data.map((r) => [Number(r.kobo_id), r.id as string]));
+  const existing = new Map(recs.data.map((r) => [Number(r.kobo_id), r]));
+  const idByKobo = new Map(results.map((r) => [r.koboId, (existing.get(r.koboId)?.id as string) ?? rid("krec")]));
+  const now = new Date().toISOString();
+  const changed: Record<string, unknown>[] = [];
+  const issues: Record<string, unknown>[] = [];
+  for (const res of results) {
+    const id = idByKobo.get(res.koboId)!;
+    const row = {
+      id, raw_id: rawIdByKobo.get(res.koboId), kobo_form_id: form.id, kobo_id: res.koboId,
+      submitted_at: res.submittedAt, observed_on: res.observedOn, school_id: res.schoolId, school_value: res.schoolValue,
+      county: res.county, officer_id: res.officerId, status: res.status,
+      duplicate_of: res.duplicateOf != null ? idByKobo.get(res.duplicateOf) ?? null : null,
+      error_count: res.errorCount, warning_count: res.warningCount, answers: res.answers,
+    };
+    const recordHash = sha256(stableStringify({ ...row, issues: res.issues }));
+    if (existing.get(res.koboId)?.record_hash === recordHash) continue;
+    changed.push({ ...row, record_hash: recordHash, processed_at: now });
+    for (const i of res.issues) issues.push({ record_id: id, kobo_form_id: form.id, ...i });
+  }
+  // Oldest first, so a duplicate's original is always written before it.
+  for (let i = 0; i < changed.length; i += 200) {
+    const { error } = await admin.from("kobo_records").upsert(changed.slice(i, i + 200), { onConflict: "id" });
+    if (error) throw new Error(error.message);
+  }
+  const changedIds = changed.map((r) => r.id as string);
+  for (let i = 0; i < changedIds.length; i += 150) {
+    await admin.from("kobo_record_issues").delete().in("record_id", changedIds.slice(i, i + 150));
+  }
+  for (let i = 0; i < issues.length; i += 500) {
+    const { error } = await admin.from("kobo_record_issues").insert(issues.slice(i, i + 500));
+    if (error) throw new Error(error.message);
+  }
+  const live = results.filter((r) => r.status !== "removed");
+  const by = (s: string) => results.filter((r) => r.status === s).length;
+  await admin.from("kobo_forms").update({
+    submission_count: live.length,
+    rejected_count: by("rejected"),
+    unattributed_count: live.filter((r) => r.status !== "rejected" && !r.officerId).length,
+    processed_at: now,
+  }).eq("id", form.id);
+  // Which officers have done this survey (the field officer's "Submitted").
+  const officers = [...new Set(live.filter((r) => r.officerId && r.status !== "rejected" && r.status !== "duplicate").map((r) => r.officerId!))];
+  if (officers.length) {
+    await admin.from("kobo_submissions").upsert(officers.map((officer) => {
+      const first = live.find((r) => r.officerId === officer)!;
+      return { kobo_form_id: form.id, officer_id: officer, kobo_submission_id: String(first.koboId), source: "sync", submitted_at: first.submittedAt ?? now };
+    }), { onConflict: "kobo_form_id,officer_id", ignoreDuplicates: true });
+  }
+  return {
+    received: live.length, valid: by("valid"), invalid: by("invalid"), duplicate: by("duplicate"),
+    rejected: by("rejected"), removed: by("removed"), withWarnings: live.filter((r) => r.warningCount > 0).length,
+    updated: changed.length,
+  };
+}
+
+/* Pull every attached survey: refresh its questions, store what Kobo has,
+   and run it all through validation. */
 app.post("/kobo/sync", requirePermission("kobo.manage"), async (c) => {
   const cfg = await loadKoboConfig();
   if (!cfg) return c.json({ error: "Connect KoboToolbox first" }, 400);
   const { data: forms } = await admin.from("kobo_forms").select("*").eq("active", true);
-  const { data: profs } = await selectAll(() => admin.from("profiles").select("id").order("id"));
-  const validIds = new Set((profs ?? []).map((p) => p.id));
-
-  let matched = 0;
+  const done: Record<string, unknown>[] = [];
   const failed: string[] = [];
-  for (const f of forms ?? []) {
-    let rows: Record<string, unknown>[];
+  for (const f0 of forms ?? []) {
     try {
-      rows = await koboAllSubmissions(cfg, f.asset_uid as string);
-    } catch {
-      failed.push(f.title as string);
-      continue;
+      const f = await refreshKoboSchema(cfg, f0);
+      const rows = await koboAllSubmissions(cfg, f.asset_uid as string);
+      const stored = await storeKoboRaw(f, rows, "sync", { complete: true });
+      const stats = await processKoboForm(f, cfg.officer_field);
+      await admin.from("kobo_forms").update({ synced_at: new Date().toISOString() }).eq("id", f.id);
+      done.push({ id: f.id, title: f.title, ...stored, ...stats });
+    } catch (e) {
+      console.error("kobo sync failed for", f0.title, (e as Error).message);
+      failed.push(f0.title as string);
     }
-    const upserts: Record<string, unknown>[] = [];
-    let rejected = 0, unattributed = 0;
-    for (const r of rows) {
-      if (koboRejected(r)) { rejected++; continue; }
-      const ref = pickOfficerRef(r, cfg.officer_field);
-      if (!ref || !validIds.has(ref)) unattributed++;
-      if (ref && validIds.has(ref)) {
-        upserts.push({
-          kobo_form_id: f.id,
-          officer_id: ref,
-          kobo_submission_id: String(r._id ?? ""),
-          source: "sync",
-          submitted_at: r._submission_time ?? new Date().toISOString(),
-        });
-      }
-    }
-    if (upserts.length) {
-      await admin.from("kobo_submissions").upsert(upserts, {
-        onConflict: "kobo_form_id,officer_id",
-        ignoreDuplicates: true,
-      });
-      matched += upserts.length;
-    }
-    await admin.from("kobo_forms").update({
-      submission_count: rows.length,
-      rejected_count: rejected,
-      unattributed_count: unattributed,
-      synced_at: new Date().toISOString(),
-    }).eq("id", f.id);
-    koboResultsCache.delete(f.id as string);
   }
-  return c.json({ ok: true, matched, failed });
+  await audit(c, "kobo.synced", "kobo_forms", null, { forms: done.length, failed });
+  return c.json({ ok: true, forms: done, failed });
 });
 
-// ---- KoboToolbox: aggregated survey results (charts) ----
+/** What the pipeline made of one survey: counts, issues by rule, school
+    values it couldn't match, and the field mapping. */
+async function koboPipelineSummary(form: Record<string, any>) {
+  const [recs, issues, schools] = await Promise.all([
+    selectAll(() => admin.from("kobo_records").select("id, status, review, warning_count").eq("kobo_form_id", form.id).order("id")),
+    selectAll(() => admin.from("kobo_record_issues").select("record_id, rule, severity, value, message").eq("kobo_form_id", form.id).order("id")),
+    selectAll(() => admin.from("schools").select("id, name, code, county").order("id")),
+  ]);
+  const failed = [recs, issues, schools].find((r) => r.error);
+  if (failed) throw new Error(failed.error!.message);
+  const live = recs.data.filter((r) => r.status !== "removed");
+  const by = (s: string) => live.filter((r) => r.status === s).length;
+  const liveIds = new Set(live.map((r) => r.id));
+  const liveIssues = issues.data.filter((i) => liveIds.has(i.record_id));
+  const unknown = new Map<string, number>();
+  for (const i of liveIssues) {
+    if (i.rule === "school" && i.severity === "error" && i.value && /isn't a portal school/.test(i.message)) {
+      unknown.set(i.value, (unknown.get(i.value) ?? 0) + 1);
+    }
+  }
+  const schema = form.schema as KoboSchema | null;
+  return {
+    form: {
+      id: form.id, title: form.title, active: form.active, syncedAt: form.synced_at ?? null,
+      processedAt: form.processed_at ?? null, schemaSyncedAt: form.schema_synced_at ?? null,
+    },
+    fields: (schema?.fields ?? []).filter((f) => !f.repeats.length).map((f) => ({ xpath: f.xpath, label: f.label, type: f.type })),
+    mapping: form.mapping ?? null,
+    stats: {
+      received: live.length, valid: by("valid"), invalid: by("invalid"), duplicate: by("duplicate"),
+      rejected: by("rejected"), removed: recs.data.length - live.length,
+      accepted: live.filter((r) => r.review === "accepted").length,
+      excluded: live.filter((r) => r.review === "excluded").length,
+      counted: live.filter((r) => countsOnDashboards(r.status, r.review)).length,
+      needsReview: live.filter((r) => (r.status === "invalid" || r.status === "duplicate") && !r.review).length,
+      withWarnings: live.filter((r) => r.warning_count > 0).length,
+    },
+    issuesByRule: KOBO_RULES.map((rule) => ({
+      rule,
+      errors: new Set(liveIssues.filter((i) => i.rule === rule && i.severity === "error").map((i) => i.record_id)).size,
+      warnings: new Set(liveIssues.filter((i) => i.rule === rule && i.severity === "warning").map((i) => i.record_id)).size,
+    })),
+    unknownSchools: [...unknown.entries()].sort((a, b) => b[1] - a[1]).slice(0, 100).map(([value, count]) => {
+      const s = suggestSchool(value, schools.data as PipelineContext["schools"]);
+      return { value, count, suggestion: s ? { id: s.id, name: s.name, code: s.code } : null };
+    }),
+  };
+}
 
-/* The results panel refreshes every couple of minutes per open dashboard.
-   A short per-instance cache stops each refresh re-downloading every
-   submission from Kobo; the Refresh button asks for ?fresh=1. */
-const KOBO_RESULTS_TTL_MS = 60_000;
-const koboResultsCache = new Map<string, { at: number; body: Record<string, unknown> }>();
+async function loadKoboForm(id: string) {
+  const { data } = await admin.from("kobo_forms").select("*").eq("id", id).maybeSingle();
+  return data;
+}
 
-app.get("/kobo/forms/:id/results", requirePermission("kobo.manage", "kobo.results.view"), async (c) => {
-  const cfg = await loadKoboConfig();
-  if (!cfg) return c.json({ error: "Connect KoboToolbox first" }, 400);
-  const { data: form } = await admin
-    .from("kobo_forms").select("*").eq("id", c.req.param("id")).maybeSingle();
+app.get("/kobo/forms/:id/pipeline", requirePermission("kobo.manage", "kobo.results.view"), async (c) => {
+  const form = await loadKoboForm(c.req.param("id"));
   if (!form) return c.json({ error: "Survey not found" }, 404);
+  try { return c.json(await koboPipelineSummary(form)); } catch (e) { return c.json({ error: (e as Error).message }, 500); }
+});
 
-  const cached = koboResultsCache.get(form.id);
-  if (cached && !c.req.query("fresh") && Date.now() - cached.at < KOBO_RESULTS_TTL_MS) {
-    return c.json(cached.body);
+/* Which questions hold the school, county, officer and date. Saving it
+   re-runs the survey's stored submissions through the rules. */
+app.put("/kobo/forms/:id/mapping", requirePermission("kobo.manage"), async (c) => {
+  const form = await loadKoboForm(c.req.param("id"));
+  if (!form) return c.json({ error: "Survey not found" }, 404);
+  if (!form.schema) return c.json({ error: "Sync this survey first, so the portal knows its questions" }, 409);
+  const b = await c.req.json().catch(() => ({}));
+  const top = new Set((form.schema as KoboSchema).fields.filter((f) => !f.repeats.length).map((f) => f.xpath));
+  const pickField = (v: unknown) => (v == null || v === "" ? null : String(v));
+  const mapping: KoboMapping = {
+    school: pickField(b.school), schoolRequired: b.schoolRequired !== false,
+    county: pickField(b.county),
+    officer: pickField(b.officer), officerRequired: b.officerRequired !== false,
+    date: pickField(b.date),
+  };
+  for (const k of ["school", "county", "officer", "date"] as const) {
+    if (mapping[k] && !top.has(mapping[k]!)) return c.json({ error: `“${mapping[k]}” isn't a question in this survey` }, 400);
   }
-
-  let asset: any, allRows: Record<string, unknown>[];
+  if (!mapping.school) mapping.schoolRequired = false;
+  if (!mapping.officer) mapping.officerRequired = false;
+  await admin.from("kobo_forms").update({ mapping }).eq("id", form.id);
+  await audit(c, "kobo.mapping_changed", "kobo_form", form.id, { mapping });
+  const cfg = await loadKoboConfig();
   try {
-    asset = await koboJson(cfg, `/api/v2/assets/${encodeURIComponent(form.asset_uid)}/?format=json`);
-    allRows = await koboAllSubmissions(cfg, form.asset_uid);
+    await processKoboForm({ ...form, mapping }, cfg?.officer_field ?? "officer_ref");
+    return c.json(await koboPipelineSummary(await loadKoboForm(form.id)));
   } catch (e) {
-    return c.json({ error: (e as Error).message }, 502);
+    return c.json({ error: (e as Error).message }, 500);
   }
+});
 
-  // Submissions a reviewer rejected in Kobo don't count; say how many.
-  const rows = allRows.filter((r) => !koboRejected(r));
-  const excludedNotApproved = allRows.length - rows.length;
-  const content = asset.content ?? {};
-  const surveyDef: any[] = content.survey ?? [];
-
-  // choice-list name -> [{ name, label }]
-  const lists: Record<string, { name: string; label: string }[]> = {};
-  for (const ch of content.choices ?? []) {
-    const list = ch.list_name;
-    if (!list) continue;
-    (lists[list] ||= []).push({ name: String(ch.name), label: koboLabel(ch.label, String(ch.name)) });
+app.post("/kobo/forms/:id/reprocess", requirePermission("kobo.manage"), async (c) => {
+  const form = await loadKoboForm(c.req.param("id"));
+  if (!form) return c.json({ error: "Survey not found" }, 404);
+  if (!form.schema) return c.json({ error: "Sync this survey first, so the portal knows its questions" }, 409);
+  const cfg = await loadKoboConfig();
+  try {
+    await processKoboForm(form, cfg?.officer_field ?? "officer_ref");
+    return c.json(await koboPipelineSummary(await loadKoboForm(form.id)));
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
   }
+});
 
-  const questions: any[] = [];
+/* The review queue: ?formId= &status= (or needs_review: failing or duplicate,
+   no decision yet) &rule= &review=none|accepted|excluded &limit= &offset=.
+   Newest first; each with its issues, without answers. */
+app.get("/kobo/records", requirePermission("kobo.manage", "kobo.results.view"), async (c) => {
+  const f = (k: string) => String(c.req.query(k) ?? "");
+  if (!f("formId")) return c.json({ error: "Pick a survey" }, 400);
+  const { data, error } = await selectAll(() => {
+    let q = admin.from("kobo_records")
+      .select("id, kobo_id, kobo_form_id, submitted_at, observed_on, school_id, school_value, county, officer_id, status, duplicate_of, error_count, warning_count, review, review_note, reviewed_at")
+      .eq("kobo_form_id", f("formId")).order("id");
+    if (f("status") && f("status") !== "needs_review") q = q.eq("status", f("status"));
+    return q;
+  });
+  if (error) return c.json({ error: error.message }, 500);
+  let rows = data.filter((r) => r.status !== "removed" || f("status") === "removed");
+  if (f("status") === "needs_review") rows = rows.filter((r) => (r.status === "invalid" || r.status === "duplicate") && !r.review);
+  if (f("review") === "none") rows = rows.filter((r) => !r.review);
+  else if (f("review")) rows = rows.filter((r) => r.review === f("review"));
+  let issues: Record<string, any>[] = [];
+  if (rows.length) issues = await selectIn("kobo_record_issues", "record_id", rows.map((r) => r.id as string));
+  if (f("rule")) {
+    const hit = new Set(issues.filter((i) => i.rule === f("rule")).map((i) => i.record_id));
+    rows = rows.filter((r) => hit.has(r.id));
+  }
+  rows.sort((a, b) => String(b.submitted_at ?? "").localeCompare(String(a.submitted_at ?? "")));
+  const total = rows.length;
+  const offset = Math.max(0, Number(f("offset")) || 0);
+  const page = rows.slice(offset, offset + Math.max(1, Math.min(200, Number(f("limit")) || 50)));
+  const ids = (k: string) => [...new Set(page.map((r) => r[k]).filter(Boolean))] as string[];
+  const [schools, officers] = await Promise.all([
+    ids("school_id").length ? admin.from("schools").select("id, name, code").in("id", ids("school_id")) : { data: [] },
+    ids("officer_id").length ? admin.from("profiles").select("id, full_name").in("id", ids("officer_id")) : { data: [] },
+  ]);
+  const sName = new Map((schools.data ?? []).map((s: Record<string, unknown>) => [s.id, `${s.name} (${s.code})`]));
+  const oName = new Map((officers.data ?? []).map((p: Record<string, unknown>) => [p.id, p.full_name]));
+  return c.json({
+    total,
+    records: page.map((r) => ({
+      id: r.id, koboId: Number(r.kobo_id), submittedAt: r.submitted_at, observedOn: r.observed_on,
+      school: r.school_id ? sName.get(r.school_id) ?? null : null, schoolValue: r.school_value, county: r.county,
+      officer: r.officer_id ? oName.get(r.officer_id) ?? null : null, status: r.status,
+      counted: countsOnDashboards(r.status, r.review),
+      review: r.review ?? null, reviewNote: r.review_note ?? null, reviewedAt: r.reviewed_at ?? null,
+      issues: issues.filter((i) => i.record_id === r.id)
+        .map((i) => ({ rule: i.rule, severity: i.severity, field: i.field, message: i.message })),
+    })),
+  });
+});
 
-  // Synthetic: submissions per field officer (from the prefilled officer_ref).
-  if (rows.length) {
-    const perOfficer: Record<string, number> = {};
-    for (const r of rows) {
-      const ref = pickOfficerRef(r, cfg.officer_field);
-      const key = ref || " unlinked";
-      perOfficer[key] = (perOfficer[key] ?? 0) + 1;
-    }
-    const ids = Object.keys(perOfficer).filter((k) => k !== " unlinked");
-    let names: Record<string, string> = {};
-    if (ids.length) {
-      const { data: profs } = await admin.from("profiles").select("id, full_name").in("id", ids);
-      names = Object.fromEntries((profs ?? []).map((p) => [p.id, p.full_name || "Unnamed officer"]));
-    }
+/** An answer for people to read: choice labels, not codes. */
+function displayAnswer(f: Record<string, any>, v: unknown, choices: Record<string, { name: string; label: string }[]>): string {
+  if (v == null || v === "") return "";
+  const label = (x: unknown) => choices[f.listName ?? ""]?.find((c) => c.name === x)?.label ?? String(x);
+  if (Array.isArray(v)) return v.map((x) => (f.type === "select_multiple" || f.type === "select_one" ? label(x) : x == null ? "" : typeof x === "object" ? JSON.stringify(x) : String(x))).join(f.repeats?.length ? " | " : ", ");
+  if (f.type === "select_one") return label(v);
+  if (f.type === "geopoint" && typeof v === "object") return `${(v as { lat: number }).lat}, ${(v as { lon: number }).lon}`;
+  return typeof v === "object" ? JSON.stringify(v) : String(v);
+}
+
+app.get("/kobo/records/:id", requirePermission("kobo.manage", "kobo.results.view"), async (c) => {
+  const { data: r } = await admin.from("kobo_records").select("*").eq("id", c.req.param("id")).maybeSingle();
+  if (!r) return c.json({ error: "Record not found" }, 404);
+  const form = await loadKoboForm(r.kobo_form_id);
+  const schema = (form?.schema ?? { fields: [], choices: {} }) as KoboSchema;
+  const [{ data: issues }, school, officer, reviewer, original] = await Promise.all([
+    admin.from("kobo_record_issues").select("*").eq("record_id", r.id),
+    r.school_id ? admin.from("schools").select("name, code").eq("id", r.school_id).maybeSingle() : { data: null },
+    r.officer_id ? admin.from("profiles").select("full_name").eq("id", r.officer_id).maybeSingle() : { data: null },
+    r.reviewed_by ? admin.from("profiles").select("full_name").eq("id", r.reviewed_by).maybeSingle() : { data: null },
+    r.duplicate_of ? admin.from("kobo_records").select("kobo_id").eq("id", r.duplicate_of).maybeSingle() : { data: null },
+  ]);
+  return c.json({
+    record: {
+      id: r.id, koboId: Number(r.kobo_id), survey: form?.title ?? "", submittedAt: r.submitted_at, observedOn: r.observed_on,
+      school: school.data ? `${school.data.name} (${school.data.code})` : null, schoolValue: r.school_value, county: r.county,
+      officer: officer.data?.full_name ?? null, status: r.status, counted: countsOnDashboards(r.status, r.review),
+      duplicateOf: original.data ? Number(original.data.kobo_id) : null,
+      review: r.review ?? null, reviewNote: r.review_note ?? null, reviewedAt: r.reviewed_at ?? null,
+      reviewedBy: reviewer.data?.full_name ?? null,
+    },
+    issues: (issues ?? []).map((i: Record<string, unknown>) => ({ rule: i.rule, severity: i.severity, field: i.field, message: i.message, value: i.value })),
+    answers: schema.fields.map((f) => ({ xpath: f.xpath, label: f.label, type: f.type, value: displayAnswer(f, (r.answers ?? {})[f.xpath], schema.choices) }))
+      .filter((a) => a.value !== ""),
+  });
+});
+
+/* A person's decision on a flagged record: accept it onto the dashboards
+   anyway, exclude it, or clear the decision. A reason is required. */
+app.post("/kobo/records/:id/review", requirePermission("kobo.manage"), async (c) => {
+  const { data: r } = await admin.from("kobo_records").select("id, status, review, kobo_form_id, kobo_id").eq("id", c.req.param("id")).maybeSingle();
+  if (!r) return c.json({ error: "Record not found" }, 404);
+  const b = await c.req.json().catch(() => ({}));
+  const decision = String(b.decision ?? "");
+  if (!["accepted", "excluded", "clear"].includes(decision)) return c.json({ error: "Decision must be accepted, excluded or clear" }, 400);
+  if (r.status === "removed") return c.json({ error: "This submission was deleted in KoboToolbox" }, 409);
+  const note = String(b.note ?? "").trim().slice(0, 1000);
+  if (decision !== "clear" && note.length < 3) return c.json({ error: "Say why, for the record" }, 400);
+  const patch = decision === "clear"
+    ? { review: null, review_note: null, reviewed_by: null, reviewed_at: null }
+    : { review: decision, review_note: note, reviewed_by: c.get("actor").id, reviewed_at: new Date().toISOString() };
+  const { error } = await admin.from("kobo_records").update(patch).eq("id", r.id);
+  if (error) return c.json({ error: error.message }, 400);
+  await audit(c, `kobo.record_${decision === "clear" ? "review_cleared" : decision}`, "kobo_record", r.id,
+    { formId: r.kobo_form_id, koboId: r.kobo_id, status: r.status, note: decision === "clear" ? undefined : note });
+  return c.json({ ok: true, counted: countsOnDashboards(r.status, patch.review) });
+});
+
+/* School aliases: a value a survey uses for a school → the portal school.
+   Saving or removing one re-runs every survey. */
+async function reprocessAllKobo() {
+  const cfg = await loadKoboConfig();
+  const { data: forms } = await admin.from("kobo_forms").select("*").eq("active", true);
+  let n = 0;
+  for (const f of forms ?? []) if (f.schema) { await processKoboForm(f, cfg?.officer_field ?? "officer_ref"); n++; }
+  return n;
+}
+
+app.get("/kobo/school-aliases", requirePermission("kobo.manage", "kobo.results.view"), async (c) => {
+  const { data, error } = await selectAll(() => admin.from("kobo_school_aliases").select("*").order("value_key"));
+  if (error) return c.json({ error: error.message }, 500);
+  const ids = [...new Set(data.map((a) => a.school_id as string))];
+  const { data: schools } = ids.length ? await admin.from("schools").select("id, name, code").in("id", ids) : { data: [] };
+  const s = new Map((schools ?? []).map((x: Record<string, unknown>) => [x.id, x]));
+  return c.json({ aliases: data.map((a) => ({ key: a.value_key, value: a.value, schoolId: a.school_id, school: s.get(a.school_id) ? `${(s.get(a.school_id) as { name: string }).name} (${(s.get(a.school_id) as { code: string }).code})` : null })) });
+});
+
+app.post("/kobo/school-aliases", requirePermission("kobo.manage"), async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const value = String(b.value ?? "").trim().slice(0, 200);
+  const key = nameKey(value);
+  if (!key) return c.json({ error: "Which value?" }, 400);
+  const school = await loadSchool(b.schoolId);
+  if (!school) return c.json({ error: "Choose a portal school" }, 400);
+  const { data: existing } = await admin.from("kobo_school_aliases").select("value_key").eq("value_key", key).maybeSingle();
+  const row = { value_key: key, value, school_id: school.id, created_by: c.get("actor").id };
+  const { error } = existing
+    ? await admin.from("kobo_school_aliases").update({ school_id: school.id }).eq("value_key", key)
+    : await admin.from("kobo_school_aliases").insert(row);
+  if (error) return c.json({ error: error.message }, 400);
+  await audit(c, "kobo.school_alias_saved", "kobo_school_alias", key, { value, schoolId: school.id });
+  try { return c.json({ ok: true, reprocessed: await reprocessAllKobo() }); } catch (e) { return c.json({ error: (e as Error).message }, 500); }
+});
+
+app.delete("/kobo/school-aliases/:key", requirePermission("kobo.manage"), async (c) => {
+  const key = c.req.param("key");
+  const { data } = await admin.from("kobo_school_aliases").delete().eq("value_key", key).select("value_key");
+  if (!data?.length) return c.json({ error: "Alias not found" }, 404);
+  await audit(c, "kobo.school_alias_removed", "kobo_school_alias", key, {});
+  try { return c.json({ ok: true, reprocessed: await reprocessAllKobo() }); } catch (e) { return c.json({ error: (e as Error).message }, 500); }
+});
+
+/* The REST Service password for Kobo's push. Shown once; only its hash
+   is stored. Creating a new one replaces the old. */
+app.post("/kobo/webhook", requirePermission("kobo.manage"), async (c) => {
+  if (!(await loadKoboConfig())) return c.json({ error: "Connect KoboToolbox first" }, 400);
+  const secret = randomBytes(24).toString("base64url");
+  const { error } = await admin.from("kobo_config")
+    .update({ webhook_secret_hash: hashToken(secret), webhook_secret_set_at: new Date().toISOString() }).eq("id", 1);
+  if (error) return c.json({ error: error.message }, 400);
+  await audit(c, "kobo.webhook_secret_created", "kobo_config", 1, {});
+  return c.json({ url: `${SUPABASE_URL}/functions/v1/api/kobo/hook`, username: KOBO_HOOK_USER, password: secret });
+});
+
+app.delete("/kobo/webhook", requirePermission("kobo.manage"), async (c) => {
+  await admin.from("kobo_config").update({ webhook_secret_hash: null, webhook_secret_set_at: null }).eq("id", 1);
+  await audit(c, "kobo.webhook_secret_removed", "kobo_config", 1, {});
+  return c.json({ ok: true });
+});
+
+// ---- KoboToolbox: survey results (charts), from the portal's own records ----
+/* ?county= ?school= (name) narrow it to records linked there. Only records
+   that pass validation (or a person accepted) are counted. */
+app.get("/kobo/forms/:id/results", requirePermission("kobo.manage", "kobo.results.view"), async (c) => {
+  const form = await loadKoboForm(c.req.param("id"));
+  if (!form) return c.json({ error: "Survey not found" }, 404);
+  const county = String(c.req.query("county") ?? "").trim();
+  const schoolName = String(c.req.query("school") ?? "").trim();
+  const base = { id: form.id, title: form.title, syncedAt: form.synced_at ?? null };
+  if (!form.schema) {
+    return c.json({ ...base, needsSync: true, submissionCount: 0, received: 0, excluded: null, questions: [], lastSubmission: null });
+  }
+  const { data: recs, error } = await selectAll(() => admin.from("kobo_records")
+    .select("id, status, review, answers, officer_id, school_id, county, submitted_at").eq("kobo_form_id", form.id).order("id"));
+  if (error) return c.json({ error: error.message }, 500);
+  let schoolIds: Set<string> | null = null;
+  if (schoolName) {
+    const { data: s } = await admin.from("schools").select("id, county").eq("name", schoolName);
+    schoolIds = new Set((s ?? []).filter((x: Record<string, unknown>) => !county || x.county === county).map((x: Record<string, unknown>) => x.id as string));
+  }
+  const inScope = recs.filter((r) => r.status !== "removed" && (!county || r.county === county) && (!schoolIds || schoolIds.has(r.school_id)));
+  const counted = inScope.filter((r) => countsOnDashboards(r.status, r.review));
+  const schema = form.schema as KoboSchema;
+  const mapping = (form.mapping ?? {}) as KoboMapping;
+  const questions: Record<string, unknown>[] = [];
+  const tallyBy = async (key: "officer_id" | "school_id", label: string, table: string, nameOf: (x: Record<string, any>) => string) => {
+    const per = new Map<string, number>();
+    for (const r of counted) per.set(r[key] ?? "", (per.get(r[key] ?? "") ?? 0) + 1);
+    const ids = [...per.keys()].filter(Boolean);
+    const { data: rows } = ids.length ? await admin.from(table).select("*").in("id", ids) : { data: [] };
+    const names = new Map((rows ?? []).map((x: Record<string, any>) => [x.id, nameOf(x)]));
     questions.push({
-      name: "_officer", label: "Submissions by field officer", type: "meta", chart: "bar",
-      answered: rows.length,
-      data: Object.entries(perOfficer)
-        .map(([k, v]) => ({ label: k === " unlinked" ? "(unlinked)" : (names[k] || "Unknown officer"), value: v }))
-        .sort((a, b) => b.value - a.value),
+      name: `_${key}`, label, type: "meta", chart: "bar", answered: counted.length,
+      data: [...per.entries()].map(([k, v]) => ({ label: k ? names.get(k) ?? "Unknown" : "(not linked)", value: v })).sort((a, b) => b.value - a.value),
     });
+  };
+  if (counted.length) {
+    if (mapping.school) await tallyBy("school_id", "Submissions by school", "schools", (s) => `${s.name} (${s.code})`);
+    if (mapping.officer) await tallyBy("officer_id", "Submissions by field officer", "profiles", (p) => p.full_name || "Unnamed officer");
   }
-
-  for (const q of surveyDef) {
-    let type = String(q.type ?? "");
-    if (!type || KOBO_SKIP_TYPES.has(type)) continue;
-    let listName: string | undefined = q.select_from_list_name;
-    if (type.startsWith("select_one ")) { listName = type.slice(11); type = "select_one"; }
-    else if (type.startsWith("select_multiple ")) { listName = type.slice(16); type = "select_multiple"; }
-
-    const name = String(q.name ?? q.$autoname ?? "");
-    if (!name || name === cfg.officer_field) continue;
-    const label = koboLabel(q.label, name);
-    // Repeat-group questions contribute one answer per repeat.
-    const raw = rows.flatMap((r) => rowValues(r, name));
-    const answered = raw.filter((v) => v !== undefined && v !== null && String(v).trim() !== "");
-
-    if (type === "select_one" || type === "select_multiple") {
-      const opts = lists[listName ?? ""] ?? [];
-      const counts: Record<string, number> = {};
-      for (const o of opts) counts[o.name] = 0;
-      let other = 0;
-      for (const v of answered) {
-        const toks = type === "select_multiple" ? String(v).split(/\s+/).filter(Boolean) : [String(v)];
-        for (const t of toks) {
-          if (t in counts) counts[t]++;
-          else other++;
-        }
-      }
-      const data = opts.map((o) => ({ label: o.label, value: counts[o.name] }));
-      if (other) data.push({ label: "Other", value: other });
-      questions.push({
-        name, label, type, answered: answered.length,
-        chart: type === "select_one" && opts.length > 0 && opts.length <= 6 ? "donut" : "bar",
-        data,
-      });
-    } else if (type === "integer" || type === "decimal" || type === "range") {
-      const nums = answered.map(Number).filter((n) => Number.isFinite(n));
-      let data: unknown = null;
-      if (nums.length) {
-        let min = Infinity, max = -Infinity, sum = 0;
-        for (const n of nums) { if (n < min) min = n; if (n > max) max = n; sum += n; }
-        const buckets = Math.min(8, Math.max(1, new Set(nums).size));
-        const step = (max - min) / buckets || 1;
-        const hist = Array.from({ length: buckets }, (_, i) => ({
-          label: step >= 1
-            ? `${Math.round(min + i * step)}–${Math.round(min + (i + 1) * step)}`
-            : `${(min + i * step).toFixed(1)}`,
-          value: 0,
-        }));
-        for (const n of nums) {
-          let idx = Math.floor((n - min) / step);
-          if (idx < 0) idx = 0;
-          if (idx >= buckets) idx = buckets - 1;
-          hist[idx].value++;
-        }
-        data = {
-          count: nums.length,
-          mean: Math.round((sum / nums.length) * 100) / 100,
-          min, max, histogram: hist,
-        };
-      }
-      questions.push({ name, label, type, answered: answered.length, chart: "number", data });
-    } else {
-      // text / date / time / datetime / geopoint / etc. -> recent answers
-      const withTime = rows
-        .flatMap((r) => rowValues(r, name).map((v) => ({ v, t: String(r._submission_time ?? "") })))
-        .filter((x) => x.v !== undefined && x.v !== null && String(x.v).trim() !== "");
-      withTime.sort((a, b) => b.t.localeCompare(a.t));
-      questions.push({
-        name, label, type, answered: withTime.length, chart: "list",
-        data: withTime.slice(0, 50).map((x) => String(x.v)),
-      });
-    }
-  }
-
-  const times = rows.map((r) => String(r._submission_time ?? "")).filter(Boolean).sort();
-  const body = {
-    id: form.id,
-    title: form.title,
-    submissionCount: rows.length,
-    excludedNotApproved,
+  questions.push(...summarizeAnswers(schema, counted.map((r) => r.answers ?? {}), new Set([mapping.officer, mapping.school].filter(Boolean) as string[])));
+  const n = (s: string) => inScope.filter((r) => r.status === s && !countsOnDashboards(r.status, r.review)).length;
+  const times = counted.map((r) => String(r.submitted_at ?? "")).filter(Boolean).sort();
+  return c.json({
+    ...base,
+    submissionCount: counted.length,
+    received: inScope.length,
+    excluded: {
+      invalid: n("invalid"), duplicate: n("duplicate"), rejected: n("rejected"),
+      byReview: inScope.filter((r) => r.review === "excluded").length,
+    },
+    excludedNotApproved: n("rejected"),
+    filtered: !!(county || schoolName),
     lastSubmission: times.length ? times[times.length - 1] : null,
     questions,
-  };
-  koboResultsCache.set(form.id, { at: Date.now(), body });
-  return c.json(body);
+  });
 });
 
 // ---- KoboToolbox: field-officer surveys ----

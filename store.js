@@ -759,11 +759,49 @@ export async function markKoboSubmitted(id) {
   return apiSend("POST", `/kobo/my-surveys/${id}/submitted`);
 }
 
-/* Education Team: aggregated results for one attached survey — the API
-   pulls submissions + the form schema from KoboToolbox and tallies each
-   question into chart-ready data. */
-export async function koboResults(id, { fresh = false } = {}) {
-  return apiGet(`/kobo/forms/${id}/results${fresh ? "?fresh=1" : ""}`);
+/* Education Team / M&E: charts for one attached survey, from the portal's
+   own validated records (only submissions that pass, or that someone
+   accepted). County / school narrow it. */
+export async function koboResults(id, { county, school } = {}) {
+  return apiGet(`/kobo/forms/${id}/results${qs({ county, school })}`);
+}
+
+/* ---- the Kobo ingestion pipeline: validation, review, normalization ---- */
+export async function koboPipeline(id) {
+  return apiGet(`/kobo/forms/${id}/pipeline`);
+}
+export async function saveKoboMapping(id, mapping) {
+  return apiSend("PUT", `/kobo/forms/${id}/mapping`, mapping);
+}
+export async function reprocessKobo(id) {
+  return apiSend("POST", `/kobo/forms/${id}/reprocess`, {});
+}
+/** { total, records } — ?formId &status &rule &review=none|accepted|excluded &limit &offset */
+export async function koboRecords(params) {
+  return apiGet(`/kobo/records${qs(params)}`);
+}
+export async function koboRecord(id) {
+  return apiGet(`/kobo/records/${id}`);
+}
+export async function reviewKoboRecord(id, decision, note = "") {
+  return apiSend("POST", `/kobo/records/${id}/review`, { decision, note });
+}
+export async function koboSchoolAliases() {
+  const { aliases } = await apiGet("/kobo/school-aliases");
+  return aliases || [];
+}
+export async function saveKoboSchoolAlias(value, schoolId) {
+  return apiSend("POST", "/kobo/school-aliases", { value, schoolId });
+}
+export async function removeKoboSchoolAlias(key) {
+  return apiSend("DELETE", `/kobo/school-aliases/${encodeURIComponent(key)}`);
+}
+/** Creates (or replaces) the REST Service password. Shown once. */
+export async function createKoboWebhook() {
+  return apiSend("POST", "/kobo/webhook", {});
+}
+export async function removeKoboWebhook() {
+  return apiSend("DELETE", "/kobo/webhook");
 }
 
 /* ---------------------------------------------------------------- learners, classes, enrollment

@@ -40,13 +40,26 @@ function fakeAdmin(db: Db, users: Record<string, { id: string; email: string }>)
     let head = false;
     let limit: number | null = null;
     let range: [number, number] | null = null;
+    let conflict = "id";
+    let ignoreDup = false;
     // Embedded-resource filters ("learners.teacher_id") aren't modelled.
     const f = (k: string, test: (v: unknown) => boolean) => { if (!k.includes(".")) filters.push((r) => test(r[k])); return api; };
     const run = () => {
       const rows = db[table];
       const match = (r: Row) => filters.every((t) => t(r));
       let out: Row[] = [];
-      if (op === "insert" || op === "upsert") {
+      if (op === "upsert") {
+        const keys = conflict.split(",").map((k) => k.trim());
+        const list = (Array.isArray(payload) ? payload : [payload]) as Row[];
+        out = [];
+        for (const p of list) {
+          const hit = keys.every((k) => p[k] !== undefined) ? rows.find((r) => keys.every((k) => r[k] === p[k])) : undefined;
+          if (hit) { if (!ignoreDup) Object.assign(hit, p); out.push(hit); continue; }
+          const row = { id: p.id ?? `${table}_${seq++}`, created_at: new Date().toISOString(), ...p };
+          rows.push(row);
+          out.push(row);
+        }
+      } else if (op === "insert") {
         const list = (Array.isArray(payload) ? payload : [payload]) as Row[];
         out = list.map((p) => {
           const row = { id: p.id ?? `${table}_${seq++}`, created_at: new Date().toISOString(), ...p };
@@ -78,7 +91,8 @@ function fakeAdmin(db: Db, users: Record<string, { id: string; email: string }>)
       // deno-lint-ignore no-explicit-any
       select(_c?: string, opts?: any) { if (opts?.head) head = true; return api; },
       insert(p: Row) { op = "insert"; payload = p; return api; },
-      upsert(p: Row) { op = "upsert"; payload = p; return api; },
+      // deno-lint-ignore no-explicit-any
+      upsert(p: Row, o?: any) { op = "upsert"; payload = p; conflict = o?.onConflict ?? "id"; ignoreDup = !!o?.ignoreDuplicates; return api; },
       update(p: Row) { op = "update"; payload = p; return api; },
       delete() { op = "delete"; return api; },
       eq: (k: string, v: unknown) => f(k, (x) => x === v),
@@ -230,6 +244,10 @@ function freshWorld() {
     kobo_config: [],
     kobo_forms: [{ id: "kb_1", asset_uid: "aAbCdEfGh123", title: "Kobo", active: true }],
     kobo_submissions: [],
+    kobo_raw_submissions: [],
+    kobo_records: [],
+    kobo_record_issues: [],
+    kobo_school_aliases: [],
     staff_invitations: [],
     audit_log: [],
   };
@@ -354,12 +372,23 @@ const ROUTES: RouteSpec[] = [
   r("POST", "/kobo/forms/:id/restore", EDU_ADMIN, {}, "/kobo/forms/kb_1/restore"),
   r("POST", "/kobo/sync", EDU_ADMIN, {}),
   r("GET", "/kobo/forms/:id/results", ANALYSTS, undefined, "/kobo/forms/kb_1/results"),
+  r("GET", "/kobo/forms/:id/pipeline", ANALYSTS, undefined, "/kobo/forms/kb_1/pipeline"),
+  r("PUT", "/kobo/forms/:id/mapping", EDU_ADMIN, { school: null }, "/kobo/forms/kb_1/mapping"),
+  r("POST", "/kobo/forms/:id/reprocess", EDU_ADMIN, {}, "/kobo/forms/kb_1/reprocess"),
+  r("GET", "/kobo/records", ANALYSTS, undefined, "/kobo/records?formId=kb_1"),
+  r("GET", "/kobo/records/:id", ANALYSTS),
+  r("POST", "/kobo/records/:id/review", EDU_ADMIN, { decision: "accepted", note: "Checked by phone" }),
+  r("GET", "/kobo/school-aliases", ANALYSTS),
+  r("POST", "/kobo/school-aliases", EDU_ADMIN, { value: "Aitong Pri", schoolId: "sch_1" }),
+  r("DELETE", "/kobo/school-aliases/:key", EDU_ADMIN, undefined, "/kobo/school-aliases/aitong%20pri"),
+  r("POST", "/kobo/webhook", EDU_ADMIN, {}),
+  r("DELETE", "/kobo/webhook", EDU_ADMIN),
   r("GET", "/kobo/my-surveys", ["field_officer"]),
   r("POST", "/kobo/my-surveys/:id/submitted", ["field_officer"], {}, "/kobo/my-surveys/kb_1/submitted"),
 ];
 /** Need a sign-in but no particular permission (sign-up, own profile, school list). */
 const SIGNED_IN_ONLY = ["GET /me", "POST /me", "POST /me/accept-invite", "GET /schools"];
-const PUBLIC = ["GET /health", "POST /auth/register", "POST /learner/login", "POST /learner/logout", "GET /invitations/:token"];
+const PUBLIC = ["GET /health", "POST /auth/register", "POST /learner/login", "POST /learner/logout", "GET /invitations/:token", "POST /kobo/hook"];
 
 const denied = (s: number) => s === 401 || s === 403;
 
@@ -969,4 +998,185 @@ Deno.test("programme intelligence: analysts only, real numbers, filters, visit t
   const after = await call("GET", "/intelligence", "tok_admin");
   assertEquals(after.json.implementation.byType.find((t: Row) => t.label === "Teacher support").visits, 1);
   assertEquals(after.json.implementation.schools.visited, 1);
+});
+
+/* ------------------------------------------------------------ 10. Kobo ingestion pipeline */
+
+const KOBO_ASSET = {
+  name: "Classroom observation", version_id: "v7", deployment__active: true,
+  content: {
+    survey: [
+      { type: "start", name: "start" }, { type: "end", name: "end" },
+      { type: "hidden", name: "officer_ref" },
+      { type: "text", name: "school_code", label: ["School code"], required: true },
+      { type: "date", name: "visit_date", label: ["Date of visit"], required: true },
+      { type: "integer", name: "learners_present", label: ["Learners present"], required: true },
+      { type: "select_one yn", name: "tablets_used", label: ["Tablets used?"] },
+    ],
+    choices: [{ list_name: "yn", name: "yes", label: ["Yes"] }, { list_name: "yn", name: "no", label: ["No"] }],
+  },
+};
+const kRow = (id: number, over: Row = {}): Row => ({
+  _id: id, _uuid: `u${id}`, "meta/instanceID": `uuid:${id}`, _xform_id_string: "aAbCdEfGh123",
+  _submission_time: "2026-09-20T10:00:00", start: `2026-09-20T08:0${id % 10}:00.000+03:00`, end: "2026-09-20T09:00:00.000+03:00",
+  officer_ref: "field_officer-id", school_code: "NRK-001", visit_date: "2026-09-20", learners_present: "30", tablets_used: "yes",
+  ...over,
+});
+/** Plays KoboToolbox: the asset (questions) and its submissions. */
+function stubKobo(rows: () => Row[]) {
+  const real = globalThis.fetch;
+  globalThis.fetch = ((input: string | URL | Request) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.includes("/data/")) return Promise.resolve(new Response(JSON.stringify({ count: rows().length, next: null, results: rows() })));
+    if (url.includes("/api/v2/assets/")) return Promise.resolve(new Response(JSON.stringify(KOBO_ASSET)));
+    return real(input);
+  }) as typeof fetch;
+  return () => { globalThis.fetch = real; };
+}
+function connectKobo(db: Db, secret?: string) {
+  db.kobo_config.push({
+    id: 1, base_url: "https://kobo.test", api_token: "test-token", officer_field: "officer_ref",
+    webhook_secret_hash: secret ? createHashForTest(secret) : null,
+  });
+}
+// The API stores sha256(secret) hex.
+import { createHash as createHashForTest0 } from "node:crypto";
+const createHashForTest = (s: string) => createHashForTest0("sha256").update(s).digest("hex");
+const recByKobo = (db: Db, id: number) => db.kobo_records.find((r) => r.kobo_id === id)!;
+
+Deno.test("Kobo pipeline: sync stores raw, validates, normalizes; dashboards count only what passes", async () => {
+  const db = freshWorld();
+  connectKobo(db);
+  let rows = [
+    kRow(1),                                                    // valid
+    kRow(2, { school_code: "Aitong Pri" }),                      // school not recognised
+    { ...kRow(1), _id: 3, _uuid: "u3", "meta/instanceID": "uuid:3" }, // the same submission sent twice
+    kRow(4, { _validation_status: { uid: "validation_status_not_approved" } }),
+    kRow(5, { learners_present: "thirty" }),                     // not a number
+  ];
+  const restore = stubKobo(() => rows);
+  try {
+    const sync = await call("POST", "/kobo/sync", "tok_education_team");
+    assertEquals(sync.status, 200, JSON.stringify(sync.json));
+    const st = sync.json.forms[0];
+    assertEquals([st.received, st.valid, st.invalid, st.duplicate, st.rejected], [5, 1, 2, 1, 1]);
+    assertEquals(db.kobo_raw_submissions.length, 5, "every submission is kept exactly as received");
+    assertEquals(db.kobo_raw_submissions.find((r) => r.kobo_id === 5)!.payload.learners_present, "thirty");
+    const r1 = recByKobo(db, 1);
+    assertEquals([r1.status, r1.school_id, r1.county, r1.officer_id, r1.observed_on], ["valid", "sch_1", "Narok", "field_officer-id", "2026-09-20"]);
+    assertEquals(r1.answers.learners_present, 30, "normalized to a number");
+    assertEquals(recByKobo(db, 3).duplicate_of, r1.id);
+    assert(db.kobo_forms[0].schema && db.kobo_forms[0].mapping.school === "school_code", "schema saved, mapping guessed");
+    assertEquals(db.kobo_submissions.filter((s) => s.officer_id === "field_officer-id").length, 1, "the officer has done it — once");
+
+    // The dashboards: only what passes.
+    let res = await call("GET", "/kobo/forms/kb_1/results", "tok_me");
+    assertEquals([res.json.submissionCount, res.json.received], [1, 5]);
+    assertEquals(res.json.excluded, { invalid: 2, duplicate: 1, rejected: 1, byReview: 0 });
+    assertEquals(res.json.questions.find((q: Row) => q.name === "tablets_used").data, [{ label: "Yes", value: 1 }, { label: "No", value: 0 }]);
+
+    // What needs looking at, by rule; the school it couldn't place, with a suggestion.
+    const pipe = await call("GET", "/kobo/forms/kb_1/pipeline", "tok_education_team");
+    assertEquals(pipe.json.stats.needsReview, 3);
+    assertEquals(pipe.json.unknownSchools, [{ value: "Aitong Pri", count: 1, suggestion: { id: "sch_1", name: "Aitong Primary", code: "NRK-001" } }]);
+    assertEquals((await call("GET", "/kobo/records?formId=kb_1&rule=type", "tok_me")).json.records.map((r: Row) => r.koboId), [5]);
+
+    // Normalization: teach it the alias once; every survey is re-checked.
+    assertEquals((await call("POST", "/kobo/school-aliases", "tok_education_team", { value: "Aitong Pri", schoolId: "sch_1" })).status, 200);
+    assertEquals([recByKobo(db, 2).status, recByKobo(db, 2).school_id], ["valid", "sch_1"]);
+
+    // A person's decision: accepted with a reason, and audited.
+    const rec5 = recByKobo(db, 5);
+    assertEquals((await call("POST", `/kobo/records/${rec5.id}/review`, "tok_education_team", { decision: "accepted" })).status, 400, "a reason is required");
+    assertEquals((await call("POST", `/kobo/records/${rec5.id}/review`, "tok_education_team", { decision: "accepted", note: "Confirmed 30 with the head teacher" })).status, 200);
+    assert(db.audit_log.some((a) => a.action === "kobo.record_accepted" && a.target_id === rec5.id));
+    res = await call("GET", "/kobo/forms/kb_1/results", "tok_me");
+    assertEquals(res.json.submissionCount, 3);
+    assertEquals((await call("GET", "/intelligence", "tok_me")).json.dataCollection.kobo.counted, 3);
+    // Re-syncing leaves the decision alone.
+    await call("POST", "/kobo/sync", "tok_education_team");
+    assertEquals(recByKobo(db, 5).review, "accepted");
+
+    // Deleted in Kobo → removed here too (kept, never counted).
+    rows = rows.filter((r) => r._id !== 1);
+    await call("POST", "/kobo/sync", "tok_education_team");
+    assertEquals(recByKobo(db, 1).status, "removed");
+    assertEquals(db.kobo_raw_submissions.length, 5, "nothing is deleted");
+    assertEquals(recByKobo(db, 3).status, "valid", "with the original gone, its copy is the one that counts");
+    assertEquals((await call("GET", "/kobo/forms/kb_1/results", "tok_me")).json.submissionCount, 3);
+  } finally {
+    restore();
+  }
+});
+
+/** A KoboToolbox REST Service call. */
+async function hook(body: unknown, auth: string | null, raw?: string) {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (auth) headers.authorization = auth;
+  const res = await app.request("/api/kobo/hook", { method: "POST", headers, body: raw ?? JSON.stringify(body) });
+  let json: Row = {};
+  try { json = await res.json(); } catch { /* empty */ }
+  return { status: res.status, json };
+}
+const basic = (pw: string) => `Basic ${btoa(`hpf:${pw}`)}`;
+
+Deno.test("Kobo push: only with the right secret; stored and validated; repeats are harmless", async () => {
+  const db = freshWorld();
+  connectKobo(db);
+  const restore = stubKobo(() => []);
+  try {
+    assertEquals((await hook(kRow(1), basic("anything"))).status, 401, "no secret set yet");
+    const made = await call("POST", "/kobo/webhook", "tok_education_team");
+    assertEquals(made.status, 200);
+    assertEquals(made.json.username, "hpf");
+    const pw = made.json.password as string;
+    assert(db.kobo_config[0].webhook_secret_hash && db.kobo_config[0].webhook_secret_hash !== pw, "only the hash is stored");
+    assert(!JSON.stringify((await call("GET", "/kobo/config", "tok_education_team")).json).includes(pw), "never shown again");
+
+    assertEquals((await hook(kRow(1), null)).status, 401);
+    assertEquals((await hook(kRow(1), basic("wrong"))).status, 401);
+    assertEquals((await hook(kRow(1), `Bearer ${pw}`)).status, 401, "a bearer token isn't the hook password");
+    assertEquals((await hook(null, basic(pw), "not json")).status, 400);
+    assertEquals((await hook({ hello: 1 }, basic(pw))).status, 400, "not a Kobo submission");
+    assertEquals((await hook(null, basic(pw), JSON.stringify({ ...kRow(9), pad: "x".repeat(1_000_001) }))).status, 413);
+    const other = await hook({ ...kRow(2), _xform_id_string: "someOtherSurvey" }, basic(pw));
+    assertEquals([other.status, db.kobo_raw_submissions.length], [202, 0], "a survey that isn't attached is ignored");
+
+    assertEquals((await hook(kRow(1), basic(pw))).status, 200);
+    assertEquals((await hook(kRow(1), basic(pw))).status, 200, "Kobo retries are fine");
+    assertEquals(db.kobo_raw_submissions.length, 1);
+    assertEquals(db.kobo_raw_submissions[0].source, "webhook");
+    assertEquals([db.kobo_records.length, db.kobo_records[0].status], [1, "valid"]);
+    assertEquals((await hook(kRow(2, { visit_date: "2099-01-01" }), basic(pw))).status, 200);
+    assert(db.kobo_record_issues.some((i) => i.rule === "date" && i.severity === "error"), "the push is validated like a sync");
+
+    // Revoking the password stops the push.
+    await call("DELETE", "/kobo/webhook", "tok_education_team");
+    assertEquals((await hook(kRow(3), basic(pw))).status, 401);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("Kobo field mapping: only the survey's own questions; saving re-checks every submission", async () => {
+  const db = freshWorld();
+  connectKobo(db);
+  const restore = stubKobo(() => [kRow(1, { school_code: "Nowhere Primary" })]);
+  try {
+    assertEquals((await call("PUT", "/kobo/forms/kb_1/mapping", "tok_education_team", { school: "school_code" })).status, 409, "not synced yet");
+    await call("POST", "/kobo/sync", "tok_education_team");
+    assertEquals(recByKobo(db, 1).status, "invalid");
+    assertEquals((await call("PUT", "/kobo/forms/kb_1/mapping", "tok_education_team", { school: "no_such_question" })).status, 400);
+    assertEquals((await call("PUT", "/kobo/forms/kb_1/mapping", "tok_me", { school: null })).status, 403, "M&E can look, not change");
+    const saved = await call("PUT", "/kobo/forms/kb_1/mapping", "tok_education_team",
+      { school: null, county: null, officer: "officer_ref", date: "visit_date" });
+    assertEquals(saved.status, 200, JSON.stringify(saved.json));
+    assertEquals([recByKobo(db, 1).status, recByKobo(db, 1).school_id], ["valid", null], "no school question, no school check");
+    assert(db.audit_log.some((a) => a.action === "kobo.mapping_changed"));
+    // Excluding a valid record takes it off the dashboards.
+    await call("POST", `/kobo/records/${recByKobo(db, 1).id}/review`, "tok_education_team", { decision: "excluded", note: "Training entry" });
+    assertEquals((await call("GET", "/kobo/forms/kb_1/results", "tok_me")).json.submissionCount, 0);
+  } finally {
+    restore();
+  }
 });
