@@ -15,7 +15,16 @@ export const ROLES = [
   { value: "school_leader", label: "School Leader", desc: "Termly returns, oversight" },
   { value: "field_officer", label: "Field Officer", desc: "Visit reports by county" },
   { value: "education_team", label: "Education Team", desc: "Content, forms & insights" },
+  // Given only by an administrator (invitation or role change), never
+  // chosen at sign-up. They use the Education Team dashboard, which shows
+  // each of them only what their permissions allow.
+  { value: "me", label: "M&E", desc: "Monitoring & evaluation" },
+  { value: "admin", label: "Admin", desc: "Staff accounts & portal" },
+  { value: "super_admin", label: "Super Admin", desc: "Everything, including admins" },
 ];
+
+/* Roles that open the Education Team dashboard. */
+export const PORTAL_ADMIN_ROLES = ["education_team", "me", "admin", "super_admin"];
 
 /* Legacy per-account demo content, keyed by the old text ids. Nothing
    matches these keys any more (accounts are auth.users UUIDs now), so

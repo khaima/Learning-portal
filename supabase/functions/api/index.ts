@@ -5,8 +5,9 @@
  * read and write goes through this one Edge Function, which:
  *   - authenticates the caller (staff: Supabase Auth JWT; learners: an
  *     opaque PIN-issued session token, "hpl_<token>"),
- *   - loads their role from `public.profiles` / `public.learners` (never
- *     from a JWT claim),
+ *   - loads their role and account status from `public.profiles` /
+ *     `public.learners` (never from a JWT claim or anything the browser
+ *     sends), and authorizes each route by PERMISSION (permissions.ts),
  *   - does all data access with the service-role key, which bypasses the
  *     deny-all RLS on every table.
  *
@@ -15,8 +16,13 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { Buffer } from "node:buffer";
+import {
+  ACCOUNT_STATUSES, can, canManageAccount, COUNTY_ROLES, grantableRoles, type Permission,
+  permissionsFor, type Role, ROLE_LABEL, SELF_REQUESTABLE_ROLES,
+  STAFF_ROLES, STATUS_TRANSITIONS,
+} from "./permissions.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY =
@@ -24,20 +30,13 @@ const SERVICE_KEY =
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 /** Service-role client — bypasses RLS. Never expose this key to a browser. */
-const admin: SupabaseClient = createClient(SUPABASE_URL, SERVICE_KEY, {
+let admin: SupabaseClient = createClient(SUPABASE_URL, SERVICE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
-
-const STAFF_ROLES = [
-  "teacher",
-  "school_leader",
-  "field_officer",
-  "education_team",
-] as const;
-const ALL_ROLES = [...STAFF_ROLES, "learner"] as const;
-/** Roles a new staff account may pick for itself at onboarding. */
-const SELF_ONBOARD_ROLES: string[] = ["teacher", "school_leader", "field_officer"];
-type Role = (typeof ALL_ROLES)[number];
+/** Tests only (authz_test.ts): swap in an in-memory stand-in. */
+export function __setAdminClientForTests(client: unknown) {
+  admin = client as SupabaseClient;
+}
 
 const LIBRARY_BUCKET = "library";
 const DOWNLOAD_TTL = 60 * 60; // 1 h signed download URLs
@@ -272,12 +271,14 @@ function normalizeAudience(a: string | null | undefined): "staff" | "library" | 
   if (a === "school_leader") return "school_leader";
   return a === "staff" || a === "teacher" ? "staff" : "library";
 }
+/** Which shelf an item is on decides which read permission it needs;
+    whoever manages the library sees every shelf. */
 function canSeeLibrary(audience: string | null | undefined, role: Role): boolean {
-  if (role === "education_team") return true;
+  if (can(role, "library.manage")) return true;
   const dest = normalizeAudience(audience);
-  if (dest === "school_leader") return role === "school_leader";
-  if (dest === "staff") return role === "teacher" || role === "school_leader";
-  return role === "teacher" || role === "school_leader" || role === "learner";
+  if (dest === "school_leader") return can(role, "library.read.head");
+  if (dest === "staff") return can(role, "library.read.staff");
+  return can(role, "library.read.learner");
 }
 
 type LibFile = { name: string; path: string; size: number };
@@ -341,6 +342,12 @@ const mapProfile = (r: Record<string, unknown>) => ({
   needsSchool: SCHOOL_ROLES.includes(r.role as string) && !r.school_id,
   grade: r.grade,
   teacherType: r.teacher_type ?? null,
+  status: r.status ?? "active",
+  statusReason: r.status_reason ?? null,
+  requestedRole: r.requested_role ?? null,
+  // What the signed-in person may do — the app uses this only to decide
+  // what to show; every route checks again on the server.
+  permissions: r.status === "active" || r.status == null ? [...permissionsFor(r.role as string)] : [],
 });
 const mapLearnerSelf = (r: Record<string, unknown>) => ({
   id: r.id,
@@ -431,7 +438,7 @@ type Vars = {
   actor: Actor;
 };
 
-const app = new Hono<{ Variables: Vars }>().basePath("/api");
+export const app = new Hono<{ Variables: Vars }>().basePath("/api");
 
 app.use(
   "*",
@@ -455,6 +462,59 @@ app.get("/health", (c) => c.json({ ok: true }));
 // ---- staff sign-up (email + password, no confirmation email) ----
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/* ---- audit trail ----
+   Append-only (the table refuses updates and deletes, even from this
+   service). Written after the change it describes; a failed write is
+   logged rather than undoing a change the person already made. */
+// deno-lint-ignore no-explicit-any
+async function audit(c: any, action: string, targetType: string, targetId: unknown,
+  details: Record<string, unknown> = {}, actorOverride?: { id: string; role?: string | null }) {
+  const actor = actorOverride ?? c.get("actor");
+  const kind = c.get("actorKind") === "learner" ? "learner" : actor ? "staff" : "system";
+  const { error } = await admin.from("audit_log").insert({
+    actor_id: actor?.id ?? null,
+    actor_kind: kind,
+    actor_role: actor?.role ?? null,
+    action,
+    target_type: targetType,
+    target_id: targetId == null ? null : String(targetId),
+    details,
+  });
+  if (error) console.error("audit write failed:", action, error.message);
+}
+
+/* ---- staff invitations ----
+   The link holds a random token; only its SHA-256 hash is stored. */
+const hashToken = (token: string) => createHash("sha256").update(token).digest("hex");
+const INVITE_TTL_DAYS = 14;
+
+async function loadOpenInvitation(token: string) {
+  if (!token || token.length > 200) return null;
+  const { data } = await admin.from("staff_invitations").select("*")
+    .eq("token_hash", hashToken(token)).maybeSingle();
+  if (!data || data.accepted_at || data.revoked_at) return null;
+  if (new Date(data.expires_at).getTime() < Date.now()) return null;
+  return data;
+}
+
+/* Public: what an invitation link is for, so the sign-up page can show it
+   before an account exists. Reveals nothing without the token. */
+app.get("/invitations/:token", async (c) => {
+  const inv = await loadOpenInvitation(c.req.param("token"));
+  if (!inv) return c.json({ error: "This invitation link is invalid, already used or expired." }, 404);
+  const school = inv.school_id ? await loadSchool(inv.school_id) : null;
+  return c.json({
+    invitation: {
+      email: inv.email,
+      role: inv.role,
+      roleLabel: ROLE_LABEL[inv.role as Role] ?? inv.role,
+      county: inv.county ?? school?.county ?? null,
+      school: school ? `${school.name} (${school.code})` : null,
+      expiresAt: inv.expires_at,
+    },
+  });
+});
 
 app.post("/auth/register", async (c) => {
   const b = await c.req.json().catch(() => ({}));
@@ -585,52 +645,73 @@ async function loadLearner(learnerId: string) {
   return data;
 }
 
-/** Staff-only guard. Learners are refused (403), un-onboarded staff get 428. */
-function withProfile(...roles: Role[]) {
+/* ---- authorization ----
+   Who the caller is comes only from the database: the learner session, or
+   the staff member's own `profiles` row. Nothing the browser sends (a role,
+   a status, an id) is ever trusted. Staff must also have an ACTIVE account
+   — a pending, suspended, rejected or deactivated account reaches no route
+   behind these guards. */
+
+const STATUS_MESSAGE: Record<string, string> = {
+  pending: "Your account is waiting for approval by an administrator.",
+  rejected: "Your account request was not approved. Contact an administrator if you think this is a mistake.",
+  suspended: "Your account is suspended. Contact an administrator.",
+  deactivated: "Your account has been deactivated. Contact an administrator.",
+};
+
+/** Loads the caller into c.var.actor, or returns the response refusing them. */
+// deno-lint-ignore no-explicit-any
+async function resolveActor(c: any): Promise<Response | null> {
+  if (c.get("actor")) return null;
+  if (c.get("actorKind") === "learner") {
+    const l = await loadLearner(c.get("learnerId"));
+    if (!l) return c.json({ error: "Invalid session" }, 401);
+    c.set("actor", { id: l.id, role: "learner", fullName: l.full_name, grade: l.grade, school: l.school, county: l.county, schoolId: l.school_id ?? null });
+    return null;
+  }
+  const p = await loadStaffProfile(c.get("userId"));
+  if (!p) return c.json({ needsOnboarding: true, email: c.get("email") }, 428);
+  const status = p.status ?? "active";
+  if (status !== "active") {
+    return c.json({ error: STATUS_MESSAGE[status] ?? "Your account is not active.", accountStatus: status }, 403);
+  }
+  if (!STAFF_ROLES.includes(p.role)) return c.json({ error: "Your account has no valid role." }, 403);
+  c.set("actor", { id: p.id, role: p.role, fullName: p.full_name, grade: p.grade, school: p.school, county: p.county, schoolId: p.school_id ?? null });
+  return null;
+}
+
+const NO_PERMISSION = "You don't have permission to do that.";
+
+/** Any signed-in, active account (staff or learner). */
+function requireActive() {
+  // deno-lint-ignore no-explicit-any
+  return async (c: any, next: any) => (await resolveActor(c)) ?? next();
+}
+
+/** Any active staff account (learners refused). */
+function requireStaff() {
+  // deno-lint-ignore no-explicit-any
   return async (c: any, next: any) => {
-    if (c.get("actorKind") === "learner") {
-      return c.json({ error: "Not allowed for your role" }, 403);
-    }
-    const profile = await loadStaffProfile(c.get("userId"));
-    if (!profile) {
-      return c.json({ needsOnboarding: true, email: c.get("email") }, 428);
-    }
-    if (roles.length && !roles.includes(profile.role)) {
-      return c.json({ error: "Not allowed for your role" }, 403);
-    }
-    c.set("actor", {
-      id: profile.id,
-      role: profile.role,
-      fullName: profile.full_name,
-      grade: profile.grade,
-      school: profile.school,
-      county: profile.county,
-      schoolId: profile.school_id ?? null,
-    });
+    if (c.get("actorKind") === "learner") return c.json({ error: NO_PERMISSION }, 403);
+    return (await resolveActor(c)) ?? next();
+  };
+}
+
+/** An active account holding at least one of these permissions. */
+function requirePermission(...perms: Permission[]) {
+  // deno-lint-ignore no-explicit-any
+  return async (c: any, next: any) => {
+    const refused = await resolveActor(c);
+    if (refused) return refused;
+    const role = c.get("actor").role;
+    if (!perms.some((p) => can(role, p))) return c.json({ error: NO_PERMISSION }, 403);
     return next();
   };
 }
 
-/** Guard that accepts staff OR learners, resolved into a common actor. */
-function withActor(...roles: Role[]) {
-  return async (c: any, next: any) => {
-    let actor: Actor | null = null;
-    if (c.get("actorKind") === "learner") {
-      const l = await loadLearner(c.get("learnerId"));
-      if (l) actor = { id: l.id, role: "learner", fullName: l.full_name, grade: l.grade, school: l.school, county: l.county, schoolId: l.school_id ?? null };
-    } else {
-      const p = await loadStaffProfile(c.get("userId"));
-      if (!p) return c.json({ needsOnboarding: true, email: c.get("email") }, 428);
-      actor = { id: p.id, role: p.role, fullName: p.full_name, grade: p.grade, school: p.school, county: p.county, schoolId: p.school_id ?? null };
-    }
-    if (!actor) return c.json({ error: "Invalid session" }, 401);
-    if (roles.length && !roles.includes(actor.role)) {
-      return c.json({ error: "Not allowed for your role" }, 403);
-    }
-    c.set("actor", actor);
-    return next();
-  };
-}
+/** For a handler that's already past a guard. */
+// deno-lint-ignore no-explicit-any
+const actorCan = (c: any, p: Permission) => can(c.get("actor")?.role, p);
 
 // ---- session / onboarding ----
 
@@ -645,6 +726,19 @@ app.get("/me", async (c) => {
   return c.json({ profile: mapProfile(profile) });
 });
 
+/** Name and BOM/TSC type from a sign-up form, or the error to show. */
+function readNameAndType(b: Record<string, unknown>, role: string): { fullName: string; teacherType: string | null } | { error: string } {
+  const fullName = String(b.fullName ?? "").trim();
+  if (!fullName) return { error: "Full name is required" };
+  const teacherType = String(b.teacherType ?? "").trim().toUpperCase();
+  if (teacherType && !["BOM", "TSC"].includes(teacherType)) return { error: "Teacher type must be BOM or TSC" };
+  return { fullName, teacherType: role === "teacher" && teacherType ? teacherType : null };
+}
+
+/* Self-registration WITHOUT an invitation. The person says which working
+   role they're asking for and where they work, but the account is created
+   `pending`: it can reach nothing until an administrator approves it
+   (and may change the role or placement while doing so). */
 app.post("/me", async (c) => {
   if (c.get("actorKind") === "learner") {
     return c.json({ error: "Learners are added by a teacher" }, 403);
@@ -653,26 +747,17 @@ app.post("/me", async (c) => {
     return c.json({ error: "Profile already exists" }, 409);
   }
   const b = await c.req.json().catch(() => ({}));
-  // Anyone can register, so onboarding may only hand out working roles.
-  // Education Team is an admin role: only an existing Education Team
-  // member grants it, from the Users page (PATCH /users/:id).
-  if (b.role === "education_team") {
+  if (!SELF_REQUESTABLE_ROLES.includes(b.role)) {
     return c.json({
-      error: "Education Team access is given by an existing Education Team member. Pick your working role for now and ask them to change it.",
-    }, 403);
+      error: "Pick Teacher, School Head or Field Officer. Other roles are only given by an administrator's invitation.",
+    }, 400);
   }
-  if (!SELF_ONBOARD_ROLES.includes(b.role)) return c.json({ error: "Pick a role" }, 400);
-  if (!String(b.fullName ?? "").trim()) {
-    return c.json({ error: "Full name is required" }, 400);
-  }
-  const teacherType = String(b.teacherType ?? "").trim().toUpperCase();
-  if (teacherType && !["BOM", "TSC"].includes(teacherType)) {
-    return c.json({ error: "Teacher type must be BOM or TSC" }, 400);
-  }
+  const who = readNameAndType(b, b.role);
+  if ("error" in who) return c.json({ error: who.error }, 400);
 
   // Where each role sits: teachers and heads in one school (picked from
   // the list — never typed); field officers in a county (they pick the
-  // school per visit/form); the education team is portal-wide.
+  // school per visit/form).
   let school: School | null = null;
   let county = "";
   if (SCHOOL_ROLES.includes(b.role)) {
@@ -689,31 +774,98 @@ app.post("/me", async (c) => {
     .insert({
       id: c.get("userId"),
       role: b.role,
-      full_name: String(b.fullName).trim(),
+      requested_role: b.role,
+      status: "pending",
+      full_name: who.fullName,
       email: c.get("email"),
       school: school?.name ?? "",
+      school_id: school?.id ?? null,
       county,
       grade: String(b.grade ?? "").trim(),
-      teacher_type: b.role === "teacher" && teacherType ? teacherType : null,
+      teacher_type: who.teacherType,
     })
     .select()
     .single();
   if (error) return c.json({ error: error.message }, 400);
-  if (!school) return c.json({ profile: mapProfile(data) });
-  try {
-    return c.json({ profile: mapProfile(await placeInSchool("profiles", data.id, school, b.role)) });
-  } catch (e) {
-    return c.json({ error: (e as Error).message }, 500);
+  await audit(c, "account.created", "profile", data.id,
+    { via: "self-registration", requestedRole: b.role, status: "pending", schoolId: school?.id ?? null, county },
+    { id: data.id, role: null });
+  return c.json({ profile: mapProfile(data) });
+});
+
+/* Registration WITH an invitation: the role and placement are the ones the
+   administrator chose when inviting — never anything from this request —
+   and the account is active straight away. Works for a brand-new account
+   and for one that registered on its own and is still pending. */
+app.post("/me/accept-invite", async (c) => {
+  if (c.get("actorKind") === "learner") return c.json({ error: NO_PERMISSION }, 403);
+  const b = await c.req.json().catch(() => ({}));
+  const inv = await loadOpenInvitation(String(b.token ?? ""));
+  if (!inv) return c.json({ error: "This invitation link is invalid, already used or expired." }, 404);
+  const email = String(c.get("email") ?? "").toLowerCase();
+  if (email !== String(inv.email).toLowerCase()) {
+    return c.json({ error: `This invitation is for ${inv.email}. Sign in with that email address to accept it.` }, 403);
   }
+  const existing = await loadStaffProfile(c.get("userId"));
+  if (existing && existing.status !== "pending") {
+    return c.json({ error: "This account is already set up. Ask an administrator to change its role instead." }, 409);
+  }
+  const who = readNameAndType({ ...b, fullName: b.fullName ?? existing?.full_name }, inv.role);
+  if ("error" in who) return c.json({ error: who.error }, 400);
+
+  const school = inv.school_id ? await loadSchool(inv.school_id) : null;
+  if (SCHOOL_ROLES.includes(inv.role) && !school) {
+    return c.json({ error: "The school on this invitation no longer exists. Ask for a new invitation." }, 409);
+  }
+  const now = new Date().toISOString();
+  const fields = {
+    role: inv.role,
+    status: "active",
+    full_name: who.fullName,
+    email: c.get("email"),
+    school: school?.name ?? "",
+    school_id: school?.id ?? null,
+    county: school?.county ?? (COUNTY_ROLES.includes(inv.role) ? inv.county ?? "" : ""),
+    teacher_type: who.teacherType,
+    invited_by: inv.invited_by,
+    approved_at: now,
+    approved_by: inv.invited_by,
+    status_changed_at: now,
+    status_changed_by: inv.invited_by,
+  };
+  // Claim the invitation first, so it can't be used twice at once.
+  const { data: claimed } = await admin.from("staff_invitations")
+    .update({ accepted_at: now, accepted_by: c.get("userId") })
+    .eq("id", inv.id).is("accepted_at", null).is("revoked_at", null).select("id").maybeSingle();
+  if (!claimed) return c.json({ error: "This invitation link is invalid, already used or expired." }, 409);
+
+  const res = existing
+    ? await admin.from("profiles").update(fields).eq("id", existing.id).select().single()
+    : await admin.from("profiles").insert({ id: c.get("userId"), ...fields }).select().single();
+  if (res.error) {
+    await admin.from("staff_invitations").update({ accepted_at: null, accepted_by: null }).eq("id", inv.id);
+    return c.json({ error: res.error.message }, 400);
+  }
+  let profile = res.data;
+  if (school && (!profile.user_code || existing?.school_id !== school.id)) {
+    try { profile = await placeInSchool("profiles", profile.id, school, inv.role); } catch { /* code can be set later */ }
+  }
+  const self = { id: profile.id, role: profile.role };
+  await audit(c, existing ? "account.approved" : "account.created", "profile", profile.id,
+    { via: "invitation", invitationId: inv.id, role: inv.role, invitedBy: inv.invited_by,
+      schoolId: school?.id ?? null, county: fields.county }, self);
+  await audit(c, "invitation.accepted", "invitation", inv.id, { email: inv.email, role: inv.role }, self);
+  return c.json({ profile: mapProfile(profile) });
 });
 
 /* One-time: a teacher or head whose account predates school codes picks
    their school. Only while they have none — changing school afterwards
-   is the education team's job (Users page), so nobody can move
-   themselves into another school's data. A teacher's existing learners
-   join the same school and get their codes too. */
-app.put("/me/school", withProfile("teacher", "school_leader"), async (c) => {
+   is an administrator's job (Users page), so nobody can move themselves
+   into another school's data. A teacher's existing learners join the same
+   school and get their codes too. */
+app.put("/me/school", requireStaff(), async (c) => {
   const actor = c.get("actor");
+  if (!SCHOOL_ROLES.includes(actor.role)) return c.json({ error: NO_PERMISSION }, 403);
   if (actor.schoolId) return c.json({ error: "Your school is already set — ask the Education Team to change it" }, 409);
   const b = await c.req.json().catch(() => ({}));
   const school = await loadSchool(b.schoolId);
@@ -721,6 +873,8 @@ app.put("/me/school", withProfile("teacher", "school_leader"), async (c) => {
   try {
     const profile = await placeInSchool("profiles", actor.id, school, actor.role);
     if (actor.role === "teacher") await moveTeachersLearners(actor.id, school);
+    await audit(c, "school.changed", "profile", actor.id,
+      { from: null, to: school.id, county: school.county, userCode: profile.user_code, via: "self (first school pick)" });
     return c.json({ profile: mapProfile(profile) });
   } catch (e) {
     return c.json({ error: (e as Error).message }, 500);
@@ -755,8 +909,9 @@ app.get("/schools", async (c) => {
   const schools = (data ?? [])
     .sort((a, b) => (countyOrder.get(a.county) ?? 99) - (countyOrder.get(b.county) ?? 99) || a.seq - b.seq)
     .map(mapSchool) as Record<string, unknown>[];
+  // Head counts per school only for an active account that manages schools.
   const me = c.get("actorKind") === "staff" ? await loadStaffProfile(c.get("userId")) : null;
-  if (me?.role === "education_team") {
+  if (me && (me.status ?? "active") === "active" && can(me.role, "schools.manage")) {
     const [{ data: profs }, { data: learners }] = await Promise.all([
       selectAll(() => admin.from("profiles").select("school_id, role").not("school_id", "is", null).order("id")),
       selectAll(() => admin.from("learners").select("school_id").not("school_id", "is", null).order("id")),
@@ -780,7 +935,7 @@ app.get("/schools", async (c) => {
    prefixes every school code in it) or remove one that has no schools
    and no field officers in it yet. Names and codes can't be edited, so
    no existing code ever changes. */
-app.post("/counties", withProfile("education_team"), async (c) => {
+app.post("/counties", requirePermission("schools.manage"), async (c) => {
   const b = await c.req.json().catch(() => ({}));
   const name = String(b.name ?? "").trim().replace(/\s+/g, " ");
   const code = String(b.code ?? "").trim().toUpperCase();
@@ -796,7 +951,7 @@ app.post("/counties", withProfile("education_team"), async (c) => {
   return c.json({ county: data });
 });
 
-app.delete("/counties/:name", withProfile("education_team"), async (c) => {
+app.delete("/counties/:name", requirePermission("schools.manage"), async (c) => {
   const name = decodeURIComponent(c.req.param("name"));
   if (!(await isCounty(name))) return c.json({ error: "County not found" }, 404);
   const [{ count: schools }, { count: officers }, { count: forms }] = await Promise.all([
@@ -814,7 +969,7 @@ app.delete("/counties/:name", withProfile("education_team"), async (c) => {
   return c.json({ ok: true });
 });
 
-app.post("/schools", withProfile("education_team"), async (c) => {
+app.post("/schools", requirePermission("schools.manage"), async (c) => {
   const b = await c.req.json().catch(() => ({}));
   const name = String(b.name ?? "").trim().replace(/\s+/g, " ");
   const county = String(b.county ?? "").trim();
@@ -841,7 +996,7 @@ app.post("/schools", withProfile("education_team"), async (c) => {
 
 /* Rename only — the code never changes, so nobody's code changes either.
    The synced school name on its people follows the new name. */
-app.patch("/schools/:id", withProfile("education_team"), async (c) => {
+app.patch("/schools/:id", requirePermission("schools.manage"), async (c) => {
   const school = await loadSchool(c.req.param("id"));
   if (!school) return c.json({ error: "School not found" }, 404);
   const b = await c.req.json().catch(() => ({}));
@@ -860,7 +1015,7 @@ app.patch("/schools/:id", withProfile("education_team"), async (c) => {
 });
 
 /* Only an empty school can be removed — never strand people. */
-app.delete("/schools/:id", withProfile("education_team"), async (c) => {
+app.delete("/schools/:id", requirePermission("schools.manage"), async (c) => {
   const school = await loadSchool(c.req.param("id"));
   if (!school) return c.json({ error: "School not found" }, 404);
   const [{ count: staff }, { count: learners }] = await Promise.all([
@@ -879,7 +1034,7 @@ app.delete("/schools/:id", withProfile("education_team"), async (c) => {
 
 // ---- teacher's learner roster ----
 
-app.get("/learners", withProfile("teacher"), async (c) => {
+app.get("/learners", requirePermission("learners.manage"), async (c) => {
   const { data, error } = await admin
     .from("learners")
     .select(LEARNER_ROSTER_COLS)
@@ -889,7 +1044,7 @@ app.get("/learners", withProfile("teacher"), async (c) => {
   return c.json({ learners: (data ?? []).map(mapRosterLearner) });
 });
 
-app.post("/learners", withProfile("teacher"), async (c) => {
+app.post("/learners", requirePermission("learners.manage"), async (c) => {
   const b = await c.req.json().catch(() => ({}));
   const username = String(b.username ?? "").trim().toLowerCase();
   const pin = String(b.pin ?? "").trim();
@@ -926,6 +1081,8 @@ app.post("/learners", withProfile("teacher"), async (c) => {
     .select("id")
     .single();
   if (error) return c.json({ error: error.message }, 400);
+  await audit(c, "learner.created", "learner", data.id,
+    { username, fullName, grade: String(b.grade ?? "").trim(), schoolId: school.id, teacherId: teacher.id });
   try {
     return c.json({ learner: mapRosterLearner(await placeInSchool("learners", data.id, school, "learner")) });
   } catch (e) {
@@ -933,7 +1090,7 @@ app.post("/learners", withProfile("teacher"), async (c) => {
   }
 });
 
-app.patch("/learners/:id", withProfile("teacher"), async (c) => {
+app.patch("/learners/:id", requirePermission("learners.manage"), async (c) => {
   const id = c.req.param("id");
   const { data: existing } = await admin
     .from("learners").select("id, teacher_id").eq("id", id).maybeSingle();
@@ -983,18 +1140,27 @@ app.patch("/learners/:id", withProfile("teacher"), async (c) => {
     .select(LEARNER_ROSTER_COLS)
     .single();
   if (error) return c.json({ error: error.message }, 400);
+  // Never the PIN itself — only which fields changed.
+  const changed = Object.keys(patch).filter((k) => !["pin_hash", "pin_salt", "failed_attempts", "locked_until"].includes(k));
+  if (patch.pin_hash) await audit(c, "learner.pin_reset", "learner", id, {});
+  else if (b.unlock) await audit(c, "learner.unlocked", "learner", id, {});
+  if (changed.length) await audit(c, "learner.updated", "learner", id, { fields: changed });
   return c.json({ learner: mapRosterLearner(data) });
 });
 
-app.delete("/learners/:id", withProfile("teacher"), async (c) => {
+app.delete("/learners/:id", requirePermission("learners.manage"), async (c) => {
   const id = c.req.param("id");
   const { data: existing } = await admin
-    .from("learners").select("id, teacher_id").eq("id", id).maybeSingle();
+    .from("learners").select("id, teacher_id, username, full_name, school_id, user_code").eq("id", id).maybeSingle();
   if (!existing || existing.teacher_id !== c.get("actor").id) {
     return c.json({ error: "Learner not found" }, 404);
   }
   const { error } = await admin.from("learners").delete().eq("id", id);
   if (error) return c.json({ error: error.message }, 400);
+  await audit(c, "learner.deleted", "learner", id, {
+    username: existing.username, fullName: existing.full_name,
+    schoolId: existing.school_id, userCode: existing.user_code,
+  });
   return c.json({ ok: true });
 });
 
@@ -1004,7 +1170,7 @@ app.delete("/learners/:id", withProfile("teacher"), async (c) => {
    remotely without needing the learner's device or PIN. Never exposes
    the PIN itself; "Reset PIN" (PATCH above) is the only way a teacher
    acts on a learner's account, and this route changes nothing. */
-app.get("/learners/:id/activity", withProfile("teacher"), async (c) => {
+app.get("/learners/:id/activity", requirePermission("learners.manage"), async (c) => {
   const id = c.req.param("id");
   const { data: learner } = await admin
     .from("learners")
@@ -1035,7 +1201,7 @@ app.get("/learners/:id/activity", withProfile("teacher"), async (c) => {
 
 // ---- content library ----
 
-app.get("/library", withActor(), async (c) => {
+app.get("/library", requireActive(), async (c) => {
   const role = c.get("actor").role;
   const { data, error } = await selectAll(() => admin
     .from("library_items")
@@ -1043,20 +1209,20 @@ app.get("/library", withActor(), async (c) => {
     .order("uploaded_at", { ascending: false })
     .order("id"));
   if (error) return c.json({ error: error.message }, 500);
-  // A draft is only visible to the education team — everyone else only
-  // ever sees what's actually been published, same as the audience check
-  // right next to it.
+  // A draft is only visible to whoever manages the library — everyone else
+  // only ever sees what's actually been published, same as the audience
+  // check right next to it. Only they get download links, too.
+  const manages = can(role, "library.manage");
   const visible = (data ?? []).filter((it) =>
-    canSeeLibrary(it.audience as string, role) &&
-    (role === "education_team" || it.published),
+    canSeeLibrary(it.audience as string, role) && (manages || it.published),
   );
-  const items = await Promise.all(visible.map((it) => mapLibrary(it, role === "education_team")));
+  const items = await Promise.all(visible.map((it) => mapLibrary(it, manages)));
   return c.json({ items });
 });
 
 const URL_RE = /^https?:\/\/[^\s]+$/i;
 
-app.post("/library", withProfile("education_team"), async (c) => {
+app.post("/library", requirePermission("library.manage"), async (c) => {
   const b = await c.req.json().catch(() => ({}));
   if (!String(b.title ?? "").trim()) return c.json({ error: "Title is required" }, 400);
   const externalUrl = String(b.externalUrl ?? "").trim();
@@ -1133,7 +1299,7 @@ app.post("/library", withProfile("education_team"), async (c) => {
    requires the folder's audience to match; changing destination without
    picking a new folder auto-unfiles rather than leaving a mismatched,
    inconsistent state. */
-app.patch("/library/:id", withProfile("education_team"), async (c) => {
+app.patch("/library/:id", requirePermission("library.manage"), async (c) => {
   const id = c.req.param("id");
   const b = await c.req.json().catch(() => ({}));
   const { data: current } = await admin
@@ -1196,7 +1362,7 @@ app.patch("/library/:id", withProfile("education_team"), async (c) => {
    audience rules as items; deleting a folder never deletes its
    contents (the FK is `on delete set null`, so items just fall back
    to "Unfiled"). */
-app.get("/library/folders", withActor(), async (c) => {
+app.get("/library/folders", requireActive(), async (c) => {
   const role = c.get("actor").role;
   const [{ data: folders, error: fErr }, { data: items, error: iErr }] = await Promise.all([
     selectAll(() => admin.from("library_folders").select("*").order("name").order("id")),
@@ -1208,14 +1374,14 @@ app.get("/library/folders", withActor(), async (c) => {
   for (const it of items ?? []) {
     if (!it.folder_id) continue;
     if (!canSeeLibrary(it.audience as string, role)) continue;
-    if (role !== "education_team" && !it.published) continue;
+    if (!can(role, "library.manage") && !it.published) continue;
     counts.set(it.folder_id as string, (counts.get(it.folder_id as string) ?? 0) + 1);
   }
   const visible = (folders ?? []).filter((f) => canSeeLibrary(f.audience as string, role));
   return c.json({ folders: visible.map((f) => mapFolder(f, counts.get(f.id as string) ?? 0)) });
 });
 
-app.post("/library/folders", withProfile("education_team"), async (c) => {
+app.post("/library/folders", requirePermission("library.manage"), async (c) => {
   const b = await c.req.json().catch(() => ({}));
   const name = String(b.name ?? "").trim();
   if (!name) return c.json({ error: "Folder name is required" }, 400);
@@ -1229,14 +1395,14 @@ app.post("/library/folders", withProfile("education_team"), async (c) => {
   return c.json({ folder: mapFolder(data, 0) });
 });
 
-app.delete("/library/folders/:id", withProfile("education_team"), async (c) => {
+app.delete("/library/folders/:id", requirePermission("library.manage"), async (c) => {
   const id = c.req.param("id");
   const { error } = await admin.from("library_folders").delete().eq("id", id);
   if (error) return c.json({ error: error.message }, 400);
   return c.json({ ok: true });
 });
 
-app.delete("/library/:id", withProfile("education_team"), async (c) => {
+app.delete("/library/:id", requirePermission("library.manage"), async (c) => {
   const id = c.req.param("id");
   const { data: item } = await admin
     .from("library_items")
@@ -1271,7 +1437,7 @@ const mapInteraction = (r: Record<string, unknown>) => ({
   durationSeconds: r.duration_seconds,
 });
 
-app.post("/library/:id/interactions", withActor(), async (c) => {
+app.post("/library/:id/interactions", requireActive(), async (c) => {
   const itemId = c.req.param("id");
   const actor = c.get("actor");
   const { data: item } = await admin
@@ -1296,7 +1462,7 @@ app.post("/library/:id/interactions", withActor(), async (c) => {
   return c.json({ interaction: mapInteraction(data) });
 });
 
-app.patch("/library/interactions/:id/complete", withActor(), async (c) => {
+app.patch("/library/interactions/:id/complete", requireActive(), async (c) => {
   const id = c.req.param("id");
   const actor = c.get("actor");
   const { data: existing } = await admin
@@ -1366,7 +1532,7 @@ async function loadLibraryUsage(actorId: string) {
 }
 
 /* An actor's own reading history — surfaced on their own dashboard. */
-app.get("/library/interactions/mine", withActor(), async (c) => {
+app.get("/library/interactions/mine", requireActive(), async (c) => {
   try {
     return c.json(await loadLibraryUsage(c.get("actor").id));
   } catch (e) {
@@ -1379,7 +1545,7 @@ app.get("/library/interactions/mine", withActor(), async (c) => {
    real celebration for a real stretch of attention, not a claim about
    comprehension. The unique index makes a repeat call for the same
    resource a harmless no-op instead of a duplicate badge. */
-app.post("/library/:id/badge", withActor(), async (c) => {
+app.post("/library/:id/badge", requireActive(), async (c) => {
   const itemId = c.req.param("id");
   const actor = c.get("actor");
   const b = await c.req.json().catch(() => ({}));
@@ -1419,7 +1585,7 @@ app.post("/library/:id/badge", withActor(), async (c) => {
    a per-school breakdown so "this school" and "all schools" are both one
    filter away — same pattern as the Portal impact dashboard's county/
    school filters. */
-app.get("/library/usage", withProfile("education_team"), async (c) => {
+app.get("/library/usage", requirePermission("library.usage.view"), async (c) => {
   const school = String(c.req.query("school") ?? "").trim();
 
   const [itemsRes, interRes] = await Promise.all([
@@ -1491,7 +1657,7 @@ app.get("/library/usage", withProfile("education_team"), async (c) => {
    during a visit to a school in any county, so the county check happens
    against that school when the visit is submitted, not here. */
 function formReaches(f: Record<string, unknown>, actor: Actor) {
-  if (actor.role === "education_team") return true;
+  if (can(actor.role, "forms.manage") || can(actor.role, "forms.responses.view")) return true;
   // An archived form keeps its responses but is no longer sent to anyone.
   if (f.archived_at) return false;
   if (f.audience !== actor.role) return false;
@@ -1499,7 +1665,7 @@ function formReaches(f: Record<string, unknown>, actor: Actor) {
   return !f.county || f.county === actor.county;
 }
 
-app.get("/forms", withProfile(), async (c) => {
+app.get("/forms", requirePermission("forms.respond", "forms.manage", "forms.responses.view"), async (c) => {
   const p = c.get("actor");
   const { data, error } = await selectAll(() =>
     admin.from("forms").select("*").order("created_at", { ascending: false }).order("id"));
@@ -1508,7 +1674,7 @@ app.get("/forms", withProfile(), async (c) => {
   return c.json({ forms });
 });
 
-app.post("/forms", withProfile("education_team"), async (c) => {
+app.post("/forms", requirePermission("forms.manage"), async (c) => {
   const b = await c.req.json().catch(() => ({}));
   const title = String(b.title ?? "").trim();
   if (!title) return c.json({ error: "Title is required" }, 400);
@@ -1571,7 +1737,7 @@ app.post("/forms", withProfile("education_team"), async (c) => {
    A form with responses is archived instead (below) — responses are
    programme records, including ones filed during past school visits, and
    the database refuses to delete a form that still has any. */
-app.delete("/forms/:id", withProfile("education_team"), async (c) => {
+app.delete("/forms/:id", requirePermission("forms.manage"), async (c) => {
   const id = c.req.param("id");
   const { data: form } = await admin.from("forms").select("files").eq("id", id).maybeSingle();
   if (!form) return c.json({ error: "Form not found" }, 404);
@@ -1590,7 +1756,7 @@ app.delete("/forms/:id", withProfile("education_team"), async (c) => {
 /* Archive: the form stops reaching anyone and can't be answered, but it
    and all its responses and files stay, visible to the Education Team.
    Restore sends it out again. */
-app.post("/forms/:id/archive", withProfile("education_team"), async (c) => {
+app.post("/forms/:id/archive", requirePermission("forms.manage"), async (c) => {
   const { data, error } = await admin.from("forms")
     .update({ archived_at: new Date().toISOString() })
     .eq("id", c.req.param("id")).select().maybeSingle();
@@ -1599,7 +1765,7 @@ app.post("/forms/:id/archive", withProfile("education_team"), async (c) => {
   return c.json({ form: await mapForm(data) });
 });
 
-app.post("/forms/:id/restore", withProfile("education_team"), async (c) => {
+app.post("/forms/:id/restore", requirePermission("forms.manage"), async (c) => {
   const { data, error } = await admin.from("forms")
     .update({ archived_at: null })
     .eq("id", c.req.param("id")).select().maybeSingle();
@@ -1610,7 +1776,7 @@ app.post("/forms/:id/restore", withProfile("education_team"), async (c) => {
 
 /* A signed upload slot for a filled copy of a `file` form. The response
    that references it must come from the same person (see cleanResponseFiles). */
-app.post("/forms/:id/response-upload", withProfile(), async (c) => {
+app.post("/forms/:id/response-upload", requirePermission("forms.respond"), async (c) => {
   const actor = c.get("actor");
   const { data: form } = await admin.from("forms").select("*").eq("id", c.req.param("id")).maybeSingle();
   if (!form || form.archived_at || form.kind !== "file" || !formReaches(form, actor)) {
@@ -1660,7 +1826,7 @@ function cleanResponseFiles(raw: unknown, formId: string, actorId: string): LibF
     .map((f) => ({ name: String(f.name ?? "file"), path: f.path, size: Number(f.size) || 0 }));
 }
 
-app.get("/responses", withProfile(), async (c) => {
+app.get("/responses", requirePermission("forms.respond", "forms.manage", "forms.responses.view"), async (c) => {
   const p = c.get("actor");
   // Every response: the Education Team's averages are computed from this list.
   const { data, error } = await selectAll(() => {
@@ -1669,18 +1835,20 @@ app.get("/responses", withProfile(), async (c) => {
       .select("*")
       .order("submitted_at", { ascending: false })
       .order("id");
-    if (p.role !== "education_team") q = q.eq("respondent_id", p.id);
+    // Everyone's responses only with forms.manage / forms.responses.view;
+    // otherwise just the caller's own.
+    if (!can(p.role, "forms.manage") && !can(p.role, "forms.responses.view")) q = q.eq("respondent_id", p.id);
     return q;
   });
   if (error) return c.json({ error: error.message }, 500);
-  const responses = await Promise.all((data ?? []).map((r) => mapResponse(r, p.role === "education_team")));
+  const responses = await Promise.all((data ?? []).map((r) => mapResponse(r, can(p.role, "forms.manage"))));
   return c.json({ responses });
 });
 
 /* A general (not visit-linked) response: one per person per form,
    re-submitting replaces it. Visit-type forms are answered through
    POST /field-reports instead, once per visit. */
-app.post("/responses", withProfile(), async (c) => {
+app.post("/responses", requirePermission("forms.respond"), async (c) => {
   const b = await c.req.json().catch(() => ({}));
   const p = c.get("actor");
   const { data: form } = await admin.from("forms").select("*").eq("id", String(b.formId ?? "")).maybeSingle();
@@ -1711,14 +1879,12 @@ app.post("/responses", withProfile(), async (c) => {
 
 // ---- assignments (learner-facing) ----
 
-app.get("/assignments", withActor(), async (c) => {
+app.get("/assignments", requirePermission("assignments.view.own", "assignments.view.all"), async (c) => {
   const a = c.get("actor");
-  if (a.role !== "learner" && a.role !== "education_team") {
-    return c.json({ assignments: [] });
-  }
+  const all = can(a.role, "assignments.view.all");
   const { data, error } = await selectAll(() => {
     let q = admin.from("assignments").select("*").order("id");
-    if (a.role === "learner") q = q.eq("learner_id", a.id);
+    if (!all) q = q.eq("learner_id", a.id);
     return q;
   });
   if (error) return c.json({ error: error.message }, 500);
@@ -1729,7 +1895,7 @@ app.get("/assignments", withActor(), async (c) => {
    the teacher dashboard's grading queue / recent results, which need to
    scan all learners at once rather than one at a time (the per-learner
    "view activity" panel already covers that case via /learners/:id/activity). */
-app.get("/teacher/assignments", withProfile("teacher"), async (c) => {
+app.get("/teacher/assignments", requirePermission("assignments.manage.learners"), async (c) => {
   const teacherId = c.get("actor").id;
   const { data, error } = await selectAll(() => admin
     .from("assignments")
@@ -1752,12 +1918,13 @@ app.get("/teacher/assignments", withProfile("teacher"), async (c) => {
    themselves). Either way the write is scoped: a learner only ever
    touches their own row; a teacher only ever touches a row belonging to
    one of their own learners, checked here rather than assumed. */
-app.patch("/assignments/:id", withActor("learner", "teacher"), async (c) => {
+app.patch("/assignments/:id", requirePermission("assignments.view.own", "assignments.manage.learners"), async (c) => {
   const a = c.get("actor");
   const b = await c.req.json().catch(() => ({}));
   const id = c.req.param("id");
 
-  if (a.role === "teacher") {
+  const asTeacher = can(a.role, "assignments.manage.learners");
+  if (asTeacher) {
     const { data: assignment } = await admin.from("assignments").select("learner_id").eq("id", id).maybeSingle();
     if (!assignment) return c.json({ error: "Assignment not found" }, 404);
     const { data: learner } = await admin.from("learners").select("teacher_id").eq("id", assignment.learner_id).maybeSingle();
@@ -1765,7 +1932,7 @@ app.patch("/assignments/:id", withActor("learner", "teacher"), async (c) => {
   }
 
   let query = admin.from("assignments").update({ done: b.done !== false }).eq("id", id);
-  if (a.role !== "teacher") query = query.eq("learner_id", a.id);
+  if (!asTeacher) query = query.eq("learner_id", a.id);
   const { data, error } = await query.select().maybeSingle();
   if (error) return c.json({ error: error.message }, 400);
   if (!data) return c.json({ error: "Assignment not found" }, 404);
@@ -1774,18 +1941,16 @@ app.patch("/assignments/:id", withActor("learner", "teacher"), async (c) => {
 
 // ---- field reports (staff only) ----
 
-app.get("/field-reports", withProfile(), async (c) => {
+app.get("/field-reports", requirePermission("field_reports.view.own", "field_reports.view.all"), async (c) => {
   const p = c.get("actor");
-  if (p.role !== "field_officer" && p.role !== "education_team") {
-    return c.json({ reports: [] });
-  }
+  const all = can(p.role, "field_reports.view.all");
   const { data, error } = await selectAll(() => {
     let q = admin
       .from("field_reports")
       .select("*")
       .order("created_at", { ascending: false })
       .order("id");
-    if (p.role === "field_officer") q = q.eq("officer_id", p.id);
+    if (!all) q = q.eq("officer_id", p.id);
     return q;
   });
   if (error) return c.json({ error: error.message }, 500);
@@ -1802,7 +1967,7 @@ async function findVisitByClientRef(clientRef: string) {
   return data;
 }
 
-app.post("/field-reports", withProfile("field_officer"), async (c) => {
+app.post("/field-reports", requirePermission("field_reports.create"), async (c) => {
   const b = await c.req.json().catch(() => ({}));
   const actor = c.get("actor");
   const clientRef = b.clientRef ? String(b.clientRef) : null;
@@ -1929,7 +2094,7 @@ function tallyChronological(rows: Record<string, unknown>[], toKey: (r: Record<s
     .sort((a, b) => a.label.localeCompare(b.label)); // "2026 Term 1" < "2026 Term 2" sorts correctly as text
 }
 
-app.get("/stats", withProfile("education_team"), async (c) => {
+app.get("/stats", requirePermission("stats.view"), async (c) => {
   const county = String(c.req.query("county") ?? "").trim();
   const school = String(c.req.query("school") ?? "").trim();
   const inCounty = !!county;
@@ -2106,7 +2271,7 @@ app.get("/stats", withProfile("education_team"), async (c) => {
 // turning into a second learner roster. Scoped strictly to the leader's
 // own school+county, unlike /stats (education team, portal-wide).
 
-app.get("/school/overview", withProfile("school_leader"), async (c) => {
+app.get("/school/overview", requirePermission("school.overview.view"), async (c) => {
   const actor = c.get("actor");
   const school = actor.school || "";
   const county = actor.county || "";
@@ -2171,14 +2336,21 @@ app.get("/school/overview", withProfile("school_leader"), async (c) => {
   });
 });
 
-// ---- education-team: manage staff accounts ----
+// ---- staff accounts: invitations, approval, roles, status, audit ----
+// Who may do what is in permissions.ts (users.* and audit.view). On top of
+// the permission, every change to an account also needs authority over it:
+// never your own account, never one at or above your own level (a Super
+// Admin may manage other Super Admins), and a role can only be given by
+// someone allowed to grant it. The portal always keeps at least one
+// active Super Admin.
+//
 // Passwords are one-way hashed in auth.users — never readable, by anyone,
-// including this service-role key. So "editable" here means: edit the
-// profile fields, and set a *new* password/PIN — never view the old one.
+// including this service-role key. "Reset" means setting a *new* one.
 
 const mapUserRow = (r: Record<string, unknown>) => ({
   id: r.id,
   role: r.role,
+  roleLabel: ROLE_LABEL[r.role as Role] ?? r.role,
   fullName: r.full_name,
   email: r.email,
   school: r.school,
@@ -2187,67 +2359,295 @@ const mapUserRow = (r: Record<string, unknown>) => ({
   userCode: r.user_code ?? null,
   teacherType: r.teacher_type ?? null,
   createdAt: r.created_at,
+  status: r.status ?? "active",
+  statusReason: r.status_reason ?? null,
+  statusChangedAt: r.status_changed_at ?? null,
+  requestedRole: r.requested_role ?? null,
+  approvedAt: r.approved_at ?? null,
+  invitedBy: r.invited_by ?? null,
 });
 
-app.get("/users", withProfile("education_team"), async (c) => {
+/** Loads the account named in :id and checks the caller has authority
+    over it. Returns the row, or the response refusing the request. */
+// deno-lint-ignore no-explicit-any
+async function loadManagedAccount(c: any): Promise<Record<string, any> | Response> {
+  const { data: target } = await admin.from("profiles").select("*").eq("id", c.req.param("id")).maybeSingle();
+  if (!target) return c.json({ error: "User not found" }, 404);
+  if (!canManageAccount(c.get("actor"), target)) {
+    return c.json({ error: "You can't change this account — it's your own, or at or above your level." }, 403);
+  }
+  return target;
+}
+
+/** True when removing this account's Super Admin role or active status
+    would leave nobody able to administer the portal. */
+async function isLastActiveSuperAdmin(target: Record<string, unknown>) {
+  if (target.role !== "super_admin" || (target.status ?? "active") !== "active") return false;
+  const { count } = await admin.from("profiles").select("id", { count: "exact", head: true })
+    .eq("role", "super_admin").eq("status", "active");
+  return (count ?? 0) <= 1;
+}
+const LAST_SUPER_ADMIN = "This is the last active Super Admin. Make someone else Super Admin first.";
+
+/** Blocks or unblocks signing in at Supabase Auth itself, on top of the
+    status check every API route makes. */
+async function setSignInBlocked(userId: string, blocked: boolean) {
+  const { error } = await admin.auth.admin.updateUserById(userId, { ban_duration: blocked ? "876000h" : "none" });
+  if (error) console.error("could not update sign-in block:", userId, error.message);
+}
+
+/** Validates where an account with this role sits. Returns the school (for
+    teachers/heads), the county, or the error to show. */
+async function resolvePlacement(role: string, schoolId: unknown, county: unknown):
+  Promise<{ school: School | null; county: string } | { error: string }> {
+  if (SCHOOL_ROLES.includes(role)) {
+    const school = await loadSchool(schoolId);
+    if (!school) return { error: "Choose a county and school for this account" };
+    return { school, county: school.county };
+  }
+  if (COUNTY_ROLES.includes(role as never)) {
+    const c = String(county ?? "").trim();
+    if (!(await isCounty(c))) return { error: "Choose a county for this field officer" };
+    return { school: null, county: c };
+  }
+  return { school: null, county: "" };
+}
+
+app.get("/users", requirePermission("users.view"), async (c) => {
+  const actor = c.get("actor");
   const { data, error } = await selectAll(() => admin
     .from("profiles")
     .select("*")
     .order("created_at", { ascending: false })
     .order("id"));
   if (error) return c.json({ error: error.message }, 500);
-  return c.json({ users: (data ?? []).map(mapUserRow) });
+  return c.json({
+    users: (data ?? []).map((r) => ({ ...mapUserRow(r), canManage: canManageAccount(actor, r as { id: string; role: string }) })),
+    grantableRoles: grantableRoles(actor.role).map((r) => ({ value: r, label: ROLE_LABEL[r] })),
+    statuses: ACCOUNT_STATUSES,
+  });
 });
 
-app.patch("/users/:id", withProfile("education_team"), async (c) => {
-  const id = c.req.param("id");
-  const { data: existing } = await admin
-    .from("profiles").select("id, role, school_id, county").eq("id", id).maybeSingle();
-  if (!existing) return c.json({ error: "User not found" }, 404);
+/* ---- invitations ---- */
 
+const mapInvitation = (r: Record<string, unknown>) => ({
+  id: r.id,
+  email: r.email,
+  role: r.role,
+  roleLabel: ROLE_LABEL[r.role as Role] ?? r.role,
+  county: r.county ?? null,
+  schoolId: r.school_id ?? null,
+  createdAt: r.created_at,
+  expiresAt: r.expires_at,
+  status: r.accepted_at ? "accepted" : r.revoked_at ? "revoked"
+    : new Date(r.expires_at as string).getTime() < Date.now() ? "expired" : "open",
+});
+
+app.get("/users/invitations", requirePermission("users.invite"), async (c) => {
+  const { data, error } = await admin.from("staff_invitations").select("*")
+    .order("created_at", { ascending: false }).limit(100);
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ invitations: (data ?? []).map(mapInvitation) });
+});
+
+app.post("/users/invitations", requirePermission("users.invite"), async (c) => {
+  const actor = c.get("actor");
   const b = await c.req.json().catch(() => ({}));
-  const patch: Record<string, unknown> = {};
+  const email = String(b.email ?? "").trim().toLowerCase();
+  if (!EMAIL_RE.test(email)) return c.json({ error: "Enter a valid email address" }, 400);
+  const role = String(b.role ?? "");
+  if (!grantableRoles(actor.role).includes(role as never)) {
+    return c.json({ error: "You can't invite someone with that role." }, 403);
+  }
+  const place = await resolvePlacement(role, b.schoolId, b.county);
+  if ("error" in place) return c.json({ error: place.error }, 400);
 
+  const { data: existing } = await admin.from("profiles").select("id, status").ilike("email", ilikeExact(email)).maybeSingle();
+  if (existing && existing.status !== "pending") {
+    return c.json({ error: "That email already has an account. Change its role on the Users page instead." }, 409);
+  }
+
+  // Re-inviting the same address replaces the earlier open invitation.
+  const { data: open } = await admin.from("staff_invitations").select("id")
+    .ilike("email", ilikeExact(email)).is("accepted_at", null).is("revoked_at", null);
+  for (const o of open ?? []) {
+    await admin.from("staff_invitations").update({ revoked_at: new Date().toISOString(), revoked_by: actor.id }).eq("id", o.id);
+    await audit(c, "invitation.revoked", "invitation", o.id, { email, reason: "replaced by a new invitation" });
+  }
+
+  const token = randomBytes(24).toString("base64url");
+  const { data, error } = await admin.from("staff_invitations").insert({
+    id: rid("inv"),
+    email,
+    role,
+    county: place.county || null,
+    school_id: place.school?.id ?? null,
+    token_hash: hashToken(token),
+    invited_by: actor.id,
+    expires_at: new Date(Date.now() + INVITE_TTL_DAYS * 86400_000).toISOString(),
+  }).select().single();
+  if (error) return c.json({ error: error.message }, 400);
+  await audit(c, "invitation.created", "invitation", data.id,
+    { email, role, schoolId: data.school_id, county: data.county, expiresAt: data.expires_at });
+  // The token is returned once, here, to build the link — it is never stored.
+  return c.json({ invitation: mapInvitation(data), token });
+});
+
+app.delete("/users/invitations/:id", requirePermission("users.invite"), async (c) => {
+  const actor = c.get("actor");
+  const { data: inv } = await admin.from("staff_invitations").select("*").eq("id", c.req.param("id")).maybeSingle();
+  if (!inv) return c.json({ error: "Invitation not found" }, 404);
+  if (!grantableRoles(actor.role).includes(inv.role)) {
+    return c.json({ error: "You can't revoke an invitation for that role." }, 403);
+  }
+  if (inv.accepted_at || inv.revoked_at) return c.json({ error: "That invitation is already used or revoked." }, 409);
+  await admin.from("staff_invitations").update({ revoked_at: new Date().toISOString(), revoked_by: actor.id }).eq("id", inv.id);
+  await audit(c, "invitation.revoked", "invitation", inv.id, { email: inv.email, role: inv.role });
+  return c.json({ ok: true });
+});
+
+/* ---- approval ---- */
+
+app.post("/users/:id/approve", requirePermission("users.approve"), async (c) => {
+  const actor = c.get("actor");
+  const target = await loadManagedAccount(c);
+  if (target instanceof Response) return target;
+  const status = target.status ?? "active";
+  if (!STATUS_TRANSITIONS.approve.from.includes(status)) {
+    return c.json({ error: `Only a pending or rejected account can be approved (this one is ${status}).` }, 409);
+  }
+  const b = await c.req.json().catch(() => ({}));
+  const role = String(b.role ?? target.requested_role ?? target.role);
+  if (!grantableRoles(actor.role).includes(role as never)) {
+    return c.json({ error: "You can't approve an account with that role." }, 403);
+  }
+  const place = await resolvePlacement(role, b.schoolId ?? target.school_id, b.county ?? target.county);
+  if ("error" in place) return c.json({ error: place.error }, 400);
+
+  const now = new Date().toISOString();
+  const patch: Record<string, unknown> = {
+    role, status: "active", status_reason: null,
+    approved_at: now, approved_by: actor.id, status_changed_at: now, status_changed_by: actor.id,
+    county: place.county, teacher_type: role === "teacher" ? target.teacher_type : null,
+  };
+  if (!place.school) Object.assign(patch, { school: "", school_id: null, user_code: null });
+  const res = await admin.from("profiles").update(patch).eq("id", target.id).select().single();
+  if (res.error) return c.json({ error: res.error.message }, 400);
+  let row = res.data;
+  if (place.school && (row.school_id !== place.school.id || !row.user_code || role !== target.role)) {
+    try { row = await placeInSchool("profiles", target.id, place.school, role); } catch (e) {
+      return c.json({ error: (e as Error).message }, 500);
+    }
+  }
+  await setSignInBlocked(target.id, false);
+  await audit(c, "account.approved", "profile", target.id,
+    { role, requestedRole: target.requested_role ?? null, previousStatus: status,
+      schoolId: place.school?.id ?? null, county: place.county });
+  if (role !== target.role) await audit(c, "role.changed", "profile", target.id, { from: target.role, to: role, via: "approval" });
+  if ((place.school?.id ?? null) !== (target.school_id ?? null)) {
+    await audit(c, "school.changed", "profile", target.id, { from: target.school_id ?? null, to: place.school?.id ?? null, via: "approval" });
+  }
+  return c.json({ user: mapUserRow(row) });
+});
+
+app.post("/users/:id/reject", requirePermission("users.approve"), async (c) => {
+  const actor = c.get("actor");
+  const target = await loadManagedAccount(c);
+  if (target instanceof Response) return target;
+  const status = target.status ?? "active";
+  if (!STATUS_TRANSITIONS.reject.from.includes(status)) {
+    return c.json({ error: `Only a pending account can be rejected (this one is ${status}).` }, 409);
+  }
+  const b = await c.req.json().catch(() => ({}));
+  const reason = String(b.reason ?? "").trim().slice(0, 500) || null;
+  const now = new Date().toISOString();
+  const res = await admin.from("profiles").update({
+    status: "rejected", status_reason: reason, status_changed_at: now, status_changed_by: actor.id,
+  }).eq("id", target.id).select().single();
+  if (res.error) return c.json({ error: res.error.message }, 400);
+  await audit(c, "account.rejected", "profile", target.id, { requestedRole: target.requested_role ?? target.role, reason });
+  return c.json({ user: mapUserRow(res.data) });
+});
+
+/* ---- suspend / deactivate / reactivate ---- */
+
+app.post("/users/:id/status", requirePermission("users.status.manage"), async (c) => {
+  const actor = c.get("actor");
+  const target = await loadManagedAccount(c);
+  if (target instanceof Response) return target;
+  const b = await c.req.json().catch(() => ({}));
+  const action = String(b.action ?? "");
+  if (!["suspend", "deactivate", "reactivate"].includes(action)) {
+    return c.json({ error: "Action must be suspend, deactivate or reactivate" }, 400);
+  }
+  const rule = STATUS_TRANSITIONS[action];
+  const status = target.status ?? "active";
+  if (!rule.from.includes(status)) {
+    return c.json({ error: `A ${status} account can't be ${action === "reactivate" ? "reactivated" : action + "d"}.` }, 409);
+  }
+  if (rule.to !== "active" && await isLastActiveSuperAdmin(target)) return c.json({ error: LAST_SUPER_ADMIN }, 409);
+  const reason = String(b.reason ?? "").trim().slice(0, 500) || null;
+  const now = new Date().toISOString();
+  const res = await admin.from("profiles").update({
+    status: rule.to, status_reason: rule.to === "active" ? null : reason,
+    status_changed_at: now, status_changed_by: actor.id,
+  }).eq("id", target.id).select().single();
+  if (res.error) return c.json({ error: res.error.message }, 400);
+  await setSignInBlocked(target.id, rule.to !== "active");
+  await audit(c, `account.${action === "reactivate" ? "reactivated" : action + "d"}`, "profile", target.id,
+    { from: status, to: rule.to, reason });
+  return c.json({ user: mapUserRow(res.data) });
+});
+
+/* ---- edit an account: details, role, placement ---- */
+
+app.patch("/users/:id", requirePermission("users.edit", "users.roles.assign", "users.placement.assign"), async (c) => {
+  const actor = c.get("actor");
+  const existing = await loadManagedAccount(c);
+  if (existing instanceof Response) return existing;
+  const id = existing.id as string;
+  const b = await c.req.json().catch(() => ({}));
+
+  const wantsDetails = b.fullName !== undefined || b.email !== undefined || b.teacherType !== undefined;
+  const wantsRole = b.role !== undefined && b.role !== existing.role;
+  const wantsPlacement = (b.schoolId !== undefined && b.schoolId !== existing.school_id) ||
+    (b.county !== undefined && String(b.county).trim() !== (existing.county ?? ""));
+  if (wantsDetails && !actorCan(c, "users.edit")) return c.json({ error: NO_PERMISSION }, 403);
+  if (wantsRole && !actorCan(c, "users.roles.assign")) return c.json({ error: NO_PERMISSION }, 403);
+  // A role change moves the account in or out of a school/county, so it
+  // needs placement rights too.
+  if ((wantsPlacement || wantsRole) && !actorCan(c, "users.placement.assign")) return c.json({ error: NO_PERMISSION }, 403);
+
+  const patch: Record<string, unknown> = {};
   if (b.fullName !== undefined) {
     const fn = String(b.fullName).trim();
     if (!fn) return c.json({ error: "Full name is required" }, 400);
     patch.full_name = fn;
   }
-  const nextRole = b.role !== undefined ? b.role : existing.role;
-  if (b.role !== undefined) {
-    if (!STAFF_ROLES.includes(b.role)) return c.json({ error: "Invalid role" }, 400);
-    // Never leave the portal without an Education Team account — nobody
-    // could grant the role back.
-    if (existing.role === "education_team" && b.role !== "education_team") {
-      const { count } = await admin.from("profiles")
-        .select("id", { count: "exact", head: true }).eq("role", "education_team");
-      if ((count ?? 0) <= 1) {
-        return c.json({ error: "This is the last Education Team account. Make someone else Education Team first." }, 409);
-      }
+  const nextRole = wantsRole ? String(b.role) : existing.role;
+  if (wantsRole) {
+    if (!grantableRoles(actor.role).includes(nextRole as never)) {
+      return c.json({ error: "You can't give that role." }, 403);
     }
-    patch.role = b.role;
+    if (await isLastActiveSuperAdmin(existing)) return c.json({ error: LAST_SUPER_ADMIN }, 409);
+    patch.role = nextRole;
   }
 
   // Placement follows the role: teachers/heads need a school from the
   // list (a new school or a new role letter means a new code); field
-  // officers a county; the education team neither.
+  // officers a county; everyone else neither.
   let placeIn: School | null = null;
-  if (SCHOOL_ROLES.includes(nextRole)) {
-    const targetId = b.schoolId !== undefined ? b.schoolId : existing.school_id;
-    const target = await loadSchool(targetId);
-    if (!target) return c.json({ error: "Choose a county and school for this account" }, 400);
-    if (target.id !== existing.school_id || nextRole !== existing.role) placeIn = target;
-  } else {
-    patch.school_id = null;
-    patch.user_code = null;
-    patch.school = "";
-    if (nextRole === "field_officer") {
-      const county = b.county !== undefined ? String(b.county).trim() : existing.county;
-      if (!(await isCounty(county))) return c.json({ error: "Choose a county for this field officer" }, 400);
-      patch.county = county;
+  if (wantsRole || wantsPlacement) {
+    const place = await resolvePlacement(nextRole,
+      b.schoolId !== undefined ? b.schoolId : existing.school_id,
+      b.county !== undefined ? b.county : existing.county);
+    if ("error" in place) return c.json({ error: place.error }, 400);
+    if (place.school) {
+      if (place.school.id !== existing.school_id || nextRole !== existing.role) placeIn = place.school;
     } else {
-      patch.county = "";
+      Object.assign(patch, { school_id: null, user_code: null, school: "" });
     }
+    patch.county = place.county;
   }
   if (b.teacherType !== undefined) {
     const tt = String(b.teacherType ?? "").trim().toUpperCase();
@@ -2256,13 +2656,13 @@ app.patch("/users/:id", withProfile("education_team"), async (c) => {
     }
     patch.teacher_type = tt || null;
   }
-  if (nextRole !== "teacher") patch.teacher_type = null; // only teachers carry BOM/TSC
+  if (nextRole !== "teacher" && existing.teacher_type) patch.teacher_type = null; // only teachers carry BOM/TSC
 
   let newEmail: string | null = null;
   if (b.email !== undefined) {
     const email = String(b.email).trim().toLowerCase();
     if (!EMAIL_RE.test(email)) return c.json({ error: "Enter a valid email address" }, 400);
-    newEmail = email;
+    if (email !== String(existing.email ?? "").toLowerCase()) newEmail = email;
   }
 
   if (!Object.keys(patch).length && !newEmail && !placeIn) return c.json({ error: "Nothing to update" }, 400);
@@ -2283,7 +2683,7 @@ app.patch("/users/:id", withProfile("education_team"), async (c) => {
     patch.email = newEmail;
   }
 
-  let data: Record<string, unknown> | null = null;
+  let data: Record<string, unknown> | null = existing;
   if (Object.keys(patch).length) {
     const res = await admin.from("profiles").update(patch).eq("id", id).select().single();
     if (res.error) return c.json({ error: res.error.message }, 400);
@@ -2299,27 +2699,79 @@ app.patch("/users/:id", withProfile("education_team"), async (c) => {
       return c.json({ error: (e as Error).message }, 500);
     }
   }
+
+  if (wantsRole) await audit(c, "role.changed", "profile", id, { from: existing.role, to: nextRole });
+  const newSchoolId = (data?.school_id as string | null) ?? null;
+  if (newSchoolId !== (existing.school_id ?? null)) {
+    await audit(c, "school.changed", "profile", id, { from: existing.school_id ?? null, to: newSchoolId, userCode: data?.user_code ?? null });
+  }
+  if ((data?.county ?? "") !== (existing.county ?? "")) {
+    await audit(c, "county.changed", "profile", id, { from: existing.county ?? "", to: data?.county ?? "" });
+  }
+  if (newEmail) await audit(c, "email.changed", "profile", id, { from: existing.email, to: newEmail });
+  const detailFields = ["full_name", "teacher_type"].filter((k) => k in patch && patch[k] !== existing[k]);
+  if (detailFields.length) await audit(c, "account.updated", "profile", id, { fields: detailFields });
+
   return c.json({ user: mapUserRow(data!) });
 });
 
-app.post("/users/:id/reset-password", withProfile("education_team"), async (c) => {
-  const id = c.req.param("id");
-  const { data: existing } = await admin
-    .from("profiles").select("id").eq("id", id).maybeSingle();
-  if (!existing) return c.json({ error: "User not found" }, 404);
+app.post("/users/:id/reset-password", requirePermission("users.password.reset"), async (c) => {
+  const target = await loadManagedAccount(c);
+  if (target instanceof Response) return target;
   const b = await c.req.json().catch(() => ({}));
   const password = String(b.password ?? "");
   if (password.length < 8) {
     return c.json({ error: "Password must be at least 8 characters" }, 400);
   }
-  const { error } = await admin.auth.admin.updateUserById(id, { password });
+  const { error } = await admin.auth.admin.updateUserById(target.id, { password });
   if (error) return c.json({ error: error.message || "Could not set the new password" }, 400);
+  await audit(c, "password.reset", "profile", target.id, { by: "administrator" }); // never the password
   return c.json({ ok: true });
+});
+
+/* ---- audit history ---- */
+
+app.get("/audit", requirePermission("audit.view"), async (c) => {
+  const limit = Math.max(1, Math.min(200, Number(c.req.query("limit")) || 100));
+  const before = Number(c.req.query("before")) || 0;
+  const targetId = String(c.req.query("targetId") ?? "").trim();
+  const action = String(c.req.query("action") ?? "").trim();
+  let q = admin.from("audit_log").select("*").order("id", { ascending: false }).limit(limit);
+  if (before) q = q.lt("id", before);
+  if (targetId) q = q.eq("target_id", targetId);
+  if (action) q = q.eq("action", action);
+  const { data, error } = await q;
+  if (error) return c.json({ error: error.message }, 500);
+  const rows = data ?? [];
+  // Names for the people involved, looked up once.
+  const ids = [...new Set(rows.flatMap((r) => [r.actor_id, r.target_type === "profile" ? r.target_id : null]).filter(Boolean))];
+  const names: Record<string, string> = {};
+  if (ids.length) {
+    const { data: people } = await admin.from("profiles").select("id, full_name, email").in("id", ids);
+    for (const p of people ?? []) names[p.id] = p.full_name || p.email;
+  }
+  return c.json({
+    entries: rows.map((r) => ({
+      id: r.id,
+      at: r.at,
+      action: r.action,
+      actorId: r.actor_id,
+      actorName: r.actor_id ? names[r.actor_id] ?? null : null,
+      actorKind: r.actor_kind,
+      actorRole: r.actor_role,
+      targetType: r.target_type,
+      targetId: r.target_id,
+      targetName: r.target_type === "profile" && r.target_id ? names[r.target_id] ?? null : null,
+      details: r.details ?? {},
+    })),
+    nextBefore: rows.length === limit ? rows[rows.length - 1].id : null,
+  });
 });
 
 // ---- KoboToolbox: education-team config + attached surveys ----
 
-app.get("/kobo/config", withProfile("education_team"), async (c) => {
+// Whether Kobo is connected, and how — never the token. Results viewers need it too.
+app.get("/kobo/config", requirePermission("kobo.manage", "kobo.results.view"), async (c) => {
   const cfg = await loadKoboConfig();
   return c.json({
     configured: !!cfg,
@@ -2328,7 +2780,7 @@ app.get("/kobo/config", withProfile("education_team"), async (c) => {
   });
 });
 
-app.put("/kobo/config", withProfile("education_team"), async (c) => {
+app.put("/kobo/config", requirePermission("kobo.manage"), async (c) => {
   const b = await c.req.json().catch(() => ({}));
   const apiToken = String(b.apiToken ?? "").trim();
   const baseUrl = String(b.baseUrl ?? "https://eu.kobotoolbox.org").trim().replace(/\/+$/, "");
@@ -2356,7 +2808,7 @@ app.put("/kobo/config", withProfile("education_team"), async (c) => {
   return c.json({ ok: true, officerField });
 });
 
-app.get("/kobo/assets", withProfile("education_team"), async (c) => {
+app.get("/kobo/assets", requirePermission("kobo.manage"), async (c) => {
   const cfg = await loadKoboConfig();
   if (!cfg) return c.json({ error: "Connect KoboToolbox first" }, 400);
   let data;
@@ -2376,7 +2828,7 @@ app.get("/kobo/assets", withProfile("education_team"), async (c) => {
   return c.json({ assets });
 });
 
-app.get("/kobo/forms", withProfile("education_team"), async (c) => {
+app.get("/kobo/forms", requirePermission("kobo.manage", "kobo.results.view"), async (c) => {
   const { data } = await admin
     .from("kobo_forms").select("*").order("created_at", { ascending: false });
   const { data: subs } = await selectAll(() =>
@@ -2396,7 +2848,7 @@ app.get("/kobo/forms", withProfile("education_team"), async (c) => {
   });
 });
 
-app.post("/kobo/forms", withProfile("education_team"), async (c) => {
+app.post("/kobo/forms", requirePermission("kobo.manage"), async (c) => {
   const cfg = await loadKoboConfig();
   if (!cfg) return c.json({ error: "Connect KoboToolbox first" }, 400);
   const b = await c.req.json().catch(() => ({}));
@@ -2445,7 +2897,7 @@ app.post("/kobo/forms", withProfile("education_team"), async (c) => {
    own web app (which refuses to be framed and needs a separate Kobo
    login anyway). Nothing here notifies or reaches a field officer: that
    only happens once "Attach" turns the survey into a fillable link. */
-app.get("/kobo/assets/:uid/preview", withProfile("education_team"), async (c) => {
+app.get("/kobo/assets/:uid/preview", requirePermission("kobo.manage"), async (c) => {
   const cfg = await loadKoboConfig();
   if (!cfg) return c.json({ error: "Connect KoboToolbox first" }, 400);
   const uid = c.req.param("uid");
@@ -2467,7 +2919,7 @@ app.get("/kobo/assets/:uid/preview", withProfile("education_team"), async (c) =>
 /* "Remove" archives: field officers stop seeing the survey and sync skips
    it, but which officers submitted it stays on record. Restore (or
    attaching the same survey again) brings it back. */
-app.delete("/kobo/forms/:id", withProfile("education_team"), async (c) => {
+app.delete("/kobo/forms/:id", requirePermission("kobo.manage"), async (c) => {
   const { data, error } = await admin.from("kobo_forms")
     .update({ active: false }).eq("id", c.req.param("id")).select("id").maybeSingle();
   if (error) return c.json({ error: error.message }, 400);
@@ -2475,7 +2927,7 @@ app.delete("/kobo/forms/:id", withProfile("education_team"), async (c) => {
   return c.json({ ok: true, archived: true });
 });
 
-app.post("/kobo/forms/:id/restore", withProfile("education_team"), async (c) => {
+app.post("/kobo/forms/:id/restore", requirePermission("kobo.manage"), async (c) => {
   const { data, error } = await admin.from("kobo_forms")
     .update({ active: true }).eq("id", c.req.param("id")).select("id").maybeSingle();
   if (error) return c.json({ error: error.message }, 400);
@@ -2483,7 +2935,7 @@ app.post("/kobo/forms/:id/restore", withProfile("education_team"), async (c) => 
   return c.json({ ok: true });
 });
 
-app.post("/kobo/sync", withProfile("education_team"), async (c) => {
+app.post("/kobo/sync", requirePermission("kobo.manage"), async (c) => {
   const cfg = await loadKoboConfig();
   if (!cfg) return c.json({ error: "Connect KoboToolbox first" }, 400);
   const { data: forms } = await admin.from("kobo_forms").select("*").eq("active", true);
@@ -2538,7 +2990,7 @@ app.post("/kobo/sync", withProfile("education_team"), async (c) => {
 const KOBO_RESULTS_TTL_MS = 60_000;
 const koboResultsCache = new Map<string, { at: number; body: Record<string, unknown> }>();
 
-app.get("/kobo/forms/:id/results", withProfile("education_team"), async (c) => {
+app.get("/kobo/forms/:id/results", requirePermission("kobo.manage", "kobo.results.view"), async (c) => {
   const cfg = await loadKoboConfig();
   if (!cfg) return c.json({ error: "Connect KoboToolbox first" }, 400);
   const { data: form } = await admin
@@ -2685,7 +3137,7 @@ app.get("/kobo/forms/:id/results", withProfile("education_team"), async (c) => {
 
 // ---- KoboToolbox: field-officer surveys ----
 
-app.get("/kobo/my-surveys", withProfile("field_officer"), async (c) => {
+app.get("/kobo/my-surveys", requirePermission("kobo.surveys.fill"), async (c) => {
   const officerId = c.get("actor").id;
   const cfg = await loadKoboConfig();
   const { data: forms } = await admin
@@ -2740,7 +3192,7 @@ app.get("/kobo/my-surveys", withProfile("field_officer"), async (c) => {
   });
 });
 
-app.post("/kobo/my-surveys/:id/submitted", withProfile("field_officer"), async (c) => {
+app.post("/kobo/my-surveys/:id/submitted", requirePermission("kobo.surveys.fill"), async (c) => {
   const officerId = c.get("actor").id;
   const id = c.req.param("id");
   const { data: form } = await admin.from("kobo_forms").select("id").eq("id", id).maybeSingle();
@@ -2761,4 +3213,5 @@ app.onError((err, c) => {
   return c.json({ error: "Server error" }, 500);
 });
 
-Deno.serve(app.fetch);
+// The authorization tests import `app` directly instead of serving it.
+if (!Deno.env.get("HPF_API_TEST")) Deno.serve(app.fetch);

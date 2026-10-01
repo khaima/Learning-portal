@@ -595,6 +595,48 @@ export async function resetUserPassword(id, password) {
   return apiSend("POST", `/users/${id}/reset-password`, { password });
 }
 
+/* ---- account governance (administrators) ----
+   The API decides who may do each of these; these are just the calls. */
+
+/** Every staff account plus, for the signed-in administrator, the roles
+    they're allowed to give. Each user carries `canManage`. */
+export async function getUserDirectory() {
+  const res = await apiGet("/users");
+  return { users: res.users || [], grantableRoles: res.grantableRoles || [] };
+}
+export async function approveUser(id, fields = {}) {
+  const { user } = await apiSend("POST", `/users/${id}/approve`, fields);
+  return user;
+}
+export async function rejectUser(id, reason = "") {
+  const { user } = await apiSend("POST", `/users/${id}/reject`, { reason });
+  return user;
+}
+/** action: "suspend" | "deactivate" | "reactivate" */
+export async function setUserStatus(id, action, reason = "") {
+  const { user } = await apiSend("POST", `/users/${id}/status`, { action, reason });
+  return user;
+}
+export async function getInvitations() {
+  const { invitations } = await apiGet("/users/invitations");
+  return invitations || [];
+}
+/** Returns { invitation, token }. The token is shown once, to build the link. */
+export async function inviteStaff({ email, role, schoolId, county }) {
+  return apiSend("POST", "/users/invitations", { email, role, schoolId, county });
+}
+export async function revokeInvitation(id) {
+  return apiSend("DELETE", `/users/invitations/${id}`);
+}
+/** Newest first; pass targetId for one account's history. */
+export async function getAuditLog({ targetId, before } = {}) {
+  const params = new URLSearchParams();
+  if (targetId) params.set("targetId", targetId);
+  if (before) params.set("before", String(before));
+  const qs = params.toString();
+  return apiGet(`/audit${qs ? `?${qs}` : ""}`);
+}
+
 /* ---------------------------------------------------------------- KoboToolbox */
 
 /* Education Team: connection state (never returns the API token). */

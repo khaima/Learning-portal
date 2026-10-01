@@ -1,8 +1,9 @@
-import { $, $$, friendlyError } from "./util.js";
+import { $, $$, friendlyError, toast } from "./util.js";
 import { supabase, setRememberMe, getRememberMe } from "./supabase.js";
 import {
   DASHBOARD_PATH, registerStaff, signInWithPassword, signInWithGoogle,
   learnerLogin, getProfile, createProfile, setMySchool, signOut, sendPasswordResetLink,
+  getInvitation, acceptInvitation,
 } from "./auth.js";
 import { learnerToken } from "./api.js";
 import { watchSchools, wireSchoolPicker } from "./store.js";
@@ -94,6 +95,8 @@ const steps = {
   resetPassword: $("#stepResetPassword"),
   onboard: $("#stepOnboard"),
   school: $("#stepSchool"),
+  status: $("#stepStatus"),
+  invite: $("#stepInvite"),
 };
 function show(name) {
   for (const [k, el] of Object.entries(steps)) el.hidden = k !== name;
@@ -178,14 +181,135 @@ async function consumePasswordRecovery() {
   }
 }
 
+/* ---- invitation links (index.html?invite=…) ----
+   Kept for the whole sign-up — including a Google round trip — and
+   dropped once used. The role and school come from the invitation on the
+   server, never from this page. */
+const INVITE_KEY = "hpf_invite_token";
+function pendingInvite() {
+  try { return sessionStorage.getItem(INVITE_KEY) || ""; } catch { return ""; }
+}
+function clearInvite() {
+  try { sessionStorage.removeItem(INVITE_KEY); } catch { /* ignore */ }
+}
+(function captureInviteFromUrl() {
+  const params = new URLSearchParams(location.search);
+  const token = params.get("invite");
+  if (!token) return;
+  try { sessionStorage.setItem(INVITE_KEY, token); } catch { /* ignore */ }
+  params.delete("invite");
+  const rest = params.toString();
+  history.replaceState({}, "", location.pathname + (rest ? `?${rest}` : "") + location.hash);
+})();
+
+async function loadInviteOrDrop(token) {
+  try {
+    return await getInvitation(token);
+  } catch (err) {
+    clearInvite();
+    toast("Invitation not valid", friendlyError(err, "That invitation link couldn't be checked."), "error");
+    return null;
+  }
+}
+
+/* Not signed in yet: create the account for the invited email. */
+async function showInviteSignup(token) {
+  const inv = await loadInviteOrDrop(token);
+  if (!inv) { show("role"); return; }
+  setPendingRole(inv.role);
+  $("#pwRoleLabel").textContent = inv.roleLabel;
+  setPwMode(true);
+  $("#pwSub").textContent = `You've been invited to join as ${inv.roleLabel}. Create a password for ${inv.email} — or sign in if you already have an account.`;
+  $("#pw_email").value = inv.email;
+  show("password");
+}
+
+/* Signed in: confirm name (and BOM/TSC for teachers) and join. */
+async function showInviteAccept(token, profile) {
+  const inv = await loadInviteOrDrop(token);
+  if (!inv) return false;
+  $("#ivRole").textContent = inv.roleLabel;
+  $("#ivSub").textContent = `For ${inv.email}${inv.school ? ` · ${inv.school}` : inv.county ? ` · ${inv.county}` : ""}.`;
+  $("#iv_name").value = profile?.fullName || "";
+  $("#iv_tt_field").hidden = inv.role !== "teacher";
+  $("#inviteError").hidden = true;
+  show("invite");
+  return true;
+}
+
+$("#inviteAcceptForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const err = $("#inviteError");
+  err.hidden = true;
+  const btn = e.target.querySelector("[type=submit]");
+  btn.disabled = true;
+  try {
+    const fd = new FormData(e.target);
+    const profile = await acceptInvitation(pendingInvite(), {
+      fullName: String(fd.get("fullName") || "").trim(),
+      teacherType: fd.get("teacherType") || "",
+    });
+    clearInvite();
+    goToDashboard(profile.role);
+  } catch (e2) {
+    btn.disabled = false;
+    err.textContent = friendlyError(e2, "Couldn't accept the invitation. Check your connection and try again.");
+    err.hidden = false;
+  }
+});
+$("#inviteSignOut").addEventListener("click", async () => {
+  await signOut();
+  const token = pendingInvite();
+  if (token) showInviteSignup(token); else show("role");
+});
+
+/* ---- accounts that can't be used yet (or any more) ---- */
+const STATUS_COPY = {
+  pending: ["Waiting for approval", (p) =>
+    `Thanks — your request to join as ${ROLE_LABEL[p.requestedRole || p.role] || "staff"} has been sent. An administrator will review it. You can close this page and sign in again later.`],
+  rejected: ["Account not approved", () =>
+    "An administrator didn't approve this account. Contact them if you think this is a mistake."],
+  suspended: ["Account suspended", () => "This account is suspended. Contact an administrator."],
+  deactivated: ["Account deactivated", () => "This account has been deactivated. Contact an administrator."],
+};
+function showStatus(profile) {
+  const [heading, text] = STATUS_COPY[profile.status] || ["Account not active", () => "Contact an administrator."];
+  $("#stHeading").textContent = heading;
+  $("#stText").textContent = text(profile);
+  $("#stReason").hidden = !profile.statusReason;
+  $("#stReason").textContent = profile.statusReason ? `Reason: ${profile.statusReason}` : "";
+  $("#stEmail").textContent = profile.email || "";
+  show("status");
+}
+$("#stRefresh").addEventListener("click", () => { show("loading"); route(); });
+$("#stSignOut").addEventListener("click", async () => {
+  await signOut();
+  show("role");
+});
+
 /* ---- decide which step to show on load ---- */
 async function route() {
   const hasLearner = !!learnerToken();
+  const invite = hasLearner ? "" : pendingInvite();
   if (!hasLearner) {
     const { data } = await supabase.auth.getSession();
-    if (!data.session) { show("role"); return; }
+    if (!data.session) {
+      if (invite) await showInviteSignup(invite); else show("role");
+      return;
+    }
   }
   const profile = await getProfile({ force: true });
+  // An invitation finishes a new or still-pending account; an account that's
+  // already set up just carries on as normal.
+  if (invite && (!profile || profile.needsOnboarding || profile.status === "pending")) {
+    if (await showInviteAccept(invite, profile)) return;
+  } else if (invite) {
+    clearInvite();
+  }
+  if (profile && !profile.needsOnboarding && (profile.status ?? "active") !== "active") {
+    showStatus(profile);
+    return;
+  }
   if (profile?.needsSchool) {
     showSchoolStep(profile);
     return;
@@ -199,7 +323,6 @@ async function route() {
   // Staff signed in but not onboarded yet (first Google sign-in lands here too).
   if (profile?.email && getRememberMe()) saveLastStaffLogin(pendingRole(), profile.email);
   $("#onboardEmail").textContent = profile?.email || "you";
-  $("#ob_role_hint").hidden = pendingRole() !== "education_team";
   setOnboardRole(pendingRole());
   show("onboard");
   loadOnboardSchools();
@@ -461,7 +584,9 @@ onboardForm.addEventListener("submit", async (e) => {
       grade: fd.get("grade"),
       teacherType: fd.get("teacherType"),
     });
-    goToDashboard(profile.role);
+    // A new account waits for an administrator's approval.
+    if ((profile.status ?? "active") !== "active") showStatus(profile);
+    else goToDashboard(profile.role);
   } catch (err) {
     btn.disabled = false;
     onboardError.textContent = friendlyError(err, "Could not create your account. Check your connection and try again.");

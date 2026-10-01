@@ -25,6 +25,9 @@ export const DASHBOARD_PATH = {
   school_leader: "leader.html",
   field_officer: "field.html",
   education_team: "education.html",
+  me: "education.html",
+  admin: "education.html",
+  super_admin: "education.html",
 };
 
 /* ---- staff: email + password ---- */
@@ -175,13 +178,29 @@ export async function signOut() {
 
 /* Call at the top of every dashboard. Async: checks the real session and
    the server-side profile, and sends anyone who isn't signed in, isn't
-   onboarded, still has to pick their school, or is the wrong role back
-   to the front door (which shows them the right step). */
+   onboarded, isn't active yet (pending approval, suspended…), still has
+   to pick their school, or is the wrong role back to the front door
+   (which shows them the right step). `role` may be one role or a list.
+   This only decides which page to show — the API checks every request. */
 export async function requireRole(role) {
+  const roles = Array.isArray(role) ? role : [role];
   const profile = await getProfile();
-  if (!profile || profile.needsOnboarding || profile.needsSchool || profile.role !== role) {
+  const status = profile?.status ?? "active";
+  if (!profile || profile.needsOnboarding || profile.needsSchool || status !== "active" || !roles.includes(profile.role)) {
     location.href = "index.html";
     return null;
   }
   return profile;
+}
+
+/* Join through an administrator's invitation link (index.html?invite=…).
+   The role and placement come from the invitation on the server. */
+export async function getInvitation(token) {
+  const res = await rawRequest("GET", `/invitations/${encodeURIComponent(token)}`);
+  return res.invitation;
+}
+export async function acceptInvitation(token, fields) {
+  const res = await rawRequest("POST", "/me/accept-invite", { token, ...fields });
+  cachedProfile = res.profile;
+  return res.profile;
 }

@@ -215,6 +215,40 @@ See [`supabase-schema.sql`](supabase-schema.sql) for the full schema and
 the lock-down. Apply it to a fresh project, deploy the `api` function,
 point `config.js` at the new project, and the app works unmodified.
 
+### Roles, permissions and staff accounts
+
+Eight roles: **Super Admin**, **Admin**, **Education Team**, **M&E**,
+**Field Officer**, **School Head** (stored as `school_leader`), **Teacher**
+and **Learner**. Every API route asks for a named *permission* (for
+example `users.approve`, `forms.manage`, `stats.view`), never a role
+name; [`permissions.ts`](supabase/functions/api/permissions.ts) is the one
+table of which role holds which permission. The role always comes from
+the caller's own row in the database — nothing the browser sends.
+
+- **Joining:** an administrator **invites** someone (Users → Invite staff),
+  choosing their role and school or county; the link works once, for that
+  email only, for 14 days, and the account is active straight away. Anyone
+  can also **register** on their own and ask to be a Teacher, School Head
+  or Field Officer — that account is **pending** and reaches nothing until
+  an administrator approves it (and may change the role or school).
+- **Account states:** `pending`, `active`, `suspended`, `rejected`,
+  `deactivated`. Only `active` accounts reach any protected route;
+  suspending or deactivating also blocks sign-in at Supabase Auth.
+- **Governance:** Admins and Super Admins manage accounts. Nobody can
+  change their own account; an Admin can't manage another Admin or a Super
+  Admin, or give either role; there's always at least one active Super
+  Admin. Administrators don't get working-role permissions (a teacher's
+  roster, filing field visits).
+- **Audit log:** account creation, approval, rejection, role/school/county
+  changes, suspension, deactivation, reactivation, password resets,
+  invitations, and learner creation/edits/deletion go to `audit_log`,
+  which can't be edited or deleted even by the service role. Admins see it
+  under Users → Account history, and per account.
+- **Tests:** [`authz_test.ts`](supabase/functions/api/authz_test.ts) calls
+  every protected route as every role and account state against an
+  in-memory database, and fails if a route has no test:
+  `cd supabase/functions/api && deno test --allow-env --config deno.json authz_test.ts`
+
 ### Turning on Google sign-in
 
 The **Continue with Google** button is already wired up on the frontend —
@@ -240,7 +274,7 @@ immediately for both new sign-ups and returning accounts.
 Worth trying end to end:
 
 1. Sign in as an **Education Team** account. (A new account can't choose
-   Education Team itself — an existing Education Team member changes its
+   Education Team itself — an administrator invites it, or changes its
    role on the **Users** page.)
 2. Upload content — attach a file or folder — to **Teacher Resources**,
    the **Digital Library**, or **For School Head**, and/or send a form to
@@ -264,13 +298,8 @@ same data everywhere, because the database is the source of truth.
 
 ## What it does NOT have yet
 
-- **No M&E or Admin roles.** Scoped to the five roles above.
-- **Working roles are self-selected at onboarding.** A new account picks
-  Teacher, School Leader or Field Officer; **Education Team** can only be
-  granted by an existing Education Team member (Users page), and the last
-  Education Team account can't be demoted. There is no approval step for
-  the working roles yet. (Learners don't self-onboard — a teacher creates
-  them.)
+- **No email is sent for invitations.** The administrator copies the
+  invitation link and sends it themselves.
 - **Learner PINs are 4 digits — intentionally weak.** They're
   teacher-managed and locked after 5 wrong tries; fine for coursework and
   library access, not for anything sensitive.

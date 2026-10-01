@@ -223,7 +223,7 @@
                   <p>Visit reports by county</p>
                 </button>
               </div>
-              <p class="field-hint" id="ob_role_hint" hidden>Education Team access is given by an existing Education Team member. Pick your working role for now and ask them to change it on the Users page.</p>
+              <p class="field-hint" id="ob_role_hint">An administrator reviews every new account before it can be used. Education Team, M&amp;E and admin access are given by invitation only.</p>
             </div>
             <div class="field" id="ob_county_field">
               <label for="ob_county">County</label>
@@ -246,7 +246,7 @@
               </div>
             </div>
             <div class="field-error" id="onboardError" hidden></div>
-            <button class="btn btn-primary btn-block" type="submit">Continue to my dashboard</button>
+            <button class="btn btn-primary btn-block" type="submit">Request access</button>
           </form>
           <div class="login-foot" style="margin-top:1rem">
             <span></span>
@@ -274,6 +274,46 @@
           <div class="login-foot" style="margin-top:1rem">
             <span>Can't find your school? Ask the Education Team to add it.</span>
             <button type="button" id="schoolSignOut">Sign out</button>
+          </div>
+        </div>
+
+        <!-- Signed in, but the account can't be used: waiting for approval,
+             not approved, suspended or deactivated (index.js). -->
+        <div id="stepStatus" hidden>
+          <div class="login-eyebrow" id="stEyebrow">Your account</div>
+          <h2 id="stHeading">Waiting for approval</h2>
+          <p class="login-sub" id="stText"></p>
+          <p class="login-sub" id="stReason" hidden></p>
+          <button type="button" class="btn btn-outline btn-block" id="stRefresh">Check again</button>
+          <div class="login-foot" style="margin-top:1rem">
+            <span id="stEmail"></span>
+            <button type="button" id="stSignOut">Sign out</button>
+          </div>
+        </div>
+
+        <!-- Joining through an administrator's invitation link. -->
+        <div id="stepInvite" hidden>
+          <div class="login-eyebrow">Invitation</div>
+          <h2>Join as <span id="ivRole">staff</span></h2>
+          <p class="login-sub" id="ivSub"></p>
+          <form id="inviteAcceptForm">
+            <div class="field">
+              <label for="iv_name">Full name</label>
+              <input id="iv_name" name="fullName" type="text" required>
+            </div>
+            <div class="field" id="iv_tt_field" hidden>
+              <label>Employment type <span style="color:var(--ink-soft);font-weight:500">— optional</span></label>
+              <div class="field-remember" style="gap:1.4rem">
+                <span class="field-remember"><input type="radio" name="teacherType" id="iv_tt_bom" value="BOM"><label for="iv_tt_bom">BOM</label></span>
+                <span class="field-remember"><input type="radio" name="teacherType" id="iv_tt_tsc" value="TSC"><label for="iv_tt_tsc">TSC</label></span>
+              </div>
+            </div>
+            <div class="field-error" id="inviteError" hidden></div>
+            <button class="btn btn-primary btn-block" type="submit">Join the portal</button>
+          </form>
+          <div class="login-foot" style="margin-top:1rem">
+            <span></span>
+            <button type="button" id="inviteSignOut">Sign out</button>
           </div>
         </div>
 

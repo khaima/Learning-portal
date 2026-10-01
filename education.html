@@ -135,15 +135,49 @@
             <span class="chart-meta" id="usersMeta" style="margin:0"></span>
           </div>
           <p class="kobo-note">
-            Every teacher, school leader, field officer and education team
-            sign-in, grouped by role. Passwords are one-way hashed and can't
-            be viewed by anyone — including this dashboard — so "Reset
-            password" sets a brand-new one instead of showing the old one.
+            Every staff sign-in, grouped by role. New accounts wait here for
+            approval; administrators can invite staff, change roles and
+            schools, and suspend, deactivate or reactivate accounts.
+            Passwords are one-way hashed and can't be viewed by anyone —
+            including this dashboard — so "Set new password" sets a brand-new
+            one instead of showing the old one.
           </p>
-          <div class="form-row" style="display:grid;grid-template-columns:2fr 1fr;gap:.9rem;max-width:36rem;margin-bottom:.3rem">
+
+          <!-- Invitations (users.invite) -->
+          <div id="invitePanel" hidden style="margin-bottom:1rem">
+            <button type="button" class="btn btn-primary" id="inviteToggle" aria-expanded="false" aria-controls="inviteForm">+ Invite staff</button>
+            <form id="inviteForm" hidden style="margin-top:.8rem">
+              <div class="form-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:.6rem">
+                <div class="field"><label for="inv_email">Email</label><input id="inv_email" type="email" required placeholder="name@example.org"></div>
+                <div class="field"><label for="inv_role">Role</label><select id="inv_role"></select></div>
+                <div class="field" id="inv_county_field"><label for="inv_county">County</label><select id="inv_county"></select></div>
+                <div class="field" id="inv_school_field"><label for="inv_school">School</label><select id="inv_school"></select></div>
+              </div>
+              <p class="field-hint" style="margin-top:0">The person gets a link to create their account with exactly this role and placement. It works once and expires in 14 days. No email is sent — copy the link and send it to them yourself.</p>
+              <div class="edit-actions">
+                <button class="btn btn-primary" type="submit">Create invitation link</button>
+                <button class="btn btn-outline" type="button" id="inviteCancel">Cancel</button>
+              </div>
+            </form>
+            <div id="inviteResult" hidden class="alert alert-ok" style="margin-top:.8rem"></div>
+            <div id="invitationsList" style="margin-top:.6rem"></div>
+          </div>
+
+          <div class="form-row" style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:.9rem;max-width:44rem;margin-bottom:.3rem">
             <div class="field" style="margin-bottom:0">
               <label for="usersSearch">Search</label>
               <input id="usersSearch" type="text" placeholder="Name, email, county, school…">
+            </div>
+            <div class="field" style="margin-bottom:0">
+              <label for="usersStatus">Status</label>
+              <select id="usersStatus">
+                <option value="">All</option>
+                <option value="pending">Waiting for approval</option>
+                <option value="active">Active</option>
+                <option value="suspended">Suspended</option>
+                <option value="deactivated">Deactivated</option>
+                <option value="rejected">Not approved</option>
+              </select>
             </div>
             <div class="field" style="margin-bottom:0">
               <label for="usersSort">Sort by</label>
@@ -155,6 +189,14 @@
             </div>
           </div>
           <div id="usersList"><div class="empty-state">Loading…</div></div>
+        </div>
+
+        <!-- Account history (audit.view) -->
+        <div class="panel" id="auditPanel" hidden style="margin-top:1.2rem">
+          <div class="panel-head"><h2>Account history</h2><span class="chart-meta" id="auditMeta" style="margin:0"></span></div>
+          <p class="shelf-sub">Every account and learner change — who made it and when. This record can't be edited or deleted.</p>
+          <div id="auditList"><div class="empty-state">Loading…</div></div>
+          <button type="button" class="btn btn-outline" id="auditMore" hidden style="margin-top:.6rem">Load older</button>
         </div>
       </section>
 

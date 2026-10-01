@@ -3,7 +3,7 @@ import { $, $$, esc, initials, toast, formatDuration, skeleton, errorState, frie
 import { requireRole, signOut, sendPasswordResetLink } from "./auth.js";
 import {
   CONTENT_TYPES, LIBRARY_SUBJECTS, LIBRARY_AUDIENCES, FORM_AUDIENCES, QUESTION_TYPES, ROLES,
-  normalizeLibraryAudience, VISIT_TYPES,
+  normalizeLibraryAudience, VISIT_TYPES, PORTAL_ADMIN_ROLES,
 } from "./data.js";
 import {
   getLibrary, addLibraryItem, setLibraryPublished, deleteLibraryItem, updateLibraryItem, getForms, addForm, deleteForm, archiveForm, restoreForm, getResponses, getStats,
@@ -11,7 +11,8 @@ import {
   getLibraryFolders, createLibraryFolder, deleteLibraryFolder, setLibraryFolder,
   koboConfig, saveKoboConfig, koboAssets, koboAssetPreview, koboForms, attachKoboForm,
   removeKoboForm, restoreKoboForm, syncKobo, koboResults,
-  getUsers, updateUser, resetUserPassword,
+  getUserDirectory, updateUser, resetUserPassword,
+  approveUser, rejectUser, setUserStatus, getInvitations, inviteStaff, revokeInvitation, getAuditLog,
   watchSchools, createSchool, renameSchool, deleteSchool, createCounty, deleteCounty, wireSchoolPicker,
 } from "./store.js";
 import { openIframeViewer } from "./viewer.js";
@@ -30,12 +31,41 @@ const ICON = {
 const svg = (paths) => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${paths}</svg>`;
 
 async function main() {
-  const user = await requireRole("education_team");
+  const user = await requireRole(PORTAL_ADMIN_ROLES);
   if (!user) return;
+
+  /* What this person may do, from the server (GET /me). Used only to
+     decide what to show — every action is checked again by the API. */
+  const perms = new Set(user.permissions || []);
+  const has = (...p) => p.some((x) => perms.has(x));
+  const PAGE_NEEDS = {
+    overview: ["stats.view"],
+    "programme-analytics": ["stats.view"],
+    schools: ["stats.view", "schools.manage"],
+    users: ["users.view"],
+    content: ["library.manage", "library.usage.view"],
+    forms: ["forms.manage", "forms.responses.view"],
+    kobo: ["kobo.manage", "kobo.results.view"],
+    reports: ["stats.view"],
+  };
+  for (const link of $$(".side-nav .side-link[data-page]")) {
+    const needs = PAGE_NEEDS[link.dataset.page];
+    if (needs && !has(...needs)) link.hidden = true;
+  }
+  const firstVisible = $$(".side-nav .side-link[data-page]").find((l) => !l.hidden);
+  const current = $(`.side-nav .side-link[data-page="${(location.hash || "").slice(1)}"]`);
+  if (firstVisible && (!current || current.hidden)) location.hash = `#${firstVisible.dataset.page}`;
+  // Read-only access (e.g. M&E): hide the editing tools the API would refuse.
+  const hideUnless = (el, ...p) => { if (el && !has(...p)) el.hidden = true; };
+  hideUnless($("#addSchoolForm"), "schools.manage");
+  hideUnless($(".county-manage"), "schools.manage");
+  hideUnless($(".upload-panel"), "library.manage");
+  hideUnless($("#formBuilder")?.closest(".panel"), "forms.manage");
+  hideUnless($("#koboSyncBtn")?.closest(".panel"), "kobo.manage");
 
   $("#sideAvatar").textContent = initials(user.fullName);
   $("#sideName").textContent = user.fullName;
-  $("#sideMeta").textContent = "Education Team";
+  $("#sideMeta").textContent = ROLE_LABEL[user.role] || "Education Team";
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
 
   /* ------------------------------------------------------------ global filters
@@ -50,6 +80,7 @@ async function main() {
   // for every county/school dropdown on this dashboard.
   let schoolDir = { counties: [], countyCodes: {}, schools: [] };
   let userPicker = null; // the County → School picker in an open Users editor
+  let invitePicker = null; // the County → School picker in the invite form
   let gpTopN = 0; // grade-performance ranking cap; 0 = show every grade
   let lastStats = null;
   let formsCache = [];
@@ -1318,6 +1349,8 @@ async function main() {
     $("#koboFieldEcho").textContent = koboState.officerField || "officer_ref";
     renderAttention();
 
+    // Viewing results only (M&E): no connection, attach or sync controls.
+    if (!has("kobo.manage")) { refreshSurveyPicker(); return; }
     if (!koboState.configured) { showKoboConnect(); refreshSurveyPicker(); return; }
 
     koboConnectForm.hidden = true;
@@ -1751,6 +1784,7 @@ async function main() {
     if (!renamingSchoolId) renderSchoolListDom();
     if (renderGlobalFilterOptions({ clearMissing: true })) applyFilters();
     userPicker?.update(schoolDir);
+    invitePicker?.update(schoolDir);
     refreshFormCountyOptions();
   }
 
@@ -1891,38 +1925,57 @@ async function main() {
   });
 
   /* ------------------------------------------------------------ staff accounts
-     Every teacher / school leader / field officer / education team
-     sign-in — editable here, grouped under a title per role. Passwords are
-     one-way hashed server-side and never come back to the browser, so
-     "Reset password" sets a brand-new one instead of ever showing the old
-     one. The list is "smart": one search box filters name/email/county/
-     school/role live, and a sort control reorders every role group at
-     once by name, county, or school — all client-side against the one
-     fetch, so it's instant. */
+     Every staff sign-in, grouped under a title per role, with accounts
+     waiting for approval first. What each row offers follows two things
+     the server sends: this person's permissions (users.*) and, per account,
+     `canManage` (never your own account, never one at or above your level).
+     The API checks both again on every action. Passwords are one-way
+     hashed server-side and never come back to the browser, so "Set new
+     password" sets a brand-new one instead of ever showing the old one.
+     Search, status and sort all work client-side against the one fetch. */
   let allUsers = [];
+  let grantable = []; // [{ value, label }] roles this administrator may give
   let editingUserId = null;
+  let historyUserId = null;
+  const historyCache = new Map();
+
+  const STATUS_PILL = {
+    pending: ["warm", "Waiting for approval"],
+    suspended: ["danger", "Suspended"],
+    deactivated: ["danger", "Deactivated"],
+    rejected: ["danger", "Not approved"],
+  };
+  const schoolLabel = (id) => {
+    if (!id) return "no school";
+    const s = schoolDir.schools.find((x) => x.id === id);
+    return s ? `${s.name} (${s.code})` : id;
+  };
 
   /* Inline editor for one account. Where it sits follows the role:
      teachers and heads pick County → School from the school list (a new
      school, or a new role letter, gives them a new code — and a teacher's
-     learners move with them); field officers pick a county; the education
-     team neither. */
+     learners move with them); field officers pick a county; everyone else
+     neither. Only the roles this administrator may give are offered. */
   function userEditRow(u) {
+    const roles = grantable.some((r) => r.value === u.role) ? grantable : [{ value: u.role, label: ROLE_LABEL[u.role] || u.role }, ...grantable];
+    const canDetails = has("users.edit");
+    const canRole = has("users.roles.assign");
+    const canPlace = has("users.placement.assign");
     return `
       <div class="task-row lib-edit-row" data-user="${esc(u.id)}" data-email="${esc(u.email || "")}">
         <div style="flex:1">
           <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem">
-            <div class="field"><label>Full name</label><input class="ue-name" type="text" value="${esc(u.fullName || "")}"></div>
-            <div class="field"><label>Email</label><input class="ue-email" type="email" value="${esc(u.email || "")}"></div>
+            <div class="field"><label>Full name</label><input class="ue-name" type="text" value="${esc(u.fullName || "")}"${canDetails ? "" : " disabled"}></div>
+            <div class="field"><label>Email</label><input class="ue-email" type="email" value="${esc(u.email || "")}"${canDetails ? "" : " disabled"}></div>
           </div>
           <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.6rem">
-            <div class="field"><label>Role</label><select class="ue-role">${STAFF_ROLES.map((r) =>
-              `<option value="${r.value}"${r.value === u.role ? " selected" : ""}>${esc(r.label)}</option>`).join("")}</select></div>
-            <div class="field ue-county-field"><label>County</label><select class="ue-county"></select></div>
-            <div class="field ue-school-field"><label>School</label><select class="ue-school"></select></div>
+            <div class="field"><label>Role</label><select class="ue-role"${canRole ? "" : " disabled"}>${roles.map((r) =>
+              `<option value="${esc(r.value)}"${r.value === u.role ? " selected" : ""}>${esc(r.label)}</option>`).join("")}</select></div>
+            <div class="field ue-county-field"><label>County</label><select class="ue-county"${canPlace ? "" : " disabled"}></select></div>
+            <div class="field ue-school-field"><label>School</label><select class="ue-school"${canPlace ? "" : " disabled"}></select></div>
           </div>
           <div class="field ue-tt-field"><label>Employment type</label>
-            <select class="ue-tt">${["", "BOM", "TSC"].map((t) =>
+            <select class="ue-tt"${canDetails ? "" : " disabled"}>${["", "BOM", "TSC"].map((t) =>
               `<option value="${t}"${t === (u.teacherType || "") ? " selected" : ""}>${t || "Not specified"}</option>`).join("")}</select></div>
           <p class="field-hint ue-note"></p>
           <div class="edit-actions">
@@ -1948,7 +2001,7 @@ async function main() {
       const school = userPicker.current();
       const moving = inSchool && school && (school.id !== u.schoolId || role !== u.role);
       row.querySelector(".ue-note").textContent = !inSchool
-        ? (role === "field_officer" ? "Field officers belong to a county, not a school — they pick the school per visit." : "The Education Team works across every school and county.")
+        ? (role === "field_officer" ? "Field officers belong to a county, not a school — they pick the school per visit." : "This role works across every school and county.")
         : moving
           ? `They'll get a new code under ${school.code}${role === "teacher" ? ", and their learners move to this school with new codes too" : ""}.`
           : u.userCode ? `Code stays ${u.userCode}.` : "";
@@ -1956,29 +2009,55 @@ async function main() {
     syncUserEditor();
   }
 
+  /* The buttons one account gets, from permissions + authority over it. */
+  function userActions(u) {
+    const acts = [];
+    const status = u.status || "active";
+    if (u.canManage) {
+      if (has("users.approve") && (status === "pending" || status === "rejected")) acts.push(["approve", "Approve"]);
+      if (has("users.approve") && status === "pending") acts.push(["reject", "Reject", "danger"]);
+      if (has("users.edit", "users.roles.assign", "users.placement.assign")) acts.push(["edit", "Edit"]);
+      if (has("users.password.reset") && status === "active") {
+        acts.push(["resetlink", "Send reset link"], ["password", "Set new password"]);
+      }
+      if (has("users.status.manage")) {
+        if (status === "active") acts.push(["suspend", "Suspend"], ["deactivate", "Deactivate", "danger"]);
+        if (status === "suspended") acts.push(["reactivate", "Reactivate"], ["deactivate", "Deactivate", "danger"]);
+        if (status === "deactivated") acts.push(["reactivate", "Reactivate"]);
+      }
+    }
+    if (has("audit.view")) acts.push(["history", historyUserId === u.id ? "Hide history" : "History"]);
+    return acts.map(([act, label, cls]) =>
+      `<button type="button" data-act="${act}"${cls ? ` class="${cls}"` : ""}>${esc(label)}</button>`).join("");
+  }
+
   function userRow(u) {
     if (u.id === editingUserId) return userEditRow(u);
+    const pill = STATUS_PILL[u.status];
     const meta = [
+      pill ? `<span class="pill ${pill[0]}">${esc(pill[1])}</span>` : "",
+      u.status === "pending" && u.requestedRole ? `asked for ${esc(ROLE_LABEL[u.requestedRole] || u.requestedRole)}` : "",
       u.userCode ? `<span class="code-chip">${esc(u.userCode)}</span>` : "",
       esc(u.email),
       u.county ? esc(u.county) : "",
       u.school ? esc(u.school) : "",
       u.teacherType ? esc(u.teacherType) : "",
+      u.statusReason && u.status !== "active" ? `Reason: ${esc(u.statusReason)}` : "",
     ].filter(Boolean).join(" · ");
+    const history = historyUserId === u.id
+      ? `<div class="user-history" style="flex-basis:100%;margin-top:.5rem">${historyHtml(historyCache.get(u.id))}</div>`
+      : "";
     return `
-      <div class="task-row" data-user="${esc(u.id)}"
+      <div class="task-row" data-user="${esc(u.id)}" style="flex-wrap:wrap"
            data-fullname="${esc(u.fullName || "")}" data-email="${esc(u.email || "")}"
            data-role="${esc(u.role)}" data-county="${esc(u.county || "")}"
            data-school="${esc(u.school || "")}" data-teachertype="${esc(u.teacherType || "")}">
-        <div style="flex:1">
+        <div style="flex:1;min-width:0">
           <b>${esc(u.fullName || "(no name)")}</b>
           <span>${meta}</span>
         </div>
-        <div class="roster-actions">
-          <button type="button" data-act="edit">Edit</button>
-          <button type="button" data-act="resetlink">Send reset link</button>
-          <button type="button" data-act="password">Set new password</button>
-        </div>
+        <div class="roster-actions">${userActions(u)}</div>
+        ${history}
       </div>`;
   }
 
@@ -2018,29 +2097,31 @@ async function main() {
     }
     const q = $("#usersSearch").value.trim().toLowerCase();
     const sortBy = $("#usersSort").value;
+    const status = $("#usersStatus").value;
     let filtered = allUsers.filter((u) => userMatchesSearch(u, q));
+    if (status) filtered = filtered.filter((u) => (u.status || "active") === status);
     if (gf.county) filtered = filtered.filter((u) => (u.county || "") === gf.county);
     if (gf.school) filtered = filtered.filter((u) => (u.school || "") === gf.school);
     if (gf.role) filtered = filtered.filter((u) => u.role === gf.role);
 
-    $("#usersMeta").textContent = filtered.length === allUsers.length
+    const pendingCount = allUsers.filter((u) => u.status === "pending").length;
+    $("#usersMeta").textContent = (filtered.length === allUsers.length
       ? `${allUsers.length} account${allUsers.length === 1 ? "" : "s"}`
-      : `${filtered.length} of ${allUsers.length} accounts`;
+      : `${filtered.length} of ${allUsers.length} accounts`) + (pendingCount ? ` · ${pendingCount} waiting for approval` : "");
 
     if (!filtered.length) {
       list.innerHTML = `<div class="empty-state">${emptyMsg("No accounts match your search.")}</div>`;
       return;
     }
 
-    list.innerHTML = STAFF_ROLES.map((r) => {
-      const rows = sortUsers(filtered.filter((u) => u.role === r.value), sortBy);
-      if (!rows.length) return "";
-      return `
+    const group = (title, rows) => rows.length ? `
         <div class="list-group">
-          <div class="list-group-title">${esc(r.label)}<span class="count">${rows.length}</span></div>
+          <div class="list-group-title">${esc(title)}<span class="count">${rows.length}</span></div>
           ${rows.map(userRow).join("")}
-        </div>`;
-    }).join("");
+        </div>` : "";
+    const pending = sortUsers(filtered.filter((u) => u.status === "pending"), sortBy);
+    list.innerHTML = group("Waiting for approval", pending) + STAFF_ROLES.map((r) =>
+      group(r.label, sortUsers(filtered.filter((u) => u.role === r.value && u.status !== "pending"), sortBy))).join("");
     const editing = allUsers.find((u) => u.id === editingUserId);
     if (editing) wireUserEditor(editing);
   }
@@ -2049,7 +2130,7 @@ async function main() {
   async function renderUsers() {
     $("#usersList").innerHTML = skeleton(4);
     try {
-      allUsers = await getUsers();
+      ({ users: allUsers, grantableRoles: grantable } = await getUserDirectory());
       usersFailed = false;
     } catch (err) {
       console.error("could not load staff accounts:", err);
@@ -2061,23 +2142,34 @@ async function main() {
 
   $("#usersSearch").addEventListener("input", renderUsersList);
   $("#usersSort").addEventListener("change", renderUsersList);
+  $("#usersStatus").addEventListener("change", renderUsersList);
+
+  /* Status changes and approvals: what each one says before it happens. */
+  const STATUS_DIALOG = {
+    suspend: (n) => ({ title: `Suspend ${n}?`, body: "They're signed out of everything and can't sign in until reactivated. Nothing they made is deleted.", confirmLabel: "Suspend", danger: true }),
+    deactivate: (n) => ({ title: `Deactivate ${n}?`, body: "Use this when someone has left. They can't sign in; their records stay. You can reactivate the account later.", confirmLabel: "Deactivate", danger: true }),
+    reactivate: (n) => ({ title: `Reactivate ${n}?`, body: "They can sign in again with their current password.", confirmLabel: "Reactivate" }),
+  };
 
   $("#usersList").addEventListener("click", async (e) => {
     const btn = e.target.closest("button[data-act]");
     if (!btn) return;
     const row = btn.closest("[data-user]");
     const id = row.dataset.user;
+    const u = allUsers.find((x) => x.id === id);
+    const name = u?.fullName || u?.email || "this account";
+    const act = btn.dataset.act;
 
     try {
-      if (btn.dataset.act === "edit") {
+      if (act === "edit") {
         if (!schoolDir.counties.length) await renderSchoolList();
         editingUserId = id;
         renderUsersList();
-      } else if (btn.dataset.act === "cancel-user") {
+      } else if (act === "cancel-user") {
         editingUserId = null;
         userPicker = null;
         renderUsersList();
-      } else if (btn.dataset.act === "save-user") {
+      } else if (act === "save-user") {
         const role = row.querySelector(".ue-role").value;
         const inSchool = role === "teacher" || role === "school_leader";
         const school = userPicker?.current();
@@ -2090,24 +2182,83 @@ async function main() {
           toast("Choose a county", "Field officers belong to a county.", "error");
           return;
         }
-        const patch = { fullName: row.querySelector(".ue-name").value.trim(), role };
-        const email = row.querySelector(".ue-email").value.trim();
-        if (email.toLowerCase() !== (row.dataset.email || "").toLowerCase()) patch.email = email;
-        if (inSchool) patch.schoolId = school.id;
-        if (role === "field_officer") patch.county = county;
-        if (role === "teacher") patch.teacherType = row.querySelector(".ue-tt").value;
+        const patch = {};
+        if (has("users.edit")) {
+          patch.fullName = row.querySelector(".ue-name").value.trim();
+          const email = row.querySelector(".ue-email").value.trim();
+          if (email.toLowerCase() !== (row.dataset.email || "").toLowerCase()) patch.email = email;
+          if (role === "teacher") patch.teacherType = row.querySelector(".ue-tt").value;
+        }
+        if (role !== u.role) patch.role = role;
+        if (has("users.placement.assign")) {
+          if (inSchool && school.id !== u.schoolId) patch.schoolId = school.id;
+          if (role === "field_officer" && county !== (u.county || "")) patch.county = county;
+          if (patch.role && inSchool) patch.schoolId = school.id;
+          if (patch.role && role === "field_officer") patch.county = county;
+        }
         btn.disabled = true;
-        const user = await updateUser(id, patch);
-        toast("Account updated", user.userCode ? `${user.fullName} is ${user.userCode}.` : "", "success");
+        const updated = await updateUser(id, patch);
+        toast("Account updated", updated.userCode ? `${updated.fullName} is ${updated.userCode}.` : "", "success");
         editingUserId = null;
         userPicker = null;
+        historyCache.delete(id);
         renderUsers();
         renderSchoolList();
-      } else if (btn.dataset.act === "resetlink") {
+        renderAuditPanel();
+      } else if (act === "approve") {
+        const asked = ROLE_LABEL[u.requestedRole || u.role] || u.role;
+        const where = u.school ? ` at ${u.school}` : u.county ? ` in ${u.county}` : "";
+        const ok = await confirmDialog({
+          title: `Approve ${name}?`,
+          body: `They asked to join as ${asked}${where}. They'll be able to sign in straight away with that role. To give a different role or school, approve and then use Edit.`,
+          confirmLabel: "Approve",
+        });
+        if (!ok) return;
+        btn.disabled = true;
+        await approveUser(id);
+        toast("Account approved", `${name} can now use the portal.`, "success");
+        historyCache.delete(id);
+        renderUsers();
+        renderAuditPanel();
+      } else if (act === "reject") {
+        const ok = await confirmDialog({
+          title: `Reject ${name}?`,
+          body: "They won't be able to use the portal. The request stays on record, and you can still approve it later.",
+          confirmLabel: "Reject", danger: true,
+        });
+        if (!ok) return;
+        btn.disabled = true;
+        await rejectUser(id);
+        toast("Request rejected", "", "success");
+        historyCache.delete(id);
+        renderUsers();
+        renderAuditPanel();
+      } else if (STATUS_DIALOG[act]) {
+        if (!(await confirmDialog(STATUS_DIALOG[act](name)))) return;
+        btn.disabled = true;
+        await setUserStatus(id, act);
+        toast(act === "reactivate" ? "Account reactivated" : act === "suspend" ? "Account suspended" : "Account deactivated", "", "success");
+        historyCache.delete(id);
+        renderUsers();
+        renderAuditPanel();
+      } else if (act === "history") {
+        historyUserId = historyUserId === id ? null : id;
+        if (historyUserId && !historyCache.has(id)) {
+          historyCache.set(id, null); // loading
+          renderUsersList();
+          try {
+            historyCache.set(id, (await getAuditLog({ targetId: id })).entries || []);
+          } catch (err) {
+            historyCache.delete(id);
+            toast("Couldn't load the history", friendlyError(err), "error");
+          }
+        }
+        renderUsersList();
+      } else if (act === "resetlink") {
         if (!confirm(`Email a "set a new password" link to ${row.dataset.email}?`)) return;
         await sendPasswordResetLink(row.dataset.email);
         toast("Reset link sent successfully.", `${row.dataset.email} can follow it to set their own new password.`, "success");
-      } else if (btn.dataset.act === "password") {
+      } else if (act === "password") {
         const password = prompt(`New password for ${row.dataset.email} — at least 8 characters`);
         if (!password) return;
         if (password.trim().length < 8) {
@@ -2116,6 +2267,8 @@ async function main() {
         }
         await resetUserPassword(id, password.trim());
         toast("Password reset successfully.", "Tell them their new password.", "success");
+        historyCache.delete(id);
+        renderAuditPanel();
       }
     } catch (err) {
       toast("Couldn't do that", friendlyError(err), "error");
@@ -2123,12 +2276,187 @@ async function main() {
     }
   });
 
+  /* ---- account history (audit log) ---- */
+  const AUDIT_ACTION = {
+    "account.created": "created the account",
+    "account.approved": "approved the account",
+    "account.rejected": "didn't approve the account",
+    "account.suspended": "suspended the account",
+    "account.deactivated": "deactivated the account",
+    "account.reactivated": "reactivated the account",
+    "account.updated": "edited the account",
+    "role.changed": "changed the role",
+    "school.changed": "changed the school",
+    "county.changed": "changed the county",
+    "email.changed": "changed the email",
+    "password.reset": "set a new password",
+    "learner.created": "added a learner",
+    "learner.deleted": "removed a learner",
+    "learner.updated": "edited a learner",
+    "learner.pin_reset": "reset a learner's PIN",
+    "learner.unlocked": "unlocked a learner",
+    "invitation.created": "created an invitation",
+    "invitation.revoked": "revoked an invitation",
+    "invitation.accepted": "accepted an invitation",
+  };
+  const roleName = (r) => ROLE_LABEL[r] || r || "—";
+  function auditDetail(e) {
+    const d = e.details || {};
+    switch (e.action) {
+      case "role.changed": return `${roleName(d.from)} → ${roleName(d.to)}`;
+      case "school.changed": return `${schoolLabel(d.from)} → ${schoolLabel(d.to)}`;
+      case "county.changed": return `${d.from || "none"} → ${d.to || "none"}`;
+      case "email.changed": return `${d.from || ""} → ${d.to || ""}`;
+      case "account.created": return d.via === "invitation" ? `joined by invitation as ${roleName(d.role)}` : `asked to join as ${roleName(d.requestedRole)}`;
+      case "account.approved": return `as ${roleName(d.role)}`;
+      case "account.updated": return (d.fields || []).join(", ");
+      case "invitation.created": case "invitation.revoked": case "invitation.accepted":
+        return `${d.email || ""}${d.role ? ` as ${roleName(d.role)}` : ""}`;
+      default:
+        if (e.action.startsWith("learner.") && d.fullName) return `${d.fullName}${d.username ? ` (@${d.username})` : ""}`;
+        return d.reason ? `Reason: ${d.reason}` : "";
+    }
+  }
+  function auditRow(e, { withTarget = true } = {}) {
+    const who = e.actorName || (e.actorKind === "system" ? "System" : "Someone");
+    const target = withTarget && e.targetName && e.targetId !== e.actorId ? ` — ${e.targetName}` : "";
+    const detail = auditDetail(e);
+    return `<div class="result-row" style="align-items:flex-start">
+        <span><b>${esc(who)}</b> ${esc(AUDIT_ACTION[e.action] || e.action)}${esc(target)}${detail ? `<br><span class="hint-inline">${esc(detail)}</span>` : ""}</span>
+        <span class="hint-inline" style="white-space:nowrap">${esc(new Date(e.at).toLocaleString())}</span>
+      </div>`;
+  }
+  function historyHtml(entries) {
+    if (entries === null || entries === undefined) return skeleton(2, { avatar: false });
+    return entries.length
+      ? entries.map((e) => auditRow(e, { withTarget: false })).join("")
+      : `<div class="empty-state">No recorded changes for this account yet.</div>`;
+  }
+
+  let auditBefore = null;
+  async function renderAuditPanel({ more = false } = {}) {
+    if (!has("audit.view")) return;
+    $("#auditPanel").hidden = false;
+    if (!more) { auditBefore = null; $("#auditList").innerHTML = skeleton(3, { avatar: false }); }
+    try {
+      const res = await getAuditLog({ before: more ? auditBefore : undefined });
+      const html = (res.entries || []).map((e) => auditRow(e)).join("");
+      if (more) $("#auditList").insertAdjacentHTML("beforeend", html);
+      else $("#auditList").innerHTML = html || `<div class="empty-state">No account changes recorded yet.</div>`;
+      auditBefore = res.nextBefore;
+      $("#auditMore").hidden = !auditBefore;
+    } catch (err) {
+      $("#auditList").innerHTML = errorState(friendlyError(err), () => renderAuditPanel());
+    }
+  }
+  $("#auditMore").addEventListener("click", () => renderAuditPanel({ more: true }));
+
+  /* ---- invitations ---- */
+  function syncInviteFields() {
+    const role = $("#inv_role").value;
+    const inSchool = role === "teacher" || role === "school_leader";
+    $("#inv_county_field").hidden = !(inSchool || role === "field_officer");
+    $("#inv_school_field").hidden = !inSchool;
+  }
+  async function renderInvitations() {
+    try {
+      const open = (await getInvitations()).filter((i) => i.status === "open");
+      $("#invitationsList").innerHTML = open.length
+        ? `<div class="list-group"><div class="list-group-title">Open invitations<span class="count">${open.length}</span></div>${
+          open.map((i) => `<div class="task-row" data-invitation="${esc(i.id)}"><div style="flex:1;min-width:0"><b>${esc(i.email)}</b>
+            <span>${esc(i.roleLabel)}${i.schoolId ? ` · ${esc(schoolLabel(i.schoolId))}` : i.county ? ` · ${esc(i.county)}` : ""} · expires ${esc(new Date(i.expiresAt).toLocaleDateString())}</span></div>
+            <div class="roster-actions"><button type="button" class="danger" data-revoke="${esc(i.id)}">Revoke</button></div></div>`).join("")}</div>`
+        : "";
+    } catch (err) {
+      $("#invitationsList").innerHTML = errorState(friendlyError(err), renderInvitations);
+    }
+  }
+  if (has("users.invite")) {
+    $("#invitePanel").hidden = false;
+    $("#inviteToggle").addEventListener("click", async () => {
+      const open = $("#inviteForm").hidden;
+      $("#inviteForm").hidden = !open;
+      $("#inviteToggle").setAttribute("aria-expanded", String(open));
+      if (!open) return;
+      $("#inviteResult").hidden = true;
+      if (!grantable.length) await renderUsers();
+      $("#inv_role").innerHTML = grantable.map((r) => `<option value="${esc(r.value)}">${esc(r.label)}</option>`).join("");
+      $("#inv_role").value = grantable.some((r) => r.value === "teacher") ? "teacher" : grantable[0]?.value || "";
+      if (!schoolDir.counties.length) await renderSchoolList();
+      if (!invitePicker) invitePicker = wireSchoolPicker($("#inv_county"), $("#inv_school"), schoolDir);
+      syncInviteFields();
+    });
+    $("#inv_role").addEventListener("change", syncInviteFields);
+    $("#inviteCancel").addEventListener("click", () => {
+      $("#inviteForm").hidden = true;
+      $("#inviteToggle").setAttribute("aria-expanded", "false");
+    });
+    $("#inviteForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const role = $("#inv_role").value;
+      const inSchool = role === "teacher" || role === "school_leader";
+      const school = invitePicker?.current();
+      const county = invitePicker?.county() || "";
+      if (inSchool && !school) { toast("Choose a school", "Teachers and school heads are invited into a school.", "error"); return; }
+      if (role === "field_officer" && !county) { toast("Choose a county", "Field officers belong to a county.", "error"); return; }
+      const btn = e.target.querySelector("[type=submit]");
+      btn.disabled = true;
+      try {
+        const { invitation, token } = await inviteStaff({
+          email: $("#inv_email").value.trim(), role,
+          schoolId: inSchool ? school.id : undefined,
+          county: role === "field_officer" ? county : undefined,
+        });
+        const link = new URL(`index.html?invite=${encodeURIComponent(token)}`, location.href).href;
+        $("#inviteResult").innerHTML = `
+          <div><b>Invitation link for ${esc(invitation.email)} (${esc(invitation.roleLabel)})</b>
+          Send this to them — it's shown only now, works once and expires on ${esc(new Date(invitation.expiresAt).toLocaleDateString())}.</div>
+          <div style="display:flex;gap:.5rem;margin-top:.5rem;flex-wrap:wrap">
+            <input id="inviteLink" type="text" readonly value="${esc(link)}" style="flex:1;min-width:12rem">
+            <button type="button" class="btn btn-outline" id="inviteCopy">Copy link</button>
+          </div>`;
+        $("#inviteResult").hidden = false;
+        $("#inviteCopy").addEventListener("click", async () => {
+          try { await navigator.clipboard.writeText(link); toast("Link copied", ""); }
+          catch { $("#inviteLink").select(); }
+        });
+        $("#inviteForm").reset();
+        $("#inviteForm").hidden = true;
+        $("#inviteToggle").setAttribute("aria-expanded", "false");
+        renderInvitations();
+        renderAuditPanel();
+      } catch (err) {
+        toast("Couldn't create the invitation", friendlyError(err), "error");
+      } finally {
+        btn.disabled = false;
+      }
+    });
+    $("#invitationsList").addEventListener("click", async (e) => {
+      const btn = e.target.closest("[data-revoke]");
+      if (!btn) return;
+      const ok = await confirmDialog({ title: "Revoke this invitation?", body: "The link stops working straight away.", confirmLabel: "Revoke", danger: true });
+      if (!ok) return;
+      btn.disabled = true;
+      try {
+        await revokeInvitation(btn.dataset.revoke);
+        toast("Invitation revoked", "", "success");
+        renderInvitations();
+        renderAuditPanel();
+      } catch (err) {
+        btn.disabled = false;
+        toast("Couldn't revoke it", friendlyError(err), "error");
+      }
+    });
+    renderInvitations();
+  }
+  renderAuditPanel();
+
   renderStats();
   renderLibrary();
   renderUsage();
   renderForms();
   renderKobo();
-  renderUsers();
+  if (has("users.view")) renderUsers();
 }
 main();
 
