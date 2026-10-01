@@ -704,15 +704,25 @@ export async function koboResults(id, { fresh = false } = {}) {
   return apiGet(`/kobo/forms/${id}/results${fresh ? "?fresh=1" : ""}`);
 }
 
-/* ---------------------------------------------------------------- learner roster (teacher) */
+/* ---------------------------------------------------------------- learners, classes, enrollment
+   The API decides which learners each person sees: a teacher their
+   classes, a school head their school, administrators every school. */
 
-export async function getLearners() {
-  const { learners } = await apiGet("/learners");
+const qs = (params) => {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(params || {})) if (v) p.set(k, String(v));
+  const s = p.toString();
+  return s ? `?${s}` : "";
+};
+
+/** status: "active" (default) | "archived" | "all"; classId, schoolId, q optional. */
+export async function getLearners(params = {}) {
+  const { learners } = await apiGet(`/learners${qs(params)}`);
   return learners || [];
 }
 
-export async function addLearner({ fullName, username, grade, pin }) {
-  const { learner } = await apiSend("POST", "/learners", { fullName, username, grade, pin });
+export async function addLearner({ fullName, username, grade, pin, classId, schoolId }) {
+  const { learner } = await apiSend("POST", "/learners", { fullName, username, grade, pin, classId, schoolId });
   return learner;
 }
 
@@ -721,8 +731,59 @@ export async function updateLearner(id, patch) {
   return learner;
 }
 
+/** Archives (status INACTIVE) — learners are never deleted. */
 export async function deleteLearner(id) {
   return apiSend("DELETE", `/learners/${id}`);
+}
+
+/** status: ACTIVE (reactivate) | TRANSFERRED | DROPPED_OUT | COMPLETED | INACTIVE */
+export async function setLearnerStatus(id, status, { reason, exitDate } = {}) {
+  const { learner } = await apiSend("POST", `/learners/${id}/status`, { status, reason, exitDate });
+  return learner;
+}
+
+export async function transferLearner(id, { toSchoolId, toClassId, reason, effectiveDate }) {
+  const { learner } = await apiSend("POST", `/learners/${id}/transfer`, { toSchoolId, toClassId, reason, effectiveDate });
+  return learner;
+}
+
+/** { learner, enrollments } — every school and class this learner has been in. */
+export async function getLearnerHistory(id) {
+  return apiGet(`/learners/${id}/history`);
+}
+
+/** A school's enrollment records; status "past" = everyone who has left or moved on. */
+export async function getEnrollments({ schoolId, status } = {}) {
+  const { enrollments } = await apiGet(`/enrollments${qs({ schoolId, status })}`);
+  return enrollments || [];
+}
+
+/** { classes, schoolTeachers, academicYear } */
+export async function getClasses(params = {}) {
+  return apiGet(`/classes${qs(params)}`);
+}
+export async function createClass({ grade, name, schoolId }) {
+  const { class: cls } = await apiSend("POST", "/classes", { grade, name, schoolId });
+  return cls;
+}
+export async function updateClass(id, patch) {
+  return apiSend("PATCH", `/classes/${id}`, patch);
+}
+export async function assignClassTeacher(classId, teacherId, role = "class_teacher") {
+  return apiSend("POST", `/classes/${classId}/teachers`, { teacherId, role });
+}
+export async function removeClassTeacher(classId, teacherId) {
+  return apiSend("DELETE", `/classes/${classId}/teachers/${teacherId}`);
+}
+export async function promoteClass(classId, { toClassId, learnerIds } = {}) {
+  return apiSend("POST", `/classes/${classId}/promote`, { toClassId, learnerIds });
+}
+
+export async function getAcademicYears() {
+  return apiGet("/academic-years");
+}
+export async function createAcademicYear(id, { makeCurrent = false } = {}) {
+  return apiSend("POST", "/academic-years", { id, makeCurrent });
 }
 
 /* Read-only: this learner's real assignments + library usage/badges, for

@@ -83,8 +83,37 @@
       <section class="dash-page" data-page="learners" hidden>
         <div class="panel">
           <div class="panel-head"><h2>Learners by grade</h2></div>
-          <p class="hint" style="margin-top:0">Counts only — individual learner records live with each learner's teacher.</p>
           <div id="learnersByGrade"></div>
+        </div>
+
+        <!-- Everyone enrolled in this school (leader.js) -->
+        <div class="panel">
+          <div class="panel-head"><h2>School roster</h2><span class="chart-meta" id="rosterMeta" style="margin:0"></span></div>
+          <div class="form-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:.6rem;margin-bottom:.4rem">
+            <div class="field" style="margin-bottom:0"><label for="srSearch">Search</label><input id="srSearch" type="text" placeholder="Name, username or code"></div>
+            <div class="field" style="margin-bottom:0"><label for="srClass">Class</label><select id="srClass"><option value="">All classes</option></select></div>
+            <div class="field" style="margin-bottom:0"><label for="srStatus">Show</label>
+              <select id="srStatus"><option value="active">Active</option><option value="archived">Archived</option><option value="all">Everyone</option></select></div>
+          </div>
+          <div id="schoolRoster"><div class="empty-state">Loading…</div></div>
+        </div>
+
+        <!-- Classes this year: create, assign a class teacher, promote -->
+        <div class="panel">
+          <div class="panel-head"><h2>Classes</h2><span class="chart-meta" id="classesMeta" style="margin:0"></span></div>
+          <form id="newClassForm" class="school-add">
+            <select id="nc_grade" aria-label="Grade" required></select>
+            <input id="nc_name" type="text" maxlength="40" placeholder="Class name, e.g. Grade 4 East" aria-label="Class name">
+            <button class="btn btn-primary" type="submit">Add class</button>
+          </form>
+          <div id="classManager"><div class="empty-state">Loading…</div></div>
+        </div>
+
+        <!-- Learners who have left or moved on — their records stay -->
+        <div class="panel">
+          <div class="panel-head"><h2>Past learners</h2></div>
+          <p class="hint" style="margin-top:0">Everyone whose time at this school, or in a class here, has ended — moved school, promoted, dropped out, completed or archived. These records are kept for good.</p>
+          <div id="pastLearners"><div class="empty-state">Loading…</div></div>
         </div>
       </section>
 

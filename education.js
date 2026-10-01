@@ -13,10 +13,12 @@ import {
   removeKoboForm, restoreKoboForm, syncKobo, koboResults,
   getUserDirectory, updateUser, resetUserPassword,
   approveUser, rejectUser, setUserStatus, getInvitations, inviteStaff, revokeInvitation, getAuditLog,
+  getLearners, getAcademicYears, createAcademicYear,
   watchSchools, createSchool, renameSchool, deleteSchool, createCounty, deleteCounty, wireSchoolPicker,
 } from "./store.js";
 import { openIframeViewer } from "./viewer.js";
 import { formTagsHtml } from "./forms.js";
+import { statusPill, openHistoryPanel, openTransferDialog } from "./learners-ui.js";
 
 const AUDIENCE_LABEL = Object.fromEntries(FORM_AUDIENCES.map((a) => [a.value, a.label]));
 const STAFF_ROLES = ROLES.filter((r) => r.value !== "learner");
@@ -1785,6 +1787,7 @@ async function main() {
     if (renderGlobalFilterOptions({ clearMissing: true })) applyFilters();
     userPicker?.update(schoolDir);
     invitePicker?.update(schoolDir);
+    fillFinderSchools();
     refreshFormCountyOptions();
   }
 
@@ -2450,6 +2453,97 @@ async function main() {
     renderInvitations();
   }
   renderAuditPanel();
+
+  /* ------------------------------------------------------------ learners across schools
+     Administrators and M&E find any learner, see every school and class
+     they've been in, and (with learners.transfer) move them to another
+     school. Classes and day-to-day rosters belong to each school head. */
+  let finderResults = [];
+  function fillFinderSchools() {
+    const keep = $("#lf_school").value;
+    $("#lf_school").innerHTML = `<option value="">All schools</option>${
+      schoolDir.schools.map((s) => `<option value="${esc(s.id)}">${esc(s.name)} (${esc(s.code)})</option>`).join("")}`;
+    $("#lf_school").value = schoolDir.schools.some((s) => s.id === keep) ? keep : "";
+  }
+  function renderFinder() {
+    const canTransfer = has("learners.transfer");
+    $("#lfMeta").textContent = `${finderResults.length} found`;
+    $("#learnerFinderResults").innerHTML = finderResults.length
+      ? finderResults.map((l) => `
+        <div class="task-row" data-learner="${esc(l.id)}" style="flex-wrap:wrap">
+          <div style="flex:1;min-width:12rem"><b>${esc(l.fullName)}</b>
+            <span>${statusPill(l.status)} <span class="code-chip">${esc(l.learnerCode || l.userCode || "")}</span> ${esc(l.school || "")}${l.className ? ` · ${esc(l.className)}` : l.grade ? ` · ${esc(l.grade)}` : ""}</span></div>
+          <div class="roster-actions">
+            <button type="button" data-lf-history="${esc(l.id)}">History</button>
+            ${canTransfer ? `<button type="button" data-lf-transfer="${esc(l.id)}">Transfer</button>` : ""}
+          </div>
+        </div>`).join("")
+      : `<div class="empty-state">No learners match.</div>`;
+  }
+  if (has("learners.view.all")) {
+    $("#learnerFinderPanel").hidden = false;
+    $("#learnerFinder").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const q = $("#lf_q").value.trim();
+      const schoolId = $("#lf_school").value;
+      if (!q && !schoolId) { toast("Search for someone", "Type a name or code, or pick a school.", "error"); return; }
+      $("#learnerFinderResults").innerHTML = skeleton(3);
+      try {
+        finderResults = await getLearners({ q, schoolId, status: $("#lf_archived").checked ? "all" : "active" });
+        renderFinder();
+      } catch (err) {
+        $("#learnerFinderResults").innerHTML = errorState(friendlyError(err));
+      }
+    });
+    $("#learnerFinderResults").addEventListener("click", async (e) => {
+      const h = e.target.closest("[data-lf-history]");
+      if (h) { const l = finderResults.find((x) => x.id === h.dataset.lfHistory); openHistoryPanel(l.id, l.fullName); return; }
+      const t = e.target.closest("[data-lf-transfer]");
+      if (!t) return;
+      const l = finderResults.find((x) => x.id === t.dataset.lfTransfer);
+      if (!schoolDir.schools.length) await renderSchoolList();
+      const updated = await openTransferDialog(l, schoolDir.schools);
+      if (updated) {
+        finderResults = finderResults.map((x) => (x.id === updated.id ? updated : x));
+        renderFinder();
+        renderStats();
+      }
+    });
+  }
+
+  /* ---- academic year ---- */
+  async function renderCalendar() {
+    if (!has("calendar.manage")) return;
+    $("#calendarPanel").hidden = false;
+    try {
+      const { years, currentYear, currentTerm } = await getAcademicYears();
+      const next = String(Number(currentYear || new Date().getFullYear()) + 1);
+      const hasNext = years.some((y) => y.id === next);
+      $("#calendarText").textContent = currentYear
+        ? `The portal is in the ${currentYear} school year${currentTerm ? `, Term ${String(currentTerm).replace(/^\d{4}-T/, "")}` : ""}. New classes and enrollments use this year. Start ${next} when the new school year begins — then school heads add the new year's classes and promote learners into them.`
+        : "No school year is set yet.";
+      $("#startNextYear").textContent = hasNext ? `Switch the portal to ${next}` : `Start the ${next} school year`;
+      $("#startNextYear").hidden = false;
+      $("#startNextYear").onclick = async () => {
+        const ok = await confirmDialog({
+          title: `Start ${next}?`,
+          body: `The portal moves to the ${next} school year (terms Jan–Apr, May–Aug, Sep–Dec). Existing classes and records stay under ${currentYear}.`,
+          confirmLabel: `Start ${next}`,
+        });
+        if (!ok) return;
+        try {
+          await createAcademicYear(next, { makeCurrent: true });
+          toast(`Now in ${next}`, "School heads can add this year's classes.", "success");
+          renderCalendar();
+        } catch (err) {
+          toast("Couldn't start the new year", friendlyError(err), "error");
+        }
+      };
+    } catch (err) {
+      $("#calendarText").textContent = friendlyError(err, "Couldn't load the school year.");
+    }
+  }
+  renderCalendar();
 
   renderStats();
   renderLibrary();

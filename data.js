@@ -23,6 +23,14 @@ export const ROLES = [
   { value: "super_admin", label: "Super Admin", desc: "Everything, including admins" },
 ];
 
+/* Grades a class can be, in order — promotion moves a class to the next one.
+   Matches the API (permissions.ts GRADES). */
+export const GRADES = [
+  "PP1", "PP2", "Grade 1", "Grade 2", "Grade 3", "Grade 4", "Grade 5", "Grade 6",
+  "Grade 7", "Grade 8", "Grade 9", "Grade 10", "Grade 11", "Grade 12",
+];
+export const nextGrade = (g) => { const i = GRADES.indexOf(g); return i < 0 ? null : GRADES[i + 1] ?? null; };
+
 /* Roles that open the Education Team dashboard. */
 export const PORTAL_ADMIN_ROLES = ["education_team", "me", "admin", "super_admin"];
 

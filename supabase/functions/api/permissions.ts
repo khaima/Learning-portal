@@ -44,8 +44,17 @@ export type AccountStatus = (typeof ACCOUNT_STATUSES)[number];
 export const PERMISSIONS = [
   // reference data
   "schools.manage",
-  // learners (a teacher's own roster)
-  "learners.manage",
+  // learners: a teacher's class roster, a school's roster, every school
+  "learners.manage",          // teacher: learners in the classes they teach (and ones they added, until placed in a class)
+  "learners.view.school",     // school head: everyone enrolled in their own school
+  "learners.manage.school",   // school head: add, move between classes, archive, promote — own school only
+  "learners.view.all",
+  "learners.manage.all",
+  "learners.transfer",        // move a learner to another school
+  // classes and the academic calendar
+  "classes.manage.school",    // school head: create classes and assign teachers in their own school
+  "classes.manage.all",
+  "calendar.manage",          // academic years and terms
   // content library
   "library.read.learner", // Digital Library shelf
   "library.read.staff",   // Teacher Resources shelf
@@ -90,6 +99,7 @@ const USER_ADMIN: Permission[] = [
 ];
 
 const EDUCATION_TEAM: Permission[] = [
+  "learners.view.all",
   "schools.manage",
   "library.read.learner", "library.read.staff", "library.read.head", "library.manage", "library.usage.view",
   "forms.manage", "forms.responses.view",
@@ -105,11 +115,16 @@ const EDUCATION_TEAM: Permission[] = [
    gets the working-role permissions (a teacher's roster, filing a field
    visit, answering forms): administrators manage the portal, they don't
    act as a teacher or field officer inside it. */
+const LEARNER_ADMIN: Permission[] = [
+  "learners.manage.all", "learners.transfer", "classes.manage.all", "calendar.manage",
+];
+
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
-  super_admin: [...EDUCATION_TEAM, ...USER_ADMIN],
-  admin: [...EDUCATION_TEAM, ...USER_ADMIN],
+  super_admin: [...EDUCATION_TEAM, ...USER_ADMIN, ...LEARNER_ADMIN],
+  admin: [...EDUCATION_TEAM, ...USER_ADMIN, ...LEARNER_ADMIN],
   education_team: EDUCATION_TEAM,
   me: [
+    "learners.view.all", "learners.transfer",
     "library.read.learner", "library.read.staff", "library.read.head", "library.usage.view",
     "forms.responses.view",
     "assignments.view.all",
@@ -120,6 +135,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   field_officer: ["forms.respond", "field_reports.create", "field_reports.view.own", "kobo.surveys.fill"],
   school_leader: [
     "forms.respond", "school.overview.view",
+    "learners.view.school", "learners.manage.school", "classes.manage.school",
     "library.read.learner", "library.read.staff", "library.read.head",
   ],
   teacher: [
@@ -178,3 +194,18 @@ export const STATUS_TRANSITIONS: Record<string, { from: AccountStatus[]; to: Acc
 /** Roles that must be placed in a school / a county. */
 export const SCHOOL_ROLES: StaffRole[] = ["teacher", "school_leader"];
 export const COUNTY_ROLES: StaffRole[] = ["field_officer"];
+
+/* ---- the school year ---- */
+export const GRADES = [
+  "PP1", "PP2", "Grade 1", "Grade 2", "Grade 3", "Grade 4", "Grade 5", "Grade 6",
+  "Grade 7", "Grade 8", "Grade 9", "Grade 10", "Grade 11", "Grade 12",
+] as const;
+/** The grade after this one, or null at the top (the learner has completed school). */
+export function nextGrade(grade: string): string | null {
+  const i = GRADES.indexOf(grade as (typeof GRADES)[number]);
+  if (i < 0) return null;
+  return GRADES[i + 1] ?? null;
+}
+
+export const ENROLLMENT_STATUSES = ["ACTIVE", "TRANSFERRED", "DROPPED_OUT", "COMPLETED", "INACTIVE"] as const;
+export type EnrollmentStatus = (typeof ENROLLMENT_STATUSES)[number];

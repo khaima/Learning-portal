@@ -1,11 +1,14 @@
 import "./nav.js";
-import { $, $$, esc, initials, schoolLine, formatDuration, skeleton, emptyState, errorState, friendlyError, toast } from "./util.js";
+import { $, $$, esc, initials, schoolLine, formatDuration, skeleton, emptyState, errorState, friendlyError, toast, confirmDialog } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
-import { normalizeLibraryAudience } from "./data.js";
+import { normalizeLibraryAudience, GRADES, nextGrade } from "./data.js";
 import {
   getForms, getResponses, getLibrary, getLibraryFolders, mountLibraryShelves, libraryPreviewHtml, getMyLibraryUsage,
-  getSchoolOverview,
+  getSchoolOverview, getClasses, createClass, updateClass, assignClassTeacher, removeClassTeacher, promoteClass,
+  getLearners, updateLearner, setLearnerStatus, getEnrollments,
 } from "./store.js";
+import { openContentPanel, closeViewer } from "./viewer.js";
+import { statusPill, openArchiveDialog, openHistoryPanel } from "./learners-ui.js";
 import { mountFormList } from "./forms.js";
 
 const ICON = {
@@ -284,6 +287,244 @@ async function main() {
       ${rows}
     `;
   }
+  /* ------------------------------------------------------------ learners & classes
+     The school head manages everyone enrolled in their own school: the
+     school-wide roster, the year's classes (create, class teacher,
+     promotion) and the record of everyone who has left. The API keeps all
+     of this to this school only. */
+  let classes = [];
+  let schoolTeachers = [];
+  let roster = [];
+
+  $("#nc_grade").innerHTML = GRADES.map((g) => `<option>${esc(g)}</option>`).join("");
+
+  async function loadClasses() {
+    try {
+      ({ classes, schoolTeachers = [] } = await getClasses());
+    } catch (err) {
+      $("#classManager").innerHTML = errorState(friendlyError(err), loadClasses);
+      return;
+    }
+    $("#classesMeta").textContent = `${classes.length} class${classes.length === 1 ? "" : "es"} this year`;
+    const keep = $("#srClass").value;
+    $("#srClass").innerHTML = `<option value="">All classes</option>${
+      classes.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("")}<option value="none">Not in a class</option>`;
+    $("#srClass").value = [...$("#srClass").options].some((o) => o.value === keep) ? keep : "";
+    renderClassManager();
+    renderRoster();
+  }
+
+  function renderClassManager() {
+    if (!classes.length) {
+      $("#classManager").innerHTML = emptyState("No classes yet", "Add the year's classes above, then give each one a class teacher.");
+      return;
+    }
+    $("#classManager").innerHTML = classes.map((c) => {
+      const ct = c.teachers.find((t) => t.role === "class_teacher");
+      const options = `<option value="">No class teacher</option>${schoolTeachers.map((t) =>
+        `<option value="${esc(t.id)}"${ct?.teacherId === t.id ? " selected" : ""}>${esc(t.fullName)}</option>`).join("")}`;
+      return `
+        <div class="task-row" data-class="${esc(c.id)}" style="flex-wrap:wrap">
+          <div style="flex:1;min-width:12rem">
+            <b>${esc(c.name)}</b>
+            <span>${esc(c.grade)} · ${c.learnerCount} active learner${c.learnerCount === 1 ? "" : "s"}</span>
+          </div>
+          <label class="field" style="margin:0;min-width:12rem"><span class="hint-inline">Class teacher</span>
+            <select data-class-teacher="${esc(c.id)}">${options}</select></label>
+          <div class="roster-actions">
+            ${c.learnerCount ? `<button type="button" data-promote="${esc(c.id)}">Promote…</button>` : ""}
+            ${c.learnerCount ? "" : `<button type="button" class="danger" data-archive-class="${esc(c.id)}">Archive</button>`}
+          </div>
+        </div>`;
+    }).join("");
+  }
+
+  $("#newClassForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector("[type=submit]");
+    btn.disabled = true;
+    try {
+      const cls = await createClass({ grade: $("#nc_grade").value, name: $("#nc_name").value.trim() });
+      toast("Class added", `${cls.name} is ready — give it a class teacher.`, "success");
+      $("#nc_name").value = "";
+      loadClasses();
+    } catch (err) {
+      toast("Couldn't add the class", friendlyError(err), "error");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $("#classManager").addEventListener("change", async (e) => {
+    const sel = e.target.closest("[data-class-teacher]");
+    if (!sel) return;
+    const cls = classes.find((c) => c.id === sel.dataset.classTeacher);
+    const current = cls?.teachers.find((t) => t.role === "class_teacher");
+    sel.disabled = true;
+    try {
+      if (sel.value) await assignClassTeacher(cls.id, sel.value);
+      else if (current) await removeClassTeacher(cls.id, current.teacherId);
+      toast("Class teacher updated", sel.value ? `Learners in ${cls.name} now show on their roster.` : "", "success");
+      loadClasses();
+    } catch (err) {
+      sel.disabled = false;
+      toast("Couldn't change the class teacher", friendlyError(err), "error");
+    }
+  });
+
+  $("#classManager").addEventListener("click", async (e) => {
+    const archiveBtn = e.target.closest("[data-archive-class]");
+    if (archiveBtn) {
+      const cls = classes.find((c) => c.id === archiveBtn.dataset.archiveClass);
+      if (!(await confirmDialog({ title: `Archive ${cls.name}?`, body: "It disappears from this year's class lists. Its records are kept.", confirmLabel: "Archive class", danger: true }))) return;
+      try { await updateClass(cls.id, { archived: true }); toast("Class archived", "", "success"); loadClasses(); }
+      catch (err) { toast("Couldn't archive the class", friendlyError(err), "error"); }
+      return;
+    }
+    const promoteBtn = e.target.closest("[data-promote]");
+    if (!promoteBtn) return;
+    const from = classes.find((c) => c.id === promoteBtn.dataset.promote);
+    const next = nextGrade(from.grade);
+    const targets = next ? classes.filter((c) => c.grade === next) : [];
+    const panel = openContentPanel({
+      title: `Promote ${from.name}`,
+      html: next
+        ? (targets.length
+          ? `<form class="fill-form" data-promote-form style="max-width:30rem">
+               <p class="field-hint" style="margin-top:0">All ${from.learnerCount} active learner${from.learnerCount === 1 ? "" : "s"} in ${esc(from.name)} move up to ${esc(next)}. Their time in ${esc(from.name)} is kept in their history.</p>
+               <div class="field"><label for="pr_to">Into class</label><select id="pr_to">${targets.map((t) => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join("")}</select></div>
+               <div style="display:flex;gap:.6rem"><button class="btn btn-primary" type="submit">Promote to ${esc(next)}</button></div>
+             </form>`
+          : `<div class="empty-state"><b>Add a ${esc(next)} class first</b><div>Learners in ${esc(from.grade)} move up to ${esc(next)}. Create that class above, then promote.</div></div>`)
+        : `<form class="fill-form" data-promote-form style="max-width:30rem">
+             <p class="field-hint" style="margin-top:0">${esc(from.grade)} is the last grade. All ${from.learnerCount} active learner${from.learnerCount === 1 ? "" : "s"} will be marked as having completed school. Their records are kept.</p>
+             <button class="btn btn-primary" type="submit">Mark as completed</button>
+           </form>`,
+    });
+    panel.querySelector("[data-promote-form]")?.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const btn = ev.target.querySelector("[type=submit]");
+      btn.disabled = true;
+      try {
+        const res = await promoteClass(from.id, { toClassId: panel.querySelector("#pr_to")?.value });
+        toast(res.promoted ? "Class promoted" : "Learners completed", res.promoted ? `${res.promoted} learner(s) moved up to ${next}.` : `${res.completed} learner(s) marked as completed.`, "success");
+        closeViewer();
+        loadClasses();
+        loadPast();
+      } catch (err) {
+        btn.disabled = false;
+        toast("Couldn't promote the class", friendlyError(err), "error");
+      }
+    });
+  });
+
+  /* ---- the school roster ---- */
+  async function loadRoster() {
+    $("#schoolRoster").innerHTML = skeleton(4);
+    const classId = $("#srClass").value;
+    try {
+      roster = await getLearners({ status: $("#srStatus").value, classId: classId && classId !== "none" ? classId : "" });
+      if (classId === "none") roster = roster.filter((l) => !l.classId);
+    } catch (err) {
+      $("#schoolRoster").innerHTML = errorState(friendlyError(err), loadRoster);
+      return;
+    }
+    renderRoster();
+  }
+  function renderRoster() {
+    const q = $("#srSearch").value.trim().toLowerCase();
+    const rows = roster.filter((l) => !q || [l.fullName, l.username, l.learnerCode, l.userCode].some((v) => (v || "").toLowerCase().includes(q)));
+    $("#rosterMeta").textContent = `${rows.length} learner${rows.length === 1 ? "" : "s"}`;
+    if (!rows.length) {
+      $("#schoolRoster").innerHTML = emptyState(roster.length ? "No matches" : "No learners here", roster.length ? "Try another search." : "Teachers add learners from their dashboard; they appear here straight away.");
+      return;
+    }
+    const classOptions = (current) => `<option value="">Not in a class</option>${classes.map((c) =>
+      `<option value="${esc(c.id)}"${c.id === current ? " selected" : ""}>${esc(c.name)}</option>`).join("")}`;
+    $("#schoolRoster").innerHTML = rows.map((l) => {
+      const active = l.status === "ACTIVE";
+      return `
+      <div class="task-row" data-learner="${esc(l.id)}" style="flex-wrap:wrap">
+        <div style="flex:1;min-width:12rem">
+          <b>${esc(l.fullName)}</b>
+          <span>${statusPill(l.status)} <span class="code-chip">${esc(l.learnerCode || l.userCode || "")}</span> @${esc(l.username)} · ${esc(l.grade || "no grade")}${l.currentTeacherName ? ` · ${esc(l.currentTeacherName)}` : ""}${!active && l.exitReason ? ` · ${esc(l.exitReason)}` : ""}</span>
+        </div>
+        ${active ? `<label class="field" style="margin:0;min-width:11rem"><span class="hint-inline">Class</span><select data-move="${esc(l.id)}">${classOptions(l.classId)}</select></label>` : ""}
+        <div class="roster-actions">
+          <button type="button" data-history="${esc(l.id)}">History</button>
+          ${active ? `<button type="button" class="danger" data-archive="${esc(l.id)}">Archive</button>` : `<button type="button" data-reactivate="${esc(l.id)}">Reactivate</button>`}
+        </div>
+      </div>`;
+    }).join("");
+  }
+  $("#srSearch").addEventListener("input", renderRoster);
+  $("#srStatus").addEventListener("change", loadRoster);
+  $("#srClass").addEventListener("change", loadRoster);
+
+  $("#schoolRoster").addEventListener("change", async (e) => {
+    const sel = e.target.closest("[data-move]");
+    if (!sel) return;
+    const l = roster.find((x) => x.id === sel.dataset.move);
+    sel.disabled = true;
+    try {
+      await updateLearner(l.id, { classId: sel.value || null });
+      toast("Learner moved", sel.value ? `${l.fullName} is now in ${classes.find((c) => c.id === sel.value)?.name}.` : `${l.fullName} is no longer in a class.`, "success");
+      loadClasses();
+      loadRoster();
+    } catch (err) {
+      sel.disabled = false;
+      toast("Couldn't move the learner", friendlyError(err), "error");
+    }
+  });
+  $("#schoolRoster").addEventListener("click", async (e) => {
+    const h = e.target.closest("[data-history]");
+    if (h) { const l = roster.find((x) => x.id === h.dataset.history); openHistoryPanel(l.id, l.fullName); return; }
+    const a = e.target.closest("[data-archive]");
+    if (a) {
+      const l = roster.find((x) => x.id === a.dataset.archive);
+      if (await openArchiveDialog(l)) { loadRoster(); loadClasses(); loadPast(); }
+      return;
+    }
+    const r = e.target.closest("[data-reactivate]");
+    if (r) {
+      const l = roster.find((x) => x.id === r.dataset.reactivate);
+      r.disabled = true;
+      try {
+        await setLearnerStatus(l.id, "ACTIVE");
+        toast("Learner reactivated", `${l.fullName} is back on the roster and can sign in.`, "success");
+        loadRoster();
+        loadClasses();
+      } catch (err) {
+        r.disabled = false;
+        toast("Couldn't reactivate", friendlyError(err), "error");
+      }
+    }
+  });
+
+  /* ---- past learners: every closed enrollment at this school ---- */
+  async function loadPast() {
+    let rows;
+    try {
+      rows = await getEnrollments({ status: "past" });
+    } catch (err) {
+      $("#pastLearners").innerHTML = errorState(friendlyError(err), loadPast);
+      return;
+    }
+    const fmt = (d) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString() : "");
+    $("#pastLearners").innerHTML = rows.length
+      ? rows.map((e) => `
+        <div class="task-row">
+          <div style="flex:1;min-width:0"><b>${esc(e.learnerName || "Learner")}</b>
+            <span><span class="code-chip">${esc(e.learnerCode || "")}</span> ${esc(e.className || e.grade || "")} · ${esc(fmt(e.enrollmentDate))} – ${esc(fmt(e.exitDate))}${e.exitReason ? ` · ${esc(e.exitReason)}` : ""}</span></div>
+          ${statusPill(e.status)}
+        </div>`).join("")
+      : emptyState("No past learners yet", "When learners move school, are promoted out of a class or leave, their record stays here.");
+  }
+
+  loadClasses();
+  loadRoster();
+  loadPast();
+
 }
 main();
 

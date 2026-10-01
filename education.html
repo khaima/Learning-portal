@@ -126,6 +126,26 @@
           <div class="panel-head"><h2 id="schoolsHeading">Schools</h2></div>
           <div id="schoolsBody"><div class="empty-state">Loading…</div></div>
         </div>
+
+        <!-- Learners across every school: find, see history, transfer (learners.view.all / learners.transfer) -->
+        <div class="panel" id="learnerFinderPanel" hidden>
+          <div class="panel-head"><h2>Find a learner</h2><span class="chart-meta" id="lfMeta" style="margin:0"></span></div>
+          <p class="shelf-sub">Search every school by name, username or learner code — to see where a learner has been, or move them to another school.</p>
+          <form id="learnerFinder" class="school-add">
+            <select id="lf_school" aria-label="School"><option value="">All schools</option></select>
+            <input id="lf_q" type="text" placeholder="Name, username or learner code" aria-label="Search learners">
+            <button class="btn btn-primary" type="submit">Search</button>
+          </form>
+          <label class="field-remember" style="margin:-.4rem 0 .6rem"><input type="checkbox" id="lf_archived"> <span>Include archived learners</span></label>
+          <div id="learnerFinderResults"></div>
+        </div>
+
+        <!-- Academic calendar (calendar.manage) -->
+        <div class="panel" id="calendarPanel" hidden>
+          <div class="panel-head"><h2>Academic year</h2></div>
+          <p class="shelf-sub" id="calendarText">Loading…</p>
+          <button type="button" class="btn btn-outline" id="startNextYear" hidden></button>
+        </div>
       </section>
 
       <section class="dash-page" data-page="users" hidden>

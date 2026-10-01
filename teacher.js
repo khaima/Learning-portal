@@ -1,12 +1,13 @@
 import "./nav.js";
 import { $, $$, esc, initials, schoolLine, toast, formatDuration, skeleton, emptyState, errorState, friendlyError } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
-import { TEACHER_CONTENT, normalizeLibraryAudience } from "./data.js";
+import { normalizeLibraryAudience } from "./data.js";
 import {
   getLibrary, getLibraryFolders, getForms, getResponses, mountLibraryShelves, libraryPreviewHtml,
-  getLearners, addLearner, updateLearner, deleteLearner, getMyLibraryUsage, getLearnerActivity,
-  setAssignmentDone, getTeacherAssignments,
+  getLearners, addLearner, updateLearner, getMyLibraryUsage, getLearnerActivity,
+  setAssignmentDone, getTeacherAssignments, getClasses, setLearnerStatus,
 } from "./store.js";
+import { statusPill, openArchiveDialog, openHistoryPanel } from "./learners-ui.js";
 import { openContentPanel } from "./viewer.js";
 import { mountFormList } from "./forms.js";
 
@@ -23,7 +24,6 @@ const svg = (paths) => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke
 async function main() {
   const user = await requireRole("teacher");
   if (!user) return;
-  const content = TEACHER_CONTENT[user.id] || { classes: [] };
 
   $("#sideAvatar").textContent = initials(user.fullName);
   $("#sideName").textContent = user.fullName;
@@ -40,25 +40,42 @@ async function main() {
     const completedThisWeek = assignCache.filter((a) => a.done && isThisWeek(a.due)).length;
     const resourcesUsed = usageCache ? usageCache.resourcesOpened : 0;
     $("#statRow").innerHTML = `
-      <div class="stat-tile"><div class="s-label">${svg(ICON.learners)}My learners</div><div class="s-num">${learnerCache.length}</div><div class="s-sub">across your classes</div></div>
+      <div class="stat-tile"><div class="s-label">${svg(ICON.learners)}My learners</div><div class="s-num">${activeCount}</div><div class="s-sub">active, across your classes</div></div>
       <div class="stat-tile"><div class="s-label">${svg(ICON.grade)}Assignments to review</div><div class="s-num">${toReview}</div><div class="s-sub">needs action</div></div>
       <div class="stat-tile"><div class="s-label">${svg(ICON.score)}Completed this week</div><div class="s-num">${completedThisWeek}</div><div class="s-sub">assignments</div></div>
       <div class="stat-tile"><div class="s-label">${svg(ICON.library)}Resources used</div><div class="s-num">${resourcesUsed}</div><div class="s-sub">by you, all time</div></div>
     `;
   }
 
-  function renderClasses() {
-    const html = content.classes.length
-      ? content.classes.map((c) => `
-        <div class="class-row">
-          <div class="class-swatch" style="background:${c.swatch}">${esc(c.code)}</div>
-          <div class="class-info"><b>${esc(c.name)}</b><span>${c.learners} learners</span>
-            <div class="class-bar"><i style="width:${c.coverage}%"></i></div></div>
-          <div class="class-meta"><b>${c.coverage}%</b>coverage</div>
-        </div>`).join("")
-      : `<div class="empty-state">No classes yet. A real build would let you create one here.</div>`;
+  /* ------------------------------------------------------------ my classes
+     The classes a school head (or administrator) has assigned this teacher
+     to in the current academic year. */
+  let myClasses = [];
+  async function renderClasses() {
+    $("#classList").innerHTML = skeleton(2, { avatar: false });
+    try {
+      ({ classes: myClasses } = await getClasses());
+    } catch (err) {
+      const msg = errorState(friendlyError(err), renderClasses);
+      $("#classList").innerHTML = msg;
+      $("#homeClassList").innerHTML = msg;
+      return;
+    }
+    const html = myClasses.length
+      ? myClasses.map((c) => {
+          const mine = c.teachers.find((t) => t.teacherId === user.id);
+          return `
+          <div class="class-row">
+            <div class="class-swatch" style="background:var(--panel)">${esc(c.grade.replace("Grade ", "G"))}</div>
+            <div class="class-info"><b>${esc(c.name)}</b><span>${c.learnerCount} active learner${c.learnerCount === 1 ? "" : "s"} · ${esc(c.academicYear)}</span></div>
+            <div class="class-meta"><b>${mine?.role === "class_teacher" ? "Class teacher" : "Subject teacher"}</b></div>
+          </div>`;
+        }).join("")
+      : emptyState("No classes yet", "Your school head assigns teachers to classes. Learners you add yourself still appear under My Learners.");
     $("#classList").innerHTML = html;
     $("#homeClassList").innerHTML = html;
+    $("#nl_class").innerHTML = `<option value="">Not in a class yet</option>${
+      myClasses.map((c) => `<option value="${esc(c.id)}">${esc(c.name)} (${esc(c.grade)})</option>`).join("")}`;
   }
   renderClasses();
 
@@ -69,6 +86,7 @@ async function main() {
   let assignCache = [];
   let assignmentsFailed = false;
   let learnerCache = [];
+  let activeCount = 0; // active learners, shown in the KPI tile whichever list is open
   let usageCache = null;
 
   const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -190,18 +208,24 @@ async function main() {
   let learnerPage = 0;
 
   function learnerRow(l) {
+    const active = l.status === "ACTIVE";
+    const left = !active && l.exitDate ? ` · left ${esc(new Date(`${l.exitDate}T00:00:00`).toLocaleDateString())}${l.exitReason ? ` (${esc(l.exitReason)})` : ""}` : "";
     return `
       <div class="task-row" data-learner="${esc(l.id)}" data-username="${esc(l.username)}" data-grade="${esc(l.grade || "")}">
-        <div style="flex:1">
+        <div style="flex:1;min-width:0">
           <button type="button" data-act="view" style="background:none;border:0;padding:0;font:inherit;cursor:pointer;color:var(--brand-fg);text-align:left"><b>${esc(l.fullName)}</b></button>
-          <span>${l.userCode ? `<span class="code-chip">${esc(l.userCode)}</span> ` : ""}@${esc(l.username)}${l.grade ? " · " + esc(l.grade) : ""}${l.locked ? ' · <span class="pill warm">Locked</span>' : ""}</span>
+          <span>${statusPill(l.status)} ${l.userCode ? `<span class="code-chip">${esc(l.userCode)}</span> ` : ""}@${esc(l.username)}${l.className ? " · " + esc(l.className) : l.grade ? " · " + esc(l.grade) : ""}${l.locked ? ' · <span class="pill warm">Locked</span>' : ""}${left}</span>
         </div>
         <div class="roster-actions">
+          ${active ? `
           <button type="button" data-act="view">View activity</button>
           <button type="button" data-act="edit">Edit</button>
           <button type="button" data-act="pin">Reset PIN</button>
           ${l.locked ? '<button type="button" data-act="unlock">Unlock</button>' : ""}
-          <button type="button" data-act="remove" class="danger">Remove</button>
+          <button type="button" data-act="history">History</button>
+          <button type="button" data-act="archive" class="danger">Archive</button>` : `
+          <button type="button" data-act="history">History</button>
+          <button type="button" data-act="reactivate">Reactivate</button>`}
         </div>
       </div>`;
   }
@@ -223,7 +247,9 @@ async function main() {
 
     roster.innerHTML = learnerCache.length
       ? pageItems.map(learnerRow).join("")
-      : emptyState("No learners yet", "Add one to give them a sign-in.");
+      : rosterStatus() === "archived"
+        ? emptyState("No archived learners", "Learners who leave, move school or finish appear here — they're never deleted.")
+        : emptyState("No learners yet", "Add one to give them a sign-in.");
 
     pager.innerHTML = learnerCache.length > LEARNER_PAGE_SIZE
       ? `<span>${start + 1}–${Math.min(learnerCache.length, start + LEARNER_PAGE_SIZE)} of ${learnerCache.length}</span>
@@ -242,10 +268,13 @@ async function main() {
   });
 
   let learnersFailed = false;
+  const rosterStatus = () => $("#rosterStatus").value;
+  $("#rosterStatus").addEventListener("change", () => { learnerPage = 0; renderRoster(); });
   async function renderRoster() {
     roster.innerHTML = skeleton(LEARNER_PAGE_SIZE);
     try {
-      learnerCache = await getLearners();
+      learnerCache = await getLearners({ status: rosterStatus() });
+      if (rosterStatus() === "active") activeCount = learnerCache.length;
       learnersFailed = false;
     } catch (err) {
       learnersFailed = true;
@@ -302,6 +331,8 @@ async function main() {
     ? `Placed automatically in <b>${esc(user.school)}</b>${schoolCode ? ` (${esc(schoolCode)})` : ""}${user.county ? ` · ${esc(user.county)} County` : ""}. Each learner gets their own code${schoolCode ? `, like <b>${esc(schoolCode)}-L0001</b>` : ""}.`
     : "Placed automatically in your own school and county.";
 
+  // A class sets the grade; the free grade box is only for learners not in a class yet.
+  $("#nl_class").addEventListener("change", () => { $("#nl_grade_field").hidden = !!$("#nl_class").value; });
   $("#addLearnerBtn").addEventListener("click", () => {
     addForm.hidden = false;
     addError.hidden = true;
@@ -323,6 +354,7 @@ async function main() {
         username: $("#nl_user").value.trim().toLowerCase(),
         grade: $("#nl_grade").value.trim(),
         pin: $("#nl_pin").value.trim(),
+        classId: $("#nl_class").value || undefined,
       });
       addForm.reset();
       addForm.hidden = true;
@@ -445,10 +477,15 @@ async function main() {
       } else if (act === "unlock") {
         await updateLearner(id, { unlock: true });
         toast("Unlocked", "");
-      } else if (act === "remove") {
-        if (!confirm(`Remove ${nameEl.textContent}? Their sign-in stops working.`)) return;
-        await deleteLearner(id);
-        toast("Learner removed", "");
+      } else if (act === "archive") {
+        const l = learnerCache.find((x) => x.id === id);
+        if (!(await openArchiveDialog(l))) return;
+      } else if (act === "reactivate") {
+        await setLearnerStatus(id, "ACTIVE");
+        toast("Learner reactivated", `${nameEl.textContent} is back on the active roster and can sign in.`, "success");
+      } else if (act === "history") {
+        openHistoryPanel(id, nameEl.textContent);
+        return;
       }
       renderRoster();
     } catch (err) {

@@ -160,14 +160,50 @@ everywhere and no school's teachers or learners get mixed with another's.
   `NRK-001-L0001` for a learner. Numbers only ever count up, so a code is
   never given to a second person.
 - **Who picks what**: teachers and school heads choose County → School when
-  they set up their account; learners are placed automatically in the
-  school of the teacher who adds them; field officers choose a county and
+  they set up their account; learners are placed in the school of the
+  teacher or school head who adds them; field officers choose a county and
   pick the school per visit; the Education Team isn't tied to a school.
 - **Existing accounts** made before codes are asked once, on their next
   sign-in, to choose their school (a teacher's learners join it too). Only
   the Education Team can move someone to a different school afterwards
-  (Users → Edit), which gives them a new code — a teacher's learners move
-  with them.
+  (Users → Edit), which gives them a new code. Learners belong to the
+  school, not the teacher: they stay when a teacher moves, and change school
+  only by a transfer (below).
+
+### Classes, enrollment and learner records
+
+Learners are managed by school and class: **school → academic year → term
+→ class → class teacher → learner enrollment**.
+
+- **Academic year and terms:** one year is current (2026; terms Jan–Apr,
+  May–Aug, Sep–Dec). Admins start the next year on **Schools → Academic
+  year**; earlier classes and records stay under their own year.
+- **Classes:** school heads create their school's classes for the year
+  (Learners → Classes), give each a class teacher, and archive classes they
+  no longer use. Teachers see their classes under **My Classes**.
+- **Rosters:** a school head sees the whole school's roster and can move a
+  learner between classes; a teacher sees the learners in classes they teach
+  (plus any they added who aren't in a class yet). Admins and M&E can find a
+  learner in any school (Schools → Find a learner).
+- **Every learner has** a school, class, current teacher, grade, year, term,
+  an enrollment status — `ACTIVE`, `TRANSFERRED`, `DROPPED_OUT`, `COMPLETED`
+  or `INACTIVE` — enrollment date, exit date and reason, and a permanent
+  **learner code** that never changes, even across schools.
+- **Nothing is deleted.** "Remove" archives a learner (`INACTIVE`, or
+  Dropped out / Completed with a reason and date): they leave the active
+  roster and counts and can't sign in, but their record, history and work
+  stay, and they can be reactivated.
+- **Promotion:** a school head promotes a class into a class of the next
+  grade; each learner's year in the old class is closed as `COMPLETED`
+  ("Promoted to Grade 5") and a new enrollment opens. Learners in the top
+  grade are marked Completed.
+- **Transfers:** Admins and M&E move a learner to another school. The old
+  enrollment is closed as `TRANSFERRED` and kept (the old school sees it
+  under Past learners); the learner gets the new school's code but keeps
+  their learner code, sign-in, work and history.
+- **History:** every stay in a school and class is a row in
+  `learner_enrollments`; History on any learner shows the full list. Moves,
+  archives, transfers and promotions are also in the audit log.
 
 ## The backend
 
@@ -241,7 +277,8 @@ the caller's own row in the database — nothing the browser sends.
   roster, filing field visits).
 - **Audit log:** account creation, approval, rejection, role/school/county
   changes, suspension, deactivation, reactivation, password resets,
-  invitations, and learner creation/edits/deletion go to `audit_log`,
+  invitations, and learner creation, edits, class moves, archiving,
+  transfers and promotions go to `audit_log`,
   which can't be edited or deleted even by the service role. Admins see it
   under Users → Account history, and per account.
 - **Tests:** [`authz_test.ts`](supabase/functions/api/authz_test.ts) calls
@@ -355,6 +392,7 @@ used).
 | `config.js` | Supabase URL, publishable key, API base URL |
 | `data.js` | Static UI constants (roles, subjects, question types) |
 | `util.js` | Tiny shared DOM / escaping / toast helpers |
+| `learners-ui.js` | Shared learner dialogs: archive, history, transfer |
 | `styles.css` | The whole design system (light + dark, one file) |
 | `serve.py` | Local static server (honours `$PORT`) |
 | `supabase/functions/api/` | The backend API (Deno + Hono) |

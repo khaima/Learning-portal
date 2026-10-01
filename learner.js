@@ -1,7 +1,7 @@
 import "./nav.js";
 import { $, $$, esc, initials, schoolLine, formatDuration, skeleton, emptyState, errorState, friendlyError, toast } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
-import { LEARNER_CONTENT, SUBJECT_ICON_PATHS, normalizeLibraryAudience } from "./data.js";
+import { normalizeLibraryAudience } from "./data.js";
 import {
   getLibrary, getLibraryFolders, libraryFilesHtml, mountLibraryShelves, libraryPreviewHtml, getAssignments, markAssignmentDone, getMyLibraryUsage,
 } from "./store.js";
@@ -12,32 +12,28 @@ const HOME_TEASER_LIMIT = 3; // keep the digest scannable — the sidebar is whe
 async function main() {
   const user = await requireRole("learner");
   if (!user) return;
-  const seed = LEARNER_CONTENT[user.id] || { classes: [], assignments: [] };
-
   $("#sideAvatar").textContent = initials(user.fullName);
   $("#sideName").textContent = user.fullName;
-  $("#sideMeta").textContent = `Learner · ${user.userCode || user.grade || "—"}`;
+  $("#sideMeta").textContent = `Learner · ${user.learnerCode || user.userCode || user.grade || "—"}`;
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
-  $("#topSub").textContent = `${schoolLine(user)}${user.grade ? ` · ${user.grade}` : ""}`;
+  const termLabel = user.term ? `${user.academicYear} Term ${String(user.term).replace(/^\d{4}-T/, "")}` : user.academicYear || "";
+  $("#topSub").textContent = [schoolLine(user), user.className || user.grade, termLabel].filter(Boolean).join(" · ");
 
-  /* ------------------------------------------------------------ classes
-     (Home shows the first few; My Learning shows all of them.) */
-  const classesHtml = (classes) => classes.length
-    ? classes.map((c) => `
+  /* ------------------------------------------------------------ my class
+     The class this learner is enrolled in this year, from their school's
+     records (school → year → term → class). */
+  const classHtml = user.className || user.grade
+    ? `
       <div class="learn-card">
         <div class="lc-top">
-          <span class="lc-icon" style="background:${c.swatch}"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${SUBJECT_ICON_PATHS[c.subject] || ""}</svg></span>
-          <div><b>${esc(c.subject)}</b><span class="lc-meta">${esc(user.grade || "")} · ${esc(c.teacher)}</span></div>
+          <span class="lc-icon" style="background:var(--panel)"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/></svg></span>
+          <div><b>${esc(user.className || user.grade)}</b><span class="lc-meta">${esc(user.school || "")}${user.teacherName ? ` · ${esc(user.teacherName)}` : ""}</span></div>
         </div>
-        <div class="lc-next">${c.next
-          ? `Next: <b>${esc(c.next.label)}</b> · due ${esc(c.next.due)}`
-          : c.lastResult
-          ? `Last result: <b>${c.lastResult.score}%</b> · ${esc(c.lastResult.label)}`
-          : "Nothing scheduled yet"}</div>
-      </div>`).join("")
-    : `<div class="empty-state">You're not enrolled in any classes yet.</div>`;
-  $("#classGrid").innerHTML = classesHtml(seed.classes);
-  $("#homeClasses").innerHTML = classesHtml(seed.classes.slice(0, HOME_TEASER_LIMIT));
+        <div class="lc-next">${esc(termLabel)}${user.learnerCode ? ` · Your learner code: <b>${esc(user.learnerCode)}</b>` : ""}</div>
+      </div>`
+    : `<div class="empty-state">You're not in a class yet — your teacher or school head will add you.</div>`;
+  $("#classGrid").innerHTML = classHtml;
+  $("#homeClasses").innerHTML = classHtml;
 
   /* ------------------------------------------------------------ assignments
      Live in the real database (learning_portal.assignments) — a fresh

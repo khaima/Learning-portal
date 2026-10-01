@@ -90,6 +90,7 @@
       <section class="dash-page" data-page="my-classes" hidden>
         <div class="panel">
           <div class="panel-head"><h2>My classes</h2></div>
+          <p class="hint" style="margin-top:0">The classes your school head has assigned you to this year. Learners you add yourself, before they're placed in a class, also stay on your roster.</p>
           <div id="classList"></div>
         </div>
       </section>
@@ -101,9 +102,10 @@
             <button type="button" id="addLearnerBtn">+ Add learner</button>
           </div>
           <form id="addLearnerForm" class="fill-form" hidden>
-            <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:.9rem">
+            <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.9rem">
               <div class="field"><label for="nl_name">Full name</label><input id="nl_name" type="text" required></div>
-              <div class="field"><label for="nl_grade">Grade / class</label><input id="nl_grade" type="text" placeholder="e.g. Grade 5A"></div>
+              <div class="field"><label for="nl_class">Class</label><select id="nl_class"><option value="">Not in a class yet</option></select></div>
+              <div class="field" id="nl_grade_field"><label for="nl_grade">Grade</label><input id="nl_grade" type="text" placeholder="e.g. Grade 5"></div>
             </div>
             <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:.9rem">
               <div class="field"><label for="nl_user">Username</label><input id="nl_user" type="text" autocapitalize="none" spellcheck="false" placeholder="e.g. naomi.k" required></div>
@@ -125,6 +127,13 @@
             </div>
             <p class="hint">One learner per row: full name is required; username, grade, and PIN are optional — left blank, we'll generate them for you and show you the result. Every learner is placed automatically in your own school and county.</p>
             <div id="bulkLearnerResult"></div>
+          </div>
+          <div class="field" style="max-width:14rem;margin:1rem 0 .3rem">
+            <label for="rosterStatus">Show</label>
+            <select id="rosterStatus">
+              <option value="active">Active learners</option>
+              <option value="archived">Archived (left, moved, completed)</option>
+            </select>
           </div>
           <div id="learnerRoster"></div>
           <div id="learnerRosterPager" style="display:flex;justify-content:space-between;align-items:center;margin-top:.6rem;font-size:.82rem;color:var(--ink-soft)"></div>

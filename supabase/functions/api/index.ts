@@ -21,7 +21,7 @@ import { Buffer } from "node:buffer";
 import {
   ACCOUNT_STATUSES, can, canManageAccount, COUNTY_ROLES, grantableRoles, type Permission,
   permissionsFor, type Role, ROLE_LABEL, SELF_REQUESTABLE_ROLES,
-  STAFF_ROLES, STATUS_TRANSITIONS,
+  STAFF_ROLES, STATUS_TRANSITIONS, GRADES, nextGrade, type EnrollmentStatus,
 } from "./permissions.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -358,18 +358,11 @@ const mapLearnerSelf = (r: Record<string, unknown>) => ({
   school: r.school,
   county: r.county,
   userCode: r.user_code ?? null,
-});
-const LEARNER_ROSTER_COLS = "id, username, full_name, grade, school, county, user_code, created_at, locked_until";
-const mapRosterLearner = (r: Record<string, unknown>) => ({
-  id: r.id,
-  username: r.username,
-  fullName: r.full_name,
-  grade: r.grade,
-  school: r.school,
-  county: r.county,
-  userCode: r.user_code ?? null,
-  createdAt: r.created_at,
-  locked: !!(r.locked_until && new Date(r.locked_until as string) > new Date()),
+  learnerCode: r.learner_code ?? r.user_code ?? null,
+  classId: r.class_id ?? null,
+  academicYear: r.academic_year_id ?? null,
+  term: r.term_id ?? null,
+  enrollmentStatus: r.enrollment_status ?? "ACTIVE",
 });
 const mapSchool = (r: Record<string, unknown>) => ({
   id: r.id, name: r.name, county: r.county, code: r.code,
@@ -554,6 +547,9 @@ app.post("/learner/login", async (c) => {
     .eq("username", username)
     .maybeSingle();
   if (!learner) return c.json({ error: "Wrong username or PIN" }, 401);
+  if ((learner.enrollment_status ?? "ACTIVE") !== "ACTIVE") {
+    return c.json({ error: "This account isn't active any more. Ask your teacher." }, 403);
+  }
 
   if (learner.locked_until && new Date(learner.locked_until) > new Date()) {
     return c.json({ error: "Too many tries. Ask your teacher to unlock it." }, 423);
@@ -666,6 +662,7 @@ async function resolveActor(c: any): Promise<Response | null> {
   if (c.get("actorKind") === "learner") {
     const l = await loadLearner(c.get("learnerId"));
     if (!l) return c.json({ error: "Invalid session" }, 401);
+    if ((l.enrollment_status ?? "ACTIVE") !== "ACTIVE") return c.json({ error: "Invalid session" }, 401);
     c.set("actor", { id: l.id, role: "learner", fullName: l.full_name, grade: l.grade, school: l.school, county: l.county, schoolId: l.school_id ?? null });
     return null;
   }
@@ -718,8 +715,12 @@ const actorCan = (c: any, p: Permission) => can(c.get("actor")?.role, p);
 app.get("/me", async (c) => {
   if (c.get("actorKind") === "learner") {
     const l = await loadLearner(c.get("learnerId"));
-    if (!l) return c.json({ error: "Invalid session" }, 401);
-    return c.json({ profile: mapLearnerSelf(l) });
+    if (!l || (l.enrollment_status ?? "ACTIVE") !== "ACTIVE") return c.json({ error: "Invalid session" }, 401);
+    const [cls, teacher] = await Promise.all([
+      l.class_id ? admin.from("classes").select("name, grade").eq("id", l.class_id).maybeSingle() : { data: null },
+      l.current_teacher_id ? admin.from("profiles").select("full_name").eq("id", l.current_teacher_id).maybeSingle() : { data: null },
+    ]);
+    return c.json({ profile: { ...mapLearnerSelf(l), className: cls.data?.name ?? null, teacherName: teacher.data?.full_name ?? null } });
   }
   const profile = await loadStaffProfile(c.get("userId"));
   if (!profile) return c.json({ needsOnboarding: true, email: c.get("email") });
@@ -881,13 +882,28 @@ app.put("/me/school", requireStaff(), async (c) => {
   }
 });
 
-/** Every learner of this teacher that isn't already in `school` joins it
-    (with a code under it). */
+/** First school pick only: learners this teacher added before schools had
+    codes (and so have no school) join the teacher's school. Learners that
+    already belong to a school stay there — they belong to the school now,
+    not the teacher. */
 async function moveTeachersLearners(teacherId: string, school: School) {
   const { data } = await admin.from("learners").select("id, school_id").eq("teacher_id", teacherId);
   for (const l of data ?? []) {
-    if (l.school_id !== school.id) await placeInSchool("learners", l.id as string, school, "learner");
+    if (!l.school_id) await placeInSchool("learners", l.id as string, school, "learner");
   }
+}
+
+/** A teacher leaving a school: their class assignments there end and their
+    learners there wait for a new teacher. The learners stay in the school. */
+async function detachTeacherFromSchool(teacherId: string, schoolId: string | null, byId: string) {
+  if (!schoolId) return;
+  const { data: classes } = await admin.from("classes").select("id").eq("school_id", schoolId);
+  const ids = (classes ?? []).map((x) => x.id);
+  if (ids.length) {
+    await admin.from("class_teachers").update({ ended_at: new Date().toISOString(), ended_by: byId })
+      .eq("teacher_id", teacherId).in("class_id", ids).is("ended_at", null);
+  }
+  await admin.from("learners").update({ current_teacher_id: null }).eq("school_id", schoolId).eq("current_teacher_id", teacherId);
 }
 
 // ---- schools directory ----
@@ -914,7 +930,7 @@ app.get("/schools", async (c) => {
   if (me && (me.status ?? "active") === "active" && can(me.role, "schools.manage")) {
     const [{ data: profs }, { data: learners }] = await Promise.all([
       selectAll(() => admin.from("profiles").select("school_id, role").not("school_id", "is", null).order("id")),
-      selectAll(() => admin.from("learners").select("school_id").not("school_id", "is", null).order("id")),
+      selectAll(() => admin.from("learners").select("school_id").not("school_id", "is", null).eq("enrollment_status", "ACTIVE").order("id")),
     ]);
     const count = (rows: Record<string, unknown>[] | null, id: unknown, role?: string) =>
       (rows ?? []).filter((r) => r.school_id === id && (!role || r.role === role)).length;
@@ -1032,20 +1048,196 @@ app.delete("/schools/:id", requirePermission("schools.manage"), async (c) => {
   return c.json({ ok: true });
 });
 
-// ---- teacher's learner roster ----
+// ---- learners: school → academic year → term → class → enrollment ----
+// Learners belong to a SCHOOL (and, once placed, a CLASS) — no longer to
+// the teacher who created them. Who may see or change a learner:
+//   - all schools:  learners.view.all / learners.manage.all (admin, M&E…)
+//   - one school:   learners.view.school / .manage.school (the school head)
+//   - a teacher:    learners in the classes they teach, plus ones they
+//                   added that aren't in a class yet — always in their own
+//                   school only.
+// Learners are never deleted. Leaving is an enrollment status with a date
+// and reason; every enrollment period is kept in learner_enrollments.
 
-app.get("/learners", requirePermission("learners.manage"), async (c) => {
-  const { data, error } = await admin
-    .from("learners")
-    .select(LEARNER_ROSTER_COLS)
-    .eq("teacher_id", c.get("actor").id)
-    .order("full_name");
-  if (error) return c.json({ error: error.message }, 500);
-  return c.json({ learners: (data ?? []).map(mapRosterLearner) });
+const ACTIVE = "ACTIVE";
+const EXIT_STATUSES: EnrollmentStatus[] = ["TRANSFERRED", "DROPPED_OUT", "COMPLETED", "INACTIVE"];
+const today = () => new Date().toISOString().slice(0, 10);
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+type LearnerScope =
+  | { kind: "all" }
+  | { kind: "school"; schoolId: string }
+  | { kind: "teacher"; teacherId: string; schoolId: string; classIds: string[] }
+  | { kind: "none" };
+
+/** Classes this teacher currently teaches (any role). */
+async function classesTaughtBy(teacherId: string): Promise<string[]> {
+  const { data } = await admin.from("class_teachers").select("class_id")
+    .eq("teacher_id", teacherId).is("ended_at", null);
+  return (data ?? []).map((r) => r.class_id as string);
+}
+
+// deno-lint-ignore no-explicit-any
+async function learnerScope(c: any): Promise<LearnerScope> {
+  const a = c.get("actor") as Actor;
+  if (can(a.role, "learners.view.all") || can(a.role, "learners.manage.all")) return { kind: "all" };
+  if (can(a.role, "learners.view.school")) return a.schoolId ? { kind: "school", schoolId: a.schoolId } : { kind: "none" };
+  if (can(a.role, "learners.manage")) {
+    return a.schoolId ? { kind: "teacher", teacherId: a.id, schoolId: a.schoolId, classIds: await classesTaughtBy(a.id) } : { kind: "none" };
+  }
+  return { kind: "none" };
+}
+
+function inLearnerScope(scope: LearnerScope, l: Record<string, unknown>): boolean {
+  if (scope.kind === "all") return true;
+  if (scope.kind === "none") return false;
+  if (l.school_id !== scope.schoolId) return false; // never another school's learner
+  if (scope.kind === "school") return true;
+  return l.current_teacher_id === scope.teacherId ||
+    (!!l.class_id && scope.classIds.includes(l.class_id as string)) ||
+    (!l.class_id && l.teacher_id === scope.teacherId);
+}
+
+/** May the caller change this learner? View scope plus a manage permission. */
+// deno-lint-ignore no-explicit-any
+function canManageLearner(c: any, scope: LearnerScope, l: Record<string, unknown>): boolean {
+  if (!inLearnerScope(scope, l)) return false;
+  if (scope.kind === "all") return actorCan(c, "learners.manage.all");
+  if (scope.kind === "school") return actorCan(c, "learners.manage.school");
+  return actorCan(c, "learners.manage");
+}
+
+/** Loads :id and checks the caller may see (and, with `manage`, change) it.
+    A learner outside the caller's scope is "not found", never "forbidden",
+    so nobody can probe another school's learner ids. */
+// deno-lint-ignore no-explicit-any
+async function loadScopedLearner(c: any, manage: boolean): Promise<{ learner: Record<string, any>; scope: LearnerScope } | Response> {
+  const scope = await learnerScope(c);
+  const { data: learner } = await admin.from("learners").select("*").eq("id", c.req.param("id")).maybeSingle();
+  if (!learner || !inLearnerScope(scope, learner)) return c.json({ error: "Learner not found" }, 404);
+  if (manage && !canManageLearner(c, scope, learner)) return c.json({ error: NO_PERMISSION }, 403);
+  return { learner, scope };
+}
+
+async function currentCalendar() {
+  const { data: year } = await admin.from("academic_years").select("*").eq("is_current", true).maybeSingle();
+  if (!year) return { yearId: null as string | null, termId: null as string | null };
+  const { data: terms } = await admin.from("terms").select("*").eq("academic_year_id", year.id);
+  const d = today();
+  const term = (terms ?? []).find((t) => t.starts_on <= d && d <= t.ends_on) ??
+    (terms ?? []).sort((a, b) => b.term_no - a.term_no)[0];
+  return { yearId: year.id as string, termId: (term?.id as string) ?? null };
+}
+
+async function loadClass(id: unknown) {
+  if (!id) return null;
+  const { data } = await admin.from("classes").select("*").eq("id", String(id)).maybeSingle();
+  return data;
+}
+async function classTeacherOf(classId: string): Promise<string | null> {
+  const { data } = await admin.from("class_teachers").select("teacher_id")
+    .eq("class_id", classId).eq("role", "class_teacher").is("ended_at", null).maybeSingle();
+  return (data?.teacher_id as string) ?? null;
+}
+
+/** Closes the learner's ACTIVE enrollment (if any) with this status. */
+// deno-lint-ignore no-explicit-any
+async function closeEnrollment(c: any, learnerId: string, status: EnrollmentStatus, exitDate: string, reason: string | null) {
+  await admin.from("learner_enrollments").update({
+    status, exit_date: exitDate, exit_reason: reason, closed_by: c.get("actor").id, closed_at: new Date().toISOString(),
+  }).eq("learner_id", learnerId).eq("status", ACTIVE);
+}
+
+/** Opens a new ACTIVE enrollment and copies it onto the learner row. */
+// deno-lint-ignore no-explicit-any
+async function openEnrollment(c: any, learnerId: string, e: {
+  schoolId: string; classId: string | null; grade: string; teacherId: string | null;
+  yearId: string; termId: string | null; date: string;
+}) {
+  const { error } = await admin.from("learner_enrollments").insert({
+    id: rid("enr"), learner_id: learnerId, school_id: e.schoolId, class_id: e.classId,
+    academic_year_id: e.yearId, term_id: e.termId, grade: e.grade, teacher_id: e.teacherId,
+    status: ACTIVE, enrollment_date: e.date, created_by: c.get("actor").id,
+  });
+  if (error) throw new Error(error.message);
+  const { error: lErr } = await admin.from("learners").update({
+    school_id: e.schoolId, class_id: e.classId, grade: e.grade, current_teacher_id: e.teacherId,
+    academic_year_id: e.yearId, term_id: e.termId, enrollment_status: ACTIVE, enrollment_date: e.date,
+    exit_date: null, exit_reason: null, updated_at: new Date().toISOString(),
+  }).eq("id", learnerId);
+  if (lErr) throw new Error(lErr.message);
+}
+
+const LEARNER_ROSTER_COLS = "*";
+const mapRosterLearner = (r: Record<string, unknown>, names: { classes?: Record<string, string>; teachers?: Record<string, string> } = {}) => ({
+  id: r.id,
+  username: r.username,
+  fullName: r.full_name,
+  grade: r.grade,
+  school: r.school,
+  schoolId: r.school_id ?? null,
+  county: r.county,
+  userCode: r.user_code ?? null,
+  learnerCode: r.learner_code ?? r.user_code ?? null,
+  classId: r.class_id ?? null,
+  className: r.class_id ? names.classes?.[r.class_id as string] ?? null : null,
+  currentTeacherId: r.current_teacher_id ?? null,
+  currentTeacherName: r.current_teacher_id ? names.teachers?.[r.current_teacher_id as string] ?? null : null,
+  academicYear: r.academic_year_id ?? null,
+  term: r.term_id ?? null,
+  status: r.enrollment_status ?? ACTIVE,
+  enrollmentDate: r.enrollment_date ?? null,
+  exitDate: r.exit_date ?? null,
+  exitReason: r.exit_reason ?? null,
+  createdAt: r.created_at,
+  locked: !!(r.locked_until && new Date(r.locked_until as string) > new Date()),
 });
 
-app.post("/learners", requirePermission("learners.manage"), async (c) => {
+/** Class and teacher names for a set of learner/enrollment rows. */
+async function rosterNames(rows: Record<string, unknown>[]) {
+  const classIds = [...new Set(rows.map((r) => r.class_id).filter(Boolean))] as string[];
+  const teacherIds = [...new Set(rows.flatMap((r) => [r.current_teacher_id, r.teacher_id]).filter(Boolean))] as string[];
+  const schoolIds = [...new Set(rows.map((r) => r.school_id).filter(Boolean))] as string[];
+  const [cls, tch, sch] = await Promise.all([
+    classIds.length ? admin.from("classes").select("id, name").in("id", classIds) : { data: [] },
+    teacherIds.length ? admin.from("profiles").select("id, full_name").in("id", teacherIds) : { data: [] },
+    schoolIds.length ? admin.from("schools").select("id, name, code").in("id", schoolIds) : { data: [] },
+  ]);
+  return {
+    classes: Object.fromEntries((cls.data ?? []).map((x: Record<string, unknown>) => [x.id, x.name])) as Record<string, string>,
+    teachers: Object.fromEntries((tch.data ?? []).map((x: Record<string, unknown>) => [x.id, x.full_name])) as Record<string, string>,
+    schools: Object.fromEntries((sch.data ?? []).map((x: Record<string, unknown>) => [x.id, `${x.name} (${x.code})`])) as Record<string, string>,
+  };
+}
+
+/* ---- the roster ----
+   ?status=active (default) | archived | all, ?classId=, ?schoolId= (all-schools
+   scope only), ?q= (name, username or code). */
+app.get("/learners", requirePermission("learners.manage", "learners.view.school", "learners.view.all"), async (c) => {
+  const scope = await learnerScope(c);
+  if (scope.kind === "none") return c.json({ learners: [] });
+  const status = c.req.query("status") ?? "active";
+  const classId = c.req.query("classId") ?? "";
+  const schoolFilter = scope.kind === "all" ? (c.req.query("schoolId") ?? "") : scope.schoolId;
+  const q = String(c.req.query("q") ?? "").trim().toLowerCase();
+  const { data, error } = await selectAll(() => {
+    let query = admin.from("learners").select(LEARNER_ROSTER_COLS).order("full_name").order("id");
+    if (schoolFilter) query = query.eq("school_id", schoolFilter);
+    if (status === "active") query = query.eq("enrollment_status", ACTIVE);
+    else if (status === "archived") query = query.neq("enrollment_status", ACTIVE);
+    if (classId) query = query.eq("class_id", classId);
+    return query;
+  });
+  if (error) return c.json({ error: error.message }, 500);
+  const rows = (data ?? []).filter((l) => inLearnerScope(scope, l)).filter((l) => !q ||
+    [l.full_name, l.username, l.learner_code, l.user_code].some((v) => String(v ?? "").toLowerCase().includes(q)));
+  const names = await rosterNames(rows);
+  return c.json({ learners: rows.map((r) => mapRosterLearner(r, names)) });
+});
+
+app.post("/learners", requirePermission("learners.manage", "learners.manage.school", "learners.manage.all"), async (c) => {
   const b = await c.req.json().catch(() => ({}));
+  const actor = c.get("actor");
   const username = String(b.username ?? "").trim().toLowerCase();
   const pin = String(b.pin ?? "").trim();
   const fullName = String(b.fullName ?? "").trim();
@@ -1055,48 +1247,66 @@ app.post("/learners", requirePermission("learners.manage"), async (c) => {
   }
   if (!PIN_RE.test(pin)) return c.json({ error: "PIN must be exactly 4 digits" }, 400);
 
-  const teacher = c.get("actor");
-  // Always the teacher's own school — placed there automatically, never a
-  // field a client could set to another school.
-  const school = await loadSchool(teacher.schoolId);
-  if (!school) return c.json({ error: "Choose your school first — reload the page to pick it" }, 409);
+  // The school is the caller's own — only an all-schools administrator
+  // picks one. A client can never place a learner in someone else's school.
+  const scope = await learnerScope(c);
+  const schoolId = actorCan(c, "learners.manage.all") ? (b.schoolId ?? actor.schoolId) : actor.schoolId;
+  const school = await loadSchool(schoolId);
+  if (!school) return c.json({ error: actorCan(c, "learners.manage.all") ? "Choose a school" : "Choose your school first — reload the page to pick it" }, 409);
 
-  const { data: taken } = await admin
-    .from("learners").select("id").eq("username", username).maybeSingle();
+  let cls: Record<string, any> | null = null;
+  if (b.classId) {
+    cls = await loadClass(b.classId);
+    if (!cls || cls.school_id !== school.id || cls.archived_at) return c.json({ error: "Choose a class in this school" }, 400);
+    if (scope.kind === "teacher" && !scope.classIds.includes(cls.id)) return c.json({ error: "You can only add learners to classes you teach" }, 403);
+  }
+
+  const { data: taken } = await admin.from("learners").select("id").eq("username", username).maybeSingle();
   if (taken) return c.json({ error: "That username is taken" }, 409);
+
+  const cal = await currentCalendar();
+  if (!cal.yearId) return c.json({ error: "No current academic year is set — ask an administrator." }, 409);
+  const grade = cls ? cls.grade : String(b.grade ?? "").trim();
+  const teacherId = cls ? await classTeacherOf(cls.id) : (scope.kind === "teacher" ? actor.id : null);
 
   const salt = randomBytes(16).toString("hex");
   const { data, error } = await admin
     .from("learners")
     .insert({
-      teacher_id: teacher.id,
+      teacher_id: scope.kind === "teacher" ? actor.id : null, // who added them
       username,
       pin_hash: hashPin(pin, salt),
       pin_salt: salt,
       full_name: fullName,
-      grade: String(b.grade ?? "").trim(),
+      grade,
       school: school.name,
       county: school.county,
+      enrollment_status: ACTIVE,
     })
     .select("id")
     .single();
   if (error) return c.json({ error: error.message }, 400);
-  await audit(c, "learner.created", "learner", data.id,
-    { username, fullName, grade: String(b.grade ?? "").trim(), schoolId: school.id, teacherId: teacher.id });
   try {
-    return c.json({ learner: mapRosterLearner(await placeInSchool("learners", data.id, school, "learner")) });
+    const placed = await placeInSchool("learners", data.id, school, "learner");
+    await admin.from("learners").update({ learner_code: placed.user_code }).eq("id", data.id);
+    await openEnrollment(c, data.id, {
+      schoolId: school.id, classId: cls?.id ?? null, grade, teacherId,
+      yearId: cal.yearId, termId: cal.termId, date: today(),
+    });
+    await audit(c, "learner.created", "learner", data.id,
+      { username, fullName, grade, schoolId: school.id, classId: cls?.id ?? null, learnerCode: placed.user_code });
+    const { data: row } = await admin.from("learners").select("*").eq("id", data.id).single();
+    return c.json({ learner: mapRosterLearner(row, await rosterNames([row])) });
   } catch (e) {
     return c.json({ error: (e as Error).message }, 500);
   }
 });
 
-app.patch("/learners/:id", requirePermission("learners.manage"), async (c) => {
-  const id = c.req.param("id");
-  const { data: existing } = await admin
-    .from("learners").select("id, teacher_id").eq("id", id).maybeSingle();
-  if (!existing || existing.teacher_id !== c.get("actor").id) {
-    return c.json({ error: "Learner not found" }, 404);
-  }
+app.patch("/learners/:id", requirePermission("learners.manage", "learners.manage.school", "learners.manage.all"), async (c) => {
+  const found = await loadScopedLearner(c, true);
+  if (found instanceof Response) return found;
+  const { learner: existing, scope } = found;
+  const id = existing.id as string;
   const b = await c.req.json().catch(() => ({}));
   const patch: Record<string, unknown> = {};
 
@@ -1106,8 +1316,6 @@ app.patch("/learners/:id", requirePermission("learners.manage"), async (c) => {
     patch.full_name = fn;
   }
   if (b.grade !== undefined) patch.grade = String(b.grade).trim();
-  // school/county are not editable here — a learner is always placed in
-  // their teacher's own school/county, set once at creation.
   if (b.username !== undefined) {
     const u = String(b.username).trim().toLowerCase();
     if (!USERNAME_RE.test(u)) {
@@ -1131,55 +1339,219 @@ app.patch("/learners/:id", requirePermission("learners.manage"), async (c) => {
     patch.failed_attempts = 0;
     patch.locked_until = null;
   }
+  // Moving between classes stays inside the learner's school. A teacher can
+  // only move learners between classes they teach.
+  let classMove: { from: unknown; to: string | null } | null = null;
+  if (b.classId !== undefined && (b.classId || null) !== (existing.class_id ?? null)) {
+    if (existing.enrollment_status !== ACTIVE) return c.json({ error: "Reactivate the learner before moving them to a class." }, 409);
+    let cls: Record<string, any> | null = null;
+    if (b.classId) {
+      cls = await loadClass(b.classId);
+      if (!cls || cls.school_id !== existing.school_id || cls.archived_at) return c.json({ error: "Choose a class in the learner's school" }, 400);
+      if (scope.kind === "teacher" && !scope.classIds.includes(cls.id)) return c.json({ error: "You can only move learners into classes you teach" }, 403);
+      patch.grade = b.grade !== undefined ? patch.grade : cls.grade;
+      patch.current_teacher_id = await classTeacherOf(cls.id);
+    } else {
+      patch.current_teacher_id = scope.kind === "teacher" ? c.get("actor").id : null;
+    }
+    patch.class_id = cls?.id ?? null;
+    classMove = { from: existing.class_id ?? null, to: cls?.id ?? null };
+  }
   if (!Object.keys(patch).length) return c.json({ error: "Nothing to update" }, 400);
+  patch.updated_at = new Date().toISOString();
 
-  const { data, error } = await admin
-    .from("learners")
-    .update(patch)
-    .eq("id", id)
-    .select(LEARNER_ROSTER_COLS)
-    .single();
+  const { data, error } = await admin.from("learners").update(patch).eq("id", id).select(LEARNER_ROSTER_COLS).single();
   if (error) return c.json({ error: error.message }, 400);
+  // The open enrollment follows the class and grade.
+  if (classMove || patch.grade !== undefined) {
+    await admin.from("learner_enrollments").update({
+      ...(classMove ? { class_id: classMove.to, teacher_id: patch.current_teacher_id ?? null } : {}),
+      ...(patch.grade !== undefined ? { grade: patch.grade } : {}),
+    }).eq("learner_id", id).eq("status", ACTIVE);
+  }
   // Never the PIN itself — only which fields changed.
-  const changed = Object.keys(patch).filter((k) => !["pin_hash", "pin_salt", "failed_attempts", "locked_until"].includes(k));
+  const changed = Object.keys(patch).filter((k) => !["pin_hash", "pin_salt", "failed_attempts", "locked_until", "updated_at", "class_id", "current_teacher_id"].includes(k));
   if (patch.pin_hash) await audit(c, "learner.pin_reset", "learner", id, {});
   else if (b.unlock) await audit(c, "learner.unlocked", "learner", id, {});
+  if (classMove) await audit(c, "learner.class_changed", "learner", id, classMove);
   if (changed.length) await audit(c, "learner.updated", "learner", id, { fields: changed });
-  return c.json({ learner: mapRosterLearner(data) });
+  return c.json({ learner: mapRosterLearner(data, await rosterNames([data])) });
 });
 
-app.delete("/learners/:id", requirePermission("learners.manage"), async (c) => {
-  const id = c.req.param("id");
-  const { data: existing } = await admin
-    .from("learners").select("id, teacher_id, username, full_name, school_id, user_code").eq("id", id).maybeSingle();
-  if (!existing || existing.teacher_id !== c.get("actor").id) {
-    return c.json({ error: "Learner not found" }, 404);
+/* Leaving, or coming back: archive with a status (never a deletion), or
+   reactivate. Archiving signs the learner out everywhere. */
+// deno-lint-ignore no-explicit-any
+async function setLearnerStatus(c: any, learner: Record<string, any>, status: string, reasonIn: unknown, dateIn: unknown) {
+  const id = learner.id as string;
+  const reason = String(reasonIn ?? "").trim().slice(0, 300) || null;
+  const date = DATE_RE.test(String(dateIn ?? "")) ? String(dateIn) : today();
+  const from = learner.enrollment_status ?? ACTIVE;
+  if (status === ACTIVE) {
+    if (from === ACTIVE) return c.json({ error: "This learner is already active." }, 409);
+    const cal = await currentCalendar();
+    if (!cal.yearId) return c.json({ error: "No current academic year is set — ask an administrator." }, 409);
+    const cls = await loadClass(learner.class_id);
+    const classId = cls && !cls.archived_at && cls.school_id === learner.school_id ? cls.id : null;
+    try {
+      await openEnrollment(c, id, {
+        schoolId: learner.school_id, classId, grade: learner.grade ?? "",
+        teacherId: classId ? await classTeacherOf(classId) : (learner.teacher_id ?? null),
+        yearId: cal.yearId, termId: cal.termId, date,
+      });
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400);
+    }
+    await audit(c, "learner.reactivated", "learner", id, { from, schoolId: learner.school_id });
+  } else {
+    if (!EXIT_STATUSES.includes(status as EnrollmentStatus)) {
+      return c.json({ error: "Status must be ACTIVE, TRANSFERRED, DROPPED_OUT, COMPLETED or INACTIVE" }, 400);
+    }
+    if (from !== ACTIVE) return c.json({ error: "This learner is already archived. Reactivate them first to change it." }, 409);
+    await closeEnrollment(c, id, status as EnrollmentStatus, date, reason);
+    const { error } = await admin.from("learners").update({
+      enrollment_status: status, exit_date: date, exit_reason: reason, updated_at: new Date().toISOString(),
+    }).eq("id", id);
+    if (error) return c.json({ error: error.message }, 400);
+    await admin.from("learner_sessions").delete().eq("learner_id", id);
+    await audit(c, "learner.archived", "learner", id, { status, reason, exitDate: date, schoolId: learner.school_id });
   }
-  const { error } = await admin.from("learners").delete().eq("id", id);
-  if (error) return c.json({ error: error.message }, 400);
-  await audit(c, "learner.deleted", "learner", id, {
-    username: existing.username, fullName: existing.full_name,
-    schoolId: existing.school_id, userCode: existing.user_code,
+  const { data } = await admin.from("learners").select("*").eq("id", id).single();
+  return c.json({ learner: mapRosterLearner(data, await rosterNames([data])) });
+}
+
+app.post("/learners/:id/status", requirePermission("learners.manage", "learners.manage.school", "learners.manage.all"), async (c) => {
+  const found = await loadScopedLearner(c, true);
+  if (found instanceof Response) return found;
+  const b = await c.req.json().catch(() => ({}));
+  return setLearnerStatus(c, found.learner, String(b.status ?? "").toUpperCase(), b.reason, b.exitDate);
+});
+
+/* Kept for older pages: "Remove" now archives as INACTIVE. Nothing is deleted. */
+app.delete("/learners/:id", requirePermission("learners.manage", "learners.manage.school", "learners.manage.all"), async (c) => {
+  const found = await loadScopedLearner(c, true);
+  if (found instanceof Response) return found;
+  if (found.learner.enrollment_status !== ACTIVE) return c.json({ ok: true, archived: true });
+  const res = await setLearnerStatus(c, found.learner, "INACTIVE", "Removed from the roster", today());
+  return res.status === 200 ? c.json({ ok: true, archived: true }) : res;
+});
+
+/* Moving to another school: the old enrollment closes as TRANSFERRED and
+   stays on record; a new one opens at the new school, with a new school
+   code. The permanent learner code, sign-in, assignments and library
+   history all stay with the learner. */
+app.post("/learners/:id/transfer", requirePermission("learners.transfer"), async (c) => {
+  const { data: learner } = await admin.from("learners").select("*").eq("id", c.req.param("id")).maybeSingle();
+  if (!learner) return c.json({ error: "Learner not found" }, 404);
+  const b = await c.req.json().catch(() => ({}));
+  const to = await loadSchool(b.toSchoolId);
+  if (!to) return c.json({ error: "Choose the school they're moving to" }, 400);
+  if (to.id === learner.school_id) return c.json({ error: "They're already in that school — move them to another class instead." }, 400);
+  let cls: Record<string, any> | null = null;
+  if (b.toClassId) {
+    cls = await loadClass(b.toClassId);
+    if (!cls || cls.school_id !== to.id || cls.archived_at) return c.json({ error: "Choose a class in the new school" }, 400);
+  }
+  const cal = await currentCalendar();
+  if (!cal.yearId) return c.json({ error: "No current academic year is set." }, 409);
+  const date = DATE_RE.test(String(b.effectiveDate ?? "")) ? String(b.effectiveDate) : today();
+  const reason = String(b.reason ?? "").trim().slice(0, 300) || null;
+  const from = { schoolId: learner.school_id, classId: learner.class_id ?? null, code: learner.user_code, status: learner.enrollment_status };
+
+  if (learner.enrollment_status === ACTIVE) {
+    await closeEnrollment(c, learner.id, "TRANSFERRED", date, reason ? `Moved to ${to.name}: ${reason}` : `Moved to ${to.name}`);
+  }
+  try {
+    const placed = await placeInSchool("learners", learner.id, to, "learner");
+    const grade = cls ? cls.grade : String(b.grade ?? learner.grade ?? "").trim();
+    await openEnrollment(c, learner.id, {
+      schoolId: to.id, classId: cls?.id ?? null, grade,
+      teacherId: cls ? await classTeacherOf(cls.id) : null,
+      yearId: cal.yearId, termId: cal.termId, date,
+    });
+    await admin.from("learners").update({ learner_code: learner.learner_code ?? from.code }).eq("id", learner.id);
+    await audit(c, "learner.transferred", "learner", learner.id, {
+      fromSchoolId: from.schoolId, toSchoolId: to.id, fromClassId: from.classId, toClassId: cls?.id ?? null,
+      fromCode: from.code, toCode: placed.user_code, previousStatus: from.status, reason, effectiveDate: date,
+    });
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+  const { data } = await admin.from("learners").select("*").eq("id", learner.id).single();
+  return c.json({ learner: mapRosterLearner(data, await rosterNames([data])) });
+});
+
+/* Every enrollment this learner has had, in any school — for whoever may
+   see the learner now. */
+app.get("/learners/:id/history", requirePermission("learners.manage", "learners.view.school", "learners.view.all"), async (c) => {
+  const found = await loadScopedLearner(c, false);
+  if (found instanceof Response) return found;
+  const { data, error } = await admin.from("learner_enrollments").select("*")
+    .eq("learner_id", found.learner.id).order("enrollment_date", { ascending: false }).order("created_at", { ascending: false });
+  if (error) return c.json({ error: error.message }, 500);
+  const rows = data ?? [];
+  const names = await rosterNames(rows);
+  return c.json({
+    learner: mapRosterLearner(found.learner, await rosterNames([found.learner])),
+    enrollments: rows.map((e) => mapEnrollment(e, names)),
   });
-  return c.json({ ok: true });
 });
 
-/* A teacher's read-only look at one of their own learners' real activity —
-   the same assignments-done and library-usage/badges data the learner
-   sees on their own dashboard, so a teacher can check in on a learner
-   remotely without needing the learner's device or PIN. Never exposes
-   the PIN itself; "Reset PIN" (PATCH above) is the only way a teacher
-   acts on a learner's account, and this route changes nothing. */
-app.get("/learners/:id/activity", requirePermission("learners.manage"), async (c) => {
-  const id = c.req.param("id");
-  const { data: learner } = await admin
-    .from("learners")
-    .select("id, full_name, username, grade, school, county, teacher_id")
-    .eq("id", id)
-    .maybeSingle();
-  if (!learner || learner.teacher_id !== c.get("actor").id) {
-    return c.json({ error: "Learner not found" }, 404);
-  }
+const mapEnrollment = (e: Record<string, unknown>, names: Awaited<ReturnType<typeof rosterNames>>) => ({
+  id: e.id,
+  learnerId: e.learner_id,
+  schoolId: e.school_id,
+  school: names.schools[e.school_id as string] ?? null,
+  classId: e.class_id ?? null,
+  className: e.class_id ? names.classes[e.class_id as string] ?? null : null,
+  teacherName: e.teacher_id ? names.teachers[e.teacher_id as string] ?? null : null,
+  academicYear: e.academic_year_id,
+  term: e.term_id ?? null,
+  grade: e.grade,
+  status: e.status,
+  enrollmentDate: e.enrollment_date,
+  exitDate: e.exit_date ?? null,
+  exitReason: e.exit_reason ?? null,
+});
+
+/* A school's enrollment records, past and present — including learners who
+   have since left or moved to another school (their old rows stay here). */
+app.get("/enrollments", requirePermission("learners.view.school", "learners.view.all"), async (c) => {
+  const scope = await learnerScope(c);
+  const schoolId = scope.kind === "school" ? scope.schoolId : String(c.req.query("schoolId") ?? "");
+  if (scope.kind !== "all" && scope.kind !== "school") return c.json({ enrollments: [] });
+  if (!schoolId) return c.json({ error: "Choose a school" }, 400);
+  const status = c.req.query("status") ?? "";
+  const { data, error } = await selectAll(() => {
+    let q = admin.from("learner_enrollments").select("*").eq("school_id", schoolId)
+      .order("enrollment_date", { ascending: false }).order("id");
+    if (status === "past") q = q.neq("status", ACTIVE);
+    else if (status) q = q.eq("status", status.toUpperCase());
+    return q;
+  });
+  if (error) return c.json({ error: error.message }, 500);
+  const rows = data ?? [];
+  const learnerIds = [...new Set(rows.map((r) => r.learner_id))];
+  const { data: learners } = learnerIds.length
+    ? await admin.from("learners").select("id, full_name, learner_code, user_code").in("id", learnerIds)
+    : { data: [] as Record<string, unknown>[] };
+  const who = Object.fromEntries((learners ?? []).map((l) => [l.id, l]));
+  const names = await rosterNames(rows);
+  return c.json({
+    enrollments: rows.map((e) => ({
+      ...mapEnrollment(e, names),
+      learnerName: who[e.learner_id]?.full_name ?? null,
+      learnerCode: who[e.learner_id]?.learner_code ?? who[e.learner_id]?.user_code ?? null,
+    })),
+  });
+});
+
+/* A teacher's (or head's, or admin's) read-only look at one learner's real
+   activity — assignments and library usage/badges. Never the PIN. */
+app.get("/learners/:id/activity", requirePermission("learners.manage", "learners.view.school", "learners.view.all"), async (c) => {
+  const found = await loadScopedLearner(c, false);
+  if (found instanceof Response) return found;
+  const learner = found.learner;
+  const id = learner.id as string;
   try {
     const [{ data: assignments, error: aErr }, library] = await Promise.all([
       admin.from("assignments").select("*").eq("learner_id", id).order("id"),
@@ -1197,6 +1569,249 @@ app.get("/learners/:id/activity", requirePermission("learners.manage"), async (c
   } catch (e) {
     return c.json({ error: (e as Error).message }, 500);
   }
+});
+
+// ---- academic calendar ----
+
+app.get("/academic-years", requireStaff(), async (c) => {
+  const [{ data: years }, { data: terms }] = await Promise.all([
+    admin.from("academic_years").select("*").order("id", { ascending: false }),
+    admin.from("terms").select("*").order("id"),
+  ]);
+  const cal = await currentCalendar();
+  return c.json({
+    currentYear: cal.yearId,
+    currentTerm: cal.termId,
+    years: (years ?? []).map((y) => ({
+      id: y.id, label: y.label, startsOn: y.starts_on, endsOn: y.ends_on, isCurrent: !!y.is_current,
+      terms: (terms ?? []).filter((t) => t.academic_year_id === y.id)
+        .map((t) => ({ id: t.id, termNo: t.term_no, startsOn: t.starts_on, endsOn: t.ends_on })),
+    })),
+  });
+});
+
+/* A new academic year with its three terms (Jan–Apr, May–Aug, Sep–Dec
+   unless dates are given). makeCurrent switches the whole portal to it. */
+app.post("/academic-years", requirePermission("calendar.manage"), async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const id = String(b.id ?? "").trim();
+  if (!/^\d{4}$/.test(id)) return c.json({ error: "The year must be four digits, e.g. 2027" }, 400);
+  const { data: exists } = await admin.from("academic_years").select("id").eq("id", id).maybeSingle();
+  if (!exists) {
+    const { error } = await admin.from("academic_years").insert({
+      id, label: String(b.label ?? id), starts_on: `${id}-01-01`, ends_on: `${id}-12-31`, is_current: false,
+    });
+    if (error) return c.json({ error: error.message }, 400);
+    const defaults = [["01-01", "04-30"], ["05-01", "08-31"], ["09-01", "12-31"]];
+    const terms = (Array.isArray(b.terms) && b.terms.length === 3 ? b.terms : defaults.map(([s, e]) => ({ startsOn: `${id}-${s}`, endsOn: `${id}-${e}` })))
+      .map((t: { startsOn: string; endsOn: string }, i: number) => ({
+        id: `${id}-T${i + 1}`, academic_year_id: id, term_no: i + 1, starts_on: t.startsOn, ends_on: t.endsOn,
+      }));
+    const { error: tErr } = await admin.from("terms").insert(terms);
+    if (tErr) return c.json({ error: tErr.message }, 400);
+    await audit(c, "calendar.year_created", "academic_year", id, { terms: terms.map((t: { id: string }) => t.id) });
+  }
+  if (b.makeCurrent) {
+    await admin.from("academic_years").update({ is_current: false }).eq("is_current", true);
+    await admin.from("academic_years").update({ is_current: true }).eq("id", id);
+    await audit(c, "calendar.year_made_current", "academic_year", id, {});
+  }
+  return c.json({ ok: true, id });
+});
+
+// ---- classes ----
+
+/** Which school's classes the caller may manage: their own (school head)
+    or any (administrator). */
+// deno-lint-ignore no-explicit-any
+function canManageClassesIn(c: any, schoolId: string) {
+  if (actorCan(c, "classes.manage.all")) return true;
+  return actorCan(c, "classes.manage.school") && c.get("actor").schoolId === schoolId;
+}
+
+app.get("/classes", requirePermission("learners.manage", "learners.view.school", "learners.view.all", "classes.manage.school", "classes.manage.all"), async (c) => {
+  const scope = await learnerScope(c);
+  const actor = c.get("actor");
+  const yearId = c.req.query("academicYearId") || (await currentCalendar()).yearId;
+  const includeArchived = c.req.query("includeArchived") === "1";
+  let schoolId = String(c.req.query("schoolId") ?? "");
+  if (scope.kind === "school" || scope.kind === "teacher") schoolId = scope.schoolId;
+  if (scope.kind === "none") return c.json({ classes: [] });
+  const { data, error } = await selectAll(() => {
+    let q = admin.from("classes").select("*").order("grade").order("name").order("id");
+    if (schoolId) q = q.eq("school_id", schoolId);
+    if (yearId && c.req.query("allYears") !== "1") q = q.eq("academic_year_id", yearId);
+    if (!includeArchived) q = q.is("archived_at", null);
+    return q;
+  });
+  if (error) return c.json({ error: error.message }, 500);
+  let rows = data ?? [];
+  // A teacher sees the classes they teach.
+  if (scope.kind === "teacher" && c.req.query("mine") !== "0") rows = rows.filter((r) => scope.classIds.includes(r.id));
+  const ids = rows.map((r) => r.id);
+  const [{ data: ct }, { data: enrolled }] = await Promise.all([
+    ids.length ? admin.from("class_teachers").select("*").in("class_id", ids).is("ended_at", null) : { data: [] },
+    ids.length ? admin.from("learners").select("class_id").in("class_id", ids).eq("enrollment_status", ACTIVE) : { data: [] },
+  ]);
+  const teacherIds = [...new Set((ct ?? []).map((t: Record<string, unknown>) => t.teacher_id))] as string[];
+  const { data: profs } = teacherIds.length ? await admin.from("profiles").select("id, full_name").in("id", teacherIds) : { data: [] };
+  const tName = Object.fromEntries((profs ?? []).map((p: Record<string, unknown>) => [p.id, p.full_name]));
+  // Whoever manages this school's classes also gets its teachers, to assign.
+  let schoolTeachers: { id: unknown; fullName: unknown }[] = [];
+  if (schoolId && canManageClassesIn(c, schoolId)) {
+    const { data: staff } = await admin.from("profiles").select("id, full_name")
+      .eq("school_id", schoolId).eq("role", "teacher").eq("status", "active").order("full_name");
+    schoolTeachers = (staff ?? []).map((t) => ({ id: t.id, fullName: t.full_name }));
+  }
+  return c.json({
+    schoolTeachers,
+    academicYear: yearId,
+    classes: rows.map((r) => ({
+      id: r.id, schoolId: r.school_id, academicYear: r.academic_year_id, grade: r.grade, name: r.name,
+      archived: !!r.archived_at,
+      learnerCount: (enrolled ?? []).filter((e: Record<string, unknown>) => e.class_id === r.id).length,
+      teachers: (ct ?? []).filter((t: Record<string, unknown>) => t.class_id === r.id)
+        .map((t: Record<string, unknown>) => ({ teacherId: t.teacher_id, name: tName[t.teacher_id as string] ?? null, role: t.role })),
+      teachesIt: (ct ?? []).some((t: Record<string, unknown>) => t.class_id === r.id && t.teacher_id === actor.id),
+    })),
+  });
+});
+
+app.post("/classes", requirePermission("classes.manage.school", "classes.manage.all"), async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const actor = c.get("actor");
+  const schoolId = actorCan(c, "classes.manage.all") ? String(b.schoolId ?? actor.schoolId ?? "") : actor.schoolId;
+  const school = await loadSchool(schoolId);
+  if (!school || !canManageClassesIn(c, school.id)) return c.json({ error: "Choose a school you manage" }, 403);
+  const grade = String(b.grade ?? "");
+  if (!GRADES.includes(grade as never)) return c.json({ error: "Choose a grade" }, 400);
+  const name = String(b.name ?? "").trim().replace(/\s+/g, " ") || grade;
+  const yearId = String(b.academicYearId ?? "") || (await currentCalendar()).yearId;
+  if (!yearId) return c.json({ error: "No current academic year is set — ask an administrator." }, 409);
+  const { data, error } = await admin.from("classes").insert({
+    id: rid("cls"), school_id: school.id, academic_year_id: yearId, grade, name, created_by: actor.id,
+  }).select().single();
+  if (error) return c.json({ error: isUniqueViolation(error) ? `${name} already exists this year` : error.message }, 400);
+  await audit(c, "class.created", "class", data.id, { schoolId: school.id, academicYear: yearId, grade, name });
+  return c.json({ class: { id: data.id, schoolId: data.school_id, academicYear: data.academic_year_id, grade, name } });
+});
+
+app.patch("/classes/:id", requirePermission("classes.manage.school", "classes.manage.all"), async (c) => {
+  const cls = await loadClass(c.req.param("id"));
+  if (!cls || !canManageClassesIn(c, cls.school_id)) return c.json({ error: "Class not found" }, 404);
+  const b = await c.req.json().catch(() => ({}));
+  const patch: Record<string, unknown> = {};
+  if (b.name !== undefined) {
+    const name = String(b.name).trim().replace(/\s+/g, " ");
+    if (!name) return c.json({ error: "Class name is required" }, 400);
+    patch.name = name;
+  }
+  if (b.archived === true && !cls.archived_at) {
+    const { count } = await admin.from("learners").select("id", { count: "exact", head: true })
+      .eq("class_id", cls.id).eq("enrollment_status", ACTIVE);
+    if ((count ?? 0) > 0) return c.json({ error: `${count} active learner(s) are still in this class — move or promote them first.` }, 409);
+    Object.assign(patch, { archived_at: new Date().toISOString(), archived_by: c.get("actor").id });
+    await admin.from("class_teachers").update({ ended_at: new Date().toISOString(), ended_by: c.get("actor").id })
+      .eq("class_id", cls.id).is("ended_at", null);
+  }
+  if (!Object.keys(patch).length) return c.json({ error: "Nothing to update" }, 400);
+  const { error } = await admin.from("classes").update(patch).eq("id", cls.id);
+  if (error) return c.json({ error: isUniqueViolation(error) ? "Another class already has that name" : error.message }, 400);
+  await audit(c, patch.archived_at ? "class.archived" : "class.updated", "class", cls.id, { fields: Object.keys(patch) });
+  return c.json({ ok: true });
+});
+
+/* Assign a teacher. A new class teacher replaces the previous one (that
+   assignment is ended, not deleted) and becomes the current teacher of
+   every active learner in the class. */
+app.post("/classes/:id/teachers", requirePermission("classes.manage.school", "classes.manage.all"), async (c) => {
+  const cls = await loadClass(c.req.param("id"));
+  if (!cls || cls.archived_at || !canManageClassesIn(c, cls.school_id)) return c.json({ error: "Class not found" }, 404);
+  const b = await c.req.json().catch(() => ({}));
+  const role = b.role === "subject_teacher" ? "subject_teacher" : "class_teacher";
+  const { data: teacher } = await admin.from("profiles").select("id, role, status, school_id, full_name").eq("id", String(b.teacherId ?? "")).maybeSingle();
+  if (!teacher || teacher.role !== "teacher" || (teacher.status ?? "active") !== "active" || teacher.school_id !== cls.school_id) {
+    return c.json({ error: "Choose an active teacher from this school" }, 400);
+  }
+  const now = new Date().toISOString();
+  const actorId = c.get("actor").id;
+  // Same teacher already on this class → change their role in place.
+  await admin.from("class_teachers").update({ ended_at: now, ended_by: actorId })
+    .eq("class_id", cls.id).eq("teacher_id", teacher.id).is("ended_at", null);
+  if (role === "class_teacher") {
+    await admin.from("class_teachers").update({ ended_at: now, ended_by: actorId })
+      .eq("class_id", cls.id).eq("role", "class_teacher").is("ended_at", null);
+  }
+  const { error } = await admin.from("class_teachers").insert({
+    id: rid("ct"), class_id: cls.id, teacher_id: teacher.id, role, assigned_by: actorId,
+  });
+  if (error) return c.json({ error: error.message }, 400);
+  if (role === "class_teacher") {
+    await admin.from("learners").update({ current_teacher_id: teacher.id }).eq("class_id", cls.id).eq("enrollment_status", ACTIVE);
+    await admin.from("learner_enrollments").update({ teacher_id: teacher.id }).eq("class_id", cls.id).eq("status", ACTIVE);
+  }
+  await audit(c, "class.teacher_assigned", "class", cls.id, { teacherId: teacher.id, role });
+  return c.json({ ok: true });
+});
+
+app.delete("/classes/:id/teachers/:teacherId", requirePermission("classes.manage.school", "classes.manage.all"), async (c) => {
+  const cls = await loadClass(c.req.param("id"));
+  if (!cls || !canManageClassesIn(c, cls.school_id)) return c.json({ error: "Class not found" }, 404);
+  const teacherId = c.req.param("teacherId");
+  const { data: ended } = await admin.from("class_teachers")
+    .update({ ended_at: new Date().toISOString(), ended_by: c.get("actor").id })
+    .eq("class_id", cls.id).eq("teacher_id", teacherId).is("ended_at", null).select("role");
+  if (!ended?.length) return c.json({ error: "That teacher isn't assigned to this class" }, 404);
+  if (ended.some((e: Record<string, unknown>) => e.role === "class_teacher")) {
+    await admin.from("learners").update({ current_teacher_id: null }).eq("class_id", cls.id).eq("current_teacher_id", teacherId);
+  }
+  await audit(c, "class.teacher_removed", "class", cls.id, { teacherId });
+  return c.json({ ok: true });
+});
+
+/* Promotion: every active learner in the class (or the ones listed) moves
+   up a grade. Their enrollment for this class closes (COMPLETED, "promoted
+   to …") and a new one opens in the target class — or, from the top
+   grade, they're marked COMPLETED (finished school). */
+app.post("/classes/:id/promote", requirePermission("learners.manage.school", "learners.manage.all"), async (c) => {
+  const from = await loadClass(c.req.param("id"));
+  const manages = from && (actorCan(c, "learners.manage.all") || (actorCan(c, "learners.manage.school") && c.get("actor").schoolId === from.school_id));
+  if (!from || !manages) return c.json({ error: "Class not found" }, 404);
+  const b = await c.req.json().catch(() => ({}));
+  const next = nextGrade(from.grade);
+  let to: Record<string, any> | null = null;
+  if (next) {
+    to = await loadClass(b.toClassId);
+    if (!to || to.school_id !== from.school_id || to.archived_at) return c.json({ error: "Choose the class they're moving up to, in the same school" }, 400);
+    if (to.grade !== next) return c.json({ error: `Learners in ${from.grade} move up to ${next} — choose a ${next} class` }, 400);
+  }
+  const { data: rows } = await admin.from("learners").select("*").eq("class_id", from.id).eq("enrollment_status", ACTIVE);
+  const only = Array.isArray(b.learnerIds) && b.learnerIds.length ? new Set(b.learnerIds.map(String)) : null;
+  const learners = (rows ?? []).filter((l) => !only || only.has(l.id));
+  if (!learners.length) return c.json({ error: "No active learners to promote in this class" }, 400);
+  const date = DATE_RE.test(String(b.effectiveDate ?? "")) ? String(b.effectiveDate) : today();
+  const cal = await currentCalendar();
+  const toTeacher = to ? await classTeacherOf(to.id) : null;
+  const toTerm = to && to.academic_year_id !== cal.yearId ? `${to.academic_year_id}-T1` : cal.termId;
+  let promoted = 0, completed = 0;
+  for (const l of learners) {
+    if (to && next) {
+      await closeEnrollment(c, l.id, "COMPLETED", date, `Promoted to ${next}`);
+      await openEnrollment(c, l.id, {
+        schoolId: l.school_id, classId: to.id, grade: next, teacherId: toTeacher,
+        yearId: to.academic_year_id, termId: toTerm, date,
+      });
+      promoted++;
+    } else {
+      await closeEnrollment(c, l.id, "COMPLETED", date, `Completed ${from.grade}`);
+      await admin.from("learners").update({
+        enrollment_status: "COMPLETED", exit_date: date, exit_reason: `Completed ${from.grade}`, updated_at: new Date().toISOString(),
+      }).eq("id", l.id);
+      completed++;
+    }
+    await audit(c, "learner.promoted", "learner", l.id, { fromClassId: from.id, toClassId: to?.id ?? null, fromGrade: from.grade, toGrade: next });
+  }
+  return c.json({ ok: true, promoted, completed });
 });
 
 // ---- content library ----
@@ -1896,13 +2511,17 @@ app.get("/assignments", requirePermission("assignments.view.own", "assignments.v
    scan all learners at once rather than one at a time (the per-learner
    "view activity" panel already covers that case via /learners/:id/activity). */
 app.get("/teacher/assignments", requirePermission("assignments.manage.learners"), async (c) => {
-  const teacherId = c.get("actor").id;
-  const { data, error } = await selectAll(() => admin
+  const scope = await learnerScope(c);
+  if (scope.kind !== "teacher") return c.json({ assignments: [] });
+  const { data: mine } = await selectAll(() => admin.from("learners").select("*")
+    .eq("school_id", scope.schoolId).eq("enrollment_status", ACTIVE).order("id"));
+  const ids = new Set((mine ?? []).filter((l) => inLearnerScope(scope, l)).map((l) => l.id));
+  const { data, error } = ids.size ? await selectAll(() => admin
     .from("assignments")
-    .select("id, title, subject, due, done, learner_id, learners!inner(full_name, teacher_id)")
-    .eq("learners.teacher_id", teacherId)
+    .select("id, title, subject, due, done, learner_id, learners!inner(full_name)")
+    .in("learner_id", [...ids])
     .order("due")
-    .order("id"));
+    .order("id")) : { data: [], error: null };
   if (error) return c.json({ error: error.message }, 500);
   const assignments = (data ?? []).map((r: Record<string, unknown>) => ({
     ...mapAssignment(r),
@@ -1927,8 +2546,8 @@ app.patch("/assignments/:id", requirePermission("assignments.view.own", "assignm
   if (asTeacher) {
     const { data: assignment } = await admin.from("assignments").select("learner_id").eq("id", id).maybeSingle();
     if (!assignment) return c.json({ error: "Assignment not found" }, 404);
-    const { data: learner } = await admin.from("learners").select("teacher_id").eq("id", assignment.learner_id).maybeSingle();
-    if (!learner || learner.teacher_id !== a.id) return c.json({ error: "Assignment not found" }, 404);
+    const { data: learner } = await admin.from("learners").select("*").eq("id", assignment.learner_id).maybeSingle();
+    if (!learner || !inLearnerScope(await learnerScope(c), learner)) return c.json({ error: "Assignment not found" }, 404);
   }
 
   let query = admin.from("assignments").update({ done: b.done !== false }).eq("id", id);
@@ -2120,7 +2739,7 @@ app.get("/stats", requirePermission("stats.view"), async (c) => {
 
   const [profs, learnersRaw, asg, reportsRaw, forms, responses, library, schoolsReg, countiesReg] = await Promise.all([
     selectAll(() => admin.from("profiles").select("id, role, county, school, teacher_type").order("id")),
-    selectAll(() => admin.from("learners").select("id, teacher_id, grade, school, created_at").order("id")),
+    selectAll(() => admin.from("learners").select("id, teacher_id, grade, school, created_at").eq("enrollment_status", "ACTIVE").order("id")),
     selectAll(() => admin.from("assignments").select("learner_id, done").order("id")),
     selectAll(() => admin.from("field_reports").select("county, visit_type, school, created_at").order("id")),
     selectAll(() => admin.from("forms").select("id, audience").order("id")),
@@ -2283,7 +2902,7 @@ app.get("/school/overview", requirePermission("school.overview.view"), async (c)
   // had records are matched by name + county as a fallback.
   const [profs, learnersRaw, reportsById, reportsByName, asg] = await Promise.all([
     selectAll(() => admin.from("profiles").select("id, teacher_type").eq("role", "teacher").eq("school_id", schoolRec.id).order("id")),
-    selectAll(() => admin.from("learners").select("id, grade").eq("school_id", schoolRec.id).order("id")),
+    selectAll(() => admin.from("learners").select("id, grade").eq("school_id", schoolRec.id).eq("enrollment_status", "ACTIVE").order("id")),
     selectAll(() => admin.from("field_reports").select("*").eq("school_id", schoolRec.id).order("id")),
     selectAll(() => admin.from("field_reports").select("*").is("school_id", null).eq("school", school).eq("county", county).order("id")),
     // Joined on the learner's school rather than an id list, which would
@@ -2692,9 +3311,11 @@ app.patch("/users/:id", requirePermission("users.edit", "users.roles.assign", "u
   if (placeIn) {
     try {
       data = await placeInSchool("profiles", id, placeIn, nextRole);
-      // A teacher's learners go wherever the teacher goes, so a class
-      // never ends up split across two schools.
-      if (nextRole === "teacher") await moveTeachersLearners(id, placeIn);
+      // Learners belong to the school: they stay; the teacher's classes in
+      // the old school lose them as teacher.
+      if (existing.school_id && existing.school_id !== placeIn.id) {
+        await detachTeacherFromSchool(id, existing.school_id, actor.id);
+      }
     } catch (e) {
       return c.json({ error: (e as Error).message }, 500);
     }

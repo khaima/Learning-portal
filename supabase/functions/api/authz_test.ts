@@ -128,6 +128,7 @@ const ALL: R[] = [...ROLES];
 const NON_ACTIVE = ["pending", "suspended", "rejected", "deactivated"] as const;
 
 const SCHOOL = { id: "sch_1", name: "Aitong Primary", county: "Narok", code: "NRK-001", seq: 1 };
+const SCHOOL_B = { id: "sch_2", name: "Olpusimoru Primary", county: "Narok", code: "NRK-002", seq: 2 };
 const idOf = (role: string) => `00000000-0000-0000-0000-${role.padEnd(12, "0").slice(0, 12).replace(/[^0-9a-f]/g, "a")}`;
 
 function freshWorld() {
@@ -152,12 +153,43 @@ function freshWorld() {
     profiles.push({ id: `${st}-id`, role: "teacher", requested_role: "teacher", status: st, full_name: `${st} person`, email: `${st}@test.org`, school: SCHOOL.name, school_id: SCHOOL.id, county: "Narok" });
   }
   users["tok_new"] = { id: "new-id", email: "new@test.org" }; // signed in, no profile yet
+  // A second school with its own head and teacher.
+  users["tok_head_b"] = { id: "head-b-id", email: "head-b@test.org" };
+  users["tok_teacher_b"] = { id: "teacher-b-id", email: "teacher-b@test.org" };
+  profiles.push(
+    { id: "head-b-id", role: "school_leader", status: "active", full_name: "Head B", email: "head-b@test.org", school: SCHOOL_B.name, school_id: SCHOOL_B.id, county: "Narok" },
+    { id: "teacher-b-id", role: "teacher", status: "active", full_name: "Teacher B", email: "teacher-b@test.org", school: SCHOOL_B.name, school_id: SCHOOL_B.id, county: "Narok" },
+  );
   const db: Db = {
     profiles,
-    schools: [SCHOOL],
+    schools: [SCHOOL, SCHOOL_B],
+    academic_years: [{ id: "2026", label: "2026", starts_on: "2026-01-01", ends_on: "2026-12-31", is_current: true }],
+    terms: [
+      { id: "2026-T1", academic_year_id: "2026", term_no: 1, starts_on: "2026-01-01", ends_on: "2026-04-30" },
+      { id: "2026-T2", academic_year_id: "2026", term_no: 2, starts_on: "2026-05-01", ends_on: "2026-08-31" },
+      { id: "2026-T3", academic_year_id: "2026", term_no: 3, starts_on: "2026-09-01", ends_on: "2026-12-31" },
+    ],
+    classes: [
+      { id: "cls_1", school_id: SCHOOL.id, academic_year_id: "2026", grade: "Grade 4", name: "Grade 4 East", archived_at: null },
+      { id: "cls_1b", school_id: SCHOOL.id, academic_year_id: "2026", grade: "Grade 5", name: "Grade 5 East", archived_at: null },
+      { id: "cls_2", school_id: SCHOOL_B.id, academic_year_id: "2026", grade: "Grade 4", name: "Grade 4 B", archived_at: null },
+    ],
+    class_teachers: [
+      { id: "ct_1", class_id: "cls_1", teacher_id: "teacher-id", role: "class_teacher", ended_at: null },
+      { id: "ct_2", class_id: "cls_2", teacher_id: "teacher-b-id", role: "class_teacher", ended_at: null },
+    ],
+    learner_enrollments: [
+      { id: "enr_1", learner_id: "learner-id", school_id: SCHOOL.id, class_id: "cls_1", academic_year_id: "2026", term_id: "2026-T3", grade: "Grade 4", status: "ACTIVE", enrollment_date: "2026-09-01" },
+      { id: "enr_b", learner_id: "learner-b-id", school_id: SCHOOL_B.id, class_id: "cls_2", academic_year_id: "2026", term_id: "2026-T3", grade: "Grade 4", status: "ACTIVE", enrollment_date: "2026-09-01" },
+    ],
     counties: [{ name: "Narok", code: "NRK", created_at: now }],
     school_code_counters: [],
-    learners: [{ id: "learner-id", teacher_id: "teacher-id", username: "kid.one", full_name: "Kid One", grade: "4", school: SCHOOL.name, school_id: SCHOOL.id, county: "Narok", pin_hash: "x", pin_salt: "y" }],
+    learners: [
+      { id: "learner-id", teacher_id: "teacher-id", current_teacher_id: "teacher-id", class_id: "cls_1", username: "kid.one", full_name: "Kid One", grade: "Grade 4", school: SCHOOL.name, school_id: SCHOOL.id, county: "Narok", pin_hash: "x", pin_salt: "y", user_code: "NRK-001-L0001", learner_code: "NRK-001-L0001", enrollment_status: "ACTIVE", academic_year_id: "2026", term_id: "2026-T3" },
+      // In the OTHER school — and, to prove the school wall holds, still
+      // carrying teacher-id as the teacher who first added them.
+      { id: "learner-b-id", teacher_id: "teacher-id", current_teacher_id: "teacher-b-id", class_id: "cls_2", username: "kid.b", full_name: "Kid B", grade: "Grade 4", school: SCHOOL_B.name, school_id: SCHOOL_B.id, county: "Narok", pin_hash: "x", pin_salt: "y", user_code: "NRK-002-L0001", learner_code: "NRK-002-L0001", enrollment_status: "ACTIVE", academic_year_id: "2026", term_id: "2026-T3" },
+    ],
     learner_sessions: [{ token: "learnertoken", learner_id: "learner-id", created_at: now, expires_at: new Date(Date.now() + 3600e3).toISOString() }],
     assignments: [{ id: "asg_1", learner_id: "learner-id", title: "Read", subject: "English", due: "", done: false }],
     library_items: [{ id: "lib_1", title: "Book", subject: "English", type: "Reading", audience: "library", published: true, files: [] }],
@@ -195,6 +227,9 @@ const tokenFor = (role: R) => (role === "learner" ? "hpl_learnertoken" : `tok_${
 const EDU_ADMIN: R[] = ["super_admin", "admin", "education_team"];
 const USER_ADMIN: R[] = ["super_admin", "admin"];
 const ANALYSTS: R[] = ["super_admin", "admin", "education_team", "me"];
+const LEARNER_VIEWERS: R[] = [...ANALYSTS, "school_leader", "teacher"];
+const LEARNER_MANAGERS: R[] = ["super_admin", "admin", "school_leader", "teacher"];
+const CLASS_MANAGERS: R[] = ["super_admin", "admin", "school_leader"];
 
 type RouteSpec = { method: string; path: string; route: string; who: R[]; body?: unknown };
 const r = (method: string, route: string, who: R[], body?: unknown, path?: string): RouteSpec =>
@@ -207,11 +242,23 @@ const ROUTES: RouteSpec[] = [
   r("POST", "/schools", EDU_ADMIN, { name: "New School", county: "Narok" }),
   r("PATCH", "/schools/:id", EDU_ADMIN, { name: "Renamed" }),
   r("DELETE", "/schools/:id", EDU_ADMIN),
-  r("GET", "/learners", ["teacher"]),
-  r("POST", "/learners", ["teacher"], { fullName: "Kid Two", username: "kid.two", pin: "1234" }),
-  r("PATCH", "/learners/:id", ["teacher"], { fullName: "Kid" }, "/learners/learner-id"),
-  r("DELETE", "/learners/:id", ["teacher"], undefined, "/learners/learner-id"),
-  r("GET", "/learners/:id/activity", ["teacher"], undefined, "/learners/learner-id/activity"),
+  r("GET", "/learners", LEARNER_VIEWERS),
+  r("POST", "/learners", LEARNER_MANAGERS, { fullName: "Kid Two", username: "kid.two", pin: "1234", schoolId: "sch_1" }),
+  r("PATCH", "/learners/:id", LEARNER_MANAGERS, { fullName: "Kid" }, "/learners/learner-id"),
+  r("DELETE", "/learners/:id", LEARNER_MANAGERS, undefined, "/learners/learner-id"),
+  r("POST", "/learners/:id/status", LEARNER_MANAGERS, { status: "INACTIVE" }, "/learners/learner-id/status"),
+  r("POST", "/learners/:id/transfer", ["super_admin", "admin", "me"], { toSchoolId: "sch_2" }, "/learners/learner-id/transfer"),
+  r("GET", "/learners/:id/history", LEARNER_VIEWERS, undefined, "/learners/learner-id/history"),
+  r("GET", "/learners/:id/activity", LEARNER_VIEWERS, undefined, "/learners/learner-id/activity"),
+  r("GET", "/enrollments", ["super_admin", "admin", "education_team", "me", "school_leader"], undefined, "/enrollments?schoolId=sch_1"),
+  r("GET", "/academic-years", [...STAFF]),
+  r("POST", "/academic-years", USER_ADMIN, { id: "2027" }),
+  r("GET", "/classes", LEARNER_VIEWERS),
+  r("POST", "/classes", CLASS_MANAGERS, { grade: "Grade 6", name: "Grade 6 West", schoolId: "sch_1" }),
+  r("PATCH", "/classes/:id", CLASS_MANAGERS, { name: "Renamed" }, "/classes/cls_1"),
+  r("POST", "/classes/:id/teachers", CLASS_MANAGERS, { teacherId: "teacher2-id" }, "/classes/cls_1/teachers"),
+  r("DELETE", "/classes/:id/teachers/:teacherId", CLASS_MANAGERS, undefined, "/classes/cls_1/teachers/teacher-id"),
+  r("POST", "/classes/:id/promote", CLASS_MANAGERS, { toClassId: "cls_1b" }, "/classes/cls_1/promote"),
   r("GET", "/library", ALL),
   r("POST", "/library", EDU_ADMIN, { title: "T", subject: "English", type: "Reading" }),
   r("PATCH", "/library/:id", EDU_ADMIN, { published: true }, "/library/lib_1"),
@@ -416,12 +463,13 @@ Deno.test("role, school and password changes are audited (never the password)", 
   assertEquals(byAction("role.changed")[0].actor_id, "admin-id");
 });
 
-Deno.test("learner creation and deletion are audited", async () => {
+Deno.test("learner creation and removal are audited (removal archives, never deletes)", async () => {
   const db = freshWorld();
   assertEquals((await call("POST", "/learners", "tok_teacher", { fullName: "Kid Two", username: "kid.two", pin: "1234" })).status, 200);
   assertEquals((await call("DELETE", "/learners/learner-id", "tok_teacher")).status, 200);
+  assert(db.learners.some((l) => l.id === "learner-id" && l.enrollment_status === "INACTIVE"), "the learner is archived, not deleted");
   const actions = db.audit_log.map((a) => a.action);
-  assert(actions.includes("learner.created") && actions.includes("learner.deleted"));
+  assert(actions.includes("learner.created") && actions.includes("learner.archived"));
   assert(!JSON.stringify(db.audit_log).includes("1234"), "the PIN must never be logged");
 });
 
@@ -457,4 +505,136 @@ Deno.test("audit history is readable only with audit.view, and shows the entries
   assertEquals((await call("GET", "/audit", "tok_education_team")).status, 403);
   assertEquals((await call("GET", "/audit", "tok_me")).status, 403);
   assert(db.audit_log.length > 0);
+});
+
+/* ------------------------------------------------------------ 6. schools, classes and enrollments */
+
+const ids = (res: { json: Row }) => (res.json.learners ?? []).map((l: Row) => l.id).sort();
+
+Deno.test("a teacher can't reach another school's learners — even one they once added", async () => {
+  const db = freshWorld();
+  const list = await call("GET", "/learners?status=all", "tok_teacher");
+  assertEquals(ids(list), ["learner-id"]);
+  // learner-b-id still has teacher-id as the teacher who added them, but is in sch_2.
+  for (const [m, p, body] of [
+    ["GET", "/learners/learner-b-id/history"],
+    ["GET", "/learners/learner-b-id/activity"],
+    ["PATCH", "/learners/learner-b-id", { fullName: "Hacked" }],
+    ["POST", "/learners/learner-b-id/status", { status: "INACTIVE" }],
+    ["DELETE", "/learners/learner-b-id"],
+  ] as [string, string, unknown?][]) {
+    assertEquals((await call(m, p, "tok_teacher", body)).status, 404, `${m} ${p}`);
+  }
+  assertEquals(db.learners.find((l) => l.id === "learner-b-id")!.full_name, "Kid B");
+  // Can't add a learner to a class they don't teach, or to another school.
+  assertEquals((await call("POST", "/learners", "tok_teacher", { fullName: "X", username: "kid.x", pin: "1234", classId: "cls_2" })).status, 400);
+  assertEquals((await call("POST", "/learners", "tok_teacher", { fullName: "Y", username: "kid.y", pin: "1234", schoolId: "sch_2" })).json.learner.schoolId, "sch_1");
+  // A class they don't teach in their own school is refused too.
+  assertEquals((await call("POST", "/learners", "tok_teacher", { fullName: "Z", username: "kid.z", pin: "1234", classId: "cls_1b" })).status, 403);
+});
+
+Deno.test("a school head sees only their own school", async () => {
+  const db = freshWorld();
+  assertEquals(ids(await call("GET", "/learners?status=all", "tok_school_leader")), ["learner-id"]);
+  // Asking for another school is ignored, never honoured.
+  assertEquals(ids(await call("GET", "/learners?schoolId=sch_2", "tok_school_leader")), ["learner-id"]);
+  const enr = await call("GET", "/enrollments?schoolId=sch_2", "tok_school_leader");
+  assert(enr.json.enrollments.every((e: Row) => e.schoolId === "sch_1"));
+  assertEquals((await call("GET", "/learners/learner-b-id/history", "tok_school_leader")).status, 404);
+  assertEquals((await call("PATCH", "/learners/learner-b-id", "tok_school_leader", { fullName: "X" })).status, 404);
+  const cls = await call("POST", "/classes", "tok_school_leader", { grade: "Grade 6", name: "Grade 6 B", schoolId: "sch_2" });
+  assertEquals(cls.json.class.schoolId, "sch_1", "a head's new class is always in their own school");
+  assertEquals((await call("PATCH", "/classes/cls_2", "tok_school_leader", { name: "X" })).status, 404);
+  assertEquals((await call("POST", "/classes/cls_2/promote", "tok_school_leader", {})).status, 404);
+  assertEquals((await call("POST", "/learners/learner-id/transfer", "tok_school_leader", { toSchoolId: "sch_2" })).status, 403);
+  // …and the other school's head sees only theirs.
+  assertEquals(ids(await call("GET", "/learners?status=all", "tok_head_b")), ["learner-b-id"]);
+  assert(db.learners.length === 2);
+});
+
+Deno.test("an admin manages every school", async () => {
+  freshWorld();
+  assertEquals(ids(await call("GET", "/learners?status=all", "tok_admin")), ["learner-b-id", "learner-id"]);
+  assertEquals(ids(await call("GET", "/learners?schoolId=sch_2", "tok_admin")), ["learner-b-id"]);
+  assertEquals((await call("PATCH", "/learners/learner-b-id", "tok_admin", { fullName: "Kid Bee" })).status, 200);
+  assertEquals((await call("POST", "/classes", "tok_admin", { grade: "Grade 6", name: "Grade 6 B", schoolId: "sch_2" })).json.class.schoolId, "sch_2");
+  assertEquals((await call("POST", "/classes/cls_2/teachers", "tok_admin", { teacherId: "teacher-b-id" })).status, 200);
+  assertEquals((await call("POST", "/learners", "tok_admin", { fullName: "New", username: "kid.new", pin: "1234", schoolId: "sch_2", classId: "cls_2" })).json.learner.schoolId, "sch_2");
+  // M&E can see and transfer, but not edit.
+  assertEquals((await call("PATCH", "/learners/learner-b-id", "tok_me", { fullName: "X" })).status, 403);
+});
+
+Deno.test("a transferred learner keeps their history, code, sign-in and work", async () => {
+  const db = freshWorld();
+  const res = await call("POST", "/learners/learner-id/transfer", "tok_admin", { toSchoolId: "sch_2", toClassId: "cls_2", reason: "Family moved" });
+  assertEquals(res.status, 200);
+  const l = db.learners.find((x) => x.id === "learner-id")!;
+  assertEquals(l.school_id, "sch_2");
+  assertEquals(l.class_id, "cls_2");
+  assertEquals(l.enrollment_status, "ACTIVE");
+  assertEquals(l.learner_code, "NRK-001-L0001", "the permanent learner code never changes");
+  assert(String(l.user_code).startsWith("NRK-002-"), "the school code follows the new school");
+  // History: the old enrollment is closed as TRANSFERRED, a new one is open.
+  const mine = db.learner_enrollments.filter((e) => e.learner_id === "learner-id");
+  assertEquals(mine.length, 2);
+  const old = mine.find((e) => e.school_id === "sch_1")!;
+  assertEquals(old.status, "TRANSFERRED");
+  assert(old.exit_date && String(old.exit_reason).includes("Family moved"));
+  assertEquals(mine.find((e) => e.school_id === "sch_2")!.status, "ACTIVE");
+  // Their work and sign-in are untouched.
+  assert(db.assignments.some((a) => a.learner_id === "learner-id"));
+  assert(db.learner_sessions.some((s) => s.learner_id === "learner-id"));
+  // The old school keeps the record, but no longer has the learner on its roster.
+  const oldSchool = await call("GET", "/enrollments?status=past", "tok_school_leader");
+  assert(oldSchool.json.enrollments.some((e: Row) => e.learnerId === "learner-id" && e.status === "TRANSFERRED"));
+  assertEquals(ids(await call("GET", "/learners", "tok_school_leader")), []);
+  assertEquals((await call("GET", "/learners/learner-id/history", "tok_teacher")).status, 404, "the old teacher loses access");
+  // The new school sees them, with the full history.
+  assert(ids(await call("GET", "/learners", "tok_head_b")).includes("learner-id"));
+  assertEquals((await call("GET", "/learners/learner-id/history", "tok_head_b")).json.enrollments.length, 2);
+  assert(db.audit_log.some((a) => a.action === "learner.transferred" && a.details.fromSchoolId === "sch_1" && a.details.toSchoolId === "sch_2"));
+});
+
+Deno.test("archived learners don't appear as active, can't sign in, and are never deleted", async () => {
+  const db = freshWorld();
+  assertEquals((await call("POST", "/learners/learner-id/status", "tok_teacher", { status: "DROPPED_OUT", reason: "Left school" })).status, 200);
+  assertEquals(ids(await call("GET", "/learners", "tok_teacher")), [], "not on the active roster");
+  const archived = await call("GET", "/learners?status=archived", "tok_teacher");
+  assertEquals(archived.json.learners[0].status, "DROPPED_OUT");
+  assert(db.learners.some((l) => l.id === "learner-id"), "the learner row still exists");
+  assertEquals(db.learner_enrollments.find((e) => e.id === "enr_1")!.status, "DROPPED_OUT");
+  assertEquals(db.learner_sessions.filter((s) => s.learner_id === "learner-id").length, 0, "signed out everywhere");
+  assertEquals((await call("POST", "/learner/login", undefined, { username: "kid.one", pin: "1234" })).status, 403);
+  // Not counted as an active learner anywhere.
+  assertEquals((await call("GET", "/stats", "tok_education_team")).json.byRole.learner, 1, "only learner-b-id is active");
+  // "Remove" archives instead of deleting.
+  assertEquals((await call("DELETE", "/learners/learner-b-id", "tok_head_b")).status, 200);
+  assertEquals(db.learners.find((l) => l.id === "learner-b-id")!.enrollment_status, "INACTIVE");
+  assertEquals(db.learners.length, 2);
+  // Reactivating opens a new enrollment; the old one stays.
+  assertEquals((await call("POST", "/learners/learner-id/status", "tok_school_leader", { status: "ACTIVE" })).status, 200);
+  assertEquals(db.learner_enrollments.filter((e) => e.learner_id === "learner-id").map((e) => e.status).sort(), ["ACTIVE", "DROPPED_OUT"]);
+  assert(db.audit_log.some((a) => a.action === "learner.archived") && db.audit_log.some((a) => a.action === "learner.reactivated"));
+});
+
+Deno.test("a learner's profile never carries a staff account status", async () => {
+  freshWorld();
+  // The pages send anyone whose profile.status isn't "active" back to the
+  // front door, so the enrollment status lives under its own name.
+  const me = await call("GET", "/me", tokenFor("learner"));
+  assertEquals(me.status, 200);
+  assertEquals(me.json.profile.status, undefined);
+  assertEquals(me.json.profile.enrollmentStatus, "ACTIVE");
+  assertEquals(me.json.profile.className, "Grade 4 East");
+});
+
+Deno.test("promotion moves a class up a grade and keeps the year's record", async () => {
+  const db = freshWorld();
+  assertEquals((await call("POST", "/classes/cls_1/promote", "tok_school_leader", { toClassId: "cls_2" })).status, 400, "only a class in the same school");
+  const res = await call("POST", "/classes/cls_1/promote", "tok_school_leader", { toClassId: "cls_1b" });
+  assertEquals(res.json, { ok: true, promoted: 1, completed: 0 });
+  const l = db.learners.find((x) => x.id === "learner-id")!;
+  assertEquals([l.grade, l.class_id, l.enrollment_status], ["Grade 5", "cls_1b", "ACTIVE"]);
+  const old = db.learner_enrollments.find((e) => e.id === "enr_1")!;
+  assertEquals([old.status, old.exit_reason], ["COMPLETED", "Promoted to Grade 5"]);
 });
