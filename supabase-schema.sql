@@ -481,7 +481,7 @@ create index if not exists audit_log_actor_idx  on public.audit_log (actor_id, a
 
 -- Not even the service role (which bypasses RLS) can edit or delete an entry.
 create or replace function public.audit_log_append_only() returns trigger
-language plpgsql as $$
+language plpgsql set search_path = '' as $$
 begin
   raise exception 'audit_log is append-only';
 end $$;
