@@ -261,8 +261,8 @@ async function main() {
     $("#statRow").innerHTML = `
       <div class="stat-tile"><div class="s-label">${svg(ICON.progress)}Accounts</div><div class="s-num">${s.accounts}</div>
         <div class="s-sub">${r.teacher || 0} teachers · ${r.learner || 0} learners · ${r.school_leader || 0} leaders · ${r.field_officer || 0} officers${scoped}</div></div>
-      <div class="stat-tile"><div class="s-label">${svg(ICON.responses)}Assignments done</div><div class="s-num">${s.assignmentsDone}/${s.assignmentsTotal}</div>
-        <div class="s-sub">across all learner accounts${scoped}</div></div>
+      <div class="stat-tile"><div class="s-label">${svg(ICON.responses)}Work handed in</div><div class="s-num">${s.assignmentsDone}/${s.assignmentsTotal}</div>
+        <div class="s-sub">${s.achievement?.marked ? `average mark ${Math.round(s.achievement.averagePercent)}% on ${s.achievement.marked} marked` : "nothing marked yet"}${scoped}</div></div>
       <div class="stat-tile"><div class="s-label">${svg(ICON.forms)}Field reports filed</div><div class="s-num">${s.reportsFiled}</div>
         <div class="s-sub">across all field officer accounts${scoped}</div></div>
       <div class="stat-tile"><div class="s-label">${svg(ICON.library)}Forms & responses</div><div class="s-num">${s.formsSent} / ${s.responsesReceived}</div>
@@ -304,7 +304,7 @@ async function main() {
      other listener on this same element drills a bar-chart school label
      straight into the Schools page (see barChart()'s drillSchool option). */
   $("#impactBody").addEventListener("change", (e) => {
-    if (e.target.id === "gpTopN") {
+    if (e.target.classList?.contains("gp-topn")) {
       gpTopN = Number(e.target.value) || 0;
       renderStats();
     }
@@ -343,8 +343,8 @@ async function main() {
     const ROLE_LABELS = { teacher: "Teachers", learner: "Learners", school_leader: "School Leaders", field_officer: "Field Officers" };
     const roleData = Object.entries(ROLE_LABELS).map(([k, label]) => ({ label, value: (s.byRole && s.byRole[k]) || 0 }));
     const doneData = [
-      { label: "Completed", value: s.assignmentsDone || 0 },
-      { label: "Pending", value: Math.max(0, (s.assignmentsTotal || 0) - (s.assignmentsDone || 0)) },
+      { label: "Handed in", value: s.assignmentsDone || 0 },
+      { label: "Not handed in", value: Math.max(0, (s.assignmentsTotal || 0) - (s.assignmentsDone || 0)) },
     ];
     const eng = s.formsEngagement || [];
     const sentData = eng.map((e) => ({ label: e.label, value: e.sent }));
@@ -366,7 +366,7 @@ async function main() {
         sumOf(roleData) ? `<div class="chart-donut-wrap">${donutChart(roleData)}${legend(roleData)}</div>` : miniEmpty()));
     }
     cards.push(
-      impactCard(`Assignment completion${scope}`, `${s.assignmentsTotal || 0} assigned to learners${notDateFiltered}`,
+      impactCard(`Assignment completion${scope}`, `work handed in, of ${s.assignmentsTotal || 0} learner assignments set — not marks${notDateFiltered}`,
         sumOf(doneData) ? `<div class="chart-donut-wrap">${donutChart(doneData)}${legend(doneData)}</div>` : miniEmpty()),
       impactCard(`Learners by grade${scope}`, `${learnerTotal} learners${notDateFiltered}`,
         (s.learnersByGrade || []).length ? barChart(s.learnersByGrade) : miniEmpty()),
@@ -399,24 +399,25 @@ async function main() {
         `<div class="chart-subhead">Sent</div>${sumOf(sentData) ? barChart(sentData) : miniEmpty()}<div class="chart-subhead">Responded</div>${sumOf(respData) ? barChart(respData) : miniEmpty()}`),
     );
 
-    // Grade "performance": the one real, comparable signal the portal
-    // records today is assignment completion rate — there's no gradebook/
-    // exam-results feature yet, so this isn't an academic score (flagged
-    // to Patrick separately). Ranked highest-first, capped by the Top-N
-    // picker embedded in the card.
-    const gp = s.gradePerformance || [];
-    const gpHead = `<div class="chart-card-head"><b>Grade performance${scope}</b>
-      <select id="gpTopN" style="font-size:.74rem;padding:.2rem .4rem;border-radius:6px;border:1px solid var(--line);background:var(--paper-raised);color:var(--ink)">
+    // By grade, two rankings kept apart: completion (share of work handed
+    // in) and achievement (average mark on marked work). A grade can hand
+    // everything in and still score low, so neither stands in for the other.
+    // Ranked highest-first, capped by the Top-N picker in the first card.
+    const gc = s.gradeCompletion || [];
+    const ga = s.gradeAchievement || [];
+    const gpHead = (title) => `<div class="chart-card-head"><b>${esc(title)}${esc(scope)}</b>
+      <select class="gp-topn" style="font-size:.74rem;padding:.2rem .4rem;border-radius:6px;border:1px solid var(--line);background:var(--paper-raised);color:var(--ink)">
         <option value="0"${gpTopN === 0 ? " selected" : ""}>All grades</option>
         <option value="5"${gpTopN === 5 ? " selected" : ""}>Top 5</option>
         <option value="10"${gpTopN === 10 ? " selected" : ""}>Top 10</option>
       </select></div>`;
-    const gpBody = gp.length
-      ? barChart(gp.map((g) => ({ label: `${g.label} (${g.total})`, value: g.value })))
-      : miniEmpty();
-    cards.push(`<div class="chart-card">${gpHead}
-      <div class="chart-empty" style="margin:-.3rem 0 .5rem">% of assignments completed, by grade — ranked, not an exam score${notDateFiltered}</div>
-      ${gpBody}
+    cards.push(`<div class="chart-card">${gpHead("Completion by grade")}
+      <div class="chart-empty" style="margin:-.3rem 0 .5rem">% of the work set that was handed in — not marks${notDateFiltered}</div>
+      ${gc.length ? barChart(gc.map((g) => ({ label: `${g.label} (${g.total})`, value: g.value }))) : miniEmpty()}
+    </div>`);
+    cards.push(`<div class="chart-card">${gpHead("Achievement by grade")}
+      <div class="chart-empty" style="margin:-.3rem 0 .5rem">average mark (%) on marked work${notDateFiltered}</div>
+      ${ga.length ? barChart(ga.map((g) => ({ label: `${g.label} (${g.marked} marked${g.band ? ` · ${g.band}` : ""})`, value: g.value }))) : miniEmpty()}
     </div>`);
 
     $("#impactMeta").textContent = `updated ${new Date().toLocaleTimeString()}`;
@@ -462,10 +463,11 @@ async function main() {
     body.innerHTML = `
       <button type="button" id="schoolsBack" style="background:none;border:0;padding:0;color:var(--brand);font-weight:600;cursor:pointer;font-family:inherit;font-size:.82rem;margin-bottom:.7rem">← All schools</button>
       <p class="hint" style="margin-top:0">${esc(s.school)}${s.county ? " · " + esc(s.county) : ""}</p>
-      <div class="chart-stats" style="grid-template-columns:repeat(4,1fr)">
+      <div class="chart-stats" style="grid-template-columns:repeat(5,1fr)">
         <div><b>${r.teacher || 0}</b><span>Teachers</span></div>
         <div><b>${learnerTotal}</b><span>Learners</span></div>
-        <div><b>${pct != null ? pct + "%" : "—"}</b><span>Assignments completed</span></div>
+        <div><b>${pct != null ? pct + "%" : "—"}</b><span>Work handed in</span></div>
+        <div><b>${s.achievement?.averagePercent != null ? Math.round(s.achievement.averagePercent) + "%" : "—"}</b><span>Average mark</span></div>
         <div><b>${s.reportsFiled || 0}</b><span>Field visits</span></div>
       </div>
       <div style="margin-top:1rem"><button type="button" class="btn btn-outline" id="schoolViewStaff">View staff at this school →</button></div>

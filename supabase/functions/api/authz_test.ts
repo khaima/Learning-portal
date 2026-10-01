@@ -133,6 +133,7 @@ const idOf = (role: string) => `00000000-0000-0000-0000-${role.padEnd(12, "0").s
 
 function freshWorld() {
   const now = new Date().toISOString();
+  const inAWeek = new Date(Date.now() + 7 * 864e5).toISOString();
   const users: Record<string, { id: string; email: string }> = {};
   const profiles: Row[] = [];
   for (const role of STAFF) {
@@ -191,7 +192,34 @@ function freshWorld() {
       { id: "learner-b-id", teacher_id: "teacher-id", current_teacher_id: "teacher-b-id", class_id: "cls_2", username: "kid.b", full_name: "Kid B", grade: "Grade 4", school: SCHOOL_B.name, school_id: SCHOOL_B.id, county: "Narok", pin_hash: "x", pin_salt: "y", user_code: "NRK-002-L0001", learner_code: "NRK-002-L0001", enrollment_status: "ACTIVE", academic_year_id: "2026", term_id: "2026-T3" },
     ],
     learner_sessions: [{ token: "learnertoken", learner_id: "learner-id", created_at: now, expires_at: new Date(Date.now() + 3600e3).toISOString() }],
-    assignments: [{ id: "asg_1", learner_id: "learner-id", title: "Read", subject: "English", due: "", done: false }],
+    subjects: [
+      { id: "mathematics", name: "Mathematics", sort_order: 1, archived_at: null },
+      { id: "english", name: "English", sort_order: 2, archived_at: null },
+    ],
+    class_subjects: [{ id: "cs_1", class_id: "cls_1", subject_id: "mathematics", removed_at: null }],
+    grade_bands: [
+      { code: "EE", label: "Exceeding Expectations", min_percent: 80, sort_order: 1 },
+      { code: "ME", label: "Meeting Expectations", min_percent: 50, sort_order: 2 },
+      { code: "AE", label: "Approaching Expectations", min_percent: 30, sort_order: 3 },
+      { code: "BE", label: "Below Expectations", min_percent: 0, sort_order: 4 },
+    ],
+    // A published quiz in each school: one auto-marked and one teacher-marked
+    // question in school A, a true/false in school B.
+    assignments: [
+      { id: "asg_1", school_id: SCHOOL.id, class_id: "cls_1", subject_id: "mathematics", grade: "Grade 4", academic_year_id: "2026", term_id: "2026-T3",
+        title: "Fractions quiz", description: "", instructions: "", resource_id: null, starts_at: null, due_at: inAWeek, estimated_minutes: 20,
+        status: "published", max_marks: 4, created_by: "teacher-id", created_at: "2026-09-10T08:00:00.000Z", published_at: "2026-09-10T08:00:00.000Z" },
+      { id: "asg_b", school_id: SCHOOL_B.id, class_id: "cls_2", subject_id: "english", grade: "Grade 4", academic_year_id: "2026", term_id: "2026-T3",
+        title: "Reading check", description: "", instructions: "", resource_id: null, starts_at: null, due_at: inAWeek, estimated_minutes: 10,
+        status: "published", max_marks: 1, created_by: "teacher-b-id", created_at: "2026-09-10T08:00:00.000Z", published_at: "2026-09-10T08:00:00.000Z" },
+    ],
+    assignment_questions: [
+      { id: "q_mc", assignment_id: "asg_1", position: 1, type: "multiple_choice", prompt: "1/2 + 1/4 = ?", options: ["3/4", "2/6"], answer_key: 0, max_marks: 2 },
+      { id: "q_tm", assignment_id: "asg_1", position: 2, type: "teacher_marked", prompt: "Explain how you worked it out.", options: [], answer_key: null, max_marks: 2 },
+      { id: "q_b", assignment_id: "asg_b", position: 1, type: "true_false", prompt: "The story is set in Narok.", options: ["True", "False"], answer_key: true, max_marks: 1 },
+    ],
+    assignment_submissions: [],
+    submission_answers: [],
     library_items: [{ id: "lib_1", title: "Book", subject: "English", type: "Reading", audience: "library", published: true, files: [] }],
     library_folders: [{ id: "fld_1", name: "Folder", audience: "library" }],
     library_interactions: [{ id: "li_1", library_item_id: "lib_1", actor_id: "learner-id", started_at: now, completed_at: null }],
@@ -279,9 +307,28 @@ const ROUTES: RouteSpec[] = [
   r("POST", "/forms/:id/response-upload", ["field_officer", "school_leader", "teacher"], { name: "a.pdf" }, "/forms/form_1/response-upload"),
   r("GET", "/responses", [...ANALYSTS, "field_officer", "school_leader", "teacher"]),
   r("POST", "/responses", ["field_officer", "school_leader", "teacher"], { formId: "form_1", answers: [{ questionId: "q1", value: "x" }] }),
-  r("GET", "/assignments", [...ANALYSTS, "learner"]),
-  r("GET", "/teacher/assignments", ["teacher"]),
-  r("PATCH", "/assignments/:id", ["teacher", "learner"], { done: true }, "/assignments/asg_1"),
+  r("GET", "/subjects", [...STAFF]),
+  r("POST", "/subjects", EDU_ADMIN, { name: "Music" }),
+  r("POST", "/classes/:id/subjects", CLASS_MANAGERS, { subjectId: "english" }, "/classes/cls_1/subjects"),
+  r("DELETE", "/classes/:id/subjects/:subjectId", CLASS_MANAGERS, undefined, "/classes/cls_1/subjects/mathematics"),
+  r("POST", "/classes/:id/learners", LEARNER_MANAGERS, { learnerIds: ["learner-id"] }, "/classes/cls_1/learners"),
+  r("DELETE", "/classes/:id/learners/:learnerId", LEARNER_MANAGERS, undefined, "/classes/cls_1/learners/learner-id"),
+  r("GET", "/assignments", LEARNER_VIEWERS),
+  r("POST", "/assignments", ["teacher"], { classId: "cls_1", subjectId: "mathematics", title: "New work" }),
+  r("GET", "/assignments/:id", LEARNER_VIEWERS, undefined, "/assignments/asg_1"),
+  r("PATCH", "/assignments/:id", ["teacher"], { title: "Renamed" }, "/assignments/asg_1"),
+  r("POST", "/assignments/:id/status", ["teacher"], { status: "closed" }, "/assignments/asg_1/status"),
+  r("DELETE", "/assignments/:id", ["teacher"], undefined, "/assignments/asg_1"),
+  r("GET", "/submissions", LEARNER_VIEWERS),
+  r("GET", "/submissions/:id", LEARNER_VIEWERS),
+  r("POST", "/submissions/:id/mark", ["teacher"], { answers: [] }),
+  r("GET", "/learner/assignments", ["learner"]),
+  r("GET", "/learner/assignments/:id", ["learner"], undefined, "/learner/assignments/asg_1"),
+  r("POST", "/learner/assignments/:id/start", ["learner"], {}, "/learner/assignments/asg_1/start"),
+  r("PUT", "/learner/assignments/:id/answers", ["learner"], { answers: [] }, "/learner/assignments/asg_1/answers"),
+  r("POST", "/learner/assignments/:id/upload", ["learner"], { questionId: "q_mc", name: "a.pdf" }, "/learner/assignments/asg_1/upload"),
+  r("POST", "/learner/assignments/:id/submit", ["learner"], {}, "/learner/assignments/asg_1/submit"),
+  r("GET", "/results", [...LEARNER_VIEWERS, "learner"]),
   r("GET", "/field-reports", [...ANALYSTS, "field_officer"]),
   r("POST", "/field-reports", ["field_officer"], { schoolId: "sch_1", visitType: "Learning", responses: [] }),
   r("GET", "/stats", ANALYSTS),
@@ -566,6 +613,7 @@ Deno.test("an admin manages every school", async () => {
 
 Deno.test("a transferred learner keeps their history, code, sign-in and work", async () => {
   const db = freshWorld();
+  assertEquals((await call("POST", "/learner/assignments/asg_1/start", tokenFor("learner"))).status, 200);
   const res = await call("POST", "/learners/learner-id/transfer", "tok_admin", { toSchoolId: "sch_2", toClassId: "cls_2", reason: "Family moved" });
   assertEquals(res.status, 200);
   const l = db.learners.find((x) => x.id === "learner-id")!;
@@ -582,7 +630,7 @@ Deno.test("a transferred learner keeps their history, code, sign-in and work", a
   assert(old.exit_date && String(old.exit_reason).includes("Family moved"));
   assertEquals(mine.find((e) => e.school_id === "sch_2")!.status, "ACTIVE");
   // Their work and sign-in are untouched.
-  assert(db.assignments.some((a) => a.learner_id === "learner-id"));
+  assert(db.assignment_submissions.some((s) => s.learner_id === "learner-id" && s.school_id === "sch_1"), "work done at the old school stays there");
   assert(db.learner_sessions.some((s) => s.learner_id === "learner-id"));
   // The old school keeps the record, but no longer has the learner on its roster.
   const oldSchool = await call("GET", "/enrollments?status=past", "tok_school_leader");
@@ -637,4 +685,262 @@ Deno.test("promotion moves a class up a grade and keeps the year's record", asyn
   assertEquals([l.grade, l.class_id, l.enrollment_status], ["Grade 5", "cls_1b", "ACTIVE"]);
   const old = db.learner_enrollments.find((e) => e.id === "enr_1")!;
   assertEquals([old.status, old.exit_reason], ["COMPLETED", "Promoted to Grade 5"]);
+});
+
+/* ------------------------------------------------------------ 8. assignments, submissions, marking, results */
+
+const LEARNER = tokenFor("learner");
+const asgIds = (res: { json: Row }) => (res.json.assignments ?? []).map((a: Row) => a.id).sort();
+/** A second learner in the same class (cls_1), enrolled like the first. */
+function addClassmate(db: Db) {
+  db.learners.push({ id: "learner-c-id", teacher_id: "teacher-id", current_teacher_id: "teacher-id", class_id: "cls_1", username: "kid.c", full_name: "Kid C", grade: "Grade 4", school: SCHOOL.name, school_id: SCHOOL.id, county: "Narok", pin_hash: "x", pin_salt: "y", user_code: "NRK-001-L0003", learner_code: "NRK-001-L0003", enrollment_status: "ACTIVE", academic_year_id: "2026", term_id: "2026-T3" });
+  db.learner_enrollments.push({ id: "enr_c", learner_id: "learner-c-id", school_id: SCHOOL.id, class_id: "cls_1", academic_year_id: "2026", term_id: "2026-T3", grade: "Grade 4", status: "ACTIVE", enrollment_date: "2026-09-01" });
+}
+/** Start, answer and hand in asg_1 as the learner: right on the multiple choice. */
+async function learnerHandsIn(answers: Row[] = [{ questionId: "q_mc", response: 0 }, { questionId: "q_tm", response: "Halves are two quarters." }]) {
+  assertEquals((await call("POST", "/learner/assignments/asg_1/start", LEARNER)).status, 200);
+  return await call("POST", "/learner/assignments/asg_1/submit", LEARNER, { answers });
+}
+
+Deno.test("assignment visibility: learners see published work for their own class only, never the answer key", async () => {
+  const db = freshWorld();
+  db.assignments.push({ ...db.assignments[0], id: "asg_draft", status: "draft", title: "Not ready" });
+  const list = await call("GET", "/learner/assignments", LEARNER);
+  assertEquals(asgIds(list), ["asg_1"], "own class, published — not the draft, not another school's");
+  assertEquals((await call("GET", "/learner/assignments/asg_draft", LEARNER)).status, 404);
+  assertEquals((await call("GET", "/learner/assignments/asg_b", LEARNER)).status, 404);
+  const one = await call("GET", "/learner/assignments/asg_1", LEARNER);
+  assertEquals(one.status, 200);
+  assert(one.json.questions.every((q: Row) => !("answerKey" in q)), "no answer key for learners");
+  // Staff: the teacher of the class and that school's head; nobody else at the school.
+  assertEquals(asgIds(await call("GET", "/assignments", "tok_teacher")), ["asg_1", "asg_draft"]);
+  assertEquals(asgIds(await call("GET", "/assignments", "tok_school_leader")), ["asg_1", "asg_draft"]);
+  assertEquals(asgIds(await call("GET", "/assignments", "tok_teacher2")), [], "a teacher who doesn't teach the class");
+  assertEquals((await call("GET", "/assignments/asg_1", "tok_teacher2")).status, 404);
+  assertEquals((await call("GET", "/assignments/asg_1", "tok_teacher")).json.questions[0].answerKey, 0, "teachers do see the key");
+  assertEquals(asgIds(await call("GET", "/assignments", "tok_admin")), ["asg_1", "asg_b", "asg_draft"]);
+});
+
+Deno.test("a teacher creates, edits and publishes an assignment for a class they teach", async () => {
+  const db = freshWorld();
+  const body = {
+    classId: "cls_1", subjectId: "mathematics", title: "Times tables", description: "Practice", instructions: "Answer all",
+    resourceId: "lib_1", startsAt: "2026-09-15T08:00:00.000Z", dueAt: new Date(Date.now() + 3 * 864e5).toISOString(), estimatedMinutes: 15,
+    questions: [
+      { type: "multiple_response", prompt: "Even numbers?", options: ["2", "3", "4"], answerKey: [0, 2], maxMarks: 2 },
+      { type: "true_false", prompt: "3 x 3 = 9", answerKey: true, maxMarks: 1 },
+      { type: "short_answer", prompt: "4 x 5 = ?", answerKey: ["20", "twenty"], maxMarks: 1 },
+      { type: "file_upload", prompt: "Upload your working", maxMarks: 3 },
+    ],
+  };
+  const made = await call("POST", "/assignments", "tok_teacher", body);
+  assertEquals(made.status, 200, JSON.stringify(made.json));
+  const a = made.json.assignment;
+  assertEquals([a.status, a.maxMarks, a.termId, a.grade, a.estimatedMinutes], ["draft", 7, "2026-T3", "Grade 4", 15], "the term comes from the start date");
+  assertEquals(made.json.questions.length, 4);
+  // Not a class they teach; not a subject the class takes.
+  assertEquals((await call("POST", "/assignments", "tok_teacher", { ...body, classId: "cls_1b" })).status, 400);
+  assertEquals((await call("POST", "/assignments", "tok_teacher", { ...body, subjectId: "english" })).status, 400);
+  // Edit, then publish; questions lock once published.
+  assertEquals((await call("PATCH", `/assignments/${a.id}`, "tok_teacher", { title: "Times tables 2" })).json.assignment.title, "Times tables 2");
+  assertEquals((await call("POST", `/assignments/${a.id}/status`, "tok_teacher", { status: "published" })).json.assignment.status, "published");
+  assertEquals((await call("PATCH", `/assignments/${a.id}`, "tok_teacher", { questions: [] })).status, 409);
+  assertEquals((await call("DELETE", `/assignments/${a.id}`, "tok_teacher")).status, 409, "published work is closed, not deleted");
+  assert(db.audit_log.some((x) => x.action === "assignment.published" && x.target_id === a.id));
+  // A draft with no questions can't be published.
+  const empty = await call("POST", "/assignments", "tok_teacher", { classId: "cls_1", subjectId: "mathematics", title: "Empty", dueAt: body.dueAt });
+  assertEquals((await call("POST", `/assignments/${empty.json.assignment.id}/status`, "tok_teacher", { status: "published" })).status, 409);
+  assertEquals((await call("DELETE", `/assignments/${empty.json.assignment.id}`, "tok_teacher")).status, 200, "an unused draft can be deleted");
+});
+
+Deno.test("learner submission: start, save progress, hand in once, with a timestamp", async () => {
+  const db = freshWorld();
+  assertEquals((await call("POST", "/learner/assignments/asg_1/submit", LEARNER, {})).status, 409, "must start first");
+  const started = await call("POST", "/learner/assignments/asg_1/start", LEARNER);
+  assertEquals(started.json.completion, "in_progress");
+  assertEquals((await call("PUT", "/learner/assignments/asg_1/answers", LEARNER, { answers: [{ questionId: "q_mc", response: 9 }] })).status, 400, "not one of the options");
+  const saved = await call("PUT", "/learner/assignments/asg_1/answers", LEARNER, { answers: [{ questionId: "q_tm", response: "Draft answer" }] });
+  assertEquals(saved.json.answers.find((x: Row) => x.questionId === "q_tm").response, "Draft answer", "progress is saved");
+  const res = await call("POST", "/learner/assignments/asg_1/submit", LEARNER, { answers: [{ questionId: "q_mc", response: 0 }] });
+  assertEquals(res.status, 200);
+  const sub = db.assignment_submissions.find((x) => x.learner_id === "learner-id")!;
+  assertEquals(sub.status, "submitted", "a teacher-marked question waits for the teacher");
+  assert(sub.submitted_at && !sub.is_late);
+  assertEquals(db.submission_answers.find((x) => x.question_id === "q_mc")!.auto_marks, 2, "the multiple choice is marked on submit");
+  assertEquals(res.json.submission.marks, undefined, "no marks shown before marking");
+  assertEquals((await call("POST", "/learner/assignments/asg_1/submit", LEARNER, {})).status, 409, "can't hand in twice");
+  assertEquals((await call("PUT", "/learner/assignments/asg_1/answers", LEARNER, { answers: [] })).status, 409, "can't change it after handing in");
+  assert(db.audit_log.some((x) => x.action === "submission.submitted" && x.actor_kind === "learner"));
+});
+
+Deno.test("work made only of auto-marked questions is marked on submission", async () => {
+  const db = freshWorld();
+  db.assignment_questions = db.assignment_questions.filter((q) => q.id !== "q_tm");
+  const res = await learnerHandsIn([{ questionId: "q_mc", response: 1 }]);
+  const sub = db.assignment_submissions.find((x) => x.learner_id === "learner-id")!;
+  assertEquals([sub.status, sub.auto_marked, sub.marks, sub.percentage, sub.band], ["marked", true, 0, 0, "BE"]);
+  assertEquals(res.json.submission.percentage, 0);
+});
+
+Deno.test("teacher grading: marks, maximum, percentage, band, feedback, date and marker", async () => {
+  const db = freshWorld();
+  await learnerHandsIn();
+  const sub = db.assignment_submissions[0];
+  assertEquals((await call("POST", `/submissions/${sub.id}/mark`, "tok_teacher", {})).status, 400, "the teacher-marked question still needs a mark");
+  assertEquals((await call("POST", `/submissions/${sub.id}/mark`, "tok_teacher", { answers: [{ questionId: "q_tm", marks: 3 }] })).status, 400, "more than the question is worth");
+  const res = await call("POST", `/submissions/${sub.id}/mark`, "tok_teacher", {
+    answers: [{ questionId: "q_tm", marks: 1, feedback: "Show both steps." }], feedback: "Good start.",
+  });
+  assertEquals(res.status, 200, JSON.stringify(res.json));
+  const s = db.assignment_submissions[0];
+  assertEquals([s.status, s.marks, s.max_marks, s.percentage, s.band, s.feedback, s.marked_by], ["marked", 3, 4, 75, "ME", "Good start.", "teacher-id"]);
+  assert(s.marked_at);
+  assertEquals(res.json.submission.markerName, "teacher person");
+  // The learner now sees the marks and feedback.
+  const mine = await call("GET", "/learner/assignments/asg_1", LEARNER);
+  assertEquals([mine.json.submission.marks, mine.json.submission.percentage, mine.json.submission.band], [3, 75, "ME"]);
+  assertEquals(mine.json.answers.find((x: Row) => x.questionId === "q_tm").feedback, "Show both steps.");
+  // Overriding an automatic mark is allowed, and re-marking is audited.
+  await call("POST", `/submissions/${sub.id}/mark`, "tok_teacher", { answers: [{ questionId: "q_mc", marks: 1 }] });
+  assertEquals(db.assignment_submissions[0].marks, 2);
+  assert(db.audit_log.some((x) => x.action === "submission.marked") && db.audit_log.some((x) => x.action === "submission.remarked"));
+});
+
+Deno.test("unauthorized access: other teachers, heads, learners and schools can't reach the work", async () => {
+  const db = freshWorld();
+  await learnerHandsIn();
+  const subId = db.assignment_submissions[0].id;
+  // Another school's teacher and head: not found.
+  for (const tok of ["tok_teacher_b", "tok_head_b"]) {
+    assertEquals((await call("GET", "/assignments/asg_1", tok)).status, 404, tok);
+    assertEquals((await call("GET", `/submissions/${subId}`, tok)).status, 404, tok);
+  }
+  assertEquals((await call("POST", `/submissions/${subId}/mark`, "tok_teacher_b", { answers: [{ questionId: "q_tm", marks: 1 }] })).status, 404);
+  assertEquals((await call("PATCH", "/assignments/asg_1", "tok_teacher_b", { title: "x" })).status, 404);
+  // Same school, not their class.
+  assertEquals((await call("PATCH", "/assignments/asg_1", "tok_teacher2", { title: "x" })).status, 404);
+  assertEquals((await call("POST", `/submissions/${subId}/mark`, "tok_teacher2", { answers: [{ questionId: "q_tm", marks: 1 }] })).status, 404);
+  // The school head can look but not mark or edit.
+  assertEquals((await call("GET", `/submissions/${subId}`, "tok_school_leader")).status, 200);
+  assertEquals((await call("POST", `/submissions/${subId}/mark`, "tok_school_leader", {})).status, 403);
+  assertEquals((await call("PATCH", "/assignments/asg_1", "tok_school_leader", { title: "x" })).status, 403);
+  // A learner in another school can't open or start it; learners never reach staff routes.
+  db.learner_sessions.push({ token: "learnerb", learner_id: "learner-b-id", created_at: new Date().toISOString(), expires_at: new Date(Date.now() + 3600e3).toISOString() });
+  assertEquals((await call("GET", "/learner/assignments/asg_1", "hpl_learnerb")).status, 404);
+  assertEquals((await call("POST", "/learner/assignments/asg_1/start", "hpl_learnerb")).status, 404);
+  assertEquals((await call("GET", "/assignments", LEARNER)).status, 403);
+  assertEquals((await call("GET", `/submissions/${subId}`, LEARNER)).status, 403);
+  assertEquals(db.assignment_submissions[0].status, "submitted", "nothing was marked by anyone unauthorised");
+});
+
+Deno.test("late submission is flagged; a closed assignment takes no more work", async () => {
+  const db = freshWorld();
+  db.assignments[0].due_at = new Date(Date.now() - 864e5).toISOString();
+  const list = await call("GET", "/learner/assignments", LEARNER);
+  assertEquals(list.json.assignments[0].overdue, true);
+  await learnerHandsIn();
+  assertEquals(db.assignment_submissions[0].is_late, true);
+  // Closed: a classmate can no longer start it.
+  addClassmate(db);
+  db.learner_sessions.push({ token: "learnerc", learner_id: "learner-c-id", created_at: new Date().toISOString(), expires_at: new Date(Date.now() + 3600e3).toISOString() });
+  assertEquals((await call("POST", "/assignments/asg_1/status", "tok_teacher", { status: "closed" })).status, 200);
+  assertEquals((await call("POST", "/learner/assignments/asg_1/start", "hpl_learnerc")).status, 409);
+  const r = await call("GET", "/results?by=assignment", "tok_teacher");
+  assertEquals(r.json.rows[0].completion, { assigned: 2, submitted: 1, onTime: 0, late: 1, missing: 1, rate: 50 });
+});
+
+Deno.test("result calculation keeps completion and achievement apart, by every dimension", async () => {
+  const db = freshWorld();
+  addClassmate(db);
+  await learnerHandsIn();
+  await call("POST", `/submissions/${db.assignment_submissions[0].id}/mark`, "tok_teacher", { answers: [{ questionId: "q_tm", marks: 1 }] });
+  // Kid C never hands in; the work is now past due.
+  db.assignments[0].due_at = new Date(Date.now() - 1000).toISOString();
+  const byLearner = await call("GET", "/results?by=learner", "tok_teacher");
+  const one = byLearner.json.rows.find((r: Row) => r.key === "learner-id");
+  const c = byLearner.json.rows.find((r: Row) => r.key === "learner-c-id");
+  assertEquals([one.label, one.completion.rate, one.achievement.averagePercent, one.achievement.band], ["Kid One", 100, 75, "ME"]);
+  assertEquals([c.completion.rate, c.completion.missing, c.achievement.marked, c.achievement.averagePercent], [0, 1, 0, null],
+    "not handing in is a completion gap, never a score of 0");
+  for (const by of ["class", "subject", "grade", "term", "year"]) {
+    const res = await call("GET", `/results?by=${by}`, "tok_teacher");
+    assertEquals(res.status, 200, by);
+    assertEquals(res.json.rows.length, 1, by);
+    const row = res.json.rows[0];
+    assertEquals(row.completion.assigned, 2, by);
+    assertEquals(row.completion.rate, 50, `${by}: half the class handed in`);
+    assertEquals(row.achievement.averagePercent, 75, `${by}: the marked work averages 75%`);
+  }
+  assertEquals((await call("GET", "/results?by=subject", "tok_teacher")).json.rows[0].label, "Mathematics");
+  assertEquals((await call("GET", "/results?by=term", "tok_teacher")).json.rows[0].label, "2026 Term 3");
+  // A learner sees only their own results.
+  const mine = await call("GET", "/results?by=subject", LEARNER);
+  assertEquals(mine.json.overall.completion.assigned, 1);
+  assertEquals(mine.json.overall.achievement.averagePercent, 75);
+  assertEquals((await call("GET", "/results?by=learner", LEARNER)).status, 400);
+  // The dashboards report the two measures separately too.
+  const overview = await call("GET", "/school/overview", "tok_school_leader");
+  assertEquals([overview.json.completion.rate, overview.json.achievement.averagePercent], [50, 75]);
+  const stats = await call("GET", `/stats?school=${encodeURIComponent(SCHOOL.name)}`, "tok_education_team");
+  assertEquals(stats.json.gradeCompletion[0], { label: "Grade 4", value: 50, total: 2 });
+  assertEquals(stats.json.gradeAchievement[0].value, 75);
+  assertEquals(stats.json.gradePerformance, undefined, "completion is no longer reported as performance");
+});
+
+Deno.test("class filtering: assignments, submissions and results follow the class", async () => {
+  const db = freshWorld();
+  db.class_teachers.push({ id: "ct_3", class_id: "cls_1b", teacher_id: "teacher-id", role: "subject_teacher", ended_at: null });
+  const other = await call("POST", "/assignments", "tok_teacher", { classId: "cls_1b", subjectId: "english", title: "Grade 5 essay", dueAt: new Date(Date.now() + 864e5).toISOString(), questions: [{ type: "teacher_marked", prompt: "Write", maxMarks: 10 }] });
+  assertEquals(other.status, 200, JSON.stringify(other.json));
+  await call("POST", `/assignments/${other.json.assignment.id}/status`, "tok_teacher", { status: "published" });
+  await learnerHandsIn();
+  assertEquals(asgIds(await call("GET", "/assignments?classId=cls_1", "tok_teacher")), ["asg_1"]);
+  assertEquals(asgIds(await call("GET", "/assignments?classId=cls_1b", "tok_teacher")), [other.json.assignment.id]);
+  assertEquals((await call("GET", "/submissions?classId=cls_1b", "tok_teacher")).json.submissions.length, 0);
+  assertEquals((await call("GET", "/submissions?classId=cls_1&status=submitted", "tok_teacher")).json.submissions.length, 1);
+  const r1b = await call("GET", "/results?by=class&classId=cls_1b", "tok_teacher");
+  assertEquals(r1b.json.rows.map((r: Row) => r.key), [], "nobody is enrolled in Grade 5 East, so nothing is expected there");
+  assertEquals((await call("GET", "/results?by=class&classId=cls_1", "tok_teacher")).json.rows[0].completion.submitted, 1);
+  // The learner sees their class's work, not the other class's.
+  assertEquals(asgIds(await call("GET", "/learner/assignments", LEARNER)), ["asg_1"]);
+});
+
+Deno.test("school isolation: results, submissions and assignments never cross schools", async () => {
+  const db = freshWorld();
+  await learnerHandsIn();
+  db.learner_sessions.push({ token: "learnerb", learner_id: "learner-b-id", created_at: new Date().toISOString(), expires_at: new Date(Date.now() + 3600e3).toISOString() });
+  await call("POST", "/learner/assignments/asg_b/start", "hpl_learnerb");
+  await call("POST", "/learner/assignments/asg_b/submit", "hpl_learnerb", { answers: [{ questionId: "q_b", response: true }] });
+  const headB = await call("GET", "/results?by=school", "tok_head_b");
+  assertEquals(headB.json.rows.map((r: Row) => r.key), ["sch_2"]);
+  assertEquals(headB.json.rows[0].achievement.averagePercent, 100);
+  assertEquals((await call("GET", "/results?by=school", "tok_school_leader")).json.rows.map((r: Row) => r.key), ["sch_1"]);
+  assertEquals((await call("GET", "/results?by=school", "tok_admin")).json.rows.map((r: Row) => r.key).sort(), ["sch_1", "sch_2"]);
+  // Even asking for the other school's learner or school by id gives nothing.
+  assertEquals((await call("GET", "/results?by=learner&learnerId=learner-b-id", "tok_teacher")).json.rows, []);
+  assertEquals((await call("GET", "/results?by=school&schoolId=sch_2", "tok_school_leader")).json.rows.map((r: Row) => r.key), ["sch_1"]);
+  assertEquals((await call("GET", "/submissions", "tok_teacher_b")).json.submissions.map((s: Row) => s.learnerId), ["learner-b-id"]);
+  assertEquals((await call("GET", "/submissions?schoolId=sch_1", "tok_head_b")).json.submissions.map((s: Row) => s.learnerId), ["learner-b-id"]);
+  assertEquals(asgIds(await call("GET", "/assignments?schoolId=sch_1", "tok_head_b")), ["asg_b"]);
+});
+
+Deno.test("class management: subjects, grade, adding and removing learners", async () => {
+  const db = freshWorld();
+  assertEquals((await call("POST", "/classes/cls_1/subjects", "tok_school_leader", { subjectId: "english" })).status, 200);
+  const cls = (await call("GET", "/classes", "tok_school_leader")).json.classes.find((x: Row) => x.id === "cls_1");
+  assertEquals(cls.subjects.map((s: Row) => s.id), ["english", "mathematics"]);
+  assertEquals((await call("POST", "/classes/cls_2/subjects", "tok_school_leader", { subjectId: "english" })).status, 404, "another school's class");
+  assertEquals((await call("DELETE", "/classes/cls_1/subjects/english", "tok_school_leader")).status, 200);
+  assert(db.class_subjects.some((x) => x.subject_id === "english" && x.removed_at), "removed, not deleted");
+  // The grade can't change under active learners.
+  assertEquals((await call("PATCH", "/classes/cls_1", "tok_school_leader", { grade: "Grade 6" })).status, 409);
+  assertEquals((await call("PATCH", "/classes/cls_1b", "tok_school_leader", { grade: "Grade 6" })).status, 200);
+  // Take a learner out of the class, then put them back.
+  assertEquals((await call("DELETE", "/classes/cls_1/learners/learner-id", "tok_teacher")).status, 200);
+  assertEquals(db.learners.find((l) => l.id === "learner-id")!.class_id, null);
+  const back = await call("POST", "/classes/cls_1/learners", "tok_teacher", { learnerIds: ["learner-id", "learner-b-id"] });
+  assertEquals([back.json.added, back.json.skipped], [1, 1], "the other school's learner is skipped");
+  assertEquals(db.learners.find((l) => l.id === "learner-b-id")!.class_id, "cls_2");
+  assertEquals((await call("POST", "/classes/cls_1b/learners", "tok_teacher", { learnerIds: ["learner-id"] })).status, 404, "not a class they teach");
+  assert(db.audit_log.filter((a) => a.action === "learner.class_changed").length >= 2);
 });

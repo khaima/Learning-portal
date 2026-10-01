@@ -59,7 +59,20 @@ let onCloseCb = null;
 let openSeq = 0;
 let historyPushed = false;
 
+/* closeViewer() steps history back, and that Back lands a moment later.
+   If another panel opened in between (close one screen, open the next),
+   that Back must not close it — swallow it and give the new panel its
+   own history entry instead. */
+let pendingBack = false;
 window.addEventListener("popstate", () => {
+  if (pendingBack) {
+    pendingBack = false;
+    if (isViewerOpen() && !historyPushed) {
+      history.pushState({ hpfViewer: true }, "");
+      historyPushed = true;
+    }
+    return;
+  }
   if (!historyPushed || !isViewerOpen()) return;
   historyPushed = false;
   closeViewer();
@@ -126,7 +139,7 @@ function showOverlay(title, node, onClose, kind, { fullscreen = false } = {}) {
   body.appendChild(node);
   // A history entry per viewing session, so the browser/phone Back
   // button closes the reader instead of leaving the dashboard.
-  if (!el.classList.contains("is-open")) {
+  if (!el.classList.contains("is-open") && !pendingBack) {
     history.pushState({ hpfViewer: true }, "");
     historyPushed = true;
   }
@@ -285,6 +298,7 @@ export function closeViewer() {
   if (cb) cb();
   if (historyPushed) {
     historyPushed = false;
+    pendingBack = true;
     history.back();
   }
 }

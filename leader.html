@@ -130,9 +130,28 @@
 
       <section class="dash-page" data-page="learning" hidden>
         <div class="panel">
-          <div class="panel-head"><h2>Learning activity by grade</h2></div>
-          <p class="hint" style="margin-top:0">Assignment completion — the one comparable signal recorded so far.</p>
+          <div class="panel-head"><h2>Learning by grade</h2></div>
+          <p class="hint" style="margin-top:0">Two separate measures: <b>completion</b> (work handed in, out of what was set) and <b>achievement</b> (the average mark on marked work). Handing work in isn't the same as doing well, so they're never combined.</p>
           <div id="learningByGrade"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Results</h2></div>
+          <div class="filter-bar-row" style="margin-bottom:.8rem">
+            <div class="field"><label for="hr_by">Show by</label>
+              <select id="hr_by">
+                <option value="class">Class</option><option value="subject">Subject</option><option value="grade">Grade</option>
+                <option value="learner">Learner</option><option value="assignment">Assignment</option><option value="term">Term</option><option value="year">School year</option>
+              </select></div>
+            <div class="field"><label for="hr_class">Class</label><select id="hr_class"><option value="">All classes</option></select></div>
+            <div class="field"><label for="hr_subject">Subject</label><select id="hr_subject"><option value="">All subjects</option></select></div>
+            <div class="field"><label for="hr_term">Term</label><select id="hr_term"><option value="">All terms</option></select></div>
+          </div>
+          <div id="headResults"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Assignments in the school</h2></div>
+          <p class="hint" style="margin-top:0">What teachers have set, and how much has been handed in and marked. Open one to see each learner's work.</p>
+          <div id="headAssignments"></div>
         </div>
       </section>
 

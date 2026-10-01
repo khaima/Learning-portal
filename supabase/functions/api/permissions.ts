@@ -44,6 +44,7 @@ export type AccountStatus = (typeof ACCOUNT_STATUSES)[number];
 export const PERMISSIONS = [
   // reference data
   "schools.manage",
+  "subjects.manage",
   // learners: a teacher's class roster, a school's roster, every school
   "learners.manage",          // teacher: learners in the classes they teach (and ones they added, until placed in a class)
   "learners.view.school",     // school head: everyone enrolled in their own school
@@ -65,10 +66,13 @@ export const PERMISSIONS = [
   "forms.respond",
   "forms.manage",
   "forms.responses.view",
-  // assignments
-  "assignments.view.own",
+  // assignments and results
+  "assignments.view.own",     // learner: assignments for their class, and their own results
+  "assignments.submit",       // learner: start, save and hand in work
+  "assignments.manage",       // teacher: create and run assignments for the classes they teach
+  "assignments.grade",        // teacher: mark submissions in the classes they teach
+  "assignments.view.school",  // school head: every assignment and result in their school
   "assignments.view.all",
-  "assignments.manage.learners",
   // field visits
   "field_reports.create",
   "field_reports.view.own",
@@ -100,7 +104,7 @@ const USER_ADMIN: Permission[] = [
 
 const EDUCATION_TEAM: Permission[] = [
   "learners.view.all",
-  "schools.manage",
+  "schools.manage", "subjects.manage",
   "library.read.learner", "library.read.staff", "library.read.head", "library.manage", "library.usage.view",
   "forms.manage", "forms.responses.view",
   "assignments.view.all",
@@ -136,13 +140,14 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   school_leader: [
     "forms.respond", "school.overview.view",
     "learners.view.school", "learners.manage.school", "classes.manage.school",
+    "assignments.view.school",
     "library.read.learner", "library.read.staff", "library.read.head",
   ],
   teacher: [
-    "forms.respond", "learners.manage", "assignments.manage.learners",
+    "forms.respond", "learners.manage", "assignments.manage", "assignments.grade",
     "library.read.learner", "library.read.staff",
   ],
-  learner: ["library.read.learner", "assignments.view.own"],
+  learner: ["library.read.learner", "assignments.view.own", "assignments.submit"],
 };
 
 export function permissionsFor(role: string | null | undefined): readonly Permission[] {

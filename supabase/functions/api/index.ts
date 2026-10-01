@@ -23,6 +23,11 @@ import {
   permissionsFor, type Role, ROLE_LABEL, SELF_REQUESTABLE_ROLES,
   STAFF_ROLES, STATUS_TRANSITIONS, GRADES, nextGrade, type EnrollmentStatus,
 } from "./permissions.ts";
+import {
+  ASSIGNMENT_STATUSES, type AssignmentStatus, autoMark, type Band, bandFor, cleanQuestions, cleanResponse,
+  groupResults, isAutoMarked, isLate, MAX_FILES_PER_ANSWER, pairsOf, percentOf, type Question,
+  RESULT_DIMENSIONS, type ResultAssignment, type ResultDimension, type ResultSubmission, round2, summarize,
+} from "./lms.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY =
@@ -405,13 +410,6 @@ const mapResponse = async (r: Record<string, unknown>, canDownload = false) => (
   submittedAt: r.submitted_at,
   answers: r.answers ?? [],
   files: await signFiles((r.files as LibFile[]) ?? [], canDownload),
-});
-const mapAssignment = (r: Record<string, unknown>) => ({
-  id: r.id,
-  title: r.title,
-  subject: r.subject,
-  due: r.due,
-  done: !!r.done,
 });
 const mapReport = (r: Record<string, unknown>) => ({
   school: r.school,
@@ -1546,24 +1544,34 @@ app.get("/enrollments", requirePermission("learners.view.school", "learners.view
 });
 
 /* A teacher's (or head's, or admin's) read-only look at one learner's real
-   activity — assignments and library usage/badges. Never the PIN. */
+   activity — their assignments (completion and marks, kept apart) and
+   library usage/badges. Only work set in the caller's own scope. Never the PIN. */
 app.get("/learners/:id/activity", requirePermission("learners.manage", "learners.view.school", "learners.view.all"), async (c) => {
   const found = await loadScopedLearner(c, false);
   if (found instanceof Response) return found;
   const learner = found.learner;
   const id = learner.id as string;
   try {
-    const [{ data: assignments, error: aErr }, library] = await Promise.all([
-      admin.from("assignments").select("*").eq("learner_id", id).order("id"),
-      loadLibraryUsage(id),
-    ]);
-    if (aErr) throw new Error(aErr.message);
+    const [work, library, scope, bands] = await Promise.all([loadWork({ learnerId: id }), loadLibraryUsage(id), assignmentScope(c), loadBands()]);
+    const pairs = work.pairs.filter((p) => inAssignmentScope(scope, { school_id: p.a.schoolId, class_id: p.a.classId }));
+    const byId = new Map(work.assignments.map((a) => [a.id, a]));
+    const rows = pairs.map((p) => byId.get(p.a.id)!);
+    const names = await assignmentNames(rows);
+    const subs = new Map(work.submissions.filter((s) => s.learner_id === id).map((s) => [s.assignment_id, s]));
     return c.json({
       learner: {
         id: learner.id, fullName: learner.full_name, username: learner.username,
         grade: learner.grade, school: learner.school, county: learner.county,
       },
-      assignments: (assignments ?? []).map(mapAssignment),
+      summary: summarize(pairs, bands),
+      assignments: rows.map((a) => {
+        const s = subs.get(a.id);
+        return {
+          id: a.id, title: a.title, subject: names.subjects[a.subject_id] ?? a.subject_id,
+          className: names.classes[a.class_id] ?? null, dueAt: a.due_at ?? null, status: a.status,
+          completion: completionOf(s), submission: s ? mapSubmission(s) : null,
+        };
+      }).sort((x, y) => String(y.dueAt ?? "").localeCompare(String(x.dueAt ?? ""))),
       library,
     });
   } catch (e) {
@@ -1649,10 +1657,14 @@ app.get("/classes", requirePermission("learners.manage", "learners.view.school",
   // A teacher sees the classes they teach.
   if (scope.kind === "teacher" && c.req.query("mine") !== "0") rows = rows.filter((r) => scope.classIds.includes(r.id));
   const ids = rows.map((r) => r.id);
-  const [{ data: ct }, { data: enrolled }] = await Promise.all([
+  const [{ data: ct }, { data: enrolled }, { data: cs }, { data: subjects }, { data: terms }] = await Promise.all([
     ids.length ? admin.from("class_teachers").select("*").in("class_id", ids).is("ended_at", null) : { data: [] },
     ids.length ? admin.from("learners").select("class_id").in("class_id", ids).eq("enrollment_status", ACTIVE) : { data: [] },
+    ids.length ? admin.from("class_subjects").select("*").in("class_id", ids).is("removed_at", null) : { data: [] },
+    admin.from("subjects").select("id, name, sort_order"),
+    yearId ? admin.from("terms").select("*").eq("academic_year_id", yearId) : { data: [] },
   ]);
+  const subjectName = Object.fromEntries((subjects ?? []).map((x: Record<string, unknown>) => [x.id, x.name]));
   const teacherIds = [...new Set((ct ?? []).map((t: Record<string, unknown>) => t.teacher_id))] as string[];
   const { data: profs } = teacherIds.length ? await admin.from("profiles").select("id, full_name").in("id", teacherIds) : { data: [] };
   const tName = Object.fromEntries((profs ?? []).map((p: Record<string, unknown>) => [p.id, p.full_name]));
@@ -1666,6 +1678,8 @@ app.get("/classes", requirePermission("learners.manage", "learners.view.school",
   return c.json({
     schoolTeachers,
     academicYear: yearId,
+    terms: (terms ?? []).sort((x: Record<string, any>, y: Record<string, any>) => x.term_no - y.term_no)
+      .map((t: Record<string, unknown>) => ({ id: t.id, termNo: t.term_no, label: termLabel(t.id), startsOn: t.starts_on, endsOn: t.ends_on })),
     classes: rows.map((r) => ({
       id: r.id, schoolId: r.school_id, academicYear: r.academic_year_id, grade: r.grade, name: r.name,
       archived: !!r.archived_at,
@@ -1673,6 +1687,9 @@ app.get("/classes", requirePermission("learners.manage", "learners.view.school",
       teachers: (ct ?? []).filter((t: Record<string, unknown>) => t.class_id === r.id)
         .map((t: Record<string, unknown>) => ({ teacherId: t.teacher_id, name: tName[t.teacher_id as string] ?? null, role: t.role })),
       teachesIt: (ct ?? []).some((t: Record<string, unknown>) => t.class_id === r.id && t.teacher_id === actor.id),
+      subjects: (cs ?? []).filter((x: Record<string, unknown>) => x.class_id === r.id)
+        .map((x: Record<string, unknown>) => ({ id: x.subject_id, name: subjectName[x.subject_id as string] ?? x.subject_id }))
+        .sort((x: { name: unknown }, y: { name: unknown }) => String(x.name).localeCompare(String(y.name))),
     })),
   });
 });
@@ -1705,6 +1722,13 @@ app.patch("/classes/:id", requirePermission("classes.manage.school", "classes.ma
     const name = String(b.name).trim().replace(/\s+/g, " ");
     if (!name) return c.json({ error: "Class name is required" }, 400);
     patch.name = name;
+  }
+  if (b.grade !== undefined && b.grade !== cls.grade) {
+    if (!GRADES.includes(String(b.grade) as never)) return c.json({ error: "Choose a grade" }, 400);
+    const { count } = await admin.from("learners").select("id", { count: "exact", head: true })
+      .eq("class_id", cls.id).eq("enrollment_status", ACTIVE);
+    if ((count ?? 0) > 0) return c.json({ error: "The grade can only change while the class has no active learners — promote them instead." }, 409);
+    patch.grade = String(b.grade);
   }
   if (b.archived === true && !cls.archived_at) {
     const { count } = await admin.from("learners").select("id", { count: "exact", head: true })
@@ -1766,6 +1790,88 @@ app.delete("/classes/:id/teachers/:teacherId", requirePermission("classes.manage
     await admin.from("learners").update({ current_teacher_id: null }).eq("class_id", cls.id).eq("current_teacher_id", teacherId);
   }
   await audit(c, "class.teacher_removed", "class", cls.id, { teacherId });
+  return c.json({ ok: true });
+});
+
+/* Which subjects a class takes. Teachers set assignments in these (a class
+   with none yet can have work in any subject). Removed, never deleted. */
+app.post("/classes/:id/subjects", requirePermission("classes.manage.school", "classes.manage.all"), async (c) => {
+  const cls = await loadClass(c.req.param("id"));
+  if (!cls || cls.archived_at || !canManageClassesIn(c, cls.school_id)) return c.json({ error: "Class not found" }, 404);
+  const b = await c.req.json().catch(() => ({}));
+  const { data: subject } = await admin.from("subjects").select("*").eq("id", String(b.subjectId ?? "")).maybeSingle();
+  if (!subject || subject.archived_at) return c.json({ error: "Choose a subject" }, 400);
+  const { data: open } = await admin.from("class_subjects").select("id").eq("class_id", cls.id).eq("subject_id", subject.id).is("removed_at", null).maybeSingle();
+  if (!open) {
+    const { error } = await admin.from("class_subjects").insert({ id: rid("csub"), class_id: cls.id, subject_id: subject.id, added_by: c.get("actor").id });
+    if (error && !isUniqueViolation(error)) return c.json({ error: error.message }, 400);
+    await audit(c, "class.subject_added", "class", cls.id, { subjectId: subject.id });
+  }
+  return c.json({ ok: true });
+});
+
+app.delete("/classes/:id/subjects/:subjectId", requirePermission("classes.manage.school", "classes.manage.all"), async (c) => {
+  const cls = await loadClass(c.req.param("id"));
+  if (!cls || !canManageClassesIn(c, cls.school_id)) return c.json({ error: "Class not found" }, 404);
+  const { data: ended } = await admin.from("class_subjects")
+    .update({ removed_at: new Date().toISOString(), removed_by: c.get("actor").id })
+    .eq("class_id", cls.id).eq("subject_id", c.req.param("subjectId")).is("removed_at", null).select("id");
+  if (!ended?.length) return c.json({ error: "This class doesn't take that subject" }, 404);
+  await audit(c, "class.subject_removed", "class", cls.id, { subjectId: c.req.param("subjectId") });
+  return c.json({ ok: true });
+});
+
+/** Is this class one the caller manages learners in? */
+function classInLearnerScope(scope: LearnerScope, cls: Record<string, unknown>) {
+  if (scope.kind === "all") return true;
+  if (scope.kind === "school") return cls.school_id === scope.schoolId;
+  if (scope.kind === "teacher") return cls.school_id === scope.schoolId && scope.classIds.includes(cls.id as string);
+  return false;
+}
+
+/** Puts a learner into a class (or takes them out), within their school.
+    The open enrollment follows, and the move is audited. */
+// deno-lint-ignore no-explicit-any
+async function setLearnerClass(c: any, l: Record<string, any>, cls: Record<string, any> | null) {
+  const actor = c.get("actor");
+  const teacherId = cls ? await classTeacherOf(cls.id) : (actor.role === "teacher" ? actor.id : null);
+  const patch: Record<string, unknown> = { class_id: cls?.id ?? null, current_teacher_id: teacherId, updated_at: new Date().toISOString() };
+  if (cls) patch.grade = cls.grade;
+  await admin.from("learners").update(patch).eq("id", l.id);
+  await admin.from("learner_enrollments").update({
+    class_id: patch.class_id, teacher_id: teacherId, ...(cls ? { grade: cls.grade } : {}),
+  }).eq("learner_id", l.id).eq("status", ACTIVE);
+  await audit(c, "learner.class_changed", "learner", l.id, { from: l.class_id ?? null, to: patch.class_id });
+}
+
+/* Add learners to a class. A teacher: into a class they teach, learners on
+   their own roster. A school head: any learner in their school. Always
+   active learners of the class's own school. */
+app.post("/classes/:id/learners", requirePermission("learners.manage", "learners.manage.school", "learners.manage.all"), async (c) => {
+  const cls = await loadClass(c.req.param("id"));
+  const scope = await learnerScope(c);
+  if (!cls || cls.archived_at || !classInLearnerScope(scope, cls)) return c.json({ error: "Class not found" }, 404);
+  const b = await c.req.json().catch(() => ({}));
+  const ids = Array.isArray(b.learnerIds) ? [...new Set(b.learnerIds.map(String))].slice(0, 200) as string[] : [];
+  if (!ids.length) return c.json({ error: "Choose learners to add" }, 400);
+  const rows = await selectIn("learners", "id", ids);
+  let added = 0, already = 0;
+  for (const l of rows) {
+    if (l.class_id === cls.id) { already++; continue; }
+    if (!canManageLearner(c, scope, l) || l.school_id !== cls.school_id || (l.enrollment_status ?? ACTIVE) !== ACTIVE) continue;
+    await setLearnerClass(c, l, cls);
+    added++;
+  }
+  return c.json({ ok: true, added, already, skipped: ids.length - added - already });
+});
+
+app.delete("/classes/:id/learners/:learnerId", requirePermission("learners.manage", "learners.manage.school", "learners.manage.all"), async (c) => {
+  const cls = await loadClass(c.req.param("id"));
+  const scope = await learnerScope(c);
+  if (!cls || !classInLearnerScope(scope, cls)) return c.json({ error: "Class not found" }, 404);
+  const { data: l } = await admin.from("learners").select("*").eq("id", c.req.param("learnerId")).maybeSingle();
+  if (!l || l.class_id !== cls.id || !canManageLearner(c, scope, l)) return c.json({ error: "That learner isn't in this class" }, 404);
+  await setLearnerClass(c, l, null);
   return c.json({ ok: true });
 });
 
@@ -2492,71 +2598,945 @@ app.post("/responses", requirePermission("forms.respond"), async (c) => {
   return c.json({ response: await mapResponse(data) });
 });
 
-// ---- assignments (learner-facing) ----
+// ---------------------------------------------------------------- assignments, submissions, results
+// A teacher builds an assignment for a class they teach (subject, term,
+// questions, dates), publishes it, and every learner enrolled in that class
+// can open it, save progress and hand it in. Auto-marked questions are
+// marked on submission; anything else waits for the teacher. The rules
+// themselves (question checks, marking, bands, results maths) are in lms.ts.
+//
+// Two measures, never mixed: COMPLETION (handed in, on time or late) and
+// ACHIEVEMENT (marks on marked work).
 
-app.get("/assignments", requirePermission("assignments.view.own", "assignments.view.all"), async (c) => {
-  const a = c.get("actor");
-  const all = can(a.role, "assignments.view.all");
+const DEFAULT_BANDS: Band[] = [
+  { code: "EE", label: "Exceeding Expectations", minPercent: 80 },
+  { code: "ME", label: "Meeting Expectations", minPercent: 50 },
+  { code: "AE", label: "Approaching Expectations", minPercent: 30 },
+  { code: "BE", label: "Below Expectations", minPercent: 0 },
+];
+async function loadBands(): Promise<Band[]> {
+  const { data } = await admin.from("grade_bands").select("*").order("sort_order");
+  return data?.length
+    ? data.map((b: Record<string, unknown>) => ({ code: b.code as string, label: b.label as string, minPercent: Number(b.min_percent) }))
+    : DEFAULT_BANDS;
+}
+
+/** Rows whose `col` is one of `ids`, fetched in chunks so a long id list
+    never overflows the request URL. */
+async function selectIn(table: string, col: string, ids: string[], cols = "*"): Promise<Record<string, any>[]> {
+  const out: Record<string, any>[] = [];
+  for (let i = 0; i < ids.length; i += 150) {
+    const chunk = ids.slice(i, i + 150);
+    const { data, error } = await selectAll(() => admin.from(table).select(cols).in(col, chunk).order("id"));
+    if (error) throw new Error(error.message);
+    out.push(...data);
+  }
+  return out;
+}
+
+type AssignmentScope =
+  | { kind: "all" }
+  | { kind: "school"; schoolId: string }
+  | { kind: "teacher"; teacherId: string; schoolId: string; classIds: string[] }
+  | { kind: "none" };
+
+/** Which assignments (and results) the caller may see: every school, their
+    own school (school head), or the classes they teach (teacher). */
+// deno-lint-ignore no-explicit-any
+async function assignmentScope(c: any): Promise<AssignmentScope> {
+  const a = c.get("actor") as Actor;
+  if (actorCan(c, "assignments.view.all")) return { kind: "all" };
+  if (actorCan(c, "assignments.view.school")) return a.schoolId ? { kind: "school", schoolId: a.schoolId } : { kind: "none" };
+  if (actorCan(c, "assignments.manage") || actorCan(c, "assignments.grade")) {
+    return a.schoolId ? { kind: "teacher", teacherId: a.id, schoolId: a.schoolId, classIds: await classesTaughtBy(a.id) } : { kind: "none" };
+  }
+  return { kind: "none" };
+}
+function inAssignmentScope(s: AssignmentScope, row: Record<string, unknown>): boolean {
+  if (s.kind === "all") return true;
+  if (s.kind === "none") return false;
+  if (row.school_id !== s.schoolId) return false; // never another school's work
+  return s.kind === "school" || s.classIds.includes(row.class_id as string);
+}
+/** A teacher may change (and mark) only assignments for classes they teach. */
+const teachesAssignment = (s: AssignmentScope, row: Record<string, unknown>) =>
+  s.kind === "teacher" && inAssignmentScope(s, row);
+
+/** Loads :id within the caller's scope — outside it, "not found". */
+// deno-lint-ignore no-explicit-any
+async function loadScopedAssignment(c: any, id: string, manage: boolean): Promise<{ a: Record<string, any>; scope: AssignmentScope } | Response> {
+  const scope = await assignmentScope(c);
+  const { data: a } = await admin.from("assignments").select("*").eq("id", id).maybeSingle();
+  if (!a || !inAssignmentScope(scope, a)) return c.json({ error: "Assignment not found" }, 404);
+  if (manage && !teachesAssignment(scope, a)) return c.json({ error: "Only a teacher of this class can change it" }, 403);
+  return { a, scope };
+}
+
+const termLabel = (termId: unknown) => {
+  const m = /^(\d{4})-T(\d)$/.exec(String(termId ?? ""));
+  return m ? `${m[1]} Term ${m[2]}` : termId ? String(termId) : null;
+};
+
+/** Class, subject, resource and teacher names for assignment rows. */
+async function assignmentNames(rows: Record<string, unknown>[]) {
+  const ids = (k: string) => [...new Set(rows.map((r) => r[k]).filter(Boolean))] as string[];
+  const [cls, subj, lib, prof] = await Promise.all([
+    ids("class_id").length ? admin.from("classes").select("id, name").in("id", ids("class_id")) : { data: [] },
+    ids("subject_id").length ? admin.from("subjects").select("id, name").in("id", ids("subject_id")) : { data: [] },
+    ids("resource_id").length ? admin.from("library_items").select("id, title").in("id", ids("resource_id")) : { data: [] },
+    ids("created_by").length ? admin.from("profiles").select("id, full_name").in("id", ids("created_by")) : { data: [] },
+  ]);
+  const m = (d: Record<string, unknown>[] | null, f: string) => Object.fromEntries((d ?? []).map((x) => [x.id, x[f]])) as Record<string, string>;
+  return { classes: m(cls.data, "name"), subjects: m(subj.data, "name"), resources: m(lib.data, "title"), teachers: m(prof.data, "full_name") };
+}
+
+const mapAssignmentRow = (r: Record<string, any>, n: Awaited<ReturnType<typeof assignmentNames>>) => ({
+  id: r.id,
+  schoolId: r.school_id,
+  classId: r.class_id,
+  className: n.classes[r.class_id] ?? null,
+  subjectId: r.subject_id,
+  subject: n.subjects[r.subject_id] ?? r.subject_id,
+  grade: r.grade,
+  academicYear: r.academic_year_id,
+  termId: r.term_id ?? null,
+  term: termLabel(r.term_id),
+  title: r.title,
+  description: r.description ?? "",
+  instructions: r.instructions ?? "",
+  resourceId: r.resource_id ?? null,
+  resourceTitle: r.resource_id ? n.resources[r.resource_id] ?? null : null,
+  startsAt: r.starts_at ?? null,
+  dueAt: r.due_at ?? null,
+  estimatedMinutes: r.estimated_minutes ?? null,
+  status: r.status,
+  maxMarks: Number(r.max_marks ?? 0),
+  createdBy: r.created_by,
+  teacherName: n.teachers[r.created_by] ?? null,
+  createdAt: r.created_at,
+  updatedAt: r.updated_at ?? null,
+  publishedAt: r.published_at ?? null,
+  closedAt: r.closed_at ?? null,
+});
+
+const mapQuestion = (q: Record<string, any>, withKey: boolean) => ({
+  id: q.id,
+  position: q.position,
+  type: q.type,
+  prompt: q.prompt,
+  options: q.options ?? [],
+  maxMarks: Number(q.max_marks),
+  autoMarked: isAutoMarked({ type: q.type, answerKey: q.answer_key }),
+  ...(withKey ? { answerKey: q.answer_key ?? null } : {}),
+});
+const toQuestion = (q: Record<string, any>): Question => ({
+  id: q.id, type: q.type, prompt: q.prompt, options: q.options ?? [], answerKey: q.answer_key ?? null, maxMarks: Number(q.max_marks),
+});
+
+/** A submission; the marks only when `showMarks` (staff, or the learner
+    once it's marked). */
+const mapSubmission = (s: Record<string, any>, showMarks = true) => ({
+  id: s.id,
+  assignmentId: s.assignment_id,
+  learnerId: s.learner_id,
+  classId: s.class_id,
+  status: s.status,
+  startedAt: s.started_at ?? null,
+  lastSavedAt: s.last_saved_at ?? null,
+  submittedAt: s.submitted_at ?? null,
+  isLate: !!s.is_late,
+  ...(showMarks ? {
+    marks: s.marks == null ? null : Number(s.marks),
+    maxMarks: s.max_marks == null ? null : Number(s.max_marks),
+    percentage: s.percentage == null ? null : Number(s.percentage),
+    band: s.band ?? null,
+    feedback: s.feedback ?? null,
+    markedAt: s.marked_at ?? null,
+    markedBy: s.marked_by ?? null,
+    autoMarked: !!s.auto_marked,
+  } : {}),
+});
+
+async function questionsOf(assignmentId: string) {
+  const { data } = await admin.from("assignment_questions").select("*").eq("assignment_id", assignmentId).order("position");
+  return (data ?? []).sort((x: Record<string, any>, y: Record<string, any>) => x.position - y.position);
+}
+
+/** Learners expected to do each assignment: everyone enrolled in its class
+    for some part of the time it was open (from its start — or publication —
+    to its due date). Taken from the enrollment history, so a learner who
+    has since moved on still counts for work set while they were there. */
+async function expectedLearners(assignments: Record<string, any>[]): Promise<Map<string, Set<string>>> {
+  const classIds = [...new Set(assignments.map((a) => a.class_id))] as string[];
+  const enr = classIds.length ? await selectIn("learner_enrollments", "class_id", classIds) : [];
+  const now = new Date().toISOString();
+  const map = new Map<string, Set<string>>();
+  for (const a of assignments) {
+    const from = String(a.starts_at ?? a.published_at ?? a.created_at ?? now).slice(0, 10);
+    const to = String(a.due_at ?? now).slice(0, 10);
+    const set = new Set<string>();
+    for (const e of enr) {
+      if (e.class_id !== a.class_id) continue;
+      if (e.enrollment_date && String(e.enrollment_date) > to) continue;
+      if (e.exit_date && String(e.exit_date) < from) continue;
+      set.add(e.learner_id);
+    }
+    map.set(a.id, set);
+  }
+  return map;
+}
+
+const toResultAssignment = (a: Record<string, any>): ResultAssignment => ({
+  id: a.id, schoolId: a.school_id, classId: a.class_id, subjectId: a.subject_id, grade: a.grade,
+  termId: a.term_id ?? null, yearId: a.academic_year_id, dueAt: a.due_at ?? null, status: a.status,
+});
+const toResultSubmission = (s: Record<string, any>): ResultSubmission => ({
+  assignmentId: s.assignment_id, learnerId: s.learner_id, status: s.status, isLate: !!s.is_late,
+  percentage: s.percentage == null ? null : Number(s.percentage),
+});
+
+/** Published and closed work (never drafts), its submissions and the
+    expected learner × assignment pairs — for one school, some classes, or
+    one learner (every class they've been enrolled in). */
+async function loadWork(filter: { schoolId?: string | null; classIds?: string[] | null; learnerId?: string | null }) {
+  let assignments: Record<string, any>[];
+  if (filter.learnerId) {
+    const [enr, subs] = await Promise.all([
+      selectAll(() => admin.from("learner_enrollments").select("*").eq("learner_id", filter.learnerId).order("id")),
+      selectAll(() => admin.from("assignment_submissions").select("*").eq("learner_id", filter.learnerId).order("id")),
+    ]);
+    if (enr.error || subs.error) throw new Error((enr.error ?? subs.error)!.message);
+    const classIds = [...new Set(enr.data.map((e) => e.class_id).filter(Boolean))] as string[];
+    const byClass = classIds.length ? await selectIn("assignments", "class_id", classIds) : [];
+    const known = new Set(byClass.map((a) => a.id));
+    const others = [...new Set(subs.data.map((s) => s.assignment_id as string))].filter((id) => !known.has(id));
+    assignments = [...byClass, ...(others.length ? await selectIn("assignments", "id", others) : [])];
+  } else {
+    const r = await selectAll(() => {
+      let q = admin.from("assignments").select("*").order("id");
+      if (filter.schoolId) q = q.eq("school_id", filter.schoolId);
+      return q;
+    });
+    if (r.error) throw new Error(r.error.message);
+    assignments = r.data;
+  }
+  assignments = assignments.filter((a) => a.status !== "draft" && (!filter.classIds || filter.classIds.includes(a.class_id)));
+  const ids = assignments.map((a) => a.id as string);
+  const submissions = ids.length ? await selectIn("assignment_submissions", "assignment_id", ids) : [];
+  const expected = await expectedLearners(assignments);
+  let pairs = pairsOf(assignments.map(toResultAssignment), expected, submissions.map(toResultSubmission));
+  if (filter.learnerId) pairs = pairs.filter((p) => p.learnerId === filter.learnerId);
+  return { assignments, submissions, pairs };
+}
+
+/** Per-assignment counts for a teacher's list: who was expected, who has
+    started, handed in, is waiting to be marked, has been marked. */
+async function assignmentCounts(rows: Record<string, any>[]) {
+  const live = rows.filter((a) => a.status !== "draft");
+  const ids = live.map((a) => a.id as string);
+  const subs = ids.length ? await selectIn("assignment_submissions", "assignment_id", ids) : [];
+  const expected = await expectedLearners(live);
+  const out = new Map<string, Record<string, number>>();
+  for (const a of rows) {
+    const mine = subs.filter((s) => s.assignment_id === a.id);
+    const who = new Set([...(expected.get(a.id) ?? []), ...mine.map((s) => s.learner_id)]);
+    out.set(a.id, {
+      expected: a.status === "draft" ? 0 : who.size,
+      started: mine.length,
+      submitted: mine.filter((s) => s.status !== "in_progress").length,
+      toMark: mine.filter((s) => s.status === "submitted").length,
+      marked: mine.filter((s) => s.status === "marked").length,
+      late: mine.filter((s) => s.is_late).length,
+    });
+  }
+  return out;
+}
+
+const parseWhen = (v: unknown): string | null | undefined => {
+  if (v === undefined) return undefined;
+  if (v === null || v === "") return null;
+  const d = new Date(String(v));
+  return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+};
+
+/** Validates the editable fields of an assignment (create or update). */
+// deno-lint-ignore no-explicit-any
+async function readAssignmentFields(b: Record<string, any>, cls: Record<string, any>, existing: Record<string, any> | null):
+  Promise<{ row: Record<string, unknown> } | { error: string }> {
+  const row: Record<string, unknown> = {};
+  const isNew = !existing;
+  if (isNew || b.title !== undefined) {
+    const title = String(b.title ?? "").trim().replace(/\s+/g, " ");
+    if (!title) return { error: "Give the assignment a title" };
+    if (title.length > 200) return { error: "The title is too long (200 characters at most)" };
+    row.title = title;
+  }
+  for (const [k, col, max] of [["description", "description", 5000], ["instructions", "instructions", 10000]] as const) {
+    if (b[k] !== undefined) {
+      const v = String(b[k] ?? "").trim();
+      if (v.length > max) return { error: `The ${k} is too long` };
+      row[col] = v;
+    }
+  }
+  if (isNew || b.subjectId !== undefined) {
+    const { data: subject } = await admin.from("subjects").select("*").eq("id", String(b.subjectId ?? "")).maybeSingle();
+    if (!subject || subject.archived_at) return { error: "Choose a subject" };
+    const { data: taught } = await admin.from("class_subjects").select("subject_id").eq("class_id", cls.id).is("removed_at", null);
+    if ((taught ?? []).length && !(taught ?? []).some((t: Record<string, unknown>) => t.subject_id === subject.id)) {
+      return { error: `${cls.name} doesn't take ${subject.name} — ask your school head to add it to the class` };
+    }
+    row.subject_id = subject.id;
+  }
+  if (b.resourceId !== undefined) {
+    if (!b.resourceId) row.resource_id = null;
+    else {
+      const { data: item } = await admin.from("library_items").select("id, audience, published").eq("id", String(b.resourceId)).maybeSingle();
+      if (!item || !item.published || !canSeeLibrary(item.audience, "learner")) return { error: "Attach a published Digital Library resource — learners can't open Teacher Resources" };
+      row.resource_id = item.id;
+    }
+  }
+  const startsAt = parseWhen(b.startsAt);
+  const dueAt = parseWhen(b.dueAt);
+  if (startsAt === undefined && b.startsAt !== undefined) return { error: "The start date isn't a valid date" };
+  if (dueAt === undefined && b.dueAt !== undefined) return { error: "The due date isn't a valid date" };
+  if (startsAt !== undefined) row.starts_at = startsAt;
+  if (dueAt !== undefined) row.due_at = dueAt;
+  const s = (row.starts_at !== undefined ? row.starts_at : existing?.starts_at) as string | null;
+  const d = (row.due_at !== undefined ? row.due_at : existing?.due_at) as string | null;
+  if (s && d && new Date(d) <= new Date(s)) return { error: "The due date must be after the start date" };
+  if (b.estimatedMinutes !== undefined) {
+    if (b.estimatedMinutes === null || b.estimatedMinutes === "") row.estimated_minutes = null;
+    else {
+      const m = Number(b.estimatedMinutes);
+      if (!Number.isInteger(m) || m < 1 || m > 1440) return { error: "Estimated time: whole minutes, 1 to 1440" };
+      row.estimated_minutes = m;
+    }
+  }
+  // The term: chosen, or the term of the class's year the work starts in.
+  if (isNew || b.termId !== undefined || row.starts_at !== undefined) {
+    const { data: terms } = await admin.from("terms").select("*").eq("academic_year_id", cls.academic_year_id);
+    if (b.termId) {
+      const t = (terms ?? []).find((x: Record<string, unknown>) => x.id === b.termId);
+      if (!t) return { error: `Choose a term of the ${cls.academic_year_id} school year` };
+      row.term_id = t.id;
+    } else if (isNew || b.termId !== undefined) {
+      const day = String(s ?? new Date().toISOString()).slice(0, 10);
+      const t = (terms ?? []).find((x: Record<string, unknown>) => String(x.starts_on) <= day && day <= String(x.ends_on));
+      row.term_id = t?.id ?? null;
+    }
+  }
+  return { row };
+}
+
+/** Replaces a draft's questions and its total marks. */
+async function saveQuestions(assignmentId: string, questions: Omit<Question, "id">[]) {
+  await admin.from("assignment_questions").delete().eq("assignment_id", assignmentId);
+  if (questions.length) {
+    const { error } = await admin.from("assignment_questions").insert(questions.map((q, i) => ({
+      id: rid("q"), assignment_id: assignmentId, position: i + 1, type: q.type, prompt: q.prompt,
+      options: q.options, answer_key: q.answerKey, max_marks: q.maxMarks,
+    })));
+    if (error) throw new Error(error.message);
+  }
+  const max = round2(questions.reduce((t, q) => t + q.maxMarks, 0));
+  await admin.from("assignments").update({ max_marks: max }).eq("id", assignmentId);
+}
+
+/** Full detail for staff: questions with their answer keys, and the class
+    roster with each learner's submission. */
+async function assignmentDetail(a: Record<string, any>) {
+  const [names, questions, counts] = await Promise.all([assignmentNames([a]), questionsOf(a.id), assignmentCounts([a])]);
+  const { data: subs } = await admin.from("assignment_submissions").select("*").eq("assignment_id", a.id);
+  const expected = a.status === "draft" ? new Set<string>() : (await expectedLearners([a])).get(a.id) ?? new Set<string>();
+  const learnerIds = [...new Set([...expected, ...(subs ?? []).map((s: Record<string, unknown>) => s.learner_id as string)])];
+  const learners = learnerIds.length ? await selectIn("learners", "id", learnerIds) : [];
+  const roster = learners.map((l) => {
+    const s = (subs ?? []).find((x: Record<string, unknown>) => x.learner_id === l.id);
+    return {
+      learnerId: l.id, fullName: l.full_name, learnerCode: l.learner_code ?? l.user_code ?? null,
+      enrollmentStatus: l.enrollment_status ?? ACTIVE, submission: s ? mapSubmission(s) : null,
+    };
+  }).sort((x, y) => String(x.fullName).localeCompare(String(y.fullName)));
+  return {
+    assignment: { ...mapAssignmentRow(a, names), counts: counts.get(a.id) },
+    questions: questions.map((q) => mapQuestion(q, true)),
+    roster,
+  };
+}
+
+// ---- subjects ----
+
+app.get("/subjects", requireStaff(), async (c) => {
+  const { data, error } = await admin.from("subjects").select("*").is("archived_at", null).order("sort_order").order("name");
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ subjects: (data ?? []).map((s) => ({ id: s.id, name: s.name })) });
+});
+
+app.post("/subjects", requirePermission("subjects.manage"), async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const name = String(b.name ?? "").trim().replace(/\s+/g, " ");
+  if (!name || name.length > 80) return c.json({ error: "Give the subject a name (80 characters at most)" }, 400);
+  const id = name.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || rid("subj");
+  const { data, error } = await admin.from("subjects").insert({ id, name, sort_order: 100 }).select().single();
+  if (error) return c.json({ error: isUniqueViolation(error) ? `${name} is already a subject` : error.message }, 400);
+  await audit(c, "subject.created", "subject", data.id, { name });
+  return c.json({ subject: { id: data.id, name: data.name } });
+});
+
+// ---- assignments (staff) ----
+
+/* ?classId= &subjectId= &status=draft|published|closed &termId= */
+app.get("/assignments", requirePermission("assignments.manage", "assignments.view.school", "assignments.view.all"), async (c) => {
+  const scope = await assignmentScope(c);
+  if (scope.kind === "none") return c.json({ assignments: [] });
+  const f = (k: string) => String(c.req.query(k) ?? "");
+  const schoolId = scope.kind === "all" ? f("schoolId") : scope.schoolId;
   const { data, error } = await selectAll(() => {
     let q = admin.from("assignments").select("*").order("id");
-    if (!all) q = q.eq("learner_id", a.id);
+    if (schoolId) q = q.eq("school_id", schoolId);
+    if (f("classId")) q = q.eq("class_id", f("classId"));
+    if (f("subjectId")) q = q.eq("subject_id", f("subjectId"));
+    if (f("status")) q = q.eq("status", f("status"));
+    if (f("termId")) q = q.eq("term_id", f("termId"));
     return q;
   });
   if (error) return c.json({ error: error.message }, 500);
-  return c.json({ assignments: (data ?? []).map(mapAssignment) });
+  const rows = data.filter((a) => inAssignmentScope(scope, a))
+    .sort((x, y) => String(y.due_at ?? y.created_at).localeCompare(String(x.due_at ?? x.created_at)));
+  const [names, counts] = await Promise.all([assignmentNames(rows), assignmentCounts(rows)]);
+  return c.json({ assignments: rows.map((a) => ({ ...mapAssignmentRow(a, names), counts: counts.get(a.id) })) });
 });
 
-/* Every assignment across a teacher's own roster, in one query — backs
-   the teacher dashboard's grading queue / recent results, which need to
-   scan all learners at once rather than one at a time (the per-learner
-   "view activity" panel already covers that case via /learners/:id/activity). */
-app.get("/teacher/assignments", requirePermission("assignments.manage.learners"), async (c) => {
-  const scope = await learnerScope(c);
-  if (scope.kind !== "teacher") return c.json({ assignments: [] });
-  const { data: mine } = await selectAll(() => admin.from("learners").select("*")
-    .eq("school_id", scope.schoolId).eq("enrollment_status", ACTIVE).order("id"));
-  const ids = new Set((mine ?? []).filter((l) => inLearnerScope(scope, l)).map((l) => l.id));
-  const { data, error } = ids.size ? await selectAll(() => admin
-    .from("assignments")
-    .select("id, title, subject, due, done, learner_id, learners!inner(full_name)")
-    .in("learner_id", [...ids])
-    .order("due")
-    .order("id")) : { data: [], error: null };
-  if (error) return c.json({ error: error.message }, 500);
-  const assignments = (data ?? []).map((r: Record<string, unknown>) => ({
-    ...mapAssignment(r),
-    learnerId: r.learner_id,
-    learnerName: (r.learners as Record<string, unknown> | null)?.full_name ?? "",
-  }));
-  return c.json({ assignments });
-});
-
-/* A learner marks their own assignment done — or their teacher does it
-   for them, from the "view a learner's activity" panel (helping remotely
-   when a learner reports something's finished but couldn't do it
-   themselves). Either way the write is scoped: a learner only ever
-   touches their own row; a teacher only ever touches a row belonging to
-   one of their own learners, checked here rather than assumed. */
-app.patch("/assignments/:id", requirePermission("assignments.view.own", "assignments.manage.learners"), async (c) => {
-  const a = c.get("actor");
+app.post("/assignments", requirePermission("assignments.manage"), async (c) => {
   const b = await c.req.json().catch(() => ({}));
-  const id = c.req.param("id");
-
-  const asTeacher = can(a.role, "assignments.manage.learners");
-  if (asTeacher) {
-    const { data: assignment } = await admin.from("assignments").select("learner_id").eq("id", id).maybeSingle();
-    if (!assignment) return c.json({ error: "Assignment not found" }, 404);
-    const { data: learner } = await admin.from("learners").select("*").eq("id", assignment.learner_id).maybeSingle();
-    if (!learner || !inLearnerScope(await learnerScope(c), learner)) return c.json({ error: "Assignment not found" }, 404);
+  const scope = await assignmentScope(c);
+  const cls = await loadClass(b.classId);
+  if (!cls || cls.archived_at || scope.kind !== "teacher" || cls.school_id !== scope.schoolId || !scope.classIds.includes(cls.id)) {
+    return c.json({ error: "Choose a class you teach" }, 400);
   }
-
-  let query = admin.from("assignments").update({ done: b.done !== false }).eq("id", id);
-  if (!asTeacher) query = query.eq("learner_id", a.id);
-  const { data, error } = await query.select().maybeSingle();
+  const fields = await readAssignmentFields(b, cls, null);
+  if ("error" in fields) return c.json({ error: fields.error }, 400);
+  const qs = cleanQuestions(b.questions ?? []);
+  if ("error" in qs) return c.json({ error: qs.error }, 400);
+  const id = rid("asg");
+  const { data, error } = await admin.from("assignments").insert({
+    id, school_id: cls.school_id, class_id: cls.id, grade: cls.grade, academic_year_id: cls.academic_year_id,
+    status: "draft", created_by: c.get("actor").id, ...fields.row,
+  }).select().single();
   if (error) return c.json({ error: error.message }, 400);
-  if (!data) return c.json({ error: "Assignment not found" }, 404);
-  return c.json({ assignment: mapAssignment(data) });
+  try { await saveQuestions(id, qs.questions); } catch (e) { return c.json({ error: (e as Error).message }, 400); }
+  await audit(c, "assignment.created", "assignment", id, { classId: cls.id, subjectId: data.subject_id, questions: qs.questions.length });
+  const { data: fresh } = await admin.from("assignments").select("*").eq("id", id).single();
+  return c.json(await assignmentDetail(fresh));
 });
+
+app.get("/assignments/:id", requirePermission("assignments.manage", "assignments.view.school", "assignments.view.all"), async (c) => {
+  const found = await loadScopedAssignment(c, c.req.param("id"), false);
+  if (found instanceof Response) return found;
+  return c.json(await assignmentDetail(found.a));
+});
+
+/* Edit. Questions (and the class) can only change while it's a draft —
+   once learners have it, the marks they're working towards stay fixed. */
+app.patch("/assignments/:id", requirePermission("assignments.manage"), async (c) => {
+  const found = await loadScopedAssignment(c, c.req.param("id"), true);
+  if (found instanceof Response) return found;
+  const { a, scope } = found;
+  const b = await c.req.json().catch(() => ({}));
+  let cls = await loadClass(a.class_id);
+  const patch: Record<string, unknown> = {};
+  if (b.classId !== undefined && b.classId !== a.class_id) {
+    if (a.status !== "draft") return c.json({ error: "The class can only change while the assignment is a draft" }, 409);
+    const next = await loadClass(b.classId);
+    if (!next || next.archived_at || scope.kind !== "teacher" || !scope.classIds.includes(next.id)) return c.json({ error: "Choose a class you teach" }, 400);
+    cls = next;
+    Object.assign(patch, { class_id: next.id, grade: next.grade, academic_year_id: next.academic_year_id, school_id: next.school_id });
+    if (b.termId === undefined) b.termId = "";
+  }
+  const fields = await readAssignmentFields(b, cls!, a);
+  if ("error" in fields) return c.json({ error: fields.error }, 400);
+  Object.assign(patch, fields.row);
+  let questions: Omit<Question, "id">[] | null = null;
+  if (b.questions !== undefined) {
+    if (a.status !== "draft") return c.json({ error: "Questions can only change while the assignment is a draft" }, 409);
+    const qs = cleanQuestions(b.questions);
+    if ("error" in qs) return c.json({ error: qs.error }, 400);
+    questions = qs.questions;
+  }
+  if (!Object.keys(patch).length && !questions) return c.json({ error: "Nothing to update" }, 400);
+  patch.updated_at = new Date().toISOString();
+  const { error } = await admin.from("assignments").update(patch).eq("id", a.id);
+  if (error) return c.json({ error: error.message }, 400);
+  if (questions) {
+    try { await saveQuestions(a.id, questions); } catch (e) { return c.json({ error: (e as Error).message }, 400); }
+  }
+  await audit(c, "assignment.updated", "assignment", a.id, { fields: Object.keys(patch).filter((k) => k !== "updated_at"), questions: questions?.length ?? undefined });
+  const { data: fresh } = await admin.from("assignments").select("*").eq("id", a.id).single();
+  return c.json(await assignmentDetail(fresh));
+});
+
+/* draft → published (needs questions and a due date) → closed → published
+   again; back to draft only if nobody has started it. */
+app.post("/assignments/:id/status", requirePermission("assignments.manage"), async (c) => {
+  const found = await loadScopedAssignment(c, c.req.param("id"), true);
+  if (found instanceof Response) return found;
+  const { a } = found;
+  const b = await c.req.json().catch(() => ({}));
+  const to = String(b.status ?? "") as AssignmentStatus;
+  if (!ASSIGNMENT_STATUSES.includes(to)) return c.json({ error: "Status must be draft, published or closed" }, 400);
+  if (to === a.status) return c.json(await assignmentDetail(a));
+  const now = new Date().toISOString();
+  const patch: Record<string, unknown> = { status: to, updated_at: now };
+  if (to === "published") {
+    const qs = await questionsOf(a.id);
+    if (!qs.length) return c.json({ error: "Add at least one question before publishing" }, 409);
+    if (!a.due_at) return c.json({ error: "Set a due date before publishing" }, 409);
+    const cls = await loadClass(a.class_id);
+    if (!cls || cls.archived_at) return c.json({ error: "This class has been archived" }, 409);
+    if (!a.published_at) patch.published_at = now;
+    patch.closed_at = null;
+  } else if (to === "closed") {
+    if (a.status !== "published") return c.json({ error: "Only a published assignment can be closed" }, 409);
+    patch.closed_at = now;
+  } else {
+    const { count } = await admin.from("assignment_submissions").select("id", { count: "exact", head: true }).eq("assignment_id", a.id);
+    if ((count ?? 0) > 0) return c.json({ error: "Learners have already started this — close it instead" }, 409);
+    patch.published_at = null;
+    patch.closed_at = null;
+  }
+  const { error } = await admin.from("assignments").update(patch).eq("id", a.id);
+  if (error) return c.json({ error: error.message }, 400);
+  await audit(c, `assignment.${to === "draft" ? "unpublished" : to}`, "assignment", a.id, { from: a.status, to });
+  return c.json(await assignmentDetail({ ...a, ...patch }));
+});
+
+/* Only an unpublished draft nobody has seen can be deleted; anything else
+   is closed instead, so learners' work is never lost. */
+app.delete("/assignments/:id", requirePermission("assignments.manage"), async (c) => {
+  const found = await loadScopedAssignment(c, c.req.param("id"), true);
+  if (found instanceof Response) return found;
+  const { a } = found;
+  if (a.status !== "draft") return c.json({ error: "Only a draft can be deleted — close a published assignment instead" }, 409);
+  const { count } = await admin.from("assignment_submissions").select("id", { count: "exact", head: true }).eq("assignment_id", a.id);
+  if ((count ?? 0) > 0) return c.json({ error: "Learners have work on this assignment — close it instead" }, 409);
+  await admin.from("assignment_questions").delete().eq("assignment_id", a.id);
+  const { error } = await admin.from("assignments").delete().eq("id", a.id);
+  if (error) return c.json({ error: error.message }, 400);
+  await audit(c, "assignment.deleted", "assignment", a.id, { title: a.title });
+  return c.json({ ok: true });
+});
+
+// ---- submissions (staff) ----
+
+/* ?status=submitted (the marking queue) | marked | in_progress, ?classId=, ?assignmentId= */
+app.get("/submissions", requirePermission("assignments.manage", "assignments.view.school", "assignments.view.all"), async (c) => {
+  const scope = await assignmentScope(c);
+  if (scope.kind === "none") return c.json({ submissions: [] });
+  const f = (k: string) => String(c.req.query(k) ?? "");
+  const { data, error } = await selectAll(() => {
+    let q = admin.from("assignment_submissions").select("*").order("id");
+    if (scope.kind !== "all") q = q.eq("school_id", scope.schoolId);
+    else if (f("schoolId")) q = q.eq("school_id", f("schoolId"));
+    if (f("status")) q = q.eq("status", f("status"));
+    if (f("classId")) q = q.eq("class_id", f("classId"));
+    if (f("assignmentId")) q = q.eq("assignment_id", f("assignmentId"));
+    return q;
+  });
+  if (error) return c.json({ error: error.message }, 500);
+  const asgIds = [...new Set(data.map((s) => s.assignment_id as string))];
+  const asgs = asgIds.length ? await selectIn("assignments", "id", asgIds) : [];
+  const byId = new Map(asgs.map((a) => [a.id, a]));
+  // Scope by the assignment's class (a teacher sees the classes they teach).
+  const rows = data.filter((s) => byId.has(s.assignment_id) && inAssignmentScope(scope, byId.get(s.assignment_id)!))
+    .sort((x, y) => String(y.marked_at ?? y.submitted_at ?? y.started_at).localeCompare(String(x.marked_at ?? x.submitted_at ?? x.started_at)))
+    .slice(0, Math.max(1, Math.min(500, Number(c.req.query("limit")) || 200)));
+  const names = await assignmentNames(rows.map((s) => byId.get(s.assignment_id)!));
+  const learners = rows.length ? await selectIn("learners", "id", [...new Set(rows.map((s) => s.learner_id as string))], "id, full_name, learner_code, user_code") : [];
+  const lName = new Map(learners.map((l) => [l.id, l]));
+  return c.json({
+    submissions: rows.map((s) => {
+      const a = byId.get(s.assignment_id)!;
+      return {
+        ...mapSubmission(s),
+        learnerName: lName.get(s.learner_id)?.full_name ?? null,
+        learnerCode: lName.get(s.learner_id)?.learner_code ?? lName.get(s.learner_id)?.user_code ?? null,
+        assignmentTitle: a.title, subject: names.subjects[a.subject_id] ?? a.subject_id,
+        className: names.classes[a.class_id] ?? null, dueAt: a.due_at ?? null,
+      };
+    }),
+  });
+});
+
+async function submissionDetail(s: Record<string, any>, a: Record<string, any>) {
+  const [questions, { data: answers }, { data: learner }, names] = await Promise.all([
+    questionsOf(a.id),
+    admin.from("submission_answers").select("*").eq("submission_id", s.id),
+    admin.from("learners").select("id, full_name, learner_code, user_code").eq("id", s.learner_id).maybeSingle(),
+    assignmentNames([a]),
+  ]);
+  const { data: marker } = s.marked_by ? await admin.from("profiles").select("full_name").eq("id", s.marked_by).maybeSingle() : { data: null };
+  return {
+    submission: { ...mapSubmission(s), markerName: marker?.full_name ?? (s.auto_marked ? "Marked automatically" : null) },
+    learner: learner ? { id: learner.id, fullName: learner.full_name, learnerCode: learner.learner_code ?? learner.user_code ?? null } : null,
+    assignment: mapAssignmentRow(a, names),
+    questions: questions.map((q) => mapQuestion(q, true)),
+    answers: await Promise.all((answers ?? []).map(async (x: Record<string, any>) => ({
+      questionId: x.question_id,
+      response: x.response ?? null,
+      files: await signFiles((x.files ?? []) as LibFile[], true),
+      autoMarks: x.auto_marks == null ? null : Number(x.auto_marks),
+      marks: x.marks == null ? null : Number(x.marks),
+      feedback: x.feedback ?? null,
+    }))),
+  };
+}
+
+app.get("/submissions/:id", requirePermission("assignments.manage", "assignments.view.school", "assignments.view.all"), async (c) => {
+  const { data: s } = await admin.from("assignment_submissions").select("*").eq("id", c.req.param("id")).maybeSingle();
+  if (!s) return c.json({ error: "Submission not found" }, 404);
+  const found = await loadScopedAssignment(c, s.assignment_id, false);
+  if (found instanceof Response) return c.json({ error: "Submission not found" }, 404);
+  return c.json(await submissionDetail(s, found.a));
+});
+
+/* Marking. Every question needs a mark — the teacher's, or the automatic
+   one where there is one. The teacher can override any automatic mark. */
+app.post("/submissions/:id/mark", requirePermission("assignments.grade"), async (c) => {
+  const { data: s } = await admin.from("assignment_submissions").select("*").eq("id", c.req.param("id")).maybeSingle();
+  if (!s) return c.json({ error: "Submission not found" }, 404);
+  const scope = await assignmentScope(c);
+  const { data: a } = await admin.from("assignments").select("*").eq("id", s.assignment_id).maybeSingle();
+  if (!a || !inAssignmentScope(scope, a)) return c.json({ error: "Submission not found" }, 404);
+  if (!teachesAssignment(scope, a)) return c.json({ error: "Only a teacher of this class can mark it" }, 403);
+  if (s.status === "in_progress") return c.json({ error: "This hasn't been handed in yet" }, 409);
+  const b = await c.req.json().catch(() => ({}));
+  const given = new Map<string, { marks?: unknown; feedback?: unknown }>();
+  for (const x of Array.isArray(b.answers) ? b.answers : []) if (x && typeof x.questionId === "string") given.set(x.questionId, x);
+  const questions = await questionsOf(a.id);
+  const { data: answers } = await admin.from("submission_answers").select("*").eq("submission_id", s.id);
+  const now = new Date().toISOString();
+  let total = 0, max = 0;
+  const writes: { id: string | null; questionId: string; marks: number; feedback: string | null }[] = [];
+  for (const q of questions) {
+    const ans = (answers ?? []).find((x: Record<string, unknown>) => x.question_id === q.id);
+    const g = given.get(q.id);
+    const qMax = Number(q.max_marks);
+    let m: number | null = null;
+    if (g?.marks !== undefined && g.marks !== null && g.marks !== "") {
+      const v = Number(g.marks);
+      if (!Number.isFinite(v) || v < 0 || v > qMax) return c.json({ error: `Question ${q.position}: marks must be between 0 and ${qMax}` }, 400);
+      m = round2(v);
+    } else if (ans?.marks != null) m = Number(ans.marks);
+    else if (ans?.auto_marks != null) m = Number(ans.auto_marks);
+    else if (!ans && isAutoMarked({ type: q.type, answerKey: q.answer_key })) m = 0; // left blank
+    if (m == null) return c.json({ error: `Question ${q.position} still needs a mark` }, 400);
+    const fb = g?.feedback !== undefined ? (String(g.feedback ?? "").trim().slice(0, 2000) || null) : (ans?.feedback ?? null);
+    writes.push({ id: ans?.id ?? null, questionId: q.id, marks: m, feedback: fb });
+    total += m;
+    max += qMax;
+  }
+  for (const w of writes) {
+    if (w.id) await admin.from("submission_answers").update({ marks: w.marks, feedback: w.feedback, updated_at: now }).eq("id", w.id);
+    else await admin.from("submission_answers").insert({ id: rid("ans"), submission_id: s.id, question_id: w.questionId, response: null, marks: w.marks, feedback: w.feedback });
+  }
+  const pct = percentOf(total, max);
+  const patch = {
+    status: "marked", marks: round2(total), max_marks: round2(max), percentage: pct, band: bandFor(pct, await loadBands()),
+    feedback: b.feedback !== undefined ? (String(b.feedback ?? "").trim().slice(0, 5000) || null) : (s.feedback ?? null),
+    marked_at: now, marked_by: c.get("actor").id, auto_marked: false,
+  };
+  const { error } = await admin.from("assignment_submissions").update(patch).eq("id", s.id);
+  if (error) return c.json({ error: error.message }, 400);
+  await audit(c, s.status === "marked" ? "submission.remarked" : "submission.marked", "submission", s.id,
+    { assignmentId: a.id, learnerId: s.learner_id, marks: patch.marks, maxMarks: patch.max_marks, percentage: pct });
+  return c.json(await submissionDetail({ ...s, ...patch }, a));
+});
+
+// ---- the learner's side ----
+
+/** The learner's own row (class, school) — the session only carries the id. */
+// deno-lint-ignore no-explicit-any
+async function learnerSelf(c: any) {
+  return await loadLearner(c.get("actor").id);
+}
+
+/** An assignment this learner may open: published or closed, for their
+    current class — or one they already have work on. */
+async function learnerAssignment(me: Record<string, any>, id: string) {
+  const { data: a } = await admin.from("assignments").select("*").eq("id", id).maybeSingle();
+  if (!a || a.status === "draft") return null;
+  if (me.class_id && a.class_id === me.class_id) return a;
+  const { data: sub } = await admin.from("assignment_submissions").select("id").eq("assignment_id", a.id).eq("learner_id", me.id).maybeSingle();
+  return sub ? a : null;
+}
+
+/** Why this learner can't work on it right now, or null if they can. */
+function cannotWork(me: Record<string, any>, a: Record<string, any>): string | null {
+  if (a.status === "closed") return "This assignment is closed.";
+  if (a.status !== "published") return "This assignment isn't open.";
+  if (a.class_id !== me.class_id) return "This assignment is for a class you're no longer in.";
+  if (a.starts_at && new Date(a.starts_at) > new Date()) return `This assignment opens on ${new Date(a.starts_at).toDateString()}.`;
+  return null;
+}
+
+/** Where the learner is with it: not_started · in_progress · submitted · marked. */
+const completionOf = (s: Record<string, any> | null | undefined) => (s ? s.status : "not_started");
+
+/** A learner sees marks only once the work is marked. */
+const learnerSubmission = (s: Record<string, any> | null | undefined) =>
+  s ? mapSubmission(s, s.status === "marked") : null;
+
+app.get("/learner/assignments", requirePermission("assignments.view.own"), async (c) => {
+  const me = await learnerSelf(c);
+  if (!me) return c.json({ error: "Learner not found" }, 404);
+  const [{ data: mine }, { data: subs }] = await Promise.all([
+    me.class_id ? admin.from("assignments").select("*").eq("class_id", me.class_id).neq("status", "draft") : { data: [] },
+    admin.from("assignment_submissions").select("*").eq("learner_id", me.id),
+  ]);
+  const rows = [...(mine ?? [])];
+  const have = new Set(rows.map((a) => a.id));
+  const elsewhere = (subs ?? []).map((s: Record<string, unknown>) => s.assignment_id as string).filter((id: string) => !have.has(id));
+  if (elsewhere.length) rows.push(...(await selectIn("assignments", "id", elsewhere)).filter((a) => a.status !== "draft"));
+  const names = await assignmentNames(rows);
+  const now = new Date();
+  return c.json({
+    assignments: rows.map((a) => {
+      const s = (subs ?? []).find((x: Record<string, unknown>) => x.assignment_id === a.id);
+      return {
+        ...mapAssignmentRow(a, names),
+        completion: completionOf(s),
+        submission: learnerSubmission(s),
+        opensLater: !!(a.starts_at && new Date(a.starts_at) > now),
+        overdue: !!(a.due_at && new Date(a.due_at) < now && (!s || s.status === "in_progress")),
+        canWork: !cannotWork(me, a) && (!s || s.status === "in_progress"),
+      };
+    }).sort((x, y) => String(x.dueAt ?? "9999").localeCompare(String(y.dueAt ?? "9999"))),
+  });
+});
+
+async function learnerAssignmentView(me: Record<string, any>, a: Record<string, any>) {
+  const [names, questions, { data: s }] = await Promise.all([
+    assignmentNames([a]), questionsOf(a.id),
+    admin.from("assignment_submissions").select("*").eq("assignment_id", a.id).eq("learner_id", me.id).maybeSingle(),
+  ]);
+  const { data: answers } = s ? await admin.from("submission_answers").select("*").eq("submission_id", s.id) : { data: [] };
+  const marked = s?.status === "marked";
+  let resource = null;
+  if (a.resource_id) {
+    const { data: item } = await admin.from("library_items").select("*").eq("id", a.resource_id).maybeSingle();
+    if (item && item.published && canSeeLibrary(item.audience, "learner")) resource = await mapLibrary(item, false);
+  }
+  return {
+    assignment: mapAssignmentRow(a, names),
+    resource,
+    // Never the answer key.
+    questions: questions.map((q) => mapQuestion(q, false)),
+    submission: learnerSubmission(s),
+    completion: completionOf(s),
+    cannotWork: cannotWork(me, a),
+    answers: await Promise.all((answers ?? []).map(async (x: Record<string, any>) => ({
+      questionId: x.question_id,
+      response: x.response ?? null,
+      files: await signFiles((x.files ?? []) as LibFile[], false),
+      ...(marked ? { marks: x.marks != null ? Number(x.marks) : x.auto_marks != null ? Number(x.auto_marks) : null, feedback: x.feedback ?? null } : {}),
+    }))),
+  };
+}
+
+app.get("/learner/assignments/:id", requirePermission("assignments.view.own"), async (c) => {
+  const me = await learnerSelf(c);
+  const a = me ? await learnerAssignment(me, c.req.param("id")) : null;
+  if (!me || !a) return c.json({ error: "Assignment not found" }, 404);
+  return c.json(await learnerAssignmentView(me, a));
+});
+
+app.post("/learner/assignments/:id/start", requirePermission("assignments.submit"), async (c) => {
+  const me = await learnerSelf(c);
+  const a = me ? await learnerAssignment(me, c.req.param("id")) : null;
+  if (!me || !a) return c.json({ error: "Assignment not found" }, 404);
+  const { data: existing } = await admin.from("assignment_submissions").select("*").eq("assignment_id", a.id).eq("learner_id", me.id).maybeSingle();
+  if (!existing) {
+    const why = cannotWork(me, a);
+    if (why) return c.json({ error: why }, 409);
+    const { error } = await admin.from("assignment_submissions").insert({
+      id: rid("sub"), assignment_id: a.id, learner_id: me.id, school_id: me.school_id, class_id: me.class_id, status: "in_progress",
+    });
+    if (error && !isUniqueViolation(error)) return c.json({ error: error.message }, 400);
+  }
+  return c.json(await learnerAssignmentView(me, a));
+});
+
+/** Saves the given answers onto an in-progress submission. */
+async function saveAnswers(me: Record<string, any>, a: Record<string, any>, s: Record<string, any>, raw: unknown): Promise<string | null> {
+  if (!Array.isArray(raw)) return null;
+  const questions = await questionsOf(a.id);
+  const { data: existing } = await admin.from("submission_answers").select("*").eq("submission_id", s.id);
+  const prefix = `submissions/${a.id}/${me.id}/`;
+  const now = new Date().toISOString();
+  for (const x of raw) {
+    const q = questions.find((y) => y.id === x?.questionId);
+    if (!q) return "That answer is for a question this assignment doesn't have";
+    const response = cleanResponse({ type: q.type, options: q.options ?? [] }, x.response);
+    if (response === undefined) return `Question ${q.position}: that isn't a valid answer`;
+    let files: LibFile[] = [];
+    if (q.type === "file_upload") {
+      files = (Array.isArray(x.files) ? x.files : [])
+        .filter((f: Record<string, unknown>) => typeof f?.path === "string" && (f.path as string).startsWith(prefix) && !(f.path as string).includes(".."))
+        .slice(0, MAX_FILES_PER_ANSWER)
+        .map((f: Record<string, unknown>) => ({ name: String(f.name ?? "file").slice(0, 200), path: f.path as string, size: Number(f.size) || 0 }));
+    }
+    const prev = (existing ?? []).find((y: Record<string, unknown>) => y.question_id === q.id);
+    if (prev) await admin.from("submission_answers").update({ response, files, updated_at: now }).eq("id", prev.id);
+    else await admin.from("submission_answers").insert({ id: rid("ans"), submission_id: s.id, question_id: q.id, response, files });
+  }
+  await admin.from("assignment_submissions").update({ last_saved_at: now }).eq("id", s.id);
+  return null;
+}
+
+/** The learner's open (in-progress) submission, or why they can't work on it. */
+async function openSubmission(me: Record<string, any>, a: Record<string, any>) {
+  const { data: s } = await admin.from("assignment_submissions").select("*").eq("assignment_id", a.id).eq("learner_id", me.id).maybeSingle();
+  if (!s) return { error: "Start the assignment first", status: 409 as const };
+  if (s.status !== "in_progress") return { error: "You've already handed this in", status: 409 as const };
+  const why = cannotWork(me, a);
+  if (why) return { error: why, status: 409 as const };
+  return { s };
+}
+
+app.put("/learner/assignments/:id/answers", requirePermission("assignments.submit"), async (c) => {
+  const me = await learnerSelf(c);
+  const a = me ? await learnerAssignment(me, c.req.param("id")) : null;
+  if (!me || !a) return c.json({ error: "Assignment not found" }, 404);
+  const open = await openSubmission(me, a);
+  if ("error" in open) return c.json({ error: open.error }, open.status);
+  const b = await c.req.json().catch(() => ({}));
+  const err = await saveAnswers(me, a, open.s, b.answers);
+  if (err) return c.json({ error: err }, 400);
+  return c.json(await learnerAssignmentView(me, a));
+});
+
+const MAX_SUBMISSION_FILE = 25 * 1024 * 1024;
+app.post("/learner/assignments/:id/upload", requirePermission("assignments.submit"), async (c) => {
+  const me = await learnerSelf(c);
+  const a = me ? await learnerAssignment(me, c.req.param("id")) : null;
+  if (!me || !a) return c.json({ error: "Assignment not found" }, 404);
+  const open = await openSubmission(me, a);
+  if ("error" in open) return c.json({ error: open.error }, open.status);
+  const b = await c.req.json().catch(() => ({}));
+  const { data: q } = await admin.from("assignment_questions").select("*").eq("id", String(b.questionId ?? "")).maybeSingle();
+  if (!q || q.assignment_id !== a.id || q.type !== "file_upload") return c.json({ error: "That question doesn't take a file" }, 400);
+  const name = String(b.name ?? "").trim();
+  if (!name) return c.json({ error: "Missing file name" }, 400);
+  if (Number(b.size) > MAX_SUBMISSION_FILE) return c.json({ error: "Files can be up to 25 MB" }, 400);
+  const path = `submissions/${a.id}/${me.id}/${rid("f")}/${safePath(name)}`;
+  const { data, error } = await admin.storage.from(LIBRARY_BUCKET).createSignedUploadUrl(path);
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ upload: { name, path, token: data.token, signedUrl: data.signedUrl, size: Number(b.size) || 0 } });
+});
+
+/* Hand it in. Saves any answers sent with it, records the time and whether
+   it was late, marks what can be marked automatically — and if every
+   question can, the work is marked straight away. */
+app.post("/learner/assignments/:id/submit", requirePermission("assignments.submit"), async (c) => {
+  const me = await learnerSelf(c);
+  const a = me ? await learnerAssignment(me, c.req.param("id")) : null;
+  if (!me || !a) return c.json({ error: "Assignment not found" }, 404);
+  const open = await openSubmission(me, a);
+  if ("error" in open) return c.json({ error: open.error }, open.status);
+  const b = await c.req.json().catch(() => ({}));
+  const err = await saveAnswers(me, a, open.s, b.answers);
+  if (err) return c.json({ error: err }, 400);
+  const questions = await questionsOf(a.id);
+  const { data: answers } = await admin.from("submission_answers").select("*").eq("submission_id", open.s.id);
+  const now = new Date();
+  let total = 0, max = 0, allAuto = questions.length > 0;
+  for (const q of questions) {
+    const qq = toQuestion(q);
+    const ans = (answers ?? []).find((x: Record<string, unknown>) => x.question_id === q.id);
+    const m = autoMark(qq, ans?.response ?? null);
+    max += qq.maxMarks;
+    if (m == null) { allAuto = false; continue; }
+    total += m;
+    if (ans) await admin.from("submission_answers").update({ auto_marks: m }).eq("id", ans.id);
+    else await admin.from("submission_answers").insert({ id: rid("ans"), submission_id: open.s.id, question_id: q.id, response: null, auto_marks: m });
+  }
+  const at = now.toISOString();
+  const patch: Record<string, unknown> = {
+    status: "submitted", submitted_at: at, last_saved_at: at, is_late: isLate(a.due_at, now), max_marks: round2(max),
+  };
+  if (allAuto) {
+    const pct = percentOf(total, max);
+    Object.assign(patch, { status: "marked", marks: round2(total), percentage: pct, band: bandFor(pct, await loadBands()), marked_at: at, marked_by: null, auto_marked: true });
+  }
+  // Only an in-progress submission moves on — a second click can't resubmit.
+  const { data: done, error: uErr } = await admin.from("assignment_submissions").update(patch)
+    .eq("id", open.s.id).eq("status", "in_progress").select().maybeSingle();
+  if (uErr) return c.json({ error: uErr.message }, 400);
+  if (!done) return c.json({ error: "You've already handed this in" }, 409);
+  await audit(c, "submission.submitted", "submission", open.s.id, { assignmentId: a.id, late: patch.is_late, autoMarked: allAuto });
+  return c.json(await learnerAssignmentView(me, a));
+});
+
+// ---- results ----
+/* ?by=learner|class|subject|grade|term|year|school|assignment, filtered by
+   ?classId= ?subjectId= ?grade= ?termId= ?academicYearId= ?schoolId= ?learnerId=.
+   Each row carries completion and achievement side by side, never merged. */
+app.get("/results", requirePermission("assignments.view.own", "assignments.manage", "assignments.view.school", "assignments.view.all"), async (c) => {
+  const by = String(c.req.query("by") ?? "subject") as ResultDimension;
+  if (!RESULT_DIMENSIONS.includes(by)) return c.json({ error: `by must be one of ${RESULT_DIMENSIONS.join(", ")}` }, 400);
+  const f = (k: string) => String(c.req.query(k) ?? "");
+  const isLearner = c.get("actor").role === "learner";
+  let work: Awaited<ReturnType<typeof loadWork>>;
+  try {
+    if (isLearner) {
+      if (by === "learner" || by === "school") return c.json({ error: "Not available" }, 400);
+      work = await loadWork({ learnerId: c.get("actor").id });
+    } else {
+      const scope = await assignmentScope(c);
+      if (scope.kind === "none") return c.json({ by, rows: [], overall: null, bands: await loadBands() });
+      work = await loadWork({
+        schoolId: scope.kind === "all" ? (f("schoolId") || null) : scope.schoolId,
+        classIds: scope.kind === "teacher" ? scope.classIds : null,
+        learnerId: f("learnerId") || null,
+      });
+      // Only work set in the caller's school / classes — whichever learner.
+      work.pairs = work.pairs.filter((p) => inAssignmentScope(scope, { school_id: p.a.schoolId, class_id: p.a.classId }));
+    }
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+  const pairs = work.pairs.filter((p) =>
+    (!f("classId") || p.a.classId === f("classId")) &&
+    (!f("subjectId") || p.a.subjectId === f("subjectId")) &&
+    (!f("grade") || p.a.grade === f("grade")) &&
+    (!f("termId") || p.a.termId === f("termId")) &&
+    (!f("academicYearId") || p.a.yearId === f("academicYearId")));
+  const bands = await loadBands();
+  const rows = groupResults(pairs, by, bands);
+  const labels = await resultLabels(by, rows.map((r) => r.key), work.assignments);
+  return c.json({
+    by,
+    bands,
+    overall: summarize(pairs, bands),
+    rows: rows.map((r) => ({ ...r, label: labels[r.key] ?? r.key }))
+      .sort((x, y) => String(x.label).localeCompare(String(y.label))),
+  });
+});
+
+async function resultLabels(by: ResultDimension, keys: string[], assignments: Record<string, any>[]): Promise<Record<string, string>> {
+  if (!keys.length) return {};
+  const pick = async (table: string, col: string) =>
+    Object.fromEntries((await selectIn(table, "id", keys, `id, ${col}`)).map((r) => [r.id, r[col]]));
+  switch (by) {
+    case "learner": return await pick("learners", "full_name");
+    case "class": return await pick("classes", "name");
+    case "subject": return await pick("subjects", "name");
+    case "school": return await pick("schools", "name");
+    case "assignment": return Object.fromEntries(assignments.map((a) => [a.id, a.title]));
+    case "term": return Object.fromEntries(keys.map((k) => [k, termLabel(k) ?? k]));
+    default: return Object.fromEntries(keys.map((k) => [k, k]));
+  }
+}
 
 // ---- field reports (staff only) ----
 
@@ -2740,12 +3720,12 @@ app.get("/stats", requirePermission("stats.view"), async (c) => {
   const [profs, learnersRaw, asg, reportsRaw, forms, responses, library, schoolsReg, countiesReg] = await Promise.all([
     selectAll(() => admin.from("profiles").select("id, role, county, school, teacher_type").order("id")),
     selectAll(() => admin.from("learners").select("id, teacher_id, grade, school, created_at").eq("enrollment_status", "ACTIVE").order("id")),
-    selectAll(() => admin.from("assignments").select("learner_id, done").order("id")),
+    loadWork({}).then((w) => ({ data: w, error: null }), (e) => ({ data: null, error: { message: (e as Error).message } })),
     selectAll(() => admin.from("field_reports").select("county, visit_type, school, created_at").order("id")),
     selectAll(() => admin.from("forms").select("id, audience").order("id")),
     selectAll(() => admin.from("responses").select("form_id").order("id")),
     selectAll(() => admin.from("library_items").select("audience, subject").order("id")),
-    selectAll(() => admin.from("schools").select("name, county, code, seq").order("seq").order("id")),
+    selectAll(() => admin.from("schools").select("id, name, county, code, seq").order("seq").order("id")),
     loadCounties().catch(() => [] as County[]),
   ]);
   // A failed read must not render as zeros on the dashboard.
@@ -2792,10 +3772,13 @@ app.get("/stats", requirePermission("stats.view"), async (c) => {
     reportRows = reportRows.filter((r) => inDateRange(r.created_at));
   }
 
-  const learnerIdSet = new Set(learnerRows.map((l) => l.id));
-  const assignmentRows = (inCounty || inSchool)
-    ? (asg.data ?? []).filter((a) => learnerIdSet.has(a.learner_id))
-    : (asg.data ?? []);
+  // Assignment work, scoped by the school it was set in.
+  const schoolById = new Map((schoolsReg.data ?? []).map((s) => [s.id, s]));
+  let pairs = asg.data?.pairs ?? [];
+  if (inCounty) pairs = pairs.filter((p) => schoolById.get(p.a.schoolId)?.county === county);
+  if (inSchool) pairs = pairs.filter((p) => schoolById.get(p.a.schoolId)?.name === school);
+  const bands = await loadBands();
+  const work = summarize(pairs, bands);
 
   const byRole: Record<string, number> = {
     teacher: 0,
@@ -2809,22 +3792,20 @@ app.get("/stats", requirePermission("stats.view"), async (c) => {
   }
   const teachersByType = tally(staffRows.filter((p) => p.role === "teacher"), "teacher_type");
 
-  // Grade "performance" — the one real, comparable-across-grades signal the
-  // portal actually records is assignment completion. Ranked, capped to the
-  // requested top N (0 = show every grade). Not an academic score: there is
-  // no gradebook/exam-results feature yet (see reply to Patrick).
-  const gradeOfLearner: Record<string, string> = {};
-  for (const l of learnerRows) gradeOfLearner[l.id as string] = (l.grade as string)?.trim() || "(not set)";
-  const gradeAgg: Record<string, { total: number; done: number }> = {};
-  for (const a of assignmentRows) {
-    const g = gradeOfLearner[a.learner_id as string] ?? "(not set)";
-    (gradeAgg[g] ??= { total: 0, done: 0 }).total++;
-    if (a.done) gradeAgg[g].done++;
-  }
-  let gradePerformance = Object.entries(gradeAgg)
-    .map(([label, v]) => ({ label, value: v.total ? Math.round((v.done / v.total) * 100) : 0, total: v.total }))
+  // By grade, two separate rankings: COMPLETION (share of expected work
+  // handed in) and ACHIEVEMENT (average mark on marked work). Handing work
+  // in is not doing well in it, so neither stands in for the other.
+  const byGrade = groupResults(pairs, "grade", bands);
+  let gradeCompletion = byGrade
+    .map((g) => ({ label: g.key, value: Math.round(g.completion.rate ?? 0), total: g.completion.assigned }))
     .sort((a, b) => b.value - a.value || b.total - a.total);
-  if (topN) gradePerformance = gradePerformance.slice(0, topN);
+  let gradeAchievement = byGrade.filter((g) => g.achievement.marked > 0)
+    .map((g) => ({ label: g.key, value: Math.round(g.achievement.averagePercent ?? 0), marked: g.achievement.marked, band: g.achievement.band }))
+    .sort((a, b) => b.value - a.value || b.marked - a.marked);
+  if (topN) {
+    gradeCompletion = gradeCompletion.slice(0, topN);
+    gradeAchievement = gradeAchievement.slice(0, topN);
+  }
 
   const formRows = forms.data ?? [];
   const libraryRows = library.data ?? [];
@@ -2864,8 +3845,12 @@ app.get("/stats", requirePermission("stats.view"), async (c) => {
     accounts: staffRows.length + learnerRows.length,
     byRole,
     teachersByType,
-    assignmentsTotal: assignmentRows.length,
-    assignmentsDone: assignmentRows.filter((a) => a.done).length,
+    // Completion: expected learner × assignment pairs, and how many were handed in.
+    assignmentsTotal: work.completion.assigned,
+    assignmentsDone: work.completion.submitted,
+    completion: work.completion,
+    achievement: work.achievement,
+    bands,
     reportsFiled: reportRows.length,
     formsSent: formRows.length,
     responsesReceived: (responses.data ?? []).length,
@@ -2874,7 +3859,8 @@ app.get("/stats", requirePermission("stats.view"), async (c) => {
     learnersByGrade: tally(learnerRows, "grade"),
     learnersBySchool: tally(learnerRows, "school"),
     newLearnersByTerm: tallyChronological(learnerRows, (l) => schoolTermOf(l.created_at)),
-    gradePerformance,
+    gradeCompletion,
+    gradeAchievement,
     fieldReportsByCounty: tally(allReports, "county"), // always portal-wide: the "pick a county" overview
     fieldReportsBySchool: tally(reportRows, "school"),
     fieldReportsByVisitType: tally(reportRows, "visit_type"),
@@ -2905,10 +3891,7 @@ app.get("/school/overview", requirePermission("school.overview.view"), async (c)
     selectAll(() => admin.from("learners").select("id, grade").eq("school_id", schoolRec.id).eq("enrollment_status", "ACTIVE").order("id")),
     selectAll(() => admin.from("field_reports").select("*").eq("school_id", schoolRec.id).order("id")),
     selectAll(() => admin.from("field_reports").select("*").is("school_id", null).eq("school", school).eq("county", county).order("id")),
-    // Joined on the learner's school rather than an id list, which would
-    // overflow the request URL for a large school.
-    selectAll(() => admin.from("assignments").select("learner_id, done, learners!inner(school_id)")
-      .eq("learners.school_id", schoolRec.id).order("id")),
+    loadWork({ schoolId: schoolRec.id }).then((w) => ({ data: w, error: null }), (e) => ({ data: null, error: { message: (e as Error).message } })),
   ]);
   if (profs.error || learnersRaw.error || reportsById.error || reportsByName.error || asg.error) {
     return c.json({ error: "Could not load the school overview" }, 500);
@@ -2919,22 +3902,32 @@ app.get("/school/overview", requirePermission("school.overview.view"), async (c)
   const visitRows = [...(reportsById.data ?? []), ...(reportsByName.data ?? [])]
     .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
 
-  const assignmentRows = asg.data ?? [];
+  const pairs = asg.data?.pairs ?? [];
+  const bands = await loadBands();
+  const work = summarize(pairs, bands);
 
-  const gradeOfLearner: Record<string, string> = {};
-  for (const l of learnerRows) gradeOfLearner[l.id as string] = (l.grade as string)?.trim() || "(not set)";
-  const gradeAgg: Record<string, { learners: number; total: number; done: number }> = {};
+  // Per grade: learners, completion (work handed in) and achievement (marks
+  // on marked work) — reported side by side, never combined.
+  const learnersInGrade: Record<string, number> = {};
   for (const l of learnerRows) {
-    const g = gradeOfLearner[l.id as string];
-    (gradeAgg[g] ??= { learners: 0, total: 0, done: 0 }).learners++;
+    const g = (l.grade as string)?.trim() || "(not set)";
+    learnersInGrade[g] = (learnersInGrade[g] ?? 0) + 1;
   }
-  for (const a of assignmentRows) {
-    const g = gradeOfLearner[a.learner_id as string] ?? "(not set)";
-    (gradeAgg[g] ??= { learners: 0, total: 0, done: 0 }).total++;
-    if (a.done) gradeAgg[g].done++;
-  }
-  const gradeBreakdown = Object.entries(gradeAgg)
-    .map(([grade, v]) => ({ grade, learners: v.learners, assignmentsTotal: v.total, assignmentsDone: v.done }))
+  const workByGrade = new Map(groupResults(pairs, "grade", bands).map((g) => [g.key, g]));
+  const gradeBreakdown = [...new Set([...Object.keys(learnersInGrade), ...workByGrade.keys()])]
+    .map((grade) => {
+      const g = workByGrade.get(grade);
+      return {
+        grade,
+        learners: learnersInGrade[grade] ?? 0,
+        assignmentsTotal: g?.completion.assigned ?? 0,
+        assignmentsDone: g?.completion.submitted ?? 0,
+        completionRate: g?.completion.rate ?? null,
+        marked: g?.achievement.marked ?? 0,
+        averagePercent: g?.achievement.averagePercent ?? null,
+        band: g?.achievement.band ?? null,
+      };
+    })
     .sort((a, b) => a.grade.localeCompare(b.grade));
 
   const currentTerm = schoolTermOf(new Date().toISOString());
@@ -2946,8 +3939,11 @@ app.get("/school/overview", requirePermission("school.overview.view"), async (c)
     teacherCount: teacherRows.length,
     learnerCount: learnerRows.length,
     teachersByType: tally(teacherRows, "teacher_type"),
-    assignmentsTotal: assignmentRows.length,
-    assignmentsDone: assignmentRows.filter((a) => a.done).length,
+    assignmentsTotal: work.completion.assigned,
+    assignmentsDone: work.completion.submitted,
+    completion: work.completion,
+    achievement: work.achievement,
+    bands,
     gradeBreakdown,
     visits: visitRows.slice(0, 10).map(mapReport),
     visitsTotal: visitRows.length,

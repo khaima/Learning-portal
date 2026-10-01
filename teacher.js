@@ -1,13 +1,18 @@
 import "./nav.js";
-import { $, $$, esc, initials, schoolLine, toast, formatDuration, skeleton, emptyState, errorState, friendlyError } from "./util.js";
+import { $, $$, esc, initials, schoolLine, toast, formatDuration, skeleton, emptyState, errorState, friendlyError, confirmDialog } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { normalizeLibraryAudience } from "./data.js";
 import {
   getLibrary, getLibraryFolders, getForms, getResponses, mountLibraryShelves, libraryPreviewHtml,
   getLearners, addLearner, updateLearner, getMyLibraryUsage, getLearnerActivity,
-  setAssignmentDone, getTeacherAssignments, getClasses, setLearnerStatus,
+  getClasses, setLearnerStatus, getSubjects, getStaffAssignments, getSubmissions, getResults,
+  addLearnersToClass, removeLearnerFromClass,
 } from "./store.js";
 import { statusPill, openArchiveDialog, openHistoryPanel } from "./learners-ui.js";
+import {
+  openAssignmentEditor, openAssignmentDetail, openMarking, resultsTableHtml,
+  assignmentStatusPill, completionPill, markPill, fmtWhen,
+} from "./assignments-ui.js";
 import { openContentPanel } from "./viewer.js";
 import { mountFormList } from "./forms.js";
 
@@ -29,20 +34,19 @@ async function main() {
   $("#sideName").textContent = user.fullName;
   $("#sideMeta").textContent = `Teacher · ${user.userCode || user.county || "—"}`;
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
-  $("#topSub").textContent = `${schoolLine(user)} · Term 2, 2026`;
+  $("#topSub").textContent = schoolLine(user);
 
   /* ------------------------------------------------------------ KPI row
-     Real counts only — "assignments to review" / "completed this week"
-     come from the same assignment data as the grading queue below, not a
-     separate estimate, so the tiles and the lists underneath always agree. */
+     Real counts only, from the same data as the lists below: work waiting
+     to be marked, and work handed in this week (completion — not marks). */
   function renderKpis() {
-    const toReview = assignCache.filter((a) => !a.done).length;
-    const completedThisWeek = assignCache.filter((a) => a.done && isThisWeek(a.due)).length;
+    const toMark = submissionCache.filter((x) => x.status === "submitted").length;
+    const handedInThisWeek = submissionCache.filter((x) => x.submittedAt && isThisWeek(x.submittedAt)).length;
     const resourcesUsed = usageCache ? usageCache.resourcesOpened : 0;
     $("#statRow").innerHTML = `
       <div class="stat-tile"><div class="s-label">${svg(ICON.learners)}My learners</div><div class="s-num">${activeCount}</div><div class="s-sub">active, across your classes</div></div>
-      <div class="stat-tile"><div class="s-label">${svg(ICON.grade)}Assignments to review</div><div class="s-num">${toReview}</div><div class="s-sub">needs action</div></div>
-      <div class="stat-tile"><div class="s-label">${svg(ICON.score)}Completed this week</div><div class="s-num">${completedThisWeek}</div><div class="s-sub">assignments</div></div>
+      <div class="stat-tile"><div class="s-label">${svg(ICON.grade)}Work to mark</div><div class="s-num">${toMark}</div><div class="s-sub">handed in, waiting for you</div></div>
+      <div class="stat-tile"><div class="s-label">${svg(ICON.score)}Handed in this week</div><div class="s-num">${handedInThisWeek}</div><div class="s-sub">submissions</div></div>
       <div class="stat-tile"><div class="s-label">${svg(ICON.library)}Resources used</div><div class="s-num">${resourcesUsed}</div><div class="s-sub">by you, all time</div></div>
     `;
   }
@@ -51,45 +55,137 @@ async function main() {
      The classes a school head (or administrator) has assigned this teacher
      to in the current academic year. */
   let myClasses = [];
+  let classTerms = [];
+  // Declared up here: renderKpis() runs before the sections below set them.
+  let submissionCache = [];
+  let submissionsFailed = false;
+  let assignmentList = [];
+  let learnerCache = [];
+  let activeCount = 0; // active learners, shown in the KPI tile whichever list is open
+  let usageCache = null;
+
   async function renderClasses() {
     $("#classList").innerHTML = skeleton(2, { avatar: false });
+    let res;
     try {
-      ({ classes: myClasses } = await getClasses());
+      res = await getClasses();
     } catch (err) {
       const msg = errorState(friendlyError(err), renderClasses);
       $("#classList").innerHTML = msg;
       $("#homeClassList").innerHTML = msg;
       return;
     }
+    myClasses = res.classes;
+    classTerms = res.terms || [];
+    const today = new Date().toISOString().slice(0, 10);
+    const term = classTerms.find((t) => t.startsOn <= today && today <= t.endsOn);
+    $("#topSub").textContent = [schoolLine(user), term?.label || res.academicYear].filter(Boolean).join(" · ");
     const html = myClasses.length
       ? myClasses.map((c) => {
           const mine = c.teachers.find((t) => t.teacherId === user.id);
+          const subjects = (c.subjects || []).map((x) => x.name).join(", ");
           return `
-          <div class="class-row">
+          <div class="class-row" data-class="${esc(c.id)}" style="flex-wrap:wrap">
             <div class="class-swatch" style="background:var(--panel)">${esc(c.grade.replace("Grade ", "G"))}</div>
-            <div class="class-info"><b>${esc(c.name)}</b><span>${c.learnerCount} active learner${c.learnerCount === 1 ? "" : "s"} · ${esc(c.academicYear)}</span></div>
+            <div class="class-info"><b>${esc(c.name)}</b><span>${c.learnerCount} active learner${c.learnerCount === 1 ? "" : "s"} · ${esc(c.academicYear)}${subjects ? ` · ${esc(subjects)}` : ""}</span></div>
             <div class="class-meta"><b>${mine?.role === "class_teacher" ? "Class teacher" : "Subject teacher"}</b></div>
+            <div class="roster-actions">
+              <button type="button" data-class-act="learners">Learners</button>
+              <button type="button" data-class-act="assign">Set work</button>
+            </div>
           </div>`;
         }).join("")
       : emptyState("No classes yet", "Your school head assigns teachers to classes. Learners you add yourself still appear under My Learners.");
     $("#classList").innerHTML = html;
     $("#homeClassList").innerHTML = html;
-    $("#nl_class").innerHTML = `<option value="">Not in a class yet</option>${
-      myClasses.map((c) => `<option value="${esc(c.id)}">${esc(c.name)} (${esc(c.grade)})</option>`).join("")}`;
+    const classOpts = myClasses.map((c) => `<option value="${esc(c.id)}">${esc(c.name)} (${esc(c.grade)})</option>`).join("");
+    $("#nl_class").innerHTML = `<option value="">Not in a class yet</option>${classOpts}`;
+    for (const sel of ["#af_class", "#rf_class"]) {
+      const keep = $(sel).value;
+      $(sel).innerHTML = `<option value="">All my classes</option>${classOpts}`;
+      $(sel).value = myClasses.some((c) => c.id === keep) ? keep : "";
+    }
+    const keepTerm = $("#rf_term").value;
+    $("#rf_term").innerHTML = `<option value="">All terms</option>${classTerms.map((t) => `<option value="${esc(t.id)}">${esc(t.label || t.id)}</option>`).join("")}`;
+    $("#rf_term").value = classTerms.some((t) => t.id === keepTerm) ? keepTerm : "";
   }
   renderClasses();
 
-  /* ------------------------------------------------------------ assignments
-     One real list — not-done rows are the grading queue, done rows are
-     recent results — shared between Home and the Assignments page so a
-     status change made from either place shows up everywhere at once. */
-  let assignCache = [];
-  let assignmentsFailed = false;
-  let learnerCache = [];
-  let activeCount = 0; // active learners, shown in the KPI tile whichever list is open
-  let usageCache = null;
+  for (const list of ["#classList", "#homeClassList"]) {
+    $(list).addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-class-act]");
+      if (!btn) return;
+      const cls = myClasses.find((c) => c.id === btn.closest("[data-class]").dataset.class);
+      if (!cls) return;
+      if (btn.dataset.classAct === "learners") openClassLearners(cls);
+      else newAssignment(cls.id);
+    });
+  }
 
-  const todayISO = () => new Date().toISOString().slice(0, 10);
+  /* A class's learners: take one out, or add learners from this teacher's
+     roster (their other classes, or not in a class yet). */
+  async function openClassLearners(cls) {
+    const panel = openContentPanel({ title: `${cls.name} — learners`, html: skeleton(4) });
+    async function load() {
+      let inClass, mine;
+      try {
+        [inClass, mine] = await Promise.all([getLearners({ classId: cls.id }), getLearners({})]);
+      } catch (err) {
+        panel.innerHTML = errorState(friendlyError(err), load);
+        return;
+      }
+      const others = mine.filter((l) => l.classId !== cls.id);
+      panel.innerHTML = `
+        <h3 style="margin-top:0">In this class (${inClass.length})</h3>
+        ${inClass.length ? inClass.map((l) => `
+          <div class="task-row">
+            <div style="flex:1;min-width:0"><b>${esc(l.fullName)}</b><span>${l.learnerCode ? `<span class="code-chip">${esc(l.learnerCode)}</span> ` : ""}@${esc(l.username)}</span></div>
+            <div class="roster-actions"><button type="button" class="danger" data-remove="${esc(l.id)}" data-name="${esc(l.fullName)}">Take out of class</button></div>
+          </div>`).join("") : `<div class="empty-state">Nobody is in this class yet.</div>`}
+        <h3 style="margin:1.1rem 0 .3rem">Add learners</h3>
+        <p class="field-hint" style="margin-top:0">Learners on your roster who aren't in this class. Your school head can add anyone in the school.</p>
+        ${others.length ? `
+          <form data-add class="fill-form">
+            ${others.map((l) => `<label class="q-choice"><input type="checkbox" value="${esc(l.id)}"> ${esc(l.fullName)} <span class="hint-inline">${l.className ? `now in ${esc(l.className)}` : "not in a class"}</span></label>`).join("")}
+            <button class="btn btn-primary" type="submit" style="margin-top:.6rem">Add to ${esc(cls.name)}</button>
+          </form>` : `<div class="empty-state">Everyone on your roster is already in this class.</div>`}`;
+    }
+    panel.addEventListener("click", async (e) => {
+      const btn = e.target.closest("[data-remove]");
+      if (!btn) return;
+      if (!(await confirmDialog({ title: `Take ${btn.dataset.name} out of ${cls.name}?`, body: "They stay on your roster, not in any class, until they're placed again. Their work is kept.", confirmLabel: "Take out" }))) return;
+      try {
+        await removeLearnerFromClass(cls.id, btn.dataset.remove);
+        toast("Taken out of the class", "");
+        await load();
+        renderClasses();
+        renderRoster();
+      } catch (err) {
+        toast("Couldn't do that", friendlyError(err), "error");
+      }
+    });
+    panel.addEventListener("submit", async (e) => {
+      if (!e.target.matches("[data-add]")) return;
+      e.preventDefault();
+      const ids = [...e.target.querySelectorAll("input:checked")].map((i) => i.value);
+      if (!ids.length) { toast("Pick learners to add", "", "error"); return; }
+      try {
+        const res = await addLearnersToClass(cls.id, ids);
+        toast("Added", `${res.added} learner${res.added === 1 ? "" : "s"} added to ${cls.name}.`, "success");
+        await load();
+        renderClasses();
+        renderRoster();
+      } catch (err) {
+        toast("Couldn't add them", friendlyError(err), "error");
+      }
+    });
+    load();
+  }
+
+  /* ------------------------------------------------------------ assignments
+     The teacher's assignments (built here, for the classes they teach),
+     work handed in and waiting to be marked, and what was marked lately.
+     Home shows the marking queue and recent marks from the same data. */
   function isThisWeek(dateStr) {
     if (!dateStr) return false;
     const d = new Date(dateStr);
@@ -101,57 +197,54 @@ async function main() {
     return d >= start && d < end;
   }
 
-  function assignRow(a) {
-    const overdue = !a.done && a.due && a.due < todayISO();
-    const cls = a.done ? "ok" : overdue ? "danger" : "warm";
-    const label = a.done ? "Completed" : overdue ? "Overdue" : "Needs action";
+  function queueRow(x) {
     return `
-      <div class="task-row" data-assign="${esc(a.id)}">
+      <div class="task-row">
         <span class="task-dot"></span>
-        <div style="flex:1"><b>${esc(a.title)}</b><span>${esc(a.learnerName)} · ${esc(a.subject)}${a.due ? " · due " + esc(a.due) : ""}</span></div>
-        <button type="button" class="pill ${cls}" style="border:0;cursor:pointer" data-toggle-assign="${esc(a.id)}" data-done="${a.done ? "1" : "0"}">${label}</button>
+        <div style="flex:1;min-width:0"><b>${esc(x.learnerName || "Learner")}</b><span>${esc(x.assignmentTitle)} · ${esc(x.subject)}${x.className ? ` · ${esc(x.className)}` : ""} · handed in ${esc(fmtWhen(x.submittedAt))}${x.isLate ? ' <span class="pill warm">Late</span>' : ""}</span></div>
+        <button type="button" class="pill warm" style="border:0;cursor:pointer" data-open-sub="${esc(x.id)}">Mark</button>
       </div>`;
   }
-
-  function filterAssignments(list, query) {
+  function markedRow(x) {
+    return `<div class="result-row"><button type="button" data-open-sub="${esc(x.id)}" style="background:none;border:0;padding:0;font:inherit;color:inherit;text-align:left;cursor:pointer">${esc(x.learnerName)} — ${esc(x.assignmentTitle)}</button>${markPill(x.percentage, x.band)}</div>`;
+  }
+  function filterSubs(list, query) {
     if (!query) return list;
     const q = query.toLowerCase();
-    return list.filter((a) => `${a.learnerName} ${a.title} ${a.subject}`.toLowerCase().includes(q));
+    return list.filter((x) => `${x.learnerName} ${x.assignmentTitle} ${x.subject} ${x.className}`.toLowerCase().includes(q));
   }
 
   function renderQueueInto(targetId, searchInputId) {
     const el = $(targetId);
     if (!el) return;
-    if (assignmentsFailed) {
-      el.innerHTML = errorState("Couldn't load assignments — check your connection and try again.", loadAssignments);
+    if (submissionsFailed) {
+      el.innerHTML = errorState("Couldn't load work to mark — check your connection and try again.", loadSubmissions);
       return;
     }
-    const queue = assignCache.filter((a) => !a.done);
-    const filtered = filterAssignments(queue, ($(searchInputId)?.value || "").trim());
+    const queue = submissionCache.filter((x) => x.status === "submitted")
+      .sort((x, y) => String(x.submittedAt).localeCompare(String(y.submittedAt))); // oldest first
+    const filtered = filterSubs(queue, ($(searchInputId)?.value || "").trim());
     el.innerHTML = filtered.length
-      ? filtered.map(assignRow).join("")
+      ? filtered.map(queueRow).join("")
       : queue.length
         ? `<div class="empty-state">No matches for that search.</div>`
-        : emptyState("Nothing needs grading", "Nothing is waiting on you right now.");
+        : emptyState("Nothing to mark", "Work your learners hand in shows up here.");
   }
 
   function renderRecentResults() {
-    if (assignmentsFailed) {
-      const msg = errorState("Couldn't load assignments — check your connection and try again.", loadAssignments);
+    if (submissionsFailed) {
+      const msg = errorState("Couldn't load marked work — check your connection and try again.", loadSubmissions);
       $("#resultList").innerHTML = msg;
       $("#homeResultList").innerHTML = msg;
       return;
     }
-    const done = assignCache.filter((a) => a.done)
-      .slice().sort((x, y) => (y.due || "").localeCompare(x.due || ""));
-    const html = done.length
-      ? done.map((a) => `<div class="result-row"><span>${esc(a.learnerName)} — ${esc(a.title)}</span><span class="pill ok">Completed</span></div>`).join("")
-      : `<div class="empty-state">No completed assignments yet.</div>`;
-    $("#resultList").innerHTML = html;
-    $("#homeResultList").innerHTML = done.length
-      ? done.slice(0, 8).map((a) => `<div class="result-row"><span>${esc(a.learnerName)} — ${esc(a.title)}</span><span class="pill ok">Completed</span></div>`).join("")
-        + (done.length > 8 ? `<p class="hint" style="margin-top:.4rem">+${done.length - 8} more — view all.</p>` : "")
-      : `<div class="empty-state">No completed assignments yet.</div>`;
+    const marked = submissionCache.filter((x) => x.status === "marked")
+      .sort((x, y) => String(y.markedAt).localeCompare(String(x.markedAt)));
+    const empty = `<div class="empty-state">Nothing marked yet.</div>`;
+    $("#resultList").innerHTML = marked.length ? marked.slice(0, 50).map(markedRow).join("") : empty;
+    $("#homeResultList").innerHTML = marked.length
+      ? marked.slice(0, 8).map(markedRow).join("") + (marked.length > 8 ? `<p class="hint" style="margin-top:.4rem">+${marked.length - 8} more — see Results.</p>` : "")
+      : empty;
   }
 
   function renderAllAssignmentViews() {
@@ -161,38 +254,93 @@ async function main() {
     renderKpis();
   }
 
-  async function handleAssignToggleClick(e) {
-    const btn = e.target.closest("[data-toggle-assign]");
-    if (!btn) return;
-    const id = btn.dataset.toggleAssign;
-    const nextDone = btn.dataset.done !== "1";
-    btn.disabled = true;
+  async function loadSubmissions() {
     try {
-      await setAssignmentDone(id, nextDone);
-      assignCache = assignCache.map((a) => (a.id === id ? { ...a, done: nextDone } : a));
-      renderAllAssignmentViews();
-      toast(nextDone ? "Marked done" : "Marked not yet done", "");
+      submissionCache = await getSubmissions({ limit: 500 });
+      submissionsFailed = false;
     } catch (err) {
-      btn.disabled = false;
-      toast("Couldn't update that", friendlyError(err), "error");
-    }
-  }
-  $("#gradingQueue").addEventListener("click", handleAssignToggleClick);
-  $("#taskList").addEventListener("click", handleAssignToggleClick);
-  $("#gradingSearch")?.addEventListener("input", () => renderQueueInto("#gradingQueue", "#gradingSearch"));
-  $("#assignSearch")?.addEventListener("input", () => renderQueueInto("#taskList", "#assignSearch"));
-
-  async function loadAssignments() {
-    try {
-      assignCache = await getTeacherAssignments();
-      assignmentsFailed = false;
-    } catch (err) {
-      assignmentsFailed = true;
-      assignCache = [];
-      console.error("could not load teacher assignments:", err);
+      submissionsFailed = true;
+      submissionCache = [];
+      console.error("could not load submissions:", err);
     }
     renderAllAssignmentViews();
   }
+  /** After anything changes: the lists, the queue and the results. */
+  function refreshWork() {
+    loadAssignmentList();
+    loadSubmissions();
+    renderResults();
+  }
+
+  for (const sel of ["#gradingQueue", "#taskList", "#resultList", "#homeResultList"]) {
+    $(sel).addEventListener("click", (e) => {
+      const b = e.target.closest("[data-open-sub]");
+      if (b) openMarking(b.dataset.openSub, { canMark: true, onDone: refreshWork });
+    });
+  }
+  $("#gradingSearch")?.addEventListener("input", () => renderQueueInto("#gradingQueue", "#gradingSearch"));
+  $("#assignSearch")?.addEventListener("input", () => renderQueueInto("#taskList", "#assignSearch"));
+
+  function assignmentRow(a) {
+    const c = a.counts || {};
+    return `
+      <div class="task-row" data-asg="${esc(a.id)}">
+        <div style="flex:1;min-width:0"><b>${esc(a.title)}</b>
+          <span>${assignmentStatusPill(a.status)} ${esc(a.className || "")} · ${esc(a.subject)}${a.term ? ` · ${esc(a.term)}` : ""}${a.dueAt ? ` · due ${esc(fmtWhen(a.dueAt))}` : ""}${
+            a.status !== "draft" ? ` · ${c.submitted ?? 0}/${c.expected ?? 0} handed in${c.toMark ? ` · <b>${c.toMark} to mark</b>` : ""}` : ""}</span></div>
+        <div class="roster-actions"><button type="button" data-open-asg>Open</button></div>
+      </div>`;
+  }
+  async function loadAssignmentList() {
+    const el = $("#assignmentList");
+    el.innerHTML = skeleton(3);
+    try {
+      assignmentList = await getStaffAssignments({ classId: $("#af_class").value, status: $("#af_status").value });
+    } catch (err) {
+      el.innerHTML = errorState(friendlyError(err), loadAssignmentList);
+      return;
+    }
+    el.innerHTML = assignmentList.length
+      ? assignmentList.map(assignmentRow).join("")
+      : emptyState("No assignments here yet", "Set work for a class you teach with “New assignment”.");
+  }
+  $("#af_class").addEventListener("change", loadAssignmentList);
+  $("#af_status").addEventListener("change", loadAssignmentList);
+  const openAsg = (id) => openAssignmentDetail(id, { canManage: true, canMark: true, classes: myClasses, terms: classTerms, onChanged: refreshWork });
+  $("#assignmentList").addEventListener("click", (e) => {
+    const row = e.target.closest("[data-asg]");
+    if (row) openAsg(row.dataset.asg);
+  });
+  async function newAssignment(classId = "") {
+    if (!myClasses.length) {
+      toast("No classes yet", "Your school head assigns you to classes — then you can set them work.", "error");
+      return;
+    }
+    const saved = await openAssignmentEditor({ classes: myClasses, terms: classTerms, defaultClassId: classId || $("#af_class").value });
+    if (saved) {
+      refreshWork();
+      openAsg(saved.assignment.id);
+    }
+  }
+  $("#newAssignmentBtn").addEventListener("click", () => newAssignment());
+
+  /* ------------------------------------------------------------ results
+     Completion and achievement, side by side — never one number. */
+  async function renderResults() {
+    const el = $("#resultsTable");
+    el.innerHTML = skeleton(4, { avatar: false });
+    try {
+      el.innerHTML = resultsTableHtml(await getResults({
+        by: $("#rf_by").value, classId: $("#rf_class").value, subjectId: $("#rf_subject").value, termId: $("#rf_term").value,
+      }));
+    } catch (err) {
+      el.innerHTML = errorState(friendlyError(err), renderResults);
+    }
+  }
+  for (const sel of ["#rf_by", "#rf_class", "#rf_subject", "#rf_term"]) $(sel).addEventListener("change", renderResults);
+  getSubjects().then((list) => {
+    $("#rf_subject").innerHTML = `<option value="">All subjects</option>${list.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join("")}`;
+  }).catch(() => {});
 
   renderKpis();
 
@@ -493,89 +641,72 @@ async function main() {
     }
   });
 
-  /* "View activity" — a read-only look at what this specific learner has
-     actually done (their real assignments and library usage/badges),
-     the same data they'd see on their own dashboard. Nothing here can be
-     edited; changing a PIN or details stays in the roster row itself. */
+  /* "View activity" — a read-only look at what this learner has actually
+     done: their assignments (handed in or not, and the marks — two
+     separate things) and their library usage/badges. Nothing here can be
+     edited; marking happens from the assignment itself. */
   async function openLearnerActivity(id, fallbackName) {
     const panel = openContentPanel({
       title: fallbackName || "Learner activity",
       html: skeleton(4),
     });
-    let learner, assignments, library;
+    let learner, assignments, library, summary;
     try {
-      ({ learner, assignments, library } = await getLearnerActivity(id));
+      ({ learner, assignments, library, summary } = await getLearnerActivity(id));
     } catch (err) {
       console.error("could not load learner activity:", err);
       panel.innerHTML = errorState(friendlyError(err), () => openLearnerActivity(id, fallbackName));
       return;
     }
-
-    function render() {
-      const done = assignments.filter((a) => a.done).length;
-
-      const assignmentRows = assignments.length
-        ? assignments.map((a) => `
+    const now = new Date();
+    const assignmentRows = assignments.length
+      ? assignments.map((a) => {
+          const s = a.submission;
+          const overdue = !s?.submittedAt && a.dueAt && new Date(a.dueAt) < now;
+          return `
           <div class="task-row">
-            <span class="task-dot"></span>
-            <div><b>${esc(a.title)}</b><span>${esc(a.subject)} · due ${esc(a.due)}</span></div>
-            <button type="button" class="pill ${a.done ? "ok" : "warm"}" style="border:0;cursor:pointer" data-toggle-assign="${esc(a.id)}" data-done="${a.done ? "1" : "0"}">${a.done ? "Done" : "Not yet"}</button>
-          </div>`).join("")
-        : `<div class="empty-state">No assignments yet.</div>`;
+            <div style="flex:1;min-width:0"><b>${esc(a.title)}</b><span>${esc(a.subject)}${a.className ? ` · ${esc(a.className)}` : ""}${a.dueAt ? ` · due ${esc(fmtWhen(a.dueAt))}` : ""}</span></div>
+            <span>${completionPill(a.completion, { late: s?.isLate, overdue })} ${s?.status === "marked" ? markPill(s.percentage, s.band) : ""}</span>
+          </div>`;
+        }).join("")
+      : `<div class="empty-state">No assignments set for them yet.</div>`;
+    const c = summary.completion;
+    const ach = summary.achievement;
+    const usageRows = library.interactions.length
+      ? library.interactions.slice(0, 10).map((it) => `
+        <div class="task-row">
+          <div style="flex:1"><b>${esc(it.title || "Resource")}</b><span>Started ${new Date(it.startedAt).toLocaleString()}${
+            it.completedAt ? " · Finished " + new Date(it.completedAt).toLocaleString() : " · In progress"}</span></div>
+          <span class="bar-num">${it.durationSeconds != null ? formatDuration(it.durationSeconds) : "—"}</span>
+        </div>`).join("")
+      : `<div class="empty-state">Nothing opened from the library yet.</div>`;
+    const badgeChips = (library.badges || []).slice(0, 6).map((b) => `
+      <span class="pill" style="display:inline-flex;align-items:center;gap:.3rem;margin:0 .3rem .3rem 0">&#127942; ${esc(b.title || "Resource")}</span>`).join("");
 
-      const usageRows = library.interactions.length
-        ? library.interactions.slice(0, 10).map((it) => `
-          <div class="task-row">
-            <div style="flex:1"><b>${esc(it.title || "Resource")}</b><span>Started ${new Date(it.startedAt).toLocaleString()}${
-              it.completedAt ? " · Finished " + new Date(it.completedAt).toLocaleString() : " · In progress"}</span></div>
-            <span class="bar-num">${it.durationSeconds != null ? formatDuration(it.durationSeconds) : "—"}</span>
-          </div>`).join("")
-        : `<div class="empty-state">Nothing opened from the library yet.</div>`;
-      const badgeChips = (library.badges || []).slice(0, 6).map((b) => `
-        <span class="pill" style="display:inline-flex;align-items:center;gap:.3rem;margin:0 .3rem .3rem 0">&#127942; ${esc(b.title || "Resource")}</span>`).join("");
-
-      panel.innerHTML = `
-        <p class="hint" style="margin-top:0">${esc(learner.school || "")}${learner.county ? " · " + esc(learner.county) : ""}${learner.grade ? " · " + esc(learner.grade) : ""} · @${esc(learner.username)}</p>
-        <div class="chart-stats" style="grid-template-columns:repeat(2,1fr)">
-          <div><b>${done}/${assignments.length}</b><span>Assignments done</span></div>
-          <div><b>${formatDuration(library.totalSeconds)}</b><span>Library time</span></div>
-        </div>
-        <h3 style="margin:1rem 0 .4rem">Assignments</h3>
-        <p class="hint" style="margin:0 0 .4rem">Tap the status pill to mark something done or not yet, on their behalf.</p>
-        ${assignmentRows}
-        <h3 style="margin:1.1rem 0 .4rem">Digital Library activity</h3>
-        <div class="chart-stats" style="grid-template-columns:repeat(2,1fr);margin-bottom:.6rem">
-          <div><b>${library.resourcesOpened}</b><span>Resources opened</span></div>
-          <div><b>${library.badgesEarned || 0}</b><span>Badges earned</span></div>
-        </div>
-        ${badgeChips ? `<div style="margin-bottom:.6rem">${badgeChips}</div>` : ""}
-        ${usageRows}
-      `;
-    }
-    render();
-
-    panel.addEventListener("click", async (e) => {
-      const btn = e.target.closest("[data-toggle-assign]");
-      if (!btn) return;
-      const assignId = btn.dataset.toggleAssign;
-      const nextDone = btn.dataset.done !== "1";
-      btn.disabled = true;
-      try {
-        await setAssignmentDone(assignId, nextDone);
-        assignments = assignments.map((a) => (a.id === assignId ? { ...a, done: nextDone } : a));
-        assignCache = assignCache.map((a) => (a.id === assignId ? { ...a, done: nextDone } : a));
-        render();
-        renderAllAssignmentViews();
-        toast(nextDone ? "Marked done" : "Marked not yet done", "");
-      } catch (err) {
-        btn.disabled = false;
-        toast("Couldn't update that", friendlyError(err), "error");
-      }
-    });
+    panel.innerHTML = `
+      <p class="hint" style="margin-top:0">${esc(learner.school || "")}${learner.county ? " · " + esc(learner.county) : ""}${learner.grade ? " · " + esc(learner.grade) : ""} · @${esc(learner.username)}</p>
+      <div class="chart-stats" style="grid-template-columns:repeat(3,1fr)">
+        <div><b>${c.submitted}/${c.assigned}</b><span>Work handed in${c.rate != null ? ` (${Math.round(c.rate)}%)` : ""}</span></div>
+        <div><b>${ach.averagePercent != null ? Math.round(ach.averagePercent) + "%" : "—"}</b><span>Average mark${ach.marked ? `, ${ach.marked} marked` : ""}</span></div>
+        <div><b>${formatDuration(library.totalSeconds)}</b><span>Library time</span></div>
+      </div>
+      <p class="field-hint">Handed in is completion; the average mark is achievement on marked work only. They're separate.</p>
+      <h3 style="margin:1rem 0 .4rem">Assignments</h3>
+      ${assignmentRows}
+      <h3 style="margin:1.1rem 0 .4rem">Digital Library activity</h3>
+      <div class="chart-stats" style="grid-template-columns:repeat(2,1fr);margin-bottom:.6rem">
+        <div><b>${library.resourcesOpened}</b><span>Resources opened</span></div>
+        <div><b>${library.badgesEarned || 0}</b><span>Badges earned</span></div>
+      </div>
+      ${badgeChips ? `<div style="margin-bottom:.6rem">${badgeChips}</div>` : ""}
+      ${usageRows}
+    `;
   }
 
   renderRoster();
-  loadAssignments();
+  loadSubmissions();
+  loadAssignmentList();
+  renderResults();
 
   /* Content library lives in the real database (education.js writes it).
      Teacher Resources go to teachers and the head of institution only —

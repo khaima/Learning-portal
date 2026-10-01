@@ -3,8 +3,10 @@ import { $, $$, esc, initials, schoolLine, formatDuration, skeleton, emptyState,
 import { requireRole, signOut } from "./auth.js";
 import { normalizeLibraryAudience } from "./data.js";
 import {
-  getLibrary, getLibraryFolders, libraryFilesHtml, mountLibraryShelves, libraryPreviewHtml, getAssignments, markAssignmentDone, getMyLibraryUsage,
+  getLibrary, getLibraryFolders, libraryFilesHtml, mountLibraryShelves, libraryPreviewHtml, getMyLibraryUsage,
+  getMyAssignments, getResults,
 } from "./store.js";
+import { openLearnerAssignment, completionPill, markPill, fmtWhen, resultsTableHtml } from "./assignments-ui.js";
 
 const CIRCUMFERENCE = 2 * Math.PI * 34;
 const HOME_TEASER_LIMIT = 3; // keep the digest scannable — the sidebar is where the full list lives
@@ -36,16 +38,14 @@ async function main() {
   $("#homeClasses").innerHTML = classHtml;
 
   /* ------------------------------------------------------------ assignments
-     Live in the real database (learning_portal.assignments) — a fresh
-     learner account has none until a teacher assigns some (there's no
-     "create assignment" UI yet, so a signed-up account stays at 0/0,
-     honestly, rather than borrowed demo content). One state, rendered
-     into both the full Assignments page and the Home teaser, so marking
-     something done anywhere updates everywhere. */
+     Work set for this learner's class. Open one to start it, save answers
+     along the way, then hand it in. Two separate things are shown:
+     how much work is handed in (completion) and the marks on work the
+     teacher has marked (achievement) — never one number for both. */
   let assignmentsFailed = false;
   async function loadAssignments() {
     try {
-      const data = await getAssignments();
+      const data = await getMyAssignments();
       assignmentsFailed = false;
       return data;
     } catch (err) {
@@ -54,81 +54,98 @@ async function main() {
       return [];
     }
   }
-  async function markDone(id) {
-    try {
-      await markAssignmentDone(id);
-    } catch (err) {
-      console.error("could not save assignment:", err);
-      toast("Couldn't save that", friendlyError(err, "Check your connection and try again."), "error");
-    }
-  }
 
   function assignmentRow(a) {
+    const s = a.submission;
+    const handedIn = a.completion === "submitted" || a.completion === "marked";
+    const action = a.opensLater ? "" : a.canWork ? (a.completion === "in_progress" ? "Continue" : "Start") : "View";
     return `
-      <div class="task-row ${a.done ? "done" : "due"}">
+      <div class="task-row ${handedIn ? "done" : "due"}">
         <span class="task-dot"></span>
-        <div><b>${esc(a.title)}</b><span>${esc(a.subject)} · due ${esc(a.due)}</span></div>
-        ${a.done
-          ? `<span class="pill ok">Done</span>`
-          : `<button class="mark-done" type="button" data-done-id="${esc(a.id)}">Mark done</button>`}
+        <div style="flex:1;min-width:0"><b>${esc(a.title)}</b><span>${esc(a.subject)}${a.dueAt ? ` · due ${esc(fmtWhen(a.dueAt))}` : ""}${
+          a.opensLater ? ` · opens ${esc(fmtWhen(a.startsAt))}` : ""}${a.estimatedMinutes ? ` · about ${a.estimatedMinutes} min` : ""}</span></div>
+        <span>${completionPill(a.completion, { late: s?.isLate, overdue: a.overdue })} ${a.completion === "marked" ? markPill(s.percentage, s.band) : ""}</span>
+        ${action ? `<button class="mark-done" type="button" data-open-asg="${esc(a.id)}">${action}</button>` : ""}
       </div>`;
   }
 
-  function wireMarkDone(onMarkDone) {
-    $$("[data-done-id]").forEach((btn) =>
-      btn.addEventListener("click", () => onMarkDone(btn.dataset.doneId))
-    );
-  }
-
-  function renderAssignments(assignments, onMarkDone, onRetry) {
+  function renderAssignments(list, onRetry) {
     if (assignmentsFailed) {
       const msg = errorState("Check your connection and try again.", onRetry);
       $("#assignmentList").innerHTML = msg;
       $("#homeAssignments").innerHTML = msg;
       return;
     }
-
-    $("#assignmentList").innerHTML = assignments.length
-      ? assignments.map(assignmentRow).join("")
-      : emptyState("No assignments yet", "Your teacher hasn't assigned anything here.");
-
-    const outstanding = assignments.filter((a) => !a.done);
-    $("#homeAssignments").innerHTML = outstanding.length
-      ? outstanding.slice(0, HOME_TEASER_LIMIT).map(assignmentRow).join("")
-      : assignments.length
-      ? `<div class="empty-state">Nothing outstanding — nice work! 🎉</div>`
-      : emptyState("No assignments yet", "Your teacher hasn't assigned anything here.");
-
-    wireMarkDone(onMarkDone);
+    $("#assignmentList").innerHTML = list.length
+      ? list.map(assignmentRow).join("")
+      : emptyState("No assignments yet", "Your teacher hasn't set anything for your class.");
+    const toDo = list.filter((a) => a.canWork);
+    $("#homeAssignments").innerHTML = toDo.length
+      ? toDo.slice(0, HOME_TEASER_LIMIT).map(assignmentRow).join("")
+      : list.length
+      ? `<div class="empty-state">Nothing to do right now — nice work! 🎉</div>`
+      : emptyState("No assignments yet", "Your teacher hasn't set anything for your class.");
   }
 
-  function renderProgress(assignments) {
-    const done = assignments.filter((a) => a.done).length;
-    const total = assignments.length;
-    const fraction = total ? done / total : 0;
-    $("#progressText").textContent = `${done}/${total}`;
+  /* Completion only: how much of the work set is handed in. */
+  function renderProgress(list) {
+    const set = list.filter((a) => !a.opensLater);
+    const handedIn = set.filter((a) => a.completion === "submitted" || a.completion === "marked").length;
+    const total = set.length;
+    const fraction = total ? handedIn / total : 0;
+    const toDo = set.filter((a) => a.canWork);
+    const overdue = set.filter((a) => a.overdue).length;
+    $("#progressText").textContent = `${handedIn}/${total}`;
     $("#progressArc").setAttribute("stroke-dasharray", String(CIRCUMFERENCE));
     $("#progressArc").setAttribute("stroke-dashoffset", String(CIRCUMFERENCE * (1 - fraction)));
-    const outstanding = assignments.filter((a) => !a.done);
-    $("#progressHeading").textContent = total
-      ? `${done} of ${total} assignments done this week`
-      : "No assignments yet";
-    $("#progressSub").textContent = outstanding.length
-      ? `${outstanding.length} left, starting with "${outstanding[0].title}" (${outstanding[0].subject}), due ${outstanding[0].due}.`
+    $("#progressHeading").textContent = total ? `${handedIn} of ${total} assignments handed in` : "No assignments yet";
+    $("#progressSub").textContent = toDo.length
+      ? `${toDo.length} to do, starting with "${toDo[0].title}" (${toDo[0].subject})${toDo[0].dueAt ? `, due ${fmtWhen(toDo[0].dueAt)}` : ""}.`
       : total
-      ? "Everything's done — nice work."
+      ? "Everything's handed in — nice work."
       : assignmentsFailed
       ? "Couldn't load your assignments — check your connection."
       : "Your teacher hasn't set any assignments yet.";
-
-    const pct = total ? Math.round(fraction * 100) : 0;
     const statsHtml = `
-      <div class="stat-tile"><div class="s-label">Completed</div><div class="s-num">${done}</div><div class="s-sub">of ${total} assignments</div></div>
-      <div class="stat-tile"><div class="s-label">Outstanding</div><div class="s-num">${outstanding.length}</div><div class="s-sub">still to do</div></div>
-      <div class="stat-tile"><div class="s-label">Completion</div><div class="s-num">${pct}%</div><div class="s-sub">this week</div></div>
+      <div class="stat-tile"><div class="s-label">Handed in</div><div class="s-num">${handedIn}</div><div class="s-sub">of ${total} assignments</div></div>
+      <div class="stat-tile"><div class="s-label">To do</div><div class="s-num">${toDo.length}</div><div class="s-sub">still open</div></div>
+      <div class="stat-tile"><div class="s-label">Overdue</div><div class="s-num">${overdue}</div><div class="s-sub">past the due date</div></div>
     `;
-    $("#progressStats").innerHTML = statsHtml; // full My Progress page
-    $("#homeProgressStats").innerHTML = statsHtml; // Home teaser — same real numbers, just closer to hand
+    $("#progressStats").innerHTML = statsHtml;
+    $("#homeProgressStats").innerHTML = statsHtml;
+  }
+
+  /* Achievement: marks on marked work, overall and by subject. */
+  async function renderMarks() {
+    const el = $("#marksSummary");
+    el.innerHTML = skeleton(3, { avatar: false });
+    let data;
+    try { data = await getResults({ by: "subject" }); } catch (err) {
+      el.innerHTML = errorState(friendlyError(err), renderMarks);
+      return;
+    }
+    const ach = data.overall?.achievement;
+    const marked = assignments.filter((a) => a.completion === "marked")
+      .sort((x, y) => String(y.submission?.markedAt).localeCompare(String(x.submission?.markedAt)));
+    if (!ach?.marked) {
+      el.innerHTML = `<div class="empty-state">No marked work yet. Your marks appear here once your teacher marks something you handed in.</div>`;
+      return;
+    }
+    el.innerHTML = `
+      <div class="chart-stats" style="grid-template-columns:repeat(3,1fr)">
+        <div><b>${Math.round(ach.averagePercent)}%</b><span>Average mark</span></div>
+        <div><b>${esc(ach.band || "—")}</b><span>${esc((data.bands || []).find((b) => b.code === ach.band)?.label || "Band")}</span></div>
+        <div><b>${ach.marked}</b><span>Marked</span></div>
+      </div>
+      <h3 style="margin:1rem 0 .4rem">By subject</h3>
+      ${resultsTableHtml(data)}
+      <h3 style="margin:1rem 0 .4rem">Marked work</h3>
+      ${marked.map((a) => `
+        <div class="task-row">
+          <div style="flex:1;min-width:0"><b>${esc(a.title)}</b><span>${esc(a.subject)}${a.submission?.feedback ? ` · “${esc(a.submission.feedback)}”` : ""}</span></div>
+          ${markPill(a.submission.percentage, a.submission.band)}
+          <button class="mark-done" type="button" data-open-asg="${esc(a.id)}">View</button>
+        </div>`).join("")}`;
   }
 
   /* ------------------------------------------------------------ library + activity + "Continue learning"
@@ -251,13 +268,13 @@ async function main() {
       return;
     }
 
-    const nextAssignment = assignments.find((a) => !a.done);
+    const nextAssignment = assignments.find((a) => a.canWork && a.completion === "in_progress") || assignments.find((a) => a.canWork);
     if (nextAssignment) {
       card.innerHTML = `
         <p class="continue-eyebrow">Continue learning</p>
         <h2>${esc(nextAssignment.title)}</h2>
-        <p>${esc(nextAssignment.subject)} · due ${esc(nextAssignment.due)}</p>
-        <a class="btn btn-primary" href="#assignments">Start</a>
+        <p>${esc(nextAssignment.subject)}${nextAssignment.dueAt ? ` · due ${esc(fmtWhen(nextAssignment.dueAt))}` : ""}</p>
+        <button class="btn btn-primary" type="button" data-open-asg="${esc(nextAssignment.id)}">${nextAssignment.completion === "in_progress" ? "Continue" : "Start"}</button>
       `;
       return;
     }
@@ -296,20 +313,28 @@ async function main() {
 
   function renderAll() {
     renderProgress(assignments);
-    renderAssignments(assignments, async (id) => {
-      await markDone(id);
-      assignments = assignments.map((a) => (a.id === id ? { ...a, done: true } : a));
-      renderAll();
-    }, retryAssignments);
+    renderAssignments(assignments, retryAssignments);
     renderResources(library, libraryFolders, retryLibrary);
     renderActivity(usage, retryUsage);
     renderContinueCard({ library, usage, assignments });
   }
 
+  // Open an assignment from anywhere on the page; refresh everything after.
+  async function refreshAssignments() {
+    assignments = await loadAssignments();
+    renderAll();
+    renderMarks();
+  }
+  document.querySelector(".app-main").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-open-asg]");
+    if (btn) openLearnerAssignment(btn.dataset.openAsg, { onChange: refreshAssignments });
+  });
+
   [assignments, [library, libraryFolders], usage] = await Promise.all([
     loadAssignments(), Promise.all([loadLibrary(), loadFolders()]), loadUsage(),
   ]);
   renderAll();
+  renderMarks();
 }
 main();
 

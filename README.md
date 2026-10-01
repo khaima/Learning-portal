@@ -26,9 +26,9 @@ Edge Function API in front of a locked-down Postgres database. Six pages:
   can edit them, reset a PIN, unlock, or remove. A **My learning activity**
   panel shows their own content-library usage (see below).
 - **`learner.html`** — signed in with a username + PIN. A learner's
-  classes, assignments (with a working "Mark done" that persists
-  server-side), the Digital Library, and their own **My learning
-  activity** panel.
+  class, their assignments (open, save progress, hand in, see marks and
+  feedback), My Progress (work handed in and marks, shown separately), the
+  Digital Library, and their own **My learning activity** panel.
 - **`leader.html`** — a head of institution's enrolment/staffing snapshot,
   the termly return cycle, recent field visits, forms from the Education
   Team, **all three** content shelves — Teacher Resources, the Digital
@@ -81,11 +81,11 @@ ambiguous what you're looking at:
   self-declared once at onboarding), **field visits** by type and county/
   school, **content library** makeup, and **forms & feedback engagement**
   (sent vs. actually answered, per role).
-- **Grade performance** is ranked highest-first with a **Top 5 / Top 10 /
-  All** picker. It measures **assignment completion rate**, the one
-  real signal the portal currently records that's comparable across
-  grades — **not an academic score**. There's no gradebook/exam-results
-  feature yet, so this chart is honest about what it's actually showing.
+- **Completion by grade** and **Achievement by grade** are two separate
+  charts, each ranked highest-first with a **Top 5 / Top 10 / All**
+  picker. Completion is the share of the work set that was handed in;
+  achievement is the average mark on marked work. They're never combined:
+  handing work in isn't the same as doing well in it.
 - Forms & feedback engagement and the content library aren't tied to a
   school, so they stay portal-wide and say so rather than silently
   ignoring the filter.
@@ -204,6 +204,44 @@ Learners are managed by school and class: **school → academic year → term
 - **History:** every stay in a school and class is a row in
   `learner_enrollments`; History on any learner shows the full list. Moves,
   archives, transfers and promotions are also in the audit log.
+- **Subjects:** each class can be given the subjects it takes (school head:
+  Learners → Classes → Subjects…). Teachers set work in those subjects —
+  or in any subject while a class has none set. Teachers add and remove
+  learners from the classes they teach (My Classes → Learners).
+
+### Assignments, marking and results
+
+- **Building work** (teacher → Assignments → New assignment): class,
+  subject, term, title, description, instructions, an optional Digital
+  Library resource, opening and due dates, estimated time, and questions
+  of six types — multiple choice, multiple response, true/false, short
+  answer, a written task, or a file upload. A **draft** is private;
+  **publishing** (needs a question and a due date) opens it to everyone
+  enrolled in the class; **closing** stops new work. Questions are fixed
+  once it's published, so the marks learners work towards never change.
+  Only an unused draft can be deleted.
+- **Doing it** (learner → Assignments): open, start, save progress, upload
+  files, hand in. The time is recorded and work handed in after the due
+  date is flagged **late** (still accepted until the teacher closes it).
+- **Marking:** multiple choice, multiple response (all-or-nothing), true/
+  false and short answers with accepted answers are marked automatically on
+  hand-in; if every question is like that, the work is marked straight
+  away. Everything else waits in the teacher's **Work to mark** queue: marks
+  per question (automatic marks can be overridden), feedback per question
+  and overall. Each mark records the percentage, the **band**, who marked
+  it and when. Bands live in `grade_bands`: EE ≥ 80%, ME ≥ 50%, AE ≥ 30%,
+  BE below.
+- **Results** by learner, class, subject, grade, term, school year, school
+  or assignment — for a teacher (their classes), a school head (their
+  school), the Education Team / M&E / admins (every school) and each
+  learner (their own). Every row shows two separate measures:
+  - **Completion** — of the learners enrolled in the class while the work
+    was open, how many handed it in, on time or late, and how many are
+    missing it.
+  - **Achievement** — the average percentage on **marked** work, and its
+    band. Work not handed in, or not yet marked, never counts as a score.
+- A learner's results stay with the school and class they did the work in,
+  even after a transfer or promotion.
 
 ## The backend
 
@@ -277,14 +315,19 @@ the caller's own row in the database — nothing the browser sends.
   roster, filing field visits).
 - **Audit log:** account creation, approval, rejection, role/school/county
   changes, suspension, deactivation, reactivation, password resets,
-  invitations, and learner creation, edits, class moves, archiving,
-  transfers and promotions go to `audit_log`,
+  invitations, learner creation, edits, class moves, archiving,
+  transfers and promotions, and assignments (created, published, closed),
+  hand-ins and marks go to `audit_log`,
   which can't be edited or deleted even by the service role. Admins see it
   under Users → Account history, and per account.
 - **Tests:** [`authz_test.ts`](supabase/functions/api/authz_test.ts) calls
   every protected route as every role and account state against an
-  in-memory database, and fails if a route has no test:
-  `cd supabase/functions/api && deno test --allow-env --config deno.json authz_test.ts`
+  in-memory database, and fails if a route has no test. It also walks
+  through the school/class walls, learner enrollment, and the whole
+  assignment cycle (visibility, hand-in, late work, marking, results).
+  [`lms_test.ts`](supabase/functions/api/lms_test.ts) unit-tests the marking
+  and results rules:
+  `cd supabase/functions/api && deno test --allow-env --config deno.json authz_test.ts lms_test.ts`
 
 ### Turning on Google sign-in
 
@@ -340,25 +383,15 @@ same data everywhere, because the database is the source of truth.
 - **Learner PINs are 4 digits — intentionally weak.** They're
   teacher-managed and locked after 5 wrong tries; fine for coursework and
   library access, not for anything sensitive.
-- **A learner belongs to the teacher who created them.** No school-wide
-  roster for the school head yet, and no way to move a learner between
-  teachers.
 - **No password reset for staff.** No email is sent, so a forgotten
   password can only be fixed by an admin resetting it in the Supabase
   dashboard (or a future admin screen).
-- **Open staff sign-up.** Anyone who reaches the page can create a staff
-  account and pick any role. Fine for a closed pilot; a real deployment
-  needs an invite / approval step.
-- **No "create class" / "assign homework" UI.** A fresh teacher or learner
-  account has an honest empty dashboard until those exist.
-- **No gradebook / exam-results feature.** The portal has nowhere to
-  record a learner's actual score on a subject or exam, only whether an
-  assignment was marked done. "Grade performance" on the Portal impact
-  dashboard is completion rate as a proxy, clearly labelled as such —
-  it is not academic performance.
-- **Removing a learner is permanent — no drop-out tracking.** A teacher's
-  "Remove" hard-deletes the row; there's no record of who left, when, or
-  why, so the portal cannot report enrolment/drop-out trends over time.
+- **Results come only from assignments set in the portal.** Exams or
+  tests marked on paper aren't recorded unless a teacher sets them up as an
+  assignment.
+- **Moving a learner to another class mid-year** updates their current
+  enrollment rather than starting a new one, so work set earlier in the new
+  class can show as missing for them.
 
 ## Try it
 
@@ -392,6 +425,7 @@ used).
 | `config.js` | Supabase URL, publishable key, API base URL |
 | `data.js` | Static UI constants (roles, subjects, question types) |
 | `util.js` | Tiny shared DOM / escaping / toast helpers |
+| `assignments-ui.js` | Assignment builder, marking, results table, and the learner's assignment screen |
 | `learners-ui.js` | Shared learner dialogs: archive, history, transfer |
 | `styles.css` | The whole design system (light + dark, one file) |
 | `serve.py` | Local static server (honours `$PORT`) |
@@ -404,7 +438,7 @@ used).
   reset passwords (right now staff sign-up is open and there's no reset).
 - Optional custom SMTP if you later want password-reset or notification
   email — the code path is gone but easy to re-add.
-- The missing "create class", "set assignment", "record result" flows, so
-  Teacher and Learner dashboards fill from real activity.
+- Recording paper-based exam scores directly, without building an
+  assignment.
 - Per-row authorisation could move partly into RLS if the app ever needs
   the database reachable by anything other than this one API.

@@ -21,6 +21,7 @@
         <a class="side-link" data-page="my-classes"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/></svg>My Classes</a>
         <a class="side-link" data-page="my-learners"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>My Learners</a>
         <a class="side-link" data-page="assignments"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>Assignments</a>
+        <a class="side-link" data-page="results"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V10M18 20V4M6 20v-6"/></svg>Results</a>
         <a class="side-link" data-page="resources"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>Resources</a>
         <a class="side-link" data-page="activity"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>Activity</a>
       </nav>
@@ -50,7 +51,7 @@
         <div class="stat-row" id="statRow"></div>
 
         <div class="panel">
-          <div class="panel-head"><h2>Grading queue</h2><a href="#assignments">View all</a></div>
+          <div class="panel-head"><h2>Work to mark</h2><a href="#assignments">View all</a></div>
           <div class="panel-search"><input type="search" id="gradingSearch" placeholder="Search by learner or assignment…"></div>
           <div id="gradingQueue"></div>
         </div>
@@ -67,7 +68,7 @@
         </div>
 
         <div class="panel">
-          <div class="panel-head"><h2>Recent results</h2><a href="#assignments">View all</a></div>
+          <div class="panel-head"><h2>Recently marked</h2><a href="#results">All results</a></div>
           <div id="homeResultList"></div>
         </div>
 
@@ -90,7 +91,7 @@
       <section class="dash-page" data-page="my-classes" hidden>
         <div class="panel">
           <div class="panel-head"><h2>My classes</h2></div>
-          <p class="hint" style="margin-top:0">The classes your school head has assigned you to this year. Learners you add yourself, before they're placed in a class, also stay on your roster.</p>
+          <p class="hint" style="margin-top:0">The classes your school head has assigned you to this year, with the subjects each takes. Set work for a class, or add and remove its learners. Learners you add yourself, before they're placed in a class, also stay on your roster.</p>
           <div id="classList"></div>
         </div>
       </section>
@@ -142,17 +143,47 @@
 
       <section class="dash-page" data-page="assignments" hidden>
         <div class="panel">
-          <div class="panel-head"><h2>Grading queue</h2></div>
+          <div class="panel-head">
+            <h2>Assignments</h2>
+            <button type="button" id="newAssignmentBtn">+ New assignment</button>
+          </div>
+          <div class="filter-bar-row" style="margin-bottom:.8rem">
+            <div class="field"><label for="af_class">Class</label><select id="af_class"><option value="">All my classes</option></select></div>
+            <div class="field"><label for="af_status">Status</label>
+              <select id="af_status"><option value="">Any status</option><option value="draft">Drafts</option><option value="published">Published</option><option value="closed">Closed</option></select></div>
+          </div>
+          <div id="assignmentList"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Work to mark</h2></div>
           <div class="panel-search"><input type="search" id="assignSearch" placeholder="Search by learner or assignment…"></div>
           <div id="taskList"></div>
         </div>
         <div class="panel">
-          <div class="panel-head"><h2>Recent results</h2></div>
+          <div class="panel-head"><h2>Recently marked</h2></div>
           <div id="resultList"></div>
         </div>
         <div class="panel">
           <div class="panel-head"><h2>Forms from the Education Team</h2></div>
           <div id="formsList"></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="results" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Results</h2></div>
+          <p class="hint" style="margin-top:0">Two separate measures. <b>Completion</b> is whether learners handed in the work they were set. <b>Achievement</b> is the marks on work you've marked. Handing everything in isn't the same as doing well, so they're never combined.</p>
+          <div class="filter-bar-row" style="margin-bottom:.8rem">
+            <div class="field"><label for="rf_by">Show by</label>
+              <select id="rf_by">
+                <option value="learner">Learner</option><option value="subject">Subject</option><option value="class">Class</option>
+                <option value="assignment">Assignment</option><option value="term">Term</option><option value="year">School year</option><option value="grade">Grade</option>
+              </select></div>
+            <div class="field"><label for="rf_class">Class</label><select id="rf_class"><option value="">All my classes</option></select></div>
+            <div class="field"><label for="rf_subject">Subject</label><select id="rf_subject"><option value="">All subjects</option></select></div>
+            <div class="field"><label for="rf_term">Term</label><select id="rf_term"><option value="">All terms</option></select></div>
+          </div>
+          <div id="resultsTable"></div>
         </div>
       </section>
 

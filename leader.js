@@ -6,7 +6,9 @@ import {
   getForms, getResponses, getLibrary, getLibraryFolders, mountLibraryShelves, libraryPreviewHtml, getMyLibraryUsage,
   getSchoolOverview, getClasses, createClass, updateClass, assignClassTeacher, removeClassTeacher, promoteClass,
   getLearners, updateLearner, setLearnerStatus, getEnrollments,
+  getSubjects, addClassSubject, removeClassSubject, getResults, getStaffAssignments,
 } from "./store.js";
+import { resultsTableHtml, openAssignmentDetail, assignmentStatusPill, fmtWhen } from "./assignments-ui.js";
 import { openContentPanel, closeViewer } from "./viewer.js";
 import { statusPill, openArchiveDialog, openHistoryPanel } from "./learners-ui.js";
 import { mountFormList } from "./forms.js";
@@ -58,24 +60,27 @@ async function main() {
     `;
   }
 
+  /* Completion (work handed in) and achievement (marks on marked work),
+     side by side and never combined. */
   function renderLearningActivity() {
-    const { assignmentsTotal: total, assignmentsDone: done } = overview;
+    const { assignmentsTotal: total, assignmentsDone: done, achievement } = overview;
     $("#learningActivity").innerHTML = total
       ? `<div class="chart-stats" style="grid-template-columns:repeat(2,1fr)">
-           <div><b>${Math.round((done / total) * 100)}%</b><span>Assignments completed</span></div>
-           <div><b>${done}/${total}</b><span>across the school</span></div>
+           <div><b>${Math.round((done / total) * 100)}%</b><span>Work handed in (${done}/${total})</span></div>
+           <div><b>${achievement?.averagePercent != null ? Math.round(achievement.averagePercent) + "%" : "—"}</b><span>${achievement?.marked ? `Average mark, ${achievement.marked} marked${achievement.band ? ` · ${esc(achievement.band)}` : ""}` : "Average mark — nothing marked yet"}</span></div>
          </div>`
-      : `<div class="empty-state">No assignments recorded yet.</div>`;
+      : `<div class="empty-state">No assignments set yet.</div>`;
   }
 
-  function gradeRow({ grade, learners, assignmentsTotal, assignmentsDone }, withCompletion) {
+  function gradeRow({ grade, learners, assignmentsTotal, assignmentsDone, marked, averagePercent, band }, withWork) {
     const pct = assignmentsTotal ? Math.round((assignmentsDone / assignmentsTotal) * 100) : 0;
     return `
       <div class="class-row">
         <div class="class-swatch" style="background:var(--brand)">${esc(gradeCode(grade))}</div>
-        <div class="class-info"><b>${esc(grade)}</b><span>${learners} learner${learners === 1 ? "" : "s"}${withCompletion ? ` · ${assignmentsDone}/${assignmentsTotal} assignments done` : ""}</span>
-          ${withCompletion ? `<div class="class-bar"><i style="width:${pct}%"></i></div>` : ""}</div>
-        ${withCompletion ? `<div class="class-meta"><b>${pct}%</b>complete</div>` : ""}
+        <div class="class-info"><b>${esc(grade)}</b><span>${learners} learner${learners === 1 ? "" : "s"}${withWork
+          ? ` · ${assignmentsDone}/${assignmentsTotal} handed in · ${marked ? `average mark ${Math.round(averagePercent)}%${band ? ` (${esc(band)})` : ""} on ${marked} marked` : "nothing marked yet"}` : ""}</span>
+          ${withWork ? `<div class="class-bar"><i style="width:${pct}%"></i></div>` : ""}</div>
+        ${withWork ? `<div class="class-meta"><b>${pct}%</b>handed in</div>` : ""}
       </div>`;
   }
 
@@ -140,7 +145,7 @@ async function main() {
     if (overview.assignmentsTotal > 0) {
       const rate = overview.assignmentsDone / overview.assignmentsTotal;
       if (rate < 0.5) {
-        items.push({ tone: "warn", title: "Low learning activity", detail: `Only ${Math.round(rate * 100)}% of assignments are completed across the school so far.` });
+        items.push({ tone: "warn", title: "Work not being handed in", detail: `Only ${Math.round(rate * 100)}% of the work set across the school has been handed in so far.` });
       }
     }
     if (!overview.visitedThisTerm) {
@@ -298,9 +303,10 @@ async function main() {
 
   $("#nc_grade").innerHTML = GRADES.map((g) => `<option>${esc(g)}</option>`).join("");
 
+  let terms = null;
   async function loadClasses() {
     try {
-      ({ classes, schoolTeachers = [] } = await getClasses());
+      ({ classes, schoolTeachers = [], terms = [] } = await getClasses());
     } catch (err) {
       $("#classManager").innerHTML = errorState(friendlyError(err), loadClasses);
       return;
@@ -310,9 +316,66 @@ async function main() {
     $("#srClass").innerHTML = `<option value="">All classes</option>${
       classes.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("")}<option value="none">Not in a class</option>`;
     $("#srClass").value = [...$("#srClass").options].some((o) => o.value === keep) ? keep : "";
+    const keepR = $("#hr_class").value;
+    $("#hr_class").innerHTML = `<option value="">All classes</option>${classes.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("")}`;
+    $("#hr_class").value = classes.some((c) => c.id === keepR) ? keepR : "";
+    if (terms) {
+      const keepT = $("#hr_term").value;
+      $("#hr_term").innerHTML = `<option value="">All terms</option>${terms.map((t) => `<option value="${esc(t.id)}">${esc(t.label || t.id)}</option>`).join("")}`;
+      $("#hr_term").value = terms.some((t) => t.id === keepT) ? keepT : "";
+    }
     renderClassManager();
     renderRoster();
   }
+
+  /* ------------------------------------------------------------ results and assignments
+     Read-only for the school head: what's been set across the school, and
+     results with completion and achievement kept apart. */
+  async function renderHeadResults() {
+    const el = $("#headResults");
+    el.innerHTML = skeleton(4, { avatar: false });
+    try {
+      el.innerHTML = resultsTableHtml(await getResults({
+        by: $("#hr_by").value, classId: $("#hr_class").value, subjectId: $("#hr_subject").value, termId: $("#hr_term").value,
+      }));
+    } catch (err) {
+      el.innerHTML = errorState(friendlyError(err), renderHeadResults);
+    }
+  }
+  for (const sel of ["#hr_by", "#hr_class", "#hr_subject", "#hr_term"]) $(sel).addEventListener("change", () => { renderHeadResults(); renderHeadAssignments(); });
+  getSubjects().then((list) => {
+    $("#hr_subject").innerHTML = `<option value="">All subjects</option>${list.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join("")}`;
+  }).catch(() => {});
+
+  async function renderHeadAssignments() {
+    const el = $("#headAssignments");
+    el.innerHTML = skeleton(3);
+    let list;
+    try {
+      list = await getStaffAssignments({ classId: $("#hr_class").value, subjectId: $("#hr_subject").value, termId: $("#hr_term").value });
+    } catch (err) {
+      el.innerHTML = errorState(friendlyError(err), renderHeadAssignments);
+      return;
+    }
+    list = list.filter((a) => a.status !== "draft");
+    el.innerHTML = list.length
+      ? list.map((a) => {
+          const c = a.counts || {};
+          return `
+          <div class="task-row" data-asg="${esc(a.id)}">
+            <div style="flex:1;min-width:0"><b>${esc(a.title)}</b>
+              <span>${assignmentStatusPill(a.status)} ${esc(a.className || "")} · ${esc(a.subject)}${a.teacherName ? ` · ${esc(a.teacherName)}` : ""}${a.dueAt ? ` · due ${esc(fmtWhen(a.dueAt))}` : ""} · ${c.submitted ?? 0}/${c.expected ?? 0} handed in · ${c.marked ?? 0} marked</span></div>
+            <div class="roster-actions"><button type="button">Open</button></div>
+          </div>`;
+        }).join("")
+      : `<div class="empty-state">No assignments published yet.</div>`;
+  }
+  $("#headAssignments").addEventListener("click", (e) => {
+    const row = e.target.closest("[data-asg]");
+    if (row) openAssignmentDetail(row.dataset.asg, { canManage: false, canMark: false });
+  });
+  renderHeadResults();
+  renderHeadAssignments();
 
   function renderClassManager() {
     if (!classes.length) {
@@ -332,9 +395,13 @@ async function main() {
           <label class="field" style="margin:0;min-width:12rem"><span class="hint-inline">Class teacher</span>
             <select data-class-teacher="${esc(c.id)}">${options}</select></label>
           <div class="roster-actions">
+            <button type="button" data-edit-class="${esc(c.id)}">Edit…</button>
+            <button type="button" data-subjects="${esc(c.id)}">Subjects…</button>
             ${c.learnerCount ? `<button type="button" data-promote="${esc(c.id)}">Promote…</button>` : ""}
             ${c.learnerCount ? "" : `<button type="button" class="danger" data-archive-class="${esc(c.id)}">Archive</button>`}
           </div>
+          <div style="flex-basis:100%;font-size:.8rem;color:var(--ink-soft)">${(c.subjects || []).length
+            ? `Subjects: ${c.subjects.map((x) => esc(x.name)).join(", ")}` : "No subjects set — teachers can set work in any subject"}</div>
         </div>`;
     }).join("");
   }
@@ -372,7 +439,85 @@ async function main() {
     }
   });
 
+  /* Rename a class, or change its grade (only while it has no learners —
+     otherwise learners move up by promotion). */
+  function openEditClass(cls) {
+    const panel = openContentPanel({
+      title: `Edit ${cls.name}`,
+      html: `
+        <form class="fill-form" data-edit style="max-width:30rem">
+          <div class="field"><label for="ec_name">Name</label><input id="ec_name" type="text" maxlength="80" value="${esc(cls.name)}" required></div>
+          <div class="field"><label for="ec_grade">Grade</label>
+            <select id="ec_grade" ${cls.learnerCount ? "disabled" : ""}>${GRADES.map((g) => `<option${g === cls.grade ? " selected" : ""}>${esc(g)}</option>`).join("")}</select>
+            ${cls.learnerCount ? `<p class="field-hint">The grade can't change while the class has learners — promote them instead.</p>` : ""}</div>
+          <p class="field-hint">School year ${esc(cls.academicYear)}.</p>
+          <div style="display:flex;gap:.6rem"><button class="btn btn-primary" type="submit">Save</button></div>
+        </form>`,
+    });
+    panel.querySelector("[data-edit]").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const patch = { name: panel.querySelector("#ec_name").value.trim() };
+      if (!cls.learnerCount) patch.grade = panel.querySelector("#ec_grade").value;
+      try {
+        await updateClass(cls.id, patch);
+        toast("Class updated", "", "success");
+        closeViewer();
+        loadClasses();
+      } catch (err) {
+        toast("Couldn't update the class", friendlyError(err), "error");
+      }
+    });
+  }
+
+  /* The subjects a class takes — teachers set work in these. */
+  let allSubjects = null;
+  async function openClassSubjects(cls) {
+    const panel = openContentPanel({ title: `${cls.name} — subjects`, html: skeleton(3, { avatar: false }) });
+    try { allSubjects ??= await getSubjects(); } catch (err) {
+      panel.innerHTML = errorState(friendlyError(err));
+      return;
+    }
+    const render = () => {
+      const taken = new Set((cls.subjects || []).map((x) => x.id));
+      panel.innerHTML = `
+        <p class="field-hint" style="margin-top:0">Teachers of ${esc(cls.name)} can set work in these subjects. With none set, they can use any subject.</p>
+        ${(cls.subjects || []).length ? cls.subjects.map((x) => `
+          <div class="task-row"><div style="flex:1"><b>${esc(x.name)}</b></div>
+            <div class="roster-actions"><button type="button" class="danger" data-rm-subject="${esc(x.id)}">Remove</button></div></div>`).join("")
+          : `<div class="empty-state">No subjects yet.</div>`}
+        ${allSubjects.every((x) => taken.has(x.id)) ? `<p class="field-hint">This class takes every subject on the list.</p>` : `
+        <form class="fill-form" data-add-subject style="display:flex;gap:.6rem;align-items:flex-end;margin-top:.8rem;flex-wrap:wrap">
+          <div class="field" style="margin:0;flex:1;min-width:12rem"><label for="cs_add">Add a subject</label>
+            <select id="cs_add">${allSubjects.filter((x) => !taken.has(x.id)).map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join("")}</select></div>
+          <button class="btn btn-primary" type="submit">Add</button>
+        </form>`}`;
+    };
+    render();
+    const refresh = async () => {
+      await loadClasses();
+      cls = classes.find((x) => x.id === cls.id) || cls;
+      render();
+    };
+    panel.addEventListener("click", async (ev) => {
+      const btn = ev.target.closest("[data-rm-subject]");
+      if (!btn) return;
+      try { await removeClassSubject(cls.id, btn.dataset.rmSubject); await refresh(); }
+      catch (err) { toast("Couldn't remove it", friendlyError(err), "error"); }
+    });
+    panel.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const id = panel.querySelector("#cs_add")?.value;
+      if (!id) return;
+      try { await addClassSubject(cls.id, id); await refresh(); }
+      catch (err) { toast("Couldn't add it", friendlyError(err), "error"); }
+    });
+  }
+
   $("#classManager").addEventListener("click", async (e) => {
+    const editBtn = e.target.closest("[data-edit-class]");
+    if (editBtn) { openEditClass(classes.find((c) => c.id === editBtn.dataset.editClass)); return; }
+    const subjBtn = e.target.closest("[data-subjects]");
+    if (subjBtn) { openClassSubjects(classes.find((c) => c.id === subjBtn.dataset.subjects)); return; }
     const archiveBtn = e.target.closest("[data-archive-class]");
     if (archiveBtn) {
       const cls = classes.find((c) => c.id === archiveBtn.dataset.archiveClass);

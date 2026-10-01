@@ -1220,3 +1220,50 @@ a.btn.form-open{ margin-bottom:.2rem; }
 .visit-form .fc-meta{ font-size:.78rem; color:var(--ink-soft); margin:0 0 .5rem; }
 .visit-form .field:last-child{ margin-bottom:0; }
 @media (max-width:640px){ #formBuilder .form-row{ grid-template-columns:1fr !important; } }
+
+/* ---------------------------------------------------------------- assignments, marking, results
+   (assignments-ui.js). Built only from the theme tokens, so dark mode follows. */
+.field textarea,.lms-editor textarea,.q-card textarea{
+  width:100%; border:1.5px solid var(--line); background:var(--paper-raised); color:var(--ink);
+  border-radius:var(--radius-sm); padding:.6rem .75rem; font-size:.9rem; font-family:inherit; resize:vertical;
+}
+.field textarea:focus,.q-card textarea:focus{ border-color:var(--brand); outline:none; }
+.lms-grid3{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.9rem; }
+.lms-grid-mark{ display:grid; grid-template-columns:9rem minmax(0,1fr); gap:.7rem; margin-top:.5rem; }
+.lms-actions{ display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; }
+.btn.danger{ color:var(--danger); }
+.q-card{ border:1px solid var(--line); border-radius:var(--radius-md); padding:.8rem .9rem; margin-bottom:.7rem; background:var(--paper-raised); }
+.q-head{ display:flex; flex-wrap:wrap; align-items:center; gap:.6rem; margin-bottom:.45rem; }
+.q-head select{ border:1.5px solid var(--line); background:var(--paper-raised); color:var(--ink); border-radius:var(--radius-sm); padding:.35rem .5rem; font-size:.84rem; max-width:100%; }
+.q-marks{ display:flex; align-items:center; gap:.35rem; font-size:.8rem; color:var(--ink-soft); }
+.q-marks input{ width:4.5rem; border:1.5px solid var(--line); background:var(--paper-raised); color:var(--ink); border-radius:var(--radius-sm); padding:.3rem .4rem; }
+.q-tools{ margin-left:auto; display:flex; gap:.25rem; }
+.q-icon{ background:none; border:1px solid var(--line); border-radius:6px; color:var(--ink-soft); cursor:pointer; padding:.1rem .45rem; font:inherit; font-size:.8rem; }
+.q-icon.danger{ color:var(--danger); }
+.q-opt{ display:flex; align-items:center; gap:.5rem; margin-bottom:.35rem; }
+.q-opt input[type=text]{ flex:1; min-width:0; border:1.5px solid var(--line); background:var(--paper-raised); color:var(--ink); border-radius:var(--radius-sm); padding:.4rem .6rem; font-size:.88rem; }
+.q-opt-row{ display:flex; flex-wrap:wrap; gap:1rem; font-size:.88rem; margin-top:.3rem; }
+.q-small{ padding:.3rem .7rem; font-size:.8rem; }
+.q-choice{ display:flex; align-items:flex-start; gap:.5rem; padding:.35rem 0; font-size:.92rem; cursor:pointer; }
+.q-choice input{ margin-top:.2rem; }
+.q-answer{ background:var(--paper-sunk); border-radius:var(--radius-sm); padding:.5rem .7rem; font-size:.9rem; overflow-wrap:anywhere; }
+.q-list{ margin:.2rem 0 .3rem 1.2rem; padding:0; font-size:.88rem; }
+.q-right{ color:var(--success); font-weight:700; }
+.q-wrong{ color:var(--danger); font-weight:700; }
+.band-pill.band-EE{ background:var(--success-soft); color:var(--success); }
+.band-pill.band-ME{ background:var(--brand-soft); color:var(--brand-fg); }
+.band-pill.band-AE{ background:var(--accent-soft); color:var(--accent-fg); }
+.band-pill.band-BE{ background:var(--danger-soft); color:var(--danger); }
+.lms-table-wrap{ overflow-x:auto; border:1px solid var(--line); border-radius:var(--radius-md); }
+.lms-table{ width:100%; border-collapse:collapse; font-size:.84rem; min-width:36rem; }
+.lms-table th,.lms-table td{ padding:.45rem .6rem; text-align:right; border-bottom:1px solid var(--line); white-space:nowrap; }
+.lms-table th{ font-size:.72rem; font-weight:700; color:var(--ink-soft); background:var(--paper-sunk); }
+.lms-table .lms-name{ text-align:left; white-space:normal; color:var(--ink); }
+.lms-table thead th:first-child{ text-align:left; }
+.lms-table .lms-group{ text-align:center; color:var(--ink); }
+.lms-table .lms-gap{ border-left:2px solid var(--line); }
+.lms-table .lms-strong{ font-weight:700; }
+.lms-table tfoot th,.lms-table tfoot td{ background:var(--paper-sunk); font-weight:700; border-bottom:0; }
+@media (max-width:640px){
+  .lms-grid3,.lms-grid-mark{ grid-template-columns:1fr; }
+}

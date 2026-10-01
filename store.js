@@ -404,30 +404,86 @@ export async function addResponse(r) {
   return response;
 }
 
-/* ---------------------------------------------------------------- assignments */
+/* ---------------------------------------------------------------- assignments
+   Teachers build assignments for the classes they teach; learners open,
+   save and hand them in; teachers mark them. The API decides who sees
+   what (class and school) — these are only the calls. */
 
-export async function getAssignments() {
-  const { assignments } = await apiGet("/assignments");
+export async function getSubjects() {
+  const { subjects } = await apiGet("/subjects");
+  return subjects || [];
+}
+export async function createSubject(name) {
+  const { subject } = await apiSend("POST", "/subjects", { name });
+  return subject;
+}
+
+// staff
+export async function getStaffAssignments(params = {}) {
+  const { assignments } = await apiGet(`/assignments${qs(params)}`);
   return assignments || [];
 }
-
-export async function markAssignmentDone(id) {
-  const { assignment } = await apiSend("PATCH", `/assignments/${id}`, { done: true });
-  return assignment;
+/** { assignment, questions, roster } */
+export async function getAssignment(id) {
+  return apiGet(`/assignments/${id}`);
+}
+export async function createAssignment(fields) {
+  return apiSend("POST", "/assignments", fields);
+}
+export async function updateAssignment(id, fields) {
+  return apiSend("PATCH", `/assignments/${id}`, fields);
+}
+export async function setAssignmentStatus(id, status) {
+  return apiSend("POST", `/assignments/${id}/status`, { status });
+}
+export async function deleteAssignment(id) {
+  return apiSend("DELETE", `/assignments/${id}`);
+}
+export async function getSubmissions(params = {}) {
+  const { submissions } = await apiGet(`/submissions${qs(params)}`);
+  return submissions || [];
+}
+/** { submission, learner, assignment, questions, answers } */
+export async function getSubmission(id) {
+  return apiGet(`/submissions/${id}`);
+}
+export async function markSubmission(id, { answers, feedback }) {
+  return apiSend("POST", `/submissions/${id}/mark`, { answers, feedback });
 }
 
-/* Same endpoint, either direction — used by a teacher toggling one of
-   their own learners' assignments from the "view a learner" panel. */
-export async function setAssignmentDone(id, done) {
-  const { assignment } = await apiSend("PATCH", `/assignments/${id}`, { done });
-  return assignment;
-}
-
-/* Every assignment across a teacher's own roster in one call — feeds the
-   teacher dashboard's grading queue and recent-results sections. */
-export async function getTeacherAssignments() {
-  const { assignments } = await apiGet("/teacher/assignments");
+// learner
+export async function getMyAssignments() {
+  const { assignments } = await apiGet("/learner/assignments");
   return assignments || [];
+}
+/** { assignment, resource, questions, submission, completion, cannotWork, answers } */
+export async function getMyAssignment(id) {
+  return apiGet(`/learner/assignments/${id}`);
+}
+export async function startAssignment(id) {
+  return apiSend("POST", `/learner/assignments/${id}/start`, {});
+}
+export async function saveAssignmentAnswers(id, answers) {
+  return apiSend("PUT", `/learner/assignments/${id}/answers`, { answers });
+}
+export async function submitAssignment(id, answers) {
+  return apiSend("POST", `/learner/assignments/${id}/submit`, { answers });
+}
+/** Uploads one file for a file-upload question; returns { name, path, size }
+    to send with the answer. */
+export async function uploadAnswerFile(assignmentId, questionId, file) {
+  const { upload } = await apiSend("POST", `/learner/assignments/${assignmentId}/upload`, { questionId, name: file.name, size: file.size });
+  const { error } = await supabase.storage.from(LIBRARY_BUCKET)
+    .uploadToSignedUrl(upload.path, upload.token, file, { contentType: file.type || undefined });
+  if (error) throw error;
+  return { name: file.name, path: upload.path, size: file.size };
+}
+
+/** Results grouped `by` learner | class | subject | grade | term | year |
+    school | assignment. Each row has completion and achievement, kept
+    apart: { by, bands, overall, rows }. */
+export async function getResults(params = {}) {
+  return apiGet(`/results${qs(params)}`);
 }
 
 /* A school leader's own school in one call: real teacher/learner counts,
@@ -774,6 +830,18 @@ export async function assignClassTeacher(classId, teacherId, role = "class_teach
 }
 export async function removeClassTeacher(classId, teacherId) {
   return apiSend("DELETE", `/classes/${classId}/teachers/${teacherId}`);
+}
+export async function addClassSubject(classId, subjectId) {
+  return apiSend("POST", `/classes/${classId}/subjects`, { subjectId });
+}
+export async function removeClassSubject(classId, subjectId) {
+  return apiSend("DELETE", `/classes/${classId}/subjects/${encodeURIComponent(subjectId)}`);
+}
+export async function addLearnersToClass(classId, learnerIds) {
+  return apiSend("POST", `/classes/${classId}/learners`, { learnerIds });
+}
+export async function removeLearnerFromClass(classId, learnerId) {
+  return apiSend("DELETE", `/classes/${classId}/learners/${learnerId}`);
 }
 export async function promoteClass(classId, { toClassId, learnerIds } = {}) {
   return apiSend("POST", `/classes/${classId}/promote`, { toClassId, learnerIds });
