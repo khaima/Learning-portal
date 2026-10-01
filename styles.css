@@ -1267,3 +1267,39 @@ a.btn.form-open{ margin-bottom:.2rem; }
 @media (max-width:640px){
   .lms-grid3,.lms-grid-mark{ grid-template-columns:1fr; }
 }
+
+/* ---------------------------------------------------------------- programme intelligence
+   (intelligence-ui.js) — the Education Team's four areas. */
+.side-group{
+  display:block; margin:.9rem .7rem .3rem; font-size:.66rem; font-weight:700; letter-spacing:.06em;
+  text-transform:uppercase; color:rgba(255,255,255,.5);
+}
+.side-group:first-child{ margin-top:.2rem; }
+.side-group[hidden]{ display:none; }
+.intel-areas{ display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:1rem; margin-bottom:1.1rem; }
+.intel-area{
+  display:flex; flex-direction:column; gap:.3rem; padding:1rem 1.1rem; border-radius:var(--radius-md);
+  background:var(--paper-raised); border:1px solid var(--line); box-shadow:var(--shadow);
+  color:var(--ink); text-decoration:none;
+}
+.intel-area:hover{ border-color:var(--brand); }
+.intel-area b{ font-family:"Baloo 2",sans-serif; font-size:1.05rem; margin-bottom:.2rem; }
+.intel-area span{ font-size:.84rem; color:var(--ink-soft); }
+.intel-area span strong{ color:var(--ink); font-size:.95rem; }
+.intel-area em{ font-style:normal; font-size:.78rem; font-weight:600; color:var(--brand-fg); margin-top:.3rem; }
+.chart-grid .intel-wide{ grid-column:1 / -1; }
+.intel-bands{ display:flex; flex-wrap:wrap; gap:.35rem; margin-top:.7rem; }
+.intel-chips{ display:flex; flex-wrap:wrap; gap:.4rem; }
+.intel-chips .pill{ border:0; cursor:pointer; font:inherit; font-size:.78rem; }
+.intel-link{ background:none; border:0; padding:0; font:inherit; color:var(--brand-fg); font-weight:600; cursor:pointer; text-align:left; }
+.intel-link:hover{ text-decoration:underline; }
+.intel-table td:not(.lms-name){ font-variant-numeric:tabular-nums; }
+.intel-quality{ display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:.6rem; }
+.intel-q{ display:flex; gap:.7rem; align-items:flex-start; padding:.6rem .75rem; border-radius:var(--radius-sm); border:1px solid var(--line); }
+.intel-q > b{ min-width:3.2rem; font-size:.95rem; }
+.intel-q.ok > b{ color:var(--success); }
+.intel-q.warn{ background:var(--accent-soft); border-color:transparent; }
+.intel-q.warn > b{ color:var(--accent-fg); }
+.intel-q strong{ display:block; font-size:.84rem; }
+.intel-q span{ display:block; font-size:.76rem; color:var(--ink-soft); margin-top:.15rem; }
+.bar-label small{ font-weight:500; }

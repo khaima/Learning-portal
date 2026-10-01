@@ -17,8 +17,13 @@
         <span class="wordmark-text"><b>Human Practice</b><span>Digital Learning Portal</span></span>
       </a>
       <nav class="side-nav">
+        <span class="side-group">Programme intelligence</span>
         <a class="side-link" data-page="overview"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Overview</a>
-        <a class="side-link" data-page="programme-analytics"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="7"/><rect x="12" y="6" width="3" height="11"/><rect x="17" y="13" width="3" height="4"/></svg>Programme Analytics</a>
+        <a class="side-link" data-page="learning"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/></svg>Learning</a>
+        <a class="side-link" data-page="implementation"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-12a7 7 0 0 1 14 0c0 5.5-7 12-7 12Z"/><circle cx="12" cy="9" r="2.5"/></svg>Implementation</a>
+        <a class="side-link" data-page="data-collection"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>Data collection</a>
+        <a class="side-link" data-page="impact"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 6-7"/></svg>Impact</a>
+        <span class="side-group">Manage</span>
         <a class="side-link" data-page="schools"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21V8l8-5 8 5v13"/><path d="M9 21v-6h6v6"/></svg>Schools</a>
         <a class="side-link" data-page="users"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Users</a>
         <a class="side-link" data-page="content"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>Content</a>
@@ -40,7 +45,7 @@
         <div>
           <span class="pill">Education Team workspace</span>
           <h1 id="greeting" style="margin-top:.5rem">Habari</h1>
-          <p>Live across every account · Term 2, 2026</p>
+          <p id="topSub">Live across every account</p>
         </div>
         <div class="app-top-actions">
           <button class="icon-btn" aria-label="Notifications"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 8a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg><span class="dot"></span></button>
@@ -85,20 +90,42 @@
 
       <section class="dash-page" data-page="overview">
         <div class="stat-row" id="statRow"></div>
+        <div class="intel-areas" id="intelAreas"></div>
         <div class="panel">
           <div class="panel-head"><h2>Needs attention</h2></div>
           <div id="attentionList"><div class="empty-state">Loading…</div></div>
         </div>
       </section>
 
-      <section class="dash-page" data-page="programme-analytics" hidden>
+      <section class="dash-page" data-page="learning" hidden>
         <div class="panel">
-          <div class="panel-head">
-            <h2>Programme analytics</h2>
-            <span class="chart-meta" id="impactMeta" style="margin:0"></span>
-          </div>
-          <p class="hint" style="margin-top:0">Detailed, filterable breakdowns — county/school/role apply throughout; the date range only applies to charts that carry a real date (marked below).</p>
-          <div id="impactBody"><div class="empty-state">Loading…</div></div>
+          <div class="panel-head"><h2>Learning</h2><span class="chart-meta" data-intel-meta style="margin:0"></span></div>
+          <p class="hint" style="margin-top:0">Learners, teachers, schools and classes; the work set, how much was handed in (<b>completion</b>), the marks on marked work (<b>results</b>), and library use. Completion and results are separate measures — handing work in isn't the same as doing well.</p>
+          <div id="intel-learning"><div class="empty-state">Loading…</div></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="implementation" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Programme implementation</h2><span class="chart-meta" data-intel-meta style="margin:0"></span></div>
+          <p class="hint" style="margin-top:0">Field visits by type — Learning, Infrastructure, ICT, MEP and Teacher support — and how many schools they reach. The date filter applies to visit dates.</p>
+          <div id="intel-implementation"><div class="empty-state">Loading…</div></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="data-collection" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Data collection</h2><span class="chart-meta" data-intel-meta style="margin:0"></span></div>
+          <p class="hint" style="margin-top:0">Kobo submissions, forms and feedback, response rates against everyone each form reaches, and checks on the quality of the records behind every number.</p>
+          <div id="intel-data-collection"><div class="empty-state">Loading…</div></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="impact" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Impact</h2><span class="chart-meta" data-intel-meta style="margin:0"></span></div>
+          <p class="hint" style="margin-top:0">Learner growth term by term, teacher participation, digital resource use, assessment outcomes, each school's performance and the programme's reach.</p>
+          <div id="intel-impact"><div class="empty-state">Loading…</div></div>
         </div>
       </section>
 

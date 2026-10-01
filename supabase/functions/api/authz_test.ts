@@ -332,6 +332,7 @@ const ROUTES: RouteSpec[] = [
   r("GET", "/field-reports", [...ANALYSTS, "field_officer"]),
   r("POST", "/field-reports", ["field_officer"], { schoolId: "sch_1", visitType: "Learning", responses: [] }),
   r("GET", "/stats", ANALYSTS),
+  r("GET", "/intelligence", ANALYSTS),
   r("GET", "/school/overview", ["school_leader"]),
   r("GET", "/users", EDU_ADMIN),
   r("GET", "/users/invitations", USER_ADMIN),
@@ -943,4 +944,29 @@ Deno.test("class management: subjects, grade, adding and removing learners", asy
   assertEquals(db.learners.find((l) => l.id === "learner-b-id")!.class_id, "cls_2");
   assertEquals((await call("POST", "/classes/cls_1b/learners", "tok_teacher", { learnerIds: ["learner-id"] })).status, 404, "not a class they teach");
   assert(db.audit_log.filter((a) => a.action === "learner.class_changed").length >= 2);
+});
+
+/* ------------------------------------------------------------ 9. programme intelligence */
+
+Deno.test("programme intelligence: analysts only, real numbers, filters, visit types", async () => {
+  const db = freshWorld();
+  for (const tok of ["tok_teacher", "tok_school_leader", "tok_field_officer", LEARNER]) {
+    assertEquals((await call("GET", "/intelligence", tok)).status, 403, tok);
+  }
+  await learnerHandsIn();
+  await call("POST", `/submissions/${db.assignment_submissions[0].id}/mark`, "tok_teacher", { answers: [{ questionId: "q_tm", marks: 1 }] });
+  const all = await call("GET", "/intelligence", "tok_me");
+  assertEquals(all.status, 200, JSON.stringify(all.json));
+  assertEquals(all.json.learning.totals.schools, 2);
+  assertEquals(all.json.learning.achievement.averagePercent, 75);
+  assertEquals(all.json.learning.completion.assigned, 2, "one learner per school expected");
+  const a = await call("GET", `/intelligence?school=${encodeURIComponent(SCHOOL.name)}`, "tok_education_team");
+  assertEquals([a.json.learning.totals.schools, a.json.learning.completion.assigned, a.json.learning.completion.submitted], [1, 1, 1]);
+  // "Teacher support" is a visit type now; made-up types are refused.
+  const visit = { schoolId: "sch_1", responses: [], clientRef: "ref-ts-1" };
+  assertEquals((await call("POST", "/field-reports", "tok_field_officer", { ...visit, visitType: "Teacher support" })).status, 200);
+  assertEquals((await call("POST", "/field-reports", "tok_field_officer", { ...visit, clientRef: "ref-x", visitType: "Picnic" })).status, 400);
+  const after = await call("GET", "/intelligence", "tok_admin");
+  assertEquals(after.json.implementation.byType.find((t: Row) => t.label === "Teacher support").visits, 1);
+  assertEquals(after.json.implementation.schools.visited, 1);
 });

@@ -103,7 +103,7 @@ export const LEADER_CONTENT = {
 
 /* Field Officer visit types. Counties and schools are not listed here —
    they come from the Education Team's school list (GET /api/schools). */
-export const VISIT_TYPES = ["Learning", "Infrastructure", "ICT", "MEP"];
+export const VISIT_TYPES = ["Learning", "Infrastructure", "ICT", "MEP", "Teacher support"];
 
 export const FIELD_CONTENT = {
   u_field_demo: {

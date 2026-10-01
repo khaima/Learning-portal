@@ -79,6 +79,7 @@ export const PERMISSIONS = [
   "field_reports.view.all",
   // dashboards
   "stats.view",
+  "intelligence.view",    // the Programme Intelligence dashboard (every school)
   "school.overview.view",
   // KoboToolbox
   "kobo.manage",
@@ -109,7 +110,7 @@ const EDUCATION_TEAM: Permission[] = [
   "forms.manage", "forms.responses.view",
   "assignments.view.all",
   "field_reports.view.all",
-  "stats.view",
+  "stats.view", "intelligence.view",
   "kobo.manage", "kobo.results.view",
   "users.view",
 ];
@@ -133,7 +134,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "forms.responses.view",
     "assignments.view.all",
     "field_reports.view.all",
-    "stats.view",
+    "stats.view", "intelligence.view",
     "kobo.results.view",
   ],
   field_officer: ["forms.respond", "field_reports.create", "field_reports.view.own", "kobo.surveys.fill"],

@@ -27,7 +27,9 @@ import {
   ASSIGNMENT_STATUSES, type AssignmentStatus, autoMark, type Band, bandFor, cleanQuestions, cleanResponse,
   groupResults, isAutoMarked, isLate, MAX_FILES_PER_ANSWER, pairsOf, percentOf, type Question,
   RESULT_DIMENSIONS, type ResultAssignment, type ResultDimension, type ResultSubmission, round2, summarize,
+  expectedFrom,
 } from "./lms.ts";
+import { buildIntelligence, VISIT_TYPES as INTEL_VISIT_TYPES } from "./intelligence.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY =
@@ -381,7 +383,7 @@ const mapSchool = (r: Record<string, unknown>) => ({
    of that type rather than on its own. Blank form files are signed for
    download too: recipients need a copy to fill. */
 const FORM_KINDS = ["questions", "file", "link"];
-const VISIT_TYPES = ["Learning", "Infrastructure", "ICT", "MEP"];
+const VISIT_TYPES: string[] = [...INTEL_VISIT_TYPES];
 const mapForm = async (r: Record<string, unknown>) => ({
   id: r.id,
   title: r.title,
@@ -2769,21 +2771,7 @@ async function questionsOf(assignmentId: string) {
 async function expectedLearners(assignments: Record<string, any>[]): Promise<Map<string, Set<string>>> {
   const classIds = [...new Set(assignments.map((a) => a.class_id))] as string[];
   const enr = classIds.length ? await selectIn("learner_enrollments", "class_id", classIds) : [];
-  const now = new Date().toISOString();
-  const map = new Map<string, Set<string>>();
-  for (const a of assignments) {
-    const from = String(a.starts_at ?? a.published_at ?? a.created_at ?? now).slice(0, 10);
-    const to = String(a.due_at ?? now).slice(0, 10);
-    const set = new Set<string>();
-    for (const e of enr) {
-      if (e.class_id !== a.class_id) continue;
-      if (e.enrollment_date && String(e.enrollment_date) > to) continue;
-      if (e.exit_date && String(e.exit_date) < from) continue;
-      set.add(e.learner_id);
-    }
-    map.set(a.id, set);
-  }
-  return map;
+  return expectedFrom(assignments, enr);
 }
 
 const toResultAssignment = (a: Record<string, any>): ResultAssignment => ({
@@ -3579,6 +3567,7 @@ app.post("/field-reports", requirePermission("field_reports.create"), async (c) 
     }
   }
   const school = await loadSchool(b.schoolId);
+  if (b.visitType && !VISIT_TYPES.includes(String(b.visitType))) return c.json({ error: "Pick a valid visit type" }, 400);
   if (!school || !b.visitType) {
     return c.json({ error: "County, school and visit type are all required" }, 400);
   }
@@ -3949,6 +3938,52 @@ app.get("/school/overview", requirePermission("school.overview.view"), async (c)
     visitsTotal: visitRows.length,
     visitedThisTerm,
   });
+});
+
+// ---- programme intelligence (Education Team dashboard) ----
+// Learning, programme implementation, data collection and impact in one
+// read, computed by intelligence.ts from the raw rows. Filters: ?county=
+// ?school= (name, as in /stats) ?from= ?to= (YYYY-MM-DD; applied to rows
+// that carry a real date).
+app.get("/intelligence", requirePermission("intelligence.view"), async (c) => {
+  const q = (k: string) => String(c.req.query(k) ?? "").trim() || null;
+  const date = (k: string) => { const v = q(k); return v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null; };
+  const read = (table: string, cols: string, order = "id") =>
+    selectAll(() => admin.from(table).select(cols).order(order));
+  const [
+    schools, profiles, learners, enrollments, terms, classes, classTeachers, subjects, assignments, submissions,
+    fieldReports, forms, responses, koboForms, koboSubmissions, libraryItems, libraryInteractions,
+  ] = await Promise.all([
+    read("schools", "id, name, county, code"),
+    read("profiles", "id, role, status, school_id, county"),
+    read("learners", "id, school_id, class_id, grade, enrollment_status"),
+    read("learner_enrollments", "id, learner_id, school_id, class_id, enrollment_date, exit_date, status"),
+    read("terms", "id, academic_year_id, term_no, starts_on, ends_on"),
+    read("classes", "id, school_id, academic_year_id, grade, archived_at"),
+    read("class_teachers", "id, class_id, teacher_id, role, ended_at"),
+    read("subjects", "id, name"),
+    read("assignments", "id, school_id, class_id, subject_id, grade, academic_year_id, term_id, starts_at, due_at, status, created_by, created_at, published_at"),
+    read("assignment_submissions", "id, assignment_id, learner_id, school_id, status, is_late, percentage, submitted_at, marked_by"),
+    read("field_reports", "id, school, school_id, county, visit_type, officer_id, created_at"),
+    read("forms", "id, title, audience, county, visit_type, archived_at"),
+    read("responses", "id, form_id, respondent_id, respondent_role, submitted_at, visit_id"),
+    read("kobo_forms", "id, title, active, submission_count, rejected_count, unattributed_count, synced_at"),
+    read("kobo_submissions", "kobo_form_id, officer_id, submitted_at", "kobo_form_id"),
+    read("library_items", "id, title"),
+    read("library_interactions", "id, library_item_id, actor_kind, actor_id, school, started_at, completed_at, duration_seconds"),
+  ]);
+  const all = [schools, profiles, learners, enrollments, terms, classes, classTeachers, subjects, assignments, submissions,
+    fieldReports, forms, responses, koboForms, koboSubmissions, libraryItems, libraryInteractions];
+  const failed = all.find((r) => r.error);
+  // A failed read must never show up as zeros.
+  if (failed) return c.json({ error: failed.error!.message }, 500);
+  return c.json(buildIntelligence({
+    schools: schools.data, profiles: profiles.data, learners: learners.data, enrollments: enrollments.data,
+    terms: terms.data, classes: classes.data, classTeachers: classTeachers.data, subjects: subjects.data,
+    assignments: assignments.data, submissions: submissions.data, fieldReports: fieldReports.data,
+    forms: forms.data, responses: responses.data, koboForms: koboForms.data, koboSubmissions: koboSubmissions.data,
+    libraryItems: libraryItems.data, libraryInteractions: libraryInteractions.data, bands: await loadBands(),
+  }, { county: q("county"), school: q("school"), from: date("from"), to: date("to") }));
 });
 
 // ---- staff accounts: invitations, approval, roles, status, audit ----
@@ -4570,9 +4605,11 @@ app.post("/kobo/sync", requirePermission("kobo.manage"), async (c) => {
       continue;
     }
     const upserts: Record<string, unknown>[] = [];
+    let rejected = 0, unattributed = 0;
     for (const r of rows) {
-      if (koboRejected(r)) continue;
+      if (koboRejected(r)) { rejected++; continue; }
       const ref = pickOfficerRef(r, cfg.officer_field);
+      if (!ref || !validIds.has(ref)) unattributed++;
       if (ref && validIds.has(ref)) {
         upserts.push({
           kobo_form_id: f.id,
@@ -4592,6 +4629,8 @@ app.post("/kobo/sync", requirePermission("kobo.manage"), async (c) => {
     }
     await admin.from("kobo_forms").update({
       submission_count: rows.length,
+      rejected_count: rejected,
+      unattributed_count: unattributed,
       synced_at: new Date().toISOString(),
     }).eq("id", f.id);
     koboResultsCache.delete(f.id as string);

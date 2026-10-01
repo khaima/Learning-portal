@@ -38,7 +38,7 @@ Edge Function API in front of a locked-down Postgres database. Six pages:
 - **`field.html`** — a field officer's stats and the flagship flow: pick a
   county, the school list (with codes) narrows, pick a visit type — the
   Education Team's forms for that programme (Learning, Infrastructure,
-  ICT, MEP) appear straight away — start the visit, fill those forms in,
+  ICT, MEP, Teacher support) appear straight away — start the visit, fill those forms in,
   submit — the report and its forms save together and appear immediately.
   Plus other forms addressed to Field Officers,
   and **Field surveys** — KoboToolbox surveys attached by the Education
@@ -63,35 +63,50 @@ Edge Function API in front of a locked-down Postgres database. Six pages:
   unanswered form can be deleted. The database refuses to delete forms,
   visits or staff accounts that still have records attached. Also
   connect **KoboToolbox** to publish field surveys (see below), see a
-  **Content usage report** (see below), and see a **Portal impact**
-  dashboard (see below).
+  **Content usage report** (see below), and read the **Programme
+  Intelligence** dashboard (see below).
 
-### Portal impact dashboard
+### Programme Intelligence dashboard
 
-The Education Team's Overview page charts what the portal has actually
-collected, from all four operational roles, with a **Filter by county**
-and **Filter by school** picker that rescopes everything at once — stat
-tiles and charts alike — and updates every chart's title so it's never
-ambiguous what you're looking at:
+The Education Team's dashboard opens on **Programme intelligence**: an
+Overview and four areas. The global filters (county, school, term or
+date range) rescope every one of them at once, and clicking a school name
+narrows everything to that school.
 
-- **Accounts by role**, **assignment completion**, **learners by grade**
-  (and, once a county's picked, **by school**), **new learners by term**
-  (Kenya's Jan–Apr / May–Aug / Sep–Dec school year, bucketed from each
-  account's sign-up date), **teachers by employment type** (BOM vs TSC,
-  self-declared once at onboarding), **field visits** by type and county/
-  school, **content library** makeup, and **forms & feedback engagement**
-  (sent vs. actually answered, per role).
-- **Completion by grade** and **Achievement by grade** are two separate
-  charts, each ranked highest-first with a **Top 5 / Top 10 / All**
-  picker. Completion is the share of the work set that was handed in;
-  achievement is the average mark on marked work. They're never combined:
-  handing work in isn't the same as doing well in it.
-- Forms & feedback engagement and the content library aren't tied to a
-  school, so they stay portal-wide and say so rather than silently
-  ignoring the filter.
-- Every number is computed server-side in `GET /api/stats` (education-
-  team only) from the live tables — nothing here is seeded or fabricated;
-  an empty chart says "No answers yet" rather than faking a shape.
+- **Overview** — headline numbers from each area, a card per area, and
+  **Needs attention**, which includes any data-quality check that finds
+  something.
+- **Learning** — learners, teachers, schools, classes; assignments set and
+  waiting to be marked; **completion** (work handed in, late, missing) and
+  **results** (average mark, band) — by grade and by subject; learners by
+  grade; and library use (sessions, time, readers, the share of learners
+  reading, most-opened resources).
+- **Programme implementation** — field visits by type (**Learning,
+  Infrastructure, ICT, MEP, Teacher support**), by county and by term; the
+  share of schools visited and visited this term; and the schools not
+  visited yet.
+- **Data collection** — Kobo submissions per survey (with how many were
+  rejected in review or couldn't be linked to an officer, counted at each
+  sync), officers who've done each survey, forms and feedback, **response
+  rates** (everyone a form reaches vs. who answered; visit forms vs. visits
+  of that type), and **data-quality checks**: unlinked visits, learners not
+  in a class, classes without a class teacher, work waiting over 14 days
+  for marking, staff with no school.
+- **Impact** — **learner growth** (learners on roll each term, and how many
+  joined), **teacher participation** (set work, marked, used the library,
+  answered forms), **digital resource use** by term, **assessment outcomes**
+  by term, a **school performance** table, and **programme reach**
+  (counties, schools reached and visited, learners, teachers, officers).
+
+Completion and results are separate measures everywhere: handing work in
+isn't the same as doing well in it. Every number is computed server-side
+from the live tables (`GET /api/intelligence`, in
+[`intelligence.ts`](supabase/functions/api/intelligence.ts)) for the
+Education Team, M&E and administrators; nothing is seeded or estimated. The
+date filter applies only to rows with a real date (visits, library
+sessions, responses, Kobo submissions, assignment due dates). Forms and Kobo
+surveys aren't tied to a school, so the page says so when a school is
+picked.
 
 ### Content usage tracking
 
@@ -326,8 +341,9 @@ the caller's own row in the database — nothing the browser sends.
   through the school/class walls, learner enrollment, and the whole
   assignment cycle (visibility, hand-in, late work, marking, results).
   [`lms_test.ts`](supabase/functions/api/lms_test.ts) unit-tests the marking
-  and results rules:
-  `cd supabase/functions/api && deno test --allow-env --config deno.json authz_test.ts lms_test.ts`
+  and results rules, and [`intelligence_test.ts`](supabase/functions/api/intelligence_test.ts)
+  every number on the Programme Intelligence dashboard:
+  `cd supabase/functions/api && deno test --allow-env --config deno.json authz_test.ts lms_test.ts intelligence_test.ts`
 
 ### Turning on Google sign-in
 
@@ -425,6 +441,7 @@ used).
 | `config.js` | Supabase URL, publishable key, API base URL |
 | `data.js` | Static UI constants (roles, subjects, question types) |
 | `util.js` | Tiny shared DOM / escaping / toast helpers |
+| `intelligence-ui.js` | The Education Team's Programme Intelligence pages |
 | `assignments-ui.js` | Assignment builder, marking, results table, and the learner's assignment screen |
 | `learners-ui.js` | Shared learner dialogs: archive, history, transfer |
 | `styles.css` | The whole design system (light + dark, one file) |

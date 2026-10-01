@@ -619,6 +619,12 @@ export function wireSchoolPicker(countySel, schoolSel, data, { countyId, schoolI
    portal-wide regardless of from/to. topGrades caps the "grade
    performance" ranking to the top N grades (0 or omitted = show every
    grade). */
+/** The Programme Intelligence dashboard: learning, implementation, data
+    collection and impact, under the same filters as getStats. */
+export async function getIntelligence({ county, school, from, to } = {}) {
+  return apiGet(`/intelligence${qs({ county, school, from, to })}`);
+}
+
 export async function getStats({ county, school, from, to, topGrades } = {}) {
   const params = new URLSearchParams();
   if (county) params.set("county", county);

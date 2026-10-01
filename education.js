@@ -6,7 +6,7 @@ import {
   normalizeLibraryAudience, VISIT_TYPES, PORTAL_ADMIN_ROLES,
 } from "./data.js";
 import {
-  getLibrary, addLibraryItem, setLibraryPublished, deleteLibraryItem, updateLibraryItem, getForms, addForm, deleteForm, archiveForm, restoreForm, getResponses, getStats,
+  getLibrary, addLibraryItem, setLibraryPublished, deleteLibraryItem, updateLibraryItem, getForms, addForm, deleteForm, archiveForm, restoreForm, getResponses, getStats, getIntelligence,
   uploadLibraryFiles, libraryFilesHtml, libraryTypeIcon, librarySectionsHtml, getLibraryUsage,
   getLibraryFolders, createLibraryFolder, deleteLibraryFolder, setLibraryFolder,
   koboConfig, saveKoboConfig, koboAssets, koboAssetPreview, koboForms, attachKoboForm,
@@ -19,6 +19,7 @@ import {
 import { openIframeViewer } from "./viewer.js";
 import { formTagsHtml } from "./forms.js";
 import { statusPill, openHistoryPanel, openTransferDialog } from "./learners-ui.js";
+import { overviewHtml, qualityAlerts, learningHtml, implementationHtml, dataCollectionHtml, impactHtml } from "./intelligence-ui.js";
 
 const AUDIENCE_LABEL = Object.fromEntries(FORM_AUDIENCES.map((a) => [a.value, a.label]));
 const STAFF_ROLES = ROLES.filter((r) => r.value !== "learner");
@@ -41,8 +42,11 @@ async function main() {
   const perms = new Set(user.permissions || []);
   const has = (...p) => p.some((x) => perms.has(x));
   const PAGE_NEEDS = {
-    overview: ["stats.view"],
-    "programme-analytics": ["stats.view"],
+    overview: ["intelligence.view"],
+    learning: ["intelligence.view"],
+    implementation: ["intelligence.view"],
+    "data-collection": ["intelligence.view"],
+    impact: ["intelligence.view"],
     schools: ["stats.view", "schools.manage"],
     users: ["users.view"],
     content: ["library.manage", "library.usage.view"],
@@ -53,6 +57,12 @@ async function main() {
   for (const link of $$(".side-nav .side-link[data-page]")) {
     const needs = PAGE_NEEDS[link.dataset.page];
     if (needs && !has(...needs)) link.hidden = true;
+  }
+  // A group heading with nothing visible under it goes too.
+  for (const g of $$(".side-nav .side-group")) {
+    let el = g.nextElementSibling, any = false;
+    while (el && !el.classList.contains("side-group")) { if (!el.hidden) any = true; el = el.nextElementSibling; }
+    g.hidden = !any;
   }
   const firstVisible = $$(".side-nav .side-link[data-page]").find((l) => !l.hidden);
   const current = $(`.side-nav .side-link[data-page="${(location.hash || "").slice(1)}"]`);
@@ -83,7 +93,6 @@ async function main() {
   let schoolDir = { counties: [], countyCodes: {}, schools: [] };
   let userPicker = null; // the County → School picker in an open Users editor
   let invitePicker = null; // the County → School picker in the invite form
-  let gpTopN = 0; // grade-performance ranking cap; 0 = show every grade
   let lastStats = null;
   let formsCache = [];
   let responsesCache = [];
@@ -234,40 +243,65 @@ async function main() {
      global filters above — county/school/role throughout, date range only
      where a real date exists (new-learner intake, field visits). */
   async function renderStats() {
-    $("#statRow").innerHTML = skeleton(4, { avatar: false });
-    $("#impactBody").innerHTML = skeleton(4);
+    renderIntelligence();
     $("#schoolsBody").innerHTML = skeleton(4);
     let s;
     try {
-      s = await getStats({ county: gf.county, school: gf.school, from: gf.from, to: gf.to, topGrades: gpTopN });
+      s = await getStats({ county: gf.county, school: gf.school, from: gf.from, to: gf.to });
     } catch (err) {
       console.error("could not load stats:", err);
       const msg = errorState(friendlyError(err, "Couldn't load this data."), renderStats);
-      $("#statRow").innerHTML = msg;
-      $("#impactBody").innerHTML = msg;
       $("#schoolsBody").innerHTML = msg;
       return;
     }
     lastStats = s;
-    renderKpis(s);
-    renderImpact(s);
     renderSchoolsPage(s);
     renderAttention();
   }
 
-  function renderKpis(s) {
-    const r = s.byRole || {};
-    const scoped = s.school ? ` at ${esc(s.school)}` : s.county ? ` in ${esc(s.county)}` : "";
-    $("#statRow").innerHTML = `
-      <div class="stat-tile"><div class="s-label">${svg(ICON.progress)}Accounts</div><div class="s-num">${s.accounts}</div>
-        <div class="s-sub">${r.teacher || 0} teachers · ${r.learner || 0} learners · ${r.school_leader || 0} leaders · ${r.field_officer || 0} officers${scoped}</div></div>
-      <div class="stat-tile"><div class="s-label">${svg(ICON.responses)}Work handed in</div><div class="s-num">${s.assignmentsDone}/${s.assignmentsTotal}</div>
-        <div class="s-sub">${s.achievement?.marked ? `average mark ${Math.round(s.achievement.averagePercent)}% on ${s.achievement.marked} marked` : "nothing marked yet"}${scoped}</div></div>
-      <div class="stat-tile"><div class="s-label">${svg(ICON.forms)}Field reports filed</div><div class="s-num">${s.reportsFiled}</div>
-        <div class="s-sub">across all field officer accounts${scoped}</div></div>
-      <div class="stat-tile"><div class="s-label">${svg(ICON.library)}Forms & responses</div><div class="s-num">${s.formsSent} / ${s.responsesReceived}</div>
-        <div class="s-sub">sent / received${scoped ? " · portal-wide" : ""}</div></div>
-    `;
+  /* ------------------------------------------------------------ programme intelligence
+     One read feeds the Overview and the four areas — Learning,
+     Implementation, Data collection, Impact — under the same global
+     filters (county / school throughout; the date range on rows that
+     carry a real date). Computed server-side: see /intelligence. */
+  let lastIntel = null;
+  const INTEL_PAGES = ["learning", "implementation", "data-collection", "impact"];
+  async function renderIntelligence() {
+    if (!has("intelligence.view")) return;
+    $("#statRow").innerHTML = skeleton(4, { avatar: false });
+    for (const p of INTEL_PAGES) $(`#intel-${p}`).innerHTML = skeleton(4);
+    let d;
+    try {
+      d = await getIntelligence({ county: gf.county, school: gf.school, from: gf.from, to: gf.to });
+    } catch (err) {
+      console.error("could not load programme intelligence:", err);
+      const msg = errorState(friendlyError(err, "Couldn't load this data."), renderIntelligence);
+      $("#statRow").innerHTML = msg;
+      $("#intelAreas").innerHTML = "";
+      for (const p of INTEL_PAGES) $(`#intel-${p}`).innerHTML = msg;
+      return;
+    }
+    lastIntel = d;
+    const o = overviewHtml(d);
+    $("#statRow").innerHTML = o.tiles;
+    $("#intelAreas").innerHTML = o.areas;
+    $("#intel-learning").innerHTML = learningHtml(d);
+    $("#intel-implementation").innerHTML = implementationHtml(d);
+    $("#intel-data-collection").innerHTML = dataCollectionHtml(d);
+    $("#intel-impact").innerHTML = impactHtml(d);
+    const scope = d.scope.school || d.scope.county || "every school";
+    for (const m of $$("[data-intel-meta]")) m.textContent = `${scope} · updated ${new Date(d.generatedAt).toLocaleTimeString()}`;
+    if (d.currentTerm) $("#topSub").textContent = `Live across every account · ${d.currentTerm}`;
+    renderAttention();
+  }
+  // A school name anywhere on these pages narrows everything to it.
+  for (const p of INTEL_PAGES) {
+    $(`#intel-${p}`).addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-pick-school]");
+      if (!btn) return;
+      pickSchoolFilter(btn.dataset.pickSchool);
+      applyFilters();
+    });
   }
 
   /* "Needs attention" — the one actionable panel on the otherwise-light
@@ -283,6 +317,7 @@ async function main() {
     for (const f of formsCache.filter((f) => !f.archivedAt && !responsesCache.some((r) => r.formId === f.id)).slice(0, 5)) {
       items.push({ tone: "warn", title: "Form with no responses yet", detail: `"${f.title}" (sent to ${AUDIENCE_LABEL[f.audience] || f.audience}) has no responses yet.` });
     }
+    if (lastIntel) items.push(...qualityAlerts(lastIntel).slice(0, 6));
     if (!koboState.configured) {
       items.push({ tone: "info", title: "KoboToolbox not connected", detail: "Connect a KoboToolbox account to attach field surveys — see Kobo Surveys." });
     }
@@ -297,138 +332,6 @@ async function main() {
     $("#attentionList").innerHTML = items.length
       ? items.map((it) => `<div class="alert alert-${it.tone}"><div><b>${esc(it.title)}</b>${esc(it.detail)}</div></div>`).join("")
       : `<div class="empty-state">${emptyMsg("Nothing needs attention right now.")}</div>`;
-  }
-
-  /* Top-N control lives inside the grade-performance card itself, which is
-     rebuilt on every render — one delegated listener survives that; the
-     other listener on this same element drills a bar-chart school label
-     straight into the Schools page (see barChart()'s drillSchool option). */
-  $("#impactBody").addEventListener("change", (e) => {
-    if (e.target.classList?.contains("gp-topn")) {
-      gpTopN = Number(e.target.value) || 0;
-      renderStats();
-    }
-  });
-  $("#impactBody").addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-drill-school]");
-    if (!btn) return;
-    pickSchoolFilter(btn.dataset.drillSchool);
-    location.hash = "#schools";
-    applyFilters();
-  });
-
-  /* ------------------------------------------------------------ portal impact (Overview charts)
-     One chart per data source the portal actually collects, from all
-     four operational roles: teacher-created assignments (learner
-     completion) and the grades behind them, teacher employment type,
-     new-learner intake by term, field officer visit reports (by type
-     and, once a county is picked, by school), the forms/feedback loop
-     each staff role engages with, the content library the Education
-     Team itself has built up, and the account mix overall. All
-     server-aggregated in /stats, already scoped to the selected county/
-     school where that makes sense — reuses the same bar/donut/legend
-     renderers as Survey Results, defined further down this file. */
-  function renderImpact(s) {
-    // Two scope suffixes: `scope` (county/school only) for metrics with no
-    // date column, `scopeD` (+ the active date range) for the two that
-    // genuinely have one — new-learner intake and field visits. Anything
-    // using plain `scope` while a date range is active gets an explicit
-    // "not date-filtered" note instead of silently ignoring the filter.
-    const scope = s.school ? ` — ${s.school}` : s.county ? ` — ${s.county}` : "";
-    const hasDate = !!(s.from || s.to);
-    const dateLabel = hasDate ? dateRangeLabel(s.from, s.to) : "";
-    const scopeD = scope + (hasDate ? ` — ${dateLabel}` : "");
-    const notDateFiltered = hasDate ? " · not date-filtered" : "";
-
-    const ROLE_LABELS = { teacher: "Teachers", learner: "Learners", school_leader: "School Leaders", field_officer: "Field Officers" };
-    const roleData = Object.entries(ROLE_LABELS).map(([k, label]) => ({ label, value: (s.byRole && s.byRole[k]) || 0 }));
-    const doneData = [
-      { label: "Handed in", value: s.assignmentsDone || 0 },
-      { label: "Not handed in", value: Math.max(0, (s.assignmentsTotal || 0) - (s.assignmentsDone || 0)) },
-    ];
-    const eng = s.formsEngagement || [];
-    const sentData = eng.map((e) => ({ label: e.label, value: e.sent }));
-    const respData = eng.map((e) => ({ label: e.label, value: e.responses }));
-    const learnerTotal = (s.learnersByGrade || []).reduce((a, d) => a + d.value, 0);
-    const libraryTotal = (s.libraryByDestination || []).reduce((a, d) => a + d.value, 0);
-    const teacherTypeData = (s.teachersByType || []).map((d) => ({ ...d, label: d.label === "(not set)" ? "Not specified" : d.label }));
-
-    const cards = [];
-
-    // A role filter collapses the multi-segment donut to one number —
-    // clearer than a degenerate single-slice chart.
-    if (gf.role) {
-      const roleCount = (s.byRole && s.byRole[gf.role]) || 0;
-      cards.push(impactCard(`Accounts by role${scope}`, `filtered to ${esc(ROLE_LABEL[gf.role] || gf.role)}${notDateFiltered}`,
-        `<div class="chart-stats"><div><b>${roleCount}</b><span>${esc(ROLE_LABEL[gf.role] || gf.role)}</span></div></div>`));
-    } else {
-      cards.push(impactCard(`Accounts by role${scope}`, `${s.accounts || 0} total · teachers, learners, leaders & field officers${notDateFiltered}`,
-        sumOf(roleData) ? `<div class="chart-donut-wrap">${donutChart(roleData)}${legend(roleData)}</div>` : miniEmpty()));
-    }
-    cards.push(
-      impactCard(`Assignment completion${scope}`, `work handed in, of ${s.assignmentsTotal || 0} learner assignments set — not marks${notDateFiltered}`,
-        sumOf(doneData) ? `<div class="chart-donut-wrap">${donutChart(doneData)}${legend(doneData)}</div>` : miniEmpty()),
-      impactCard(`Learners by grade${scope}`, `${learnerTotal} learners${notDateFiltered}`,
-        (s.learnersByGrade || []).length ? barChart(s.learnersByGrade) : miniEmpty()),
-    );
-    if (s.county && !s.school) {
-      cards.push(impactCard(`Learners by school${scope}`, `${learnerTotal} learners${notDateFiltered} · click a school to open it`,
-        (s.learnersBySchool || []).length ? barChart(s.learnersBySchool, { drillSchool: true }) : miniEmpty()));
-    }
-    cards.push(
-      impactCard(`New learners by term${scopeD}`, `based on when each account was created${hasDate ? "" : " · every term on record"}`,
-        (s.newLearnersByTerm || []).length ? barChart(s.newLearnersByTerm) : miniEmpty()),
-      impactCard(`Teachers by type${scope}`, `BOM vs TSC · self-declared at sign-up${notDateFiltered}`,
-        sumOf(teacherTypeData) ? `<div class="chart-donut-wrap">${donutChart(teacherTypeData)}${legend(teacherTypeData)}</div>` : miniEmpty()),
-    );
-    cards.push(
-      impactCard(`Field visits by type${scopeD}`, `${s.reportsFiled || 0} reports filed`,
-        (s.fieldReportsByVisitType || []).length ? barChart(s.fieldReportsByVisitType) : miniEmpty()),
-    );
-    cards.push(
-      s.county
-        ? impactCard(`Field visits by school${scopeD}`, `${s.reportsFiled || 0} reports filed · click a school to open it`,
-            (s.fieldReportsBySchool || []).length ? barChart(s.fieldReportsBySchool, { drillSchool: true }) : miniEmpty())
-        : impactCard(`Field visits by county${hasDate ? ` — ${dateLabel}` : ""}`, `${s.reportsFiled || 0} reports filed · pick a county above to drill in`,
-            (s.fieldReportsByCounty || []).length ? barChart(s.fieldReportsByCounty) : miniEmpty()),
-    );
-    cards.push(
-      impactCard("Content library", `${libraryTotal} items uploaded · portal-wide, all-time`,
-        sumOf(s.libraryByDestination) ? `<div class="chart-donut-wrap">${donutChart(s.libraryByDestination)}${legend(s.libraryByDestination)}</div>` : miniEmpty()),
-      impactCard("Forms & feedback engagement", `${s.formsSent || 0} sent · ${s.responsesReceived || 0} responses · portal-wide, all-time`,
-        `<div class="chart-subhead">Sent</div>${sumOf(sentData) ? barChart(sentData) : miniEmpty()}<div class="chart-subhead">Responded</div>${sumOf(respData) ? barChart(respData) : miniEmpty()}`),
-    );
-
-    // By grade, two rankings kept apart: completion (share of work handed
-    // in) and achievement (average mark on marked work). A grade can hand
-    // everything in and still score low, so neither stands in for the other.
-    // Ranked highest-first, capped by the Top-N picker in the first card.
-    const gc = s.gradeCompletion || [];
-    const ga = s.gradeAchievement || [];
-    const gpHead = (title) => `<div class="chart-card-head"><b>${esc(title)}${esc(scope)}</b>
-      <select class="gp-topn" style="font-size:.74rem;padding:.2rem .4rem;border-radius:6px;border:1px solid var(--line);background:var(--paper-raised);color:var(--ink)">
-        <option value="0"${gpTopN === 0 ? " selected" : ""}>All grades</option>
-        <option value="5"${gpTopN === 5 ? " selected" : ""}>Top 5</option>
-        <option value="10"${gpTopN === 10 ? " selected" : ""}>Top 10</option>
-      </select></div>`;
-    cards.push(`<div class="chart-card">${gpHead("Completion by grade")}
-      <div class="chart-empty" style="margin:-.3rem 0 .5rem">% of the work set that was handed in — not marks${notDateFiltered}</div>
-      ${gc.length ? barChart(gc.map((g) => ({ label: `${g.label} (${g.total})`, value: g.value }))) : miniEmpty()}
-    </div>`);
-    cards.push(`<div class="chart-card">${gpHead("Achievement by grade")}
-      <div class="chart-empty" style="margin:-.3rem 0 .5rem">average mark (%) on marked work${notDateFiltered}</div>
-      ${ga.length ? barChart(ga.map((g) => ({ label: `${g.label} (${g.marked} marked${g.band ? ` · ${g.band}` : ""})`, value: g.value }))) : miniEmpty()}
-    </div>`);
-
-    $("#impactMeta").textContent = `updated ${new Date().toLocaleTimeString()}`;
-    $("#impactBody").innerHTML = `<div class="chart-grid">${cards.join("")}</div>`;
-  }
-
-  function impactCard(title, meta, body) {
-    return `<div class="chart-card">
-      <div class="chart-card-head"><b>${esc(title)}</b><span>${esc(meta)}</span></div>
-      ${body}
-    </div>`;
   }
 
   /* ------------------------------------------------------------ Schools
@@ -872,6 +775,13 @@ async function main() {
     }
     editingItemId = null;
     renderLibraryDom();
+  }
+
+  function impactCard(title, meta, body) {
+    return `<div class="chart-card">
+      <div class="chart-card-head"><b>${esc(title)}</b><span>${esc(meta)}</span></div>
+      ${body}
+    </div>`;
   }
 
   /* ------------------------------------------------------------ content usage report

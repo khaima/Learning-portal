@@ -174,6 +174,34 @@ export type Summary = {
   };
 };
 
+/** Learners expected to do each assignment: everyone enrolled in its class
+    for some part of the time it was open (from its start — or publication —
+    to its due date), from the enrollment history. */
+// deno-lint-ignore no-explicit-any
+export function expectedFrom(assignments: Record<string, any>[], enrollments: Record<string, any>[], now = new Date()): Map<string, Set<string>> {
+  const iso = now.toISOString();
+  // deno-lint-ignore no-explicit-any
+  const byClass = new Map<string, Record<string, any>[]>();
+  for (const e of enrollments) {
+    if (!e.class_id) continue;
+    if (!byClass.has(e.class_id)) byClass.set(e.class_id, []);
+    byClass.get(e.class_id)!.push(e);
+  }
+  const map = new Map<string, Set<string>>();
+  for (const a of assignments) {
+    const from = String(a.starts_at ?? a.published_at ?? a.created_at ?? iso).slice(0, 10);
+    const to = String(a.due_at ?? iso).slice(0, 10);
+    const set = new Set<string>();
+    for (const e of byClass.get(a.class_id) ?? []) {
+      if (e.enrollment_date && String(e.enrollment_date).slice(0, 10) > to) continue;
+      if (e.exit_date && String(e.exit_date).slice(0, 10) < from) continue;
+      set.add(e.learner_id);
+    }
+    map.set(a.id, set);
+  }
+  return map;
+}
+
 /** One expected learner × assignment pair, with its submission if any. */
 export type Pair = { a: ResultAssignment; learnerId: string; sub: ResultSubmission | null };
 
