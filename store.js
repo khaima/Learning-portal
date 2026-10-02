@@ -619,6 +619,39 @@ export function wireSchoolPicker(countySel, schoolSel, data, { countyId, schoolI
    portal-wide regardless of from/to. topGrades caps the "grade
    performance" ranking to the top N grades (0 or omitted = show every
    grade). */
+/* ---------------------------------------------------------------- M&E (/mel)
+   Programme → outcomes → indicators → targets → actuals → evidence → report. */
+export const melProgrammes = () => apiGet("/mel/programmes");
+export const melProgramme = (id) => apiGet(`/mel/programmes/${id}`);
+export const createMelProgramme = (body) => apiSend("POST", "/mel/programmes", body);
+export const updateMelProgramme = (id, body) => apiSend("PATCH", `/mel/programmes/${id}`, body);
+export const createMelOutcome = (body) => apiSend("POST", "/mel/outcomes", body);
+export const updateMelOutcome = (id, body) => apiSend("PATCH", `/mel/outcomes/${id}`, body);
+export const createMelIndicator = (body) => apiSend("POST", "/mel/indicators", body);
+export const updateMelIndicator = (id, body) => apiSend("PATCH", `/mel/indicators/${id}`, body);
+/** value null clears the target. */
+export const setMelTarget = (body) => apiSend("PUT", "/mel/targets", body);
+/** { programme, period, scope, outcomes: [{ indicators: [...] }], summary } */
+export const melResults = (id, { period, county, school } = {}) => apiGet(`/mel/programmes/${id}/results${qs({ period, county, school })}`);
+export const melBreakdown = (indicatorId, period) => apiGet(`/mel/indicators/${indicatorId}/breakdown${qs({ period })}`);
+export const recordMelActual = (body) => apiSend("POST", "/mel/actuals", body);
+export const verifyMelActual = (id, decision, note = "") => apiSend("POST", `/mel/actuals/${id}/verify`, { decision, note });
+export const melActual = (id) => apiGet(`/mel/actuals/${id}`);
+export const addMelEvidence = (id, body) => apiSend("POST", `/mel/actuals/${id}/evidence`, body);
+/** Uploads a file as evidence for an actual; returns the evidence id. */
+export async function uploadMelEvidence(actualId, file, title) {
+  const { upload } = await apiSend("POST", `/mel/actuals/${actualId}/evidence-upload`, { name: file.name, size: file.size });
+  const { error } = await supabase.storage.from(LIBRARY_BUCKET)
+    .uploadToSignedUrl(upload.path, upload.token, file, { contentType: file.type || undefined });
+  if (error) throw error;
+  return addMelEvidence(actualId, { kind: "file", title: title || file.name, file: { name: file.name, path: upload.path, size: file.size } });
+}
+export const melReports = (programmeId) => apiGet(`/mel/reports${qs({ programmeId })}`);
+export const createMelReport = (body) => apiSend("POST", "/mel/reports", body);
+export const melReport = (id) => apiGet(`/mel/reports/${id}`);
+export const refreshMelReport = (id) => apiSend("POST", `/mel/reports/${id}/refresh`, {});
+export const finalizeMelReport = (id, note = "") => apiSend("POST", `/mel/reports/${id}/finalize`, { note });
+
 /* ---------------------------------------------------------------- Data Quality Center */
 /** Score, counts by status / severity / type, scan history. Filters:
     county, school, type, severity, status (or "active"), from, to. */

@@ -151,6 +151,51 @@ records, how serious it is, where it is, and what's being done about it.
   before and after; corrections and status changes also go to the audit
   log.
 
+### M&E: results framework, targets, actuals, evidence, reports
+
+```
+PROGRAMME → OUTCOMES → INDICATORS → TARGETS → ACTUALS → EVIDENCE → REPORT
+```
+
+The Education Team dashboard's **M&E** pages:
+
+- **Results framework** — programmes, their outcomes, and the indicators
+  that measure them. Each indicator has a code, definition, unit (%, count
+  or number), whether higher or lower is better, a baseline, the evidence
+  expected, and **where its actuals come from**:
+  - **Validated Kobo data** — from the portal's own checked Kobo records
+    (never raw or rejected submissions): the number of submissions, the %
+    giving an answer (e.g. *ICT integrated? = Yes*), an average, or the %
+    at or above a threshold;
+  - **a portal measure** — work handed in, average mark, share meeting
+    expectations, learners enrolled, teachers active / setting work,
+    library reach, schools visited (optionally by visit type), field visits;
+  - **entered by hand**, with evidence.
+- **Targets** per term or school year, for the whole programme, a county or
+  a school. A county or school without its own target is measured against
+  the programme's. Every target change is in the audit log.
+- **Results** — for the programme, period and the county / school picked
+  at the top: baseline, target, actual, achievement (actual ÷ target, the
+  other way round for indicators that should go down) and a traffic light
+  — **met** (100%+), **close** (80%+), **not met** — with the evidence. Each
+  indicator opens to show how its value is worked out, and its breakdown by
+  county and school.
+- **Actuals** are **live** until someone **records** one: a snapshot of
+  the value, how it was worked out (e.g. 17 of 25 observations) and the
+  data behind it, with evidence attached automatically (the Kobo survey and
+  number of validated submissions, or the portal measure). Later changes to
+  the data don't change a recorded value; recording again keeps the old
+  version. Someone **other than the person who recorded it** then
+  **verifies** it (or rejects it, with a reason). Links, files and notes can
+  be added as evidence.
+- **Reports** freeze the results for a programme, period and place. A draft
+  can be refreshed; once **final** it can never change or be deleted — the
+  database itself refuses. Print or download as CSV.
+
+Who does what: M&E (and administrators) own the framework and targets,
+verify actuals and issue reports; the Education Team can see everything and
+record actuals and evidence.
+
 ### Content usage tracking
 
 Every "Open to read" click on any dashboard is timed:
@@ -449,8 +494,10 @@ the caller's own row in the database — nothing the browser sends.
   every Kobo validation and normalization rule (the authorization tests
   also run sync and the push against a stand-in KoboToolbox), and
   [`data_quality_test.ts`](supabase/functions/api/data_quality_test.ts) all
-  fifteen data quality checks and the score:
-  `cd supabase/functions/api && deno test --allow-env --config deno.json authz_test.ts lms_test.ts intelligence_test.ts kobo_pipeline_test.ts data_quality_test.ts`
+  fifteen data quality checks and the score, and
+  [`me_test.ts`](supabase/functions/api/me_test.ts) the M&E rules (sources,
+  periods, targets, achievement):
+  `cd supabase/functions/api && deno test --allow-env --config deno.json authz_test.ts lms_test.ts intelligence_test.ts kobo_pipeline_test.ts data_quality_test.ts me_test.ts`
 
 ### Turning on Google sign-in
 
@@ -548,6 +595,7 @@ used).
 | `config.js` | Supabase URL, publishable key, API base URL |
 | `data.js` | Static UI constants (roles, subjects, question types) |
 | `util.js` | Tiny shared DOM / escaping / toast helpers |
+| `mel-ui.js` | M&E: results, the indicator panel (record / verify / evidence), framework editor, reports |
 | `dq-ui.js` | The Data Quality Center: score, checks, issues, history, corrections |
 | `kobo-ui.js` | The Kobo data pipeline panel (checks, mapping, school aliases, review queue) and the live-push setup |
 | `intelligence-ui.js` | The Education Team's Programme Intelligence pages |

@@ -24,6 +24,10 @@
         <a class="side-link" data-page="data-collection"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>Data collection</a>
         <a class="side-link" data-page="data-quality"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6l-8-3Z"/><path d="m9 12 2 2 4-4"/></svg>Data quality</a>
         <a class="side-link" data-page="impact"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 6-7"/></svg>Impact</a>
+        <span class="side-group">M&amp;E</span>
+        <a class="side-link" data-page="mel-results"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg>Results</a>
+        <a class="side-link" data-page="mel-framework"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h6v6H4zM14 4h6v6h-6zM9 14h6v6H9z"/><path d="M7 10v2h10v-2M12 12v2"/></svg>Results framework</a>
+        <a class="side-link" data-page="mel-reports"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>M&amp;E reports</a>
         <span class="side-group">Manage</span>
         <a class="side-link" data-page="schools"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21V8l8-5 8 5v13"/><path d="M9 21v-6h6v6"/></svg>Schools</a>
         <a class="side-link" data-page="users"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Users</a>
@@ -156,6 +160,51 @@
           </div>
           <div id="dqList"></div>
           <div id="dqPager" class="lms-actions" style="justify-content:space-between;margin-top:.6rem;font-size:.82rem"></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="mel-results" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>M&amp;E results</h2></div>
+          <p class="hint" style="margin-top:0">Programme → outcomes → indicators: each one's baseline, target, actual, achievement and evidence for a term or school year. The county and school filters at the top choose where. Open an indicator to record its actual, verify it, add evidence or see it by county and school.</p>
+          <div class="filter-bar-row" style="margin-bottom:.8rem">
+            <div class="field"><label for="melProg">Programme</label><select id="melProg"></select></div>
+            <div class="field"><label for="melPeriod">Period</label><select id="melPeriod"></select></div>
+          </div>
+          <div id="melResults"><div class="empty-state">Loading…</div></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="mel-framework" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Results framework</h2><button type="button" class="btn btn-outline q-small" id="melNewProgBtn" hidden>+ New programme</button></div>
+          <p class="hint" style="margin-top:0">Each programme's outcomes, the indicators that measure them, where each indicator's data comes from, and its targets.</p>
+          <form id="melProgForm" class="fill-form dq-fix" hidden>
+            <b>New programme</b>
+            <div class="lms-grid3" style="grid-template-columns:8rem 1fr"><div class="field" style="margin:0"><label for="mp_code">Code</label><input id="mp_code" maxlength="40" placeholder="T2030"></div>
+              <div class="field" style="margin:0"><label for="mp_name">Name</label><input id="mp_name" maxlength="200" required placeholder="Teach2030"></div></div>
+            <div class="field" style="margin:0"><label for="mp_desc">Description</label><textarea id="mp_desc" rows="2" maxlength="4000"></textarea></div>
+            <div class="lms-grid3" style="grid-template-columns:1fr 1fr"><div class="field" style="margin:0"><label for="mp_start">Starts</label><input id="mp_start" type="date"></div>
+              <div class="field" style="margin:0"><label for="mp_end">Ends</label><input id="mp_end" type="date"></div></div>
+            <div class="lms-actions"><button class="btn btn-primary q-small" type="submit">Create</button><button class="btn btn-ghost q-small" type="button" id="melProgCancel">Cancel</button></div>
+          </form>
+          <div class="field" style="max-width:22rem"><label for="melFwProg">Programme</label><select id="melFwProg"></select></div>
+          <div id="melFramework"></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="mel-reports" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>M&amp;E reports</h2></div>
+          <p class="hint" style="margin-top:0">A report freezes the results for a programme, period and place (the county / school filter at the top). A draft can be refreshed; once final it never changes.</p>
+          <form id="melRepForm" class="filter-bar-row" style="margin-bottom:1rem;align-items:flex-end" hidden>
+            <div class="field"><label for="melRepProg">Programme</label><select id="melRepProg"></select></div>
+            <div class="field"><label for="melRepPeriod">Period</label><select id="melRepPeriod"></select></div>
+            <div class="field"><label for="melRepTitle">Title <span class="hint-inline">— optional</span></label><input id="melRepTitle" maxlength="200"></div>
+            <button class="btn btn-primary" type="submit">Generate</button>
+          </form>
+          <p class="field-hint" id="melRepScope"></p>
+          <div id="melReportList"></div>
         </div>
       </section>
 

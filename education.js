@@ -8,6 +8,7 @@ import {
 import {
   getLibrary, addLibraryItem, setLibraryPublished, deleteLibraryItem, updateLibraryItem, getForms, addForm, deleteForm, archiveForm, restoreForm, getResponses, getStats, getIntelligence,
   dqSummary, dqIssues, dqBulkStatus, dqScan,
+  melProgrammes, melProgramme, createMelProgramme, melResults, melReports, createMelReport, melReport, refreshMelReport, finalizeMelReport,
   uploadLibraryFiles, libraryFilesHtml, libraryTypeIcon, librarySectionsHtml, getLibraryUsage,
   getLibraryFolders, createLibraryFolder, deleteLibraryFolder, setLibraryFolder,
   koboConfig, saveKoboConfig, koboAssets, koboAssetPreview, koboForms, attachKoboForm,
@@ -17,12 +18,13 @@ import {
   getLearners, getAcademicYears, createAcademicYear,
   watchSchools, createSchool, renameSchool, deleteSchool, createCounty, deleteCounty, wireSchoolPicker,
 } from "./store.js";
-import { openIframeViewer } from "./viewer.js";
+import { openIframeViewer, openContentPanel } from "./viewer.js";
 import { formTagsHtml } from "./forms.js";
 import { statusPill, openHistoryPanel, openTransferDialog } from "./learners-ui.js";
 import { overviewHtml, learningHtml, implementationHtml, dataCollectionHtml, impactHtml } from "./intelligence-ui.js";
 import { openKoboPipeline, webhookBoxHtml, wireWebhookBox } from "./kobo-ui.js";
 import { dqTopHtml, dqTypesHtml, dqListHtml, openDqIssue } from "./dq-ui.js";
+import { resultsHtml, openIndicatorPanel, frameworkHtml, wireFramework, reportHtml, reportCsv } from "./mel-ui.js";
 
 const AUDIENCE_LABEL = Object.fromEntries(FORM_AUDIENCES.map((a) => [a.value, a.label]));
 const STAFF_ROLES = ROLES.filter((r) => r.value !== "learner");
@@ -50,6 +52,9 @@ async function main() {
     implementation: ["intelligence.view"],
     "data-collection": ["intelligence.view"],
     "data-quality": ["data_quality.view"],
+    "mel-results": ["me.view"],
+    "mel-framework": ["me.view"],
+    "mel-reports": ["me.view"],
     impact: ["intelligence.view"],
     schools: ["stats.view", "schools.manage"],
     users: ["users.view"],
@@ -248,6 +253,8 @@ async function main() {
   async function renderStats() {
     dqOffset = 0;
     renderDq();
+    renderMelResults();
+    renderMelReportScope();
     renderIntelligence();
     $("#schoolsBody").innerHTML = skeleton(4);
     let s;
@@ -434,6 +441,203 @@ async function main() {
       toast("Couldn't update them", friendlyError(err), "error");
     }
   });
+
+  /* ------------------------------------------------------------ M&E
+     Programme → outcomes → indicators → targets → actuals → evidence →
+     report. Results follow the county / school filters at the top. */
+  const mel = { programmes: [], periods: [], fw: null, res: null };
+  const melSelects = { prog: ["#melProg", "#melFwProg", "#melRepProg"], period: ["#melPeriod", "#melRepPeriod"] };
+  async function loadMel(selectId) {
+    if (!has("me.view")) return;
+    try {
+      const r = await melProgrammes();
+      mel.programmes = r.programmes;
+      mel.periods = r.periods;
+    } catch (err) {
+      $("#melResults").innerHTML = errorState(friendlyError(err), () => loadMel());
+      return;
+    }
+    for (const sel of melSelects.prog) {
+      const keep = selectId || $(sel).value;
+      $(sel).innerHTML = mel.programmes.length
+        ? mel.programmes.map((p) => `<option value="${esc(p.id)}">${esc(p.code ? `${p.code} · ` : "")}${esc(p.name)}${p.status === "closed" ? " (closed)" : ""}</option>`).join("")
+        : `<option value="">No programmes yet</option>`;
+      if (mel.programmes.some((p) => p.id === keep)) $(sel).value = keep;
+    }
+    for (const sel of melSelects.period) {
+      if ($(sel).value) continue;
+      $(sel).innerHTML = mel.periods.map((p) => `<option value="${esc(p.id)}">${esc(p.label)}</option>`).join("");
+      $(sel).value = (mel.periods.find((p) => p.current) ?? mel.periods[0])?.id ?? "";
+    }
+    $("#melNewProgBtn").hidden = !has("me.framework.manage");
+    $("#melRepForm").hidden = !has("me.reports.manage") || !mel.programmes.length;
+    renderMelResults();
+    renderMelFramework();
+    renderMelReports();
+  }
+  async function renderMelResults() {
+    if (!has("me.view") || !mel.periods.length) return;
+    const id = $("#melProg").value;
+    if (!id) {
+      $("#melResults").innerHTML = `<div class="empty-state">No programmes yet. ${has("me.framework.manage") ? "Create one on the Results framework page." : "M&E sets them up on the Results framework page."}</div>`;
+      return;
+    }
+    $("#melResults").innerHTML = skeleton(4, { avatar: false });
+    try {
+      mel.res = await melResults(id, { period: $("#melPeriod").value, county: gf.county, school: gf.school });
+      $("#melResults").innerHTML = resultsHtml(mel.res);
+    } catch (err) {
+      $("#melResults").innerHTML = errorState(friendlyError(err), renderMelResults);
+    }
+  }
+  $("#melProg").addEventListener("change", renderMelResults);
+  $("#melPeriod").addEventListener("change", renderMelResults);
+  $("#melResults").addEventListener("click", (e) => {
+    const tr = e.target.closest("[data-mel-ind]");
+    if (!tr || !mel.res) return;
+    const row = mel.res.outcomes.flatMap((o) => o.indicators).find((i) => i.id === tr.dataset.melInd);
+    if (!row) return;
+    openIndicatorPanel(row, mel.res, {
+      can: { record: has("me.actuals.record"), verify: has("me.actuals.verify"), userId: user.id },
+      onChange: renderMelResults,
+    });
+  });
+
+  async function renderMelFramework() {
+    const id = $("#melFwProg").value;
+    if (!id) {
+      $("#melFramework").innerHTML = `<div class="empty-state">No programmes yet.${has("me.framework.manage") ? " Start with “New programme”." : ""}</div>`;
+      return null;
+    }
+    $("#melFramework").innerHTML = skeleton(4, { avatar: false });
+    try {
+      mel.fw = await melProgramme(id);
+      $("#melFramework").innerHTML = frameworkHtml(mel.fw, has("me.framework.manage"));
+      return mel.fw;
+    } catch (err) {
+      $("#melFramework").innerHTML = errorState(friendlyError(err), renderMelFramework);
+      return null;
+    }
+  }
+  $("#melFwProg").addEventListener("change", renderMelFramework);
+  wireFramework($("#melFramework"), () => mel.fw, async () => { const fw = await renderMelFramework(); renderMelResults(); return fw; });
+  $("#melNewProgBtn").addEventListener("click", () => { $("#melProgForm").hidden = false; $("#mp_name").focus(); });
+  $("#melProgCancel").addEventListener("click", () => { $("#melProgForm").hidden = true; });
+  $("#melProgForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try {
+      const { id } = await createMelProgramme({
+        code: $("#mp_code").value.trim(), name: $("#mp_name").value.trim(), description: $("#mp_desc").value.trim(),
+        startDate: $("#mp_start").value || null, endDate: $("#mp_end").value || null,
+      });
+      e.target.reset();
+      $("#melProgForm").hidden = true;
+      toast("Programme created", "Now add its outcomes and indicators.", "success");
+      loadMel(id);
+    } catch (err) {
+      toast("Couldn't create it", friendlyError(err), "error");
+    }
+  });
+
+  /** Where a new report is for: the county / school picked at the top. */
+  function melReportScope() {
+    if (gf.school) {
+      const s = schoolDir.schools.find((x) => x.name === gf.school);
+      return s ? { scopeType: "school", scopeId: s.id, label: `${s.name} (${s.code})` } : { scopeType: "programme", scopeId: "", label: "Whole programme" };
+    }
+    if (gf.county) return { scopeType: "county", scopeId: gf.county, label: `${gf.county} County` };
+    return { scopeType: "programme", scopeId: "", label: "Whole programme" };
+  }
+  function renderMelReportScope() {
+    $("#melRepScope").textContent = has("me.reports.manage") ? `A new report covers: ${melReportScope().label} (change it with the county / school filter at the top).` : "";
+  }
+  async function renderMelReports() {
+    if (!has("me.view")) return;
+    renderMelReportScope();
+    $("#melReportList").innerHTML = skeleton(3, { avatar: false });
+    try {
+      const { reports } = await melReports();
+      const progName = (id) => mel.programmes.find((p) => p.id === id)?.name ?? "";
+      $("#melReportList").innerHTML = reports.length ? reports.map((r) => `
+        <div class="task-row" data-mel-report="${esc(r.id)}">
+          <div style="flex:1;min-width:0"><b>${esc(r.title)}</b><span>${r.status === "final" ? `<span class="pill ok">Final</span> ${esc(new Date(r.finalizedAt).toLocaleDateString())}` : `<span class="pill warm">Draft</span>`} · ${esc(progName(r.programmeId))} · generated ${esc(new Date(r.generatedAt).toLocaleDateString())} by ${esc(r.generatedBy || "—")}</span></div>
+          <button type="button" class="btn btn-outline q-small">Open</button>
+        </div>`).join("") : `<div class="empty-state">No reports yet.</div>`;
+    } catch (err) {
+      $("#melReportList").innerHTML = errorState(friendlyError(err), renderMelReports);
+    }
+  }
+  $("#melRepForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector("[type=submit]");
+    btn.disabled = true;
+    try {
+      const sc = melReportScope();
+      const { id } = await createMelReport({ programmeId: $("#melRepProg").value, period: $("#melRepPeriod").value, scopeType: sc.scopeType, scopeId: sc.scopeId, title: $("#melRepTitle").value.trim() });
+      $("#melRepTitle").value = "";
+      await renderMelReports();
+      openMelReport(id);
+    } catch (err) {
+      toast("Couldn't generate it", friendlyError(err), "error");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  $("#melReportList").addEventListener("click", (e) => {
+    const row = e.target.closest("[data-mel-report]");
+    if (row) openMelReport(row.dataset.melReport);
+  });
+  async function openMelReport(id) {
+    const panel = openContentPanel({ title: "M&E report", html: skeleton(5) });
+    let d;
+    try { d = await melReport(id); } catch (err) { panel.innerHTML = errorState(friendlyError(err)); return; }
+    const r = d.report;
+    const canManage = has("me.reports.manage");
+    panel.innerHTML = `
+      <div class="lms-actions" style="margin-bottom:.8rem">
+        <button type="button" class="btn btn-outline q-small" data-print>Print</button>
+        <button type="button" class="btn btn-outline q-small" data-csv>Download CSV</button>
+        ${canManage && r.status === "draft" ? `<button type="button" class="btn btn-outline q-small" data-refresh>Refresh with today's data</button>
+          <input type="text" data-final-note maxlength="2000" placeholder="Note for the final version (optional)" style="flex:1 1 12rem">
+          <button type="button" class="btn btn-primary q-small" data-finalize>Mark final</button>` : ""}
+      </div>
+      ${reportHtml(r, d.content)}`;
+    panel.addEventListener("click", async (e) => {
+      try {
+        if (e.target.closest("[data-print]")) {
+          const w = window.open("", "_blank");
+          if (!w) { toast("Allow pop-ups to print", "", "error"); return; }
+          w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(r.title)}</title>
+            <link rel="stylesheet" href="${new URL("styles.css", location.href)}">
+            <style>body{background:#fff;padding:1.5rem;color:#14213D} .mel-report{max-width:none} .lms-table-wrap{overflow:visible}</style></head>
+            <body>${reportHtml(r, d.content)}<script>addEventListener("load",()=>setTimeout(()=>print(),300))<\/script></body></html>`);
+          w.document.close();
+        }
+        if (e.target.closest("[data-csv]")) {
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(new Blob([reportCsv(r, d.content)], { type: "text/csv;charset=utf-8" }));
+          a.download = `${r.title.replace(/[^\w.-]+/g, "_")}.csv`;
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+        }
+        if (e.target.closest("[data-refresh]")) {
+          await refreshMelReport(id);
+          toast("Refreshed", "", "success");
+          openMelReport(id);
+        }
+        if (e.target.closest("[data-finalize]")) {
+          if (!(await confirmDialog({ title: "Mark this report final?", body: "It's then the record of what was reported and can never change. Generate a new report for any later update.", confirmLabel: "Mark final" }))) return;
+          await finalizeMelReport(id, panel.querySelector("[data-final-note]").value.trim());
+          toast("Report is final", "", "success");
+          renderMelReports();
+          openMelReport(id);
+        }
+      } catch (err) {
+        toast("Couldn't do that", friendlyError(err), "error");
+      }
+    });
+  }
+  loadMel();
 
   // A school name anywhere on these pages narrows everything to it.
   for (const p of INTEL_PAGES) {

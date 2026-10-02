@@ -83,6 +83,12 @@ export const PERMISSIONS = [
   "data_quality.view",    // the Data Quality Center: issues, score, history
   "data_quality.manage",  // move issues through review / resolve / ignore, and correct them
                           // (a correction also needs the permission for that edit itself)
+  // M&E: programme → outcomes → indicators → targets → actuals → evidence → report
+  "me.view",              // results, actuals, evidence and reports
+  "me.framework.manage",  // programmes, outcomes, indicators, targets
+  "me.actuals.record",    // record actuals and add evidence
+  "me.actuals.verify",    // verify actuals someone else recorded
+  "me.reports.manage",    // generate and finalize reports
   "school.overview.view",
   // KoboToolbox
   "kobo.manage",
@@ -114,6 +120,7 @@ const EDUCATION_TEAM: Permission[] = [
   "assignments.view.all",
   "field_reports.view.all",
   "stats.view", "intelligence.view", "data_quality.view", "data_quality.manage",
+  "me.view", "me.actuals.record",
   "kobo.manage", "kobo.results.view",
   "users.view",
 ];
@@ -123,13 +130,17 @@ const EDUCATION_TEAM: Permission[] = [
    gets the working-role permissions (a teacher's roster, filing a field
    visit, answering forms): administrators manage the portal, they don't
    act as a teacher or field officer inside it. */
+/* The M&E lead's part: owning the results framework, verifying what
+   others recorded, and issuing reports. */
+const ME_LEAD: Permission[] = ["me.framework.manage", "me.actuals.verify", "me.reports.manage"];
+
 const LEARNER_ADMIN: Permission[] = [
   "learners.manage.all", "learners.transfer", "classes.manage.all", "calendar.manage",
 ];
 
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
-  super_admin: [...EDUCATION_TEAM, ...USER_ADMIN, ...LEARNER_ADMIN],
-  admin: [...EDUCATION_TEAM, ...USER_ADMIN, ...LEARNER_ADMIN],
+  super_admin: [...EDUCATION_TEAM, ...USER_ADMIN, ...LEARNER_ADMIN, ...ME_LEAD],
+  admin: [...EDUCATION_TEAM, ...USER_ADMIN, ...LEARNER_ADMIN, ...ME_LEAD],
   education_team: EDUCATION_TEAM,
   me: [
     "learners.view.all", "learners.transfer",
@@ -138,6 +149,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "assignments.view.all",
     "field_reports.view.all",
     "stats.view", "intelligence.view", "data_quality.view", "data_quality.manage",
+    "me.view", "me.actuals.record", ...ME_LEAD,
     "kobo.results.view",
   ],
   field_officer: ["forms.respond", "field_reports.create", "field_reports.view.own", "kobo.surveys.fill"],

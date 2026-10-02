@@ -251,6 +251,7 @@ function freshWorld() {
     dq_issues: [],
     dq_issue_events: [],
     dq_scans: [],
+    me_programmes: [], me_outcomes: [], me_indicators: [], me_targets: [], me_actuals: [], me_evidence: [], me_reports: [],
     staff_invitations: [],
     audit_log: [],
   };
@@ -279,6 +280,7 @@ const ANALYSTS: R[] = ["super_admin", "admin", "education_team", "me"];
 const LEARNER_VIEWERS: R[] = [...ANALYSTS, "school_leader", "teacher"];
 const LEARNER_MANAGERS: R[] = ["super_admin", "admin", "school_leader", "teacher"];
 const CLASS_MANAGERS: R[] = ["super_admin", "admin", "school_leader"];
+const ME_LEAD_ROLES: R[] = ["super_admin", "admin", "me"];
 
 type RouteSpec = { method: string; path: string; route: string; who: R[]; body?: unknown };
 const r = (method: string, route: string, who: R[], body?: unknown, path?: string): RouteSpec =>
@@ -361,6 +363,27 @@ const ROUTES: RouteSpec[] = [
   r("PATCH", "/data-quality/issues/:id", ANALYSTS, { status: "UNDER_REVIEW" }),
   r("POST", "/data-quality/issues/bulk", ANALYSTS, { ids: ["x1"], status: "UNDER_REVIEW" }),
   r("POST", "/data-quality/issues/:id/fix", ANALYSTS, { action: "set_learner_grade", grade: "Grade 4" }),
+  r("GET", "/mel/programmes", ANALYSTS),
+  r("POST", "/mel/programmes", ME_LEAD_ROLES, { name: "Teach2030" }),
+  r("PATCH", "/mel/programmes/:id", ME_LEAD_ROLES, { name: "x" }),
+  r("GET", "/mel/programmes/:id", ANALYSTS),
+  r("GET", "/mel/programmes/:id/results", ANALYSTS, undefined, "/mel/programmes/x1/results?period=2026-T3"),
+  r("POST", "/mel/outcomes", ME_LEAD_ROLES, { programmeId: "x1", title: "O" }),
+  r("PATCH", "/mel/outcomes/:id", ME_LEAD_ROLES, { title: "O" }),
+  r("POST", "/mel/indicators", ME_LEAD_ROLES, { outcomeId: "x1", name: "I", source: "manual" }),
+  r("PATCH", "/mel/indicators/:id", ME_LEAD_ROLES, { name: "I" }),
+  r("GET", "/mel/indicators/:id/breakdown", ANALYSTS, undefined, "/mel/indicators/x1/breakdown?period=2026-T3"),
+  r("PUT", "/mel/targets", ME_LEAD_ROLES, { indicatorId: "x1", period: "2026-T3", scopeType: "programme", value: 75 }),
+  r("POST", "/mel/actuals", ANALYSTS, { indicatorId: "x1", period: "2026-T3", scopeType: "programme", value: 1 }),
+  r("GET", "/mel/actuals/:id", ANALYSTS),
+  r("POST", "/mel/actuals/:id/verify", ME_LEAD_ROLES, { decision: "verified" }),
+  r("POST", "/mel/actuals/:id/evidence", ANALYSTS, { kind: "note", title: "N" }),
+  r("POST", "/mel/actuals/:id/evidence-upload", ANALYSTS, { name: "a.pdf" }),
+  r("GET", "/mel/reports", ANALYSTS),
+  r("POST", "/mel/reports", ME_LEAD_ROLES, { programmeId: "x1", period: "2026-T3", scopeType: "programme" }),
+  r("GET", "/mel/reports/:id", ANALYSTS),
+  r("POST", "/mel/reports/:id/refresh", ME_LEAD_ROLES, {}),
+  r("POST", "/mel/reports/:id/finalize", ME_LEAD_ROLES, {}),
   r("GET", "/school/overview", ["school_leader"]),
   r("GET", "/users", EDU_ADMIN),
   r("GET", "/users/invitations", USER_ADMIN),
@@ -1309,4 +1332,121 @@ Deno.test("data quality corrections: through the normal edit, audited before/aft
   // The issue's own history reads in order.
   const hist = (await call("GET", `/data-quality/issues/${bg.id}`, "tok_me")).json.events.map((e: Row) => `${e.action}:${e.by}`);
   assertEquals(hist, ["detected:Scan", "corrected:admin person"]);
+});
+
+/* ------------------------------------------------------------ 12. M&E layer */
+
+/** Validated classroom observations in Term 3: was ICT integrated? */
+function melWorld() {
+  const db = freshWorld();
+  db.kobo_forms[0] = {
+    ...db.kobo_forms[0], title: "Teacher observation form",
+    schema: { version: "v1", meta: {}, choices: { yn: [{ name: "yes", label: "Yes" }, { name: "no", label: "No" }] },
+      fields: [{ xpath: "ict_used", name: "ict_used", label: "ICT integrated in the lesson?", type: "select_one", listName: "yn", orOther: false, required: true, relevant: null, repeats: [] }] },
+  };
+  const rec = (id: string, ict: string, o: Row = {}) => ({
+    id, kobo_form_id: "kb_1", kobo_id: Number(id.slice(1)), status: "valid", review: null, observed_on: "2026-09-15",
+    county: "Narok", school_id: SCHOOL.id, answers: { ict_used: ict }, ...o,
+  });
+  db.kobo_records.push(
+    rec("r1", "yes"), rec("r2", "yes"), rec("r3", "no"),
+    rec("r4", "yes", { school_id: SCHOOL_B.id }),
+    rec("r5", "no", { status: "invalid" }),                   // failed validation: not counted
+    rec("r6", "yes", { observed_on: "2026-06-01" }),          // Term 2
+  );
+  return db;
+}
+
+Deno.test("M&E: framework, targets, live actuals from validated data, by county and school", async () => {
+  const db = melWorld();
+  assertEquals((await call("POST", "/mel/programmes", "tok_education_team", { name: "X" })).status, 403, "the framework is M&E's");
+  const prog = (await call("POST", "/mel/programmes", "tok_me", { name: "Teach2030", code: "T2030" })).json.id;
+  const out = (await call("POST", "/mel/outcomes", "tok_me", { programmeId: prog, code: "1", title: "Teachers use ICT in teaching" })).json.id;
+  const bad = await call("POST", "/mel/indicators", "tok_me", { outcomeId: out, name: "x", source: "kobo", sourceConfig: { formId: "kb_1", measure: "percent_choice", question: "nope", choices: ["yes"] } });
+  assertEquals(bad.status, 400, "the question must be in the survey");
+  const ind = await call("POST", "/mel/indicators", "tok_me", {
+    outcomeId: out, code: "1.1", name: "% of teachers integrating ICT", unit: "percent", evidenceHint: "Teacher observation form",
+    source: "kobo", sourceConfig: { formId: "kb_1", measure: "percent_choice", question: "ict_used", choices: ["yes"] }, baselineValue: 40, baselinePeriod: "2026-T1",
+  });
+  assertEquals(ind.status, 200, JSON.stringify(ind.json));
+  assertEquals((await call("PUT", "/mel/targets", "tok_me", { indicatorId: ind.json.id, period: "2026-T3", scopeType: "programme", value: 75 })).status, 200);
+  assertEquals((await call("PUT", "/mel/targets", "tok_me", { indicatorId: ind.json.id, period: "2026-T3", scopeType: "school", scopeId: SCHOOL.id, value: 60 })).status, 200);
+  assertEquals((await call("PUT", "/mel/targets", "tok_me", { indicatorId: ind.json.id, period: "2031-T9", scopeType: "programme", value: 1 })).status, 400);
+  assert(db.audit_log.some((a) => a.action === "me.target_set" && a.details.to === 75));
+
+  const row = async (qs: string) => (await call("GET", `/mel/programmes/${prog}/results?period=2026-T3${qs}`, "tok_education_team")).json.outcomes[0].indicators[0];
+  const all = await row("");
+  assertEquals([all.value, all.live.numerator, all.live.denominator, all.valueSource], [75, 3, 4, "live"], "r1, r2, r4 of r1–r4; r5 failed checks, r6 is Term 2");
+  assertEquals([all.target.value, all.achievement.status], [75, "met"]);
+  const aitong = await row(`&school=${encodeURIComponent(SCHOOL.name)}`);
+  assertEquals([aitong.value, aitong.target, aitong.achievement.status], [66.7, { value: 60, from: "scope" }, "met"]);
+  const narok = await row("&county=Narok");
+  assertEquals([narok.value, narok.target.from], [75, "programme"], "no county target: the programme's applies");
+  const t2 = (await call("GET", `/mel/programmes/${prog}/results?period=2026-T2`, "tok_me")).json.outcomes[0].indicators[0];
+  assertEquals(t2.live.denominator, 1);
+  const bd = (await call("GET", `/mel/indicators/${ind.json.id}/breakdown?period=2026-T3`, "tok_me")).json.rows;
+  assertEquals(bd.find((r: Row) => r.scopeId === SCHOOL_B.id).value, 100);
+  assertEquals(bd.find((r: Row) => r.scopeType === "county" && r.scopeId === "Narok").value, 75);
+});
+
+Deno.test("M&E: actuals are recorded as snapshots with evidence, verified by someone else, versions kept", async () => {
+  const db = melWorld();
+  const prog = (await call("POST", "/mel/programmes", "tok_me", { name: "Teach2030" })).json.id;
+  const out = (await call("POST", "/mel/outcomes", "tok_me", { programmeId: prog, title: "ICT" })).json.id;
+  const ind = (await call("POST", "/mel/indicators", "tok_me", { outcomeId: out, name: "% integrating ICT", source: "kobo", sourceConfig: { formId: "kb_1", measure: "percent_choice", question: "ict_used", choices: ["yes"] } })).json.id;
+  const rec = await call("POST", "/mel/actuals", "tok_education_team", { indicatorId: ind, period: "2026-T3", scopeType: "programme" });
+  assertEquals([rec.status, rec.json.value], [200, 75]);
+  const a = db.me_actuals.find((x) => x.id === rec.json.id)!;
+  assertEquals([a.numerator, a.denominator, a.status, a.recorded_by], [3, 4, "recorded", "education_team-id"]);
+  const ev = db.me_evidence.find((e) => e.actual_id === a.id)!;
+  assertEquals([ev.kind, ev.title, ev.record_count, ev.kobo_form_id], ["kobo_form", "Teacher observation form", 4, "kb_1"]);
+  // The data changes later; the recorded value doesn't.
+  db.kobo_records.find((r) => r.id === "r3")!.answers.ict_used = "yes";
+  const res = (await call("GET", `/mel/programmes/${prog}/results?period=2026-T3`, "tok_me")).json.outcomes[0].indicators[0];
+  assertEquals([res.value, res.valueSource, res.live.value], [75, "recorded", 100]);
+  // Verification: not by the recorder; a rejection needs a reason.
+  assertEquals((await call("POST", `/mel/actuals/${a.id}/verify`, "tok_education_team", { decision: "verified" })).status, 403, "the Education Team records, M&E verifies");
+  const own = await call("POST", "/mel/actuals", "tok_me", { indicatorId: ind, period: "2026-T3", scopeType: "school", scopeId: SCHOOL.id });
+  assertEquals((await call("POST", `/mel/actuals/${own.json.id}/verify`, "tok_me", { decision: "verified" })).status, 403, "nobody verifies their own");
+  assertEquals((await call("POST", `/mel/actuals/${a.id}/verify`, "tok_me", { decision: "rejected" })).status, 400);
+  assertEquals((await call("POST", `/mel/actuals/${a.id}/verify`, "tok_me", { decision: "verified", note: "Checked 4 observation forms" })).status, 200);
+  assertEquals([a.status, a.verified_by], ["verified", "me-id"]);
+  assert(db.audit_log.some((x) => x.action === "me.actual_verified"));
+  // Re-recording keeps the old version.
+  const again = await call("POST", "/mel/actuals", "tok_education_team", { indicatorId: ind, period: "2026-T3", scopeType: "programme" });
+  assertEquals(again.json.value, 100);
+  assertEquals([a.superseded_by, !!a.superseded_at], [again.json.id, true]);
+  const versions = (await call("GET", `/mel/actuals/${again.json.id}`, "tok_me")).json.versions;
+  assertEquals(versions.map((v: Row) => [v.value, v.status, v.current]), [[100, "recorded", true], [75, "verified", false]]);
+  // Evidence a person adds.
+  assertEquals((await call("POST", `/mel/actuals/${again.json.id}/evidence`, "tok_education_team", { kind: "link", title: "Photos", url: "ftp://x" })).status, 400);
+  assertEquals((await call("POST", `/mel/actuals/${again.json.id}/evidence`, "tok_education_team", { kind: "link", title: "Observation photos", url: "https://drive.example/obs" })).status, 200);
+  assertEquals((await call("POST", `/mel/actuals/${a.id}/evidence`, "tok_education_team", { kind: "note", title: "x" })).status, 409, "only on the current version");
+  // Portal and manual sources.
+  const comp = (await call("POST", "/mel/indicators", "tok_me", { outcomeId: out, name: "Work handed in", source: "portal", sourceConfig: { metric: "completion_rate" } })).json.id;
+  assertEquals(db.me_indicators.find((x) => x.id === comp)!.unit, "percent", "the unit comes from the measure");
+  const man = (await call("POST", "/mel/indicators", "tok_me", { outcomeId: out, name: "Head teachers trained", unit: "count", source: "manual" })).json.id;
+  assertEquals((await call("POST", "/mel/actuals", "tok_education_team", { indicatorId: man, period: "2026-T3", scopeType: "programme" })).status, 400, "enter the value");
+  assertEquals((await call("POST", "/mel/actuals", "tok_education_team", { indicatorId: man, period: "2026-T3", scopeType: "programme", value: 12, note: "Training register" })).status, 200);
+});
+
+Deno.test("M&E reports: generated from the results, frozen once final", async () => {
+  const db = melWorld();
+  const prog = (await call("POST", "/mel/programmes", "tok_me", { name: "Teach2030" })).json.id;
+  const out = (await call("POST", "/mel/outcomes", "tok_me", { programmeId: prog, title: "ICT" })).json.id;
+  const ind = (await call("POST", "/mel/indicators", "tok_me", { outcomeId: out, name: "% integrating ICT", source: "kobo", sourceConfig: { formId: "kb_1", measure: "percent_choice", question: "ict_used", choices: ["yes"] } })).json.id;
+  await call("PUT", "/mel/targets", "tok_me", { indicatorId: ind, period: "2026-T3", scopeType: "county", scopeId: "Narok", value: 80 });
+  await call("POST", "/mel/actuals", "tok_education_team", { indicatorId: ind, period: "2026-T3", scopeType: "county", scopeId: "Narok" });
+  assertEquals((await call("POST", "/mel/reports", "tok_education_team", { programmeId: prog, period: "2026-T3", scopeType: "county", scopeId: "Narok" })).status, 403);
+  const made = await call("POST", "/mel/reports", "tok_me", { programmeId: prog, period: "2026-T3", scopeType: "county", scopeId: "Narok" });
+  assertEquals(made.status, 200, JSON.stringify(made.json));
+  const r = (await call("GET", `/mel/reports/${made.json.id}`, "tok_education_team")).json;
+  assertEquals(r.report.title, "Teach2030 — 2026 Term 3 — Narok County");
+  const i = r.content.outcomes[0].indicators[0];
+  assertEquals([i.value, i.target.value, i.achievement.status, i.valueSource, i.recorded.evidence[0].kind], [75, 80, "close", "recorded", "kobo_form"]);
+  assertEquals((await call("POST", `/mel/reports/${made.json.id}/finalize`, "tok_me", { note: "Submitted to the board" })).status, 200);
+  assertEquals((await call("POST", `/mel/reports/${made.json.id}/refresh`, "tok_me")).status, 409, "a final report never changes");
+  assertEquals((await call("POST", `/mel/reports/${made.json.id}/finalize`, "tok_me")).status, 409);
+  assert(db.audit_log.some((x) => x.action === "me.report_finalized"));
+  assertEquals((await call("GET", `/mel/reports?programmeId=${prog}`, "tok_education_team")).json.reports.map((x: Row) => x.status), ["final"]);
 });

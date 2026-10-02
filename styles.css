@@ -1380,3 +1380,28 @@ a.btn.form-open{ margin-bottom:.2rem; }
 a.stat-tile.dq-tile-link{ text-decoration:none; color:inherit; }
 a.stat-tile.dq-tile-link:hover{ border-color:var(--brand); }
 @media (max-width:640px){ .dq-top{ grid-template-columns:1fr; } }
+
+/* ---------------------------------------------------------------- M&E layer (mel-ui.js) */
+.mel-summary{ display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; margin:0 0 .8rem; }
+.mel-outcome{ margin-bottom:1.2rem; }
+.mel-outcome h3{ margin:.2rem 0 .5rem; font-size:1rem; }
+.mel-outcome-head, .mel-prog-head{ display:flex; flex-wrap:wrap; justify-content:space-between; gap:.6rem; align-items:center; }
+.mel-prog-head{ margin-bottom:1rem; padding-bottom:.7rem; border-bottom:1px solid var(--line); }
+.mel-table tbody tr[data-mel-ind]{ cursor:pointer; }
+.mel-table tbody tr[data-mel-ind]:hover td{ background:var(--brand-soft); }
+.mel-ind{ display:flex; flex-wrap:wrap; gap:.6rem; justify-content:space-between; align-items:flex-start; padding:.6rem .75rem; border:1px solid var(--line); border-radius:var(--radius-md); margin-bottom:.45rem; background:var(--paper-raised); }
+.mel-ind > div{ flex:1; min-width:14rem; display:flex; flex-direction:column; gap:.15rem; }
+.mel-evidence{ margin:.2rem 0 .4rem; padding-left:1.1rem; font-size:.86rem; }
+.mel-evidence li{ margin-bottom:.25rem; overflow-wrap:anywhere; }
+.mel-source{ border:1px solid var(--line); border-radius:var(--radius-md); padding:.6rem .8rem; margin:0 0 1rem; }
+.mel-source legend{ font-weight:700; font-size:.85rem; padding:0 .3rem; }
+.mel-source [data-src]{ margin-top:.6rem; padding-top:.6rem; border-top:1px dashed var(--line); }
+.mel-choices{ display:flex; flex-wrap:wrap; gap:.2rem 1rem; }
+.lms-table tr.mel-scope-programme td{ font-weight:700; }
+.lms-table tr.mel-scope-county td.lms-name{ padding-left:1rem; }
+.lms-table tr.mel-scope-school td.lms-name{ padding-left:2rem; color:var(--ink-soft); }
+.mel-report header{ margin-bottom:1rem; }
+.mel-report h2{ margin:.2rem 0; }
+.mel-report section{ margin-bottom:1.2rem; break-inside:avoid; }
+.mel-report section h3{ font-size:1rem; margin:.3rem 0 .4rem; }
+@media print{ .mel-report .lms-table{ min-width:0; font-size:.75rem; } }

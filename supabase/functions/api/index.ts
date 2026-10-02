@@ -39,6 +39,10 @@ import {
   type IssueType as DqIssueType, qualityScore, SEVERITIES as DQ_SEVERITIES, type Snapshot as DqSnapshot,
   STATUS_MOVES as DQ_STATUS_MOVES, STATUSES as DQ_STATUSES,
 } from "./data_quality.ts";
+import {
+  achievement, cleanSourceConfig, type Computed, koboInScope, koboMeasure, periodRange, PORTAL_METRICS,
+  type Scope as MeScope, targetFor, UNITS as ME_UNITS,
+} from "./me.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY =
@@ -3969,15 +3973,12 @@ app.get("/school/overview", requirePermission("school.overview.view"), async (c)
 // read, computed by intelligence.ts from the raw rows. Filters: ?county=
 // ?school= (name, as in /stats) ?from= ?to= (YYYY-MM-DD; applied to rows
 // that carry a real date).
-app.get("/intelligence", requirePermission("intelligence.view"), async (c) => {
-  const q = (k: string) => String(c.req.query(k) ?? "").trim() || null;
-  const date = (k: string) => { const v = q(k); return v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null; };
+/** Everything buildIntelligence() reads, loaded once. Throws on a failed read
+    (a failed read must never show up as zeros). */
+async function loadIntelligenceInput(): Promise<Parameters<typeof buildIntelligence>[0]> {
   const read = (table: string, cols: string, order = "id") =>
     selectAll(() => admin.from(table).select(cols).order(order));
-  const [
-    schools, profiles, learners, enrollments, terms, classes, classTeachers, subjects, assignments, submissions,
-    fieldReports, forms, responses, koboForms, koboSubmissions, libraryItems, libraryInteractions, koboRecords, koboIssues,
-  ] = await Promise.all([
+  const r = await Promise.all([
     read("schools", "id, name, county, code"),
     read("profiles", "id, role, status, school_id, county"),
     read("learners", "id, school_id, class_id, grade, enrollment_status"),
@@ -3998,19 +3999,23 @@ app.get("/intelligence", requirePermission("intelligence.view"), async (c) => {
     read("kobo_records", "id, kobo_form_id, status, review, school_id, county, officer_id, submitted_at, warning_count"),
     read("kobo_record_issues", "id, record_id, rule, severity"),
   ]);
-  const all = [schools, profiles, learners, enrollments, terms, classes, classTeachers, subjects, assignments, submissions,
-    fieldReports, forms, responses, koboForms, koboSubmissions, libraryItems, libraryInteractions, koboRecords, koboIssues];
-  const failed = all.find((r) => r.error);
-  // A failed read must never show up as zeros.
-  if (failed) return c.json({ error: failed.error!.message }, 500);
-  return c.json(buildIntelligence({
-    schools: schools.data, profiles: profiles.data, learners: learners.data, enrollments: enrollments.data,
-    terms: terms.data, classes: classes.data, classTeachers: classTeachers.data, subjects: subjects.data,
-    assignments: assignments.data, submissions: submissions.data, fieldReports: fieldReports.data,
-    forms: forms.data, responses: responses.data, koboForms: koboForms.data, koboSubmissions: koboSubmissions.data,
-    libraryItems: libraryItems.data, libraryInteractions: libraryInteractions.data,
-    koboRecords: koboRecords.data, koboIssues: koboIssues.data, bands: await loadBands(),
-  }, { county: q("county"), school: q("school"), from: date("from"), to: date("to") }));
+  const failed = r.find((x) => x.error);
+  if (failed) throw new Error(failed.error!.message);
+  const [schools, profiles, learners, enrollments, terms, classes, classTeachers, subjects, assignments, submissions,
+    fieldReports, forms, responses, koboForms, koboSubmissions, libraryItems, libraryInteractions, koboRecords, koboIssues] = r.map((x) => x.data);
+  return {
+    schools, profiles, learners, enrollments, terms, classes, classTeachers, subjects, assignments, submissions,
+    fieldReports, forms, responses, koboForms, koboSubmissions, libraryItems, libraryInteractions, koboRecords, koboIssues,
+    bands: await loadBands(),
+  };
+}
+
+app.get("/intelligence", requirePermission("intelligence.view"), async (c) => {
+  const q = (k: string) => String(c.req.query(k) ?? "").trim() || null;
+  const date = (k: string) => { const v = q(k); return v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null; };
+  let input;
+  try { input = await loadIntelligenceInput(); } catch (e) { return c.json({ error: (e as Error).message }, 500); }
+  return c.json(buildIntelligence(input, { county: q("county"), school: q("school"), from: date("from"), to: date("to") }));
 });
 
 // ---------------------------------------------------------------- Data Quality Center
@@ -4536,6 +4541,674 @@ app.post("/data-quality/issues/:id/fix", requirePermission("data_quality.manage"
   // Check the data again: if the problem is still there, the issue reopens.
   try { await runDqScan(actorId, "correction"); } catch (e) { console.error("dq scan after correction:", (e as Error).message); }
   return c.json(await dqIssueDetail(c, i.id));
+});
+
+// ---------------------------------------------------------------- M&E layer (/mel)
+// PROGRAMME → OUTCOMES → INDICATORS → TARGETS → ACTUALS → EVIDENCE → REPORT.
+// The rules are in me.ts. Framework and targets: M&E (and admins). Actuals
+// are RECORDED (a snapshot of the value and how it was worked out, with
+// evidence attached automatically) and VERIFIED by someone else. Reports
+// freeze the results for a period; a final one can never change.
+
+type MelScope = MeScope & { schoolName?: string; county?: string };
+
+async function melScope(type: unknown, id: unknown): Promise<MelScope | null> {
+  const t = String(type ?? "programme");
+  const v = String(id ?? "").trim();
+  if (t === "programme") return { type: "programme", id: "", label: "Whole programme" };
+  if (t === "county") {
+    const counties = await loadCounties().catch(() => [] as County[]);
+    return counties.some((c) => c.name === v) ? { type: "county", id: v, label: `${v} County`, county: v } : null;
+  }
+  if (t === "school") {
+    const s = await loadSchool(v);
+    return s ? { type: "school", id: s.id, label: `${s.name} (${s.code})`, schoolName: s.name, county: s.county } : null;
+  }
+  return null;
+}
+
+async function melCalendar() {
+  const [{ data: terms }, { data: years }] = await Promise.all([
+    admin.from("terms").select("*").order("id"),
+    admin.from("academic_years").select("*").order("id"),
+  ]);
+  const t = (terms ?? []).sort((a: Record<string, any>, b: Record<string, any>) => String(a.starts_on).localeCompare(String(b.starts_on)));
+  const y = (years ?? []).sort((a: Record<string, any>, b: Record<string, any>) => String(a.id).localeCompare(String(b.id)));
+  const today = new Date().toISOString().slice(0, 10);
+  const periods: { id: string; label: string; current: boolean }[] = [];
+  for (const yr of y) {
+    for (const term of t.filter((x: Record<string, any>) => x.academic_year_id === yr.id)) {
+      periods.push({ id: term.id, label: periodRange(term.id, t, y)!.label, current: term.starts_on <= today && today <= term.ends_on });
+    }
+    periods.push({ id: yr.id, label: `${yr.id} school year`, current: false });
+  }
+  return { terms: t, years: y, periods };
+}
+
+const mapIndicator = (i: Record<string, any>) => ({
+  id: i.id, outcomeId: i.outcome_id, code: i.code, name: i.name, definition: i.definition, unit: i.unit, direction: i.direction,
+  source: i.source, sourceConfig: i.source_config ?? {}, evidenceHint: i.evidence_hint ?? "",
+  baselineValue: i.baseline_value == null ? null : Number(i.baseline_value), baselinePeriod: i.baseline_period ?? null,
+  archived: !!i.archived_at,
+});
+
+/** Live values for indicators in one period and scope, from Kobo records
+    and the portal's own measures. Loads only what the indicators need. */
+async function melLive(indicators: Record<string, any>[], range: { from: string; to: string }, scopes: MelScope[]) {
+  const needIntel = indicators.some((i) => i.source === "portal");
+  const formIds = [...new Set(indicators.filter((i) => i.source === "kobo").map((i) => i.source_config?.formId).filter(Boolean))] as string[];
+  const [input, kobo] = await Promise.all([
+    needIntel ? loadIntelligenceInput() : null,
+    formIds.length ? selectIn("kobo_records", "kobo_form_id", formIds, "id, kobo_form_id, status, review, observed_on, county, school_id, answers") : [],
+  ]);
+  const out = new Map<string, Computed>(); // `${indicatorId}|${scopeType}|${scopeId}`
+  for (const scope of scopes) {
+    const intel = input ? buildIntelligence(input, {
+      county: scope.type === "county" ? scope.id : null, school: scope.type === "school" ? scope.schoolName : null, from: range.from, to: range.to,
+    }) : null;
+    for (const i of indicators) {
+      let v: Computed | null = null;
+      if (i.source === "portal" && intel) v = PORTAL_METRICS[i.source_config?.metric]?.get(intel, i.source_config ?? {}) ?? null;
+      if (i.source === "kobo") v = koboMeasure(koboInScope(kobo, i.source_config?.formId, range, scope), i.source_config ?? {});
+      if (v) out.set(`${i.id}|${scope.type}|${scope.id}`, v);
+    }
+  }
+  return out;
+}
+
+async function melProgrammeTree(programmeId: string, includeArchived = false) {
+  const { data: programme } = await admin.from("me_programmes").select("*").eq("id", programmeId).maybeSingle();
+  if (!programme) return null;
+  const { data: outcomes } = await admin.from("me_outcomes").select("*").eq("programme_id", programmeId);
+  const oIds = (outcomes ?? []).map((o: Record<string, any>) => o.id as string);
+  const indicators = oIds.length ? await selectIn("me_indicators", "outcome_id", oIds) : [];
+  const live = (x: Record<string, any>) => includeArchived || !x.archived_at;
+  const byPos = (a: Record<string, any>, b: Record<string, any>) => (a.position - b.position) || String(a.code).localeCompare(String(b.code), undefined, { numeric: true }) || String(a.created_at).localeCompare(String(b.created_at));
+  return {
+    programme,
+    outcomes: (outcomes ?? []).filter(live).sort(byPos).map((o: Record<string, any>) => ({
+      ...o, indicators: indicators.filter((i) => i.outcome_id === o.id && live(i)).sort(byPos),
+    })),
+    indicators: indicators.filter(live),
+  };
+}
+
+/** The results table for a programme, period and scope: target, live value,
+    recorded (and verified) value, achievement and evidence per indicator. */
+async function melResults(programmeId: string, period: string, scope: MelScope) {
+  const tree = await melProgrammeTree(programmeId);
+  if (!tree) return { error: "Programme not found", status: 404 as const };
+  const cal = await melCalendar();
+  const range = periodRange(period, cal.terms, cal.years);
+  if (!range) return { error: "Choose a term or school year", status: 400 as const };
+  const ids = tree.indicators.map((i) => i.id as string);
+  const [targets, actuals, live] = await Promise.all([
+    ids.length ? selectIn("me_targets", "indicator_id", ids) : [],
+    ids.length ? selectIn("me_actuals", "indicator_id", ids) : [],
+    melLive(tree.indicators, range, [scope]),
+  ]);
+  const current = actuals.filter((a) => !a.superseded_at && a.period === period && a.scope_type === scope.type && (a.scope_id ?? "") === scope.id);
+  const evidence = current.length ? await selectIn("me_evidence", "actual_id", current.map((a) => a.id as string)) : [];
+  const people = await dqNames([...current.flatMap((a) => [a.recorded_by, a.verified_by])]);
+  const summary = { met: 0, close: 0, not_met: 0, no_data: 0 };
+  const outcomes = tree.outcomes.map((o: Record<string, any>) => ({
+    id: o.id, code: o.code, title: o.title, description: o.description,
+    indicators: o.indicators.map((i: Record<string, any>) => {
+      const rec = current.find((a) => a.indicator_id === i.id) ?? null;
+      const lv = live.get(`${i.id}|${scope.type}|${scope.id}`) ?? null;
+      const tgt = targetFor(targets, i.id, period, scope);
+      const value = rec?.status !== "rejected" && rec?.value != null ? Number(rec.value) : lv?.value ?? null;
+      const valueSource = rec && rec.status !== "rejected" ? rec.status : lv?.value != null ? "live" : "none";
+      const ach = achievement(value, tgt?.value ?? null, i.direction);
+      summary[ach.status]++;
+      return {
+        ...mapIndicator(i),
+        target: tgt ? { value: tgt.value, from: tgt.from } : null,
+        live: lv,
+        recorded: rec ? {
+          id: rec.id, value: rec.value == null ? null : Number(rec.value), numerator: rec.numerator == null ? null : Number(rec.numerator),
+          denominator: rec.denominator == null ? null : Number(rec.denominator), n: rec.n, method: rec.method, note: rec.note, status: rec.status,
+          recordedBy: people.get(rec.recorded_by) ?? null, recordedById: rec.recorded_by ?? null, recordedAt: rec.recorded_at,
+          verifiedBy: rec.verified_by ? people.get(rec.verified_by) ?? null : null, verifiedAt: rec.verified_at ?? null, verificationNote: rec.verification_note ?? null,
+          evidence: evidence.filter((e) => e.actual_id === rec.id).map((e) => ({
+            id: e.id, kind: e.kind, title: e.title, recordCount: e.record_count ?? null, url: e.url ?? null,
+            fileName: e.file?.name ?? null, details: e.details ?? {}, addedAt: e.added_at,
+          })),
+        } : null,
+        value, valueSource, achievement: ach,
+      };
+    }),
+  }));
+  return {
+    programme: { id: tree.programme.id, code: tree.programme.code, name: tree.programme.name, description: tree.programme.description },
+    period: { id: period, label: range.label, from: range.from, to: range.to },
+    scope: { type: scope.type, id: scope.id, label: scope.label },
+    outcomes, summary,
+  };
+}
+
+// ---- framework: programmes, outcomes, indicators, targets ----
+
+app.get("/mel/programmes", requirePermission("me.view"), async (c) => {
+  const { data: programmes } = await selectAll(() => admin.from("me_programmes").select("*").order("id"));
+  const { data: outcomes } = await selectAll(() => admin.from("me_outcomes").select("id, programme_id, archived_at").order("id"));
+  const { data: indicators } = await selectAll(() => admin.from("me_indicators").select("id, outcome_id, archived_at").order("id"));
+  const cal = await melCalendar();
+  return c.json({
+    periods: cal.periods,
+    programmes: (programmes ?? []).sort((a, b) => String(a.name).localeCompare(String(b.name))).map((p) => {
+      const os = (outcomes ?? []).filter((o) => o.programme_id === p.id && !o.archived_at);
+      return {
+        id: p.id, code: p.code, name: p.name, description: p.description, status: p.status, startDate: p.start_date, endDate: p.end_date,
+        outcomes: os.length, indicators: (indicators ?? []).filter((i) => !i.archived_at && os.some((o) => o.id === i.outcome_id)).length,
+      };
+    }),
+  });
+});
+
+function readProgramme(b: Record<string, any>, partial: boolean): Record<string, unknown> | { error: string } {
+  const out: Record<string, unknown> = {};
+  if (!partial || b.name !== undefined) {
+    const name = String(b.name ?? "").trim();
+    if (!name || name.length > 200) return { error: "Give the programme a name" };
+    out.name = name;
+  }
+  if (b.code !== undefined) out.code = String(b.code ?? "").trim().slice(0, 40);
+  if (b.description !== undefined) out.description = String(b.description ?? "").trim().slice(0, 4000);
+  for (const [k, col] of [["startDate", "start_date"], ["endDate", "end_date"]] as const) {
+    if (b[k] !== undefined) {
+      if (b[k] && !DATE_RE.test(String(b[k]))) return { error: "Dates look like 2026-01-31" };
+      out[col] = b[k] || null;
+    }
+  }
+  if (b.status !== undefined) {
+    if (!["active", "closed"].includes(b.status)) return { error: "Status is active or closed" };
+    out.status = b.status;
+  }
+  return out;
+}
+
+app.post("/mel/programmes", requirePermission("me.framework.manage"), async (c) => {
+  const fields = readProgramme(await c.req.json().catch(() => ({})), false);
+  if ("error" in fields) return c.json(fields, 400);
+  const id = rid("prog");
+  const { error } = await admin.from("me_programmes").insert({ id, status: "active", ...fields, created_by: c.get("actor").id });
+  if (error) return c.json({ error: error.message }, 400);
+  await audit(c, "me.programme_created", "me_programme", id, { name: fields.name });
+  return c.json({ id });
+});
+
+app.patch("/mel/programmes/:id", requirePermission("me.framework.manage"), async (c) => {
+  const { data: p } = await admin.from("me_programmes").select("id").eq("id", c.req.param("id")).maybeSingle();
+  if (!p) return c.json({ error: "Programme not found" }, 404);
+  const fields = readProgramme(await c.req.json().catch(() => ({})), true);
+  if ("error" in fields) return c.json(fields, 400);
+  await admin.from("me_programmes").update({ ...fields, updated_at: new Date().toISOString() }).eq("id", p.id);
+  await audit(c, "me.programme_updated", "me_programme", p.id, { fields: Object.keys(fields) });
+  return c.json({ ok: true });
+});
+
+/* The whole framework of one programme, with what's needed to edit it:
+   periods, scopes, and the sources an indicator can draw on. */
+app.get("/mel/programmes/:id", requirePermission("me.view"), async (c) => {
+  const tree = await melProgrammeTree(c.req.param("id"), c.req.query("archived") === "1");
+  if (!tree) return c.json({ error: "Programme not found" }, 404);
+  const ids = tree.indicators.map((i) => i.id as string);
+  const [targets, cal, { data: forms }, { data: schools }, counties] = await Promise.all([
+    ids.length ? selectIn("me_targets", "indicator_id", ids) : [],
+    melCalendar(),
+    admin.from("kobo_forms").select("id, title, active, schema"),
+    selectAll(() => admin.from("schools").select("id, name, code, county").order("id")),
+    loadCounties().catch(() => [] as County[]),
+  ]);
+  const p = tree.programme;
+  return c.json({
+    programme: { id: p.id, code: p.code, name: p.name, description: p.description, status: p.status, startDate: p.start_date, endDate: p.end_date },
+    outcomes: tree.outcomes.map((o: Record<string, any>) => ({
+      id: o.id, code: o.code, title: o.title, description: o.description, archived: !!o.archived_at,
+      indicators: o.indicators.map(mapIndicator),
+    })),
+    targets: targets.map((t) => ({ indicatorId: t.indicator_id, period: t.period, scopeType: t.scope_type, scopeId: t.scope_id, value: Number(t.target_value), note: t.note ?? null })),
+    periods: cal.periods,
+    scopes: { counties: counties.map((x) => x.name), schools: (schools ?? []).map((s) => ({ id: s.id, name: s.name, code: s.code, county: s.county })) },
+    sources: {
+      portal: Object.entries(PORTAL_METRICS).map(([key, m]) => ({ key, label: m.label, unit: m.unit })),
+      visitTypes: [...INTEL_VISIT_TYPES],
+      kobo: (forms ?? []).filter((f: Record<string, any>) => f.active !== false).map((f: Record<string, any>) => {
+        const schema = f.schema as KoboSchema | null;
+        return {
+          id: f.id, title: f.title, synced: !!schema,
+          fields: (schema?.fields ?? []).filter((x) => !x.repeats.length && x.type !== "hidden").map((x) => ({
+            xpath: x.xpath, label: x.label, type: x.type,
+            choices: x.listName ? (schema!.choices[x.listName] ?? []).map((ch) => ({ name: ch.name, label: ch.label })) : [],
+          })),
+        };
+      }),
+    },
+  });
+});
+
+async function melOutcomeOf(id: unknown) {
+  const { data } = await admin.from("me_outcomes").select("*").eq("id", String(id ?? "")).maybeSingle();
+  return data;
+}
+
+app.post("/mel/outcomes", requirePermission("me.framework.manage"), async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const { data: p } = await admin.from("me_programmes").select("id").eq("id", String(b.programmeId ?? "")).maybeSingle();
+  if (!p) return c.json({ error: "Programme not found" }, 404);
+  const title = String(b.title ?? "").trim();
+  if (!title || title.length > 300) return c.json({ error: "Give the outcome a title" }, 400);
+  const id = rid("out");
+  const { error } = await admin.from("me_outcomes").insert({
+    id, programme_id: p.id, code: String(b.code ?? "").trim().slice(0, 20), title,
+    description: String(b.description ?? "").trim().slice(0, 4000), position: Number(b.position) || 0,
+  });
+  if (error) return c.json({ error: error.message }, 400);
+  await audit(c, "me.outcome_created", "me_outcome", id, { programmeId: p.id, title });
+  return c.json({ id });
+});
+
+app.patch("/mel/outcomes/:id", requirePermission("me.framework.manage"), async (c) => {
+  const o = await melOutcomeOf(c.req.param("id"));
+  if (!o) return c.json({ error: "Outcome not found" }, 404);
+  const b = await c.req.json().catch(() => ({}));
+  const patch: Record<string, unknown> = {};
+  if (b.title !== undefined) {
+    const t = String(b.title).trim();
+    if (!t) return c.json({ error: "Give the outcome a title" }, 400);
+    patch.title = t.slice(0, 300);
+  }
+  if (b.code !== undefined) patch.code = String(b.code).trim().slice(0, 20);
+  if (b.description !== undefined) patch.description = String(b.description).trim().slice(0, 4000);
+  if (b.position !== undefined) patch.position = Number(b.position) || 0;
+  if (b.archived !== undefined) patch.archived_at = b.archived ? new Date().toISOString() : null;
+  await admin.from("me_outcomes").update(patch).eq("id", o.id);
+  await audit(c, "me.outcome_updated", "me_outcome", o.id, { fields: Object.keys(patch) });
+  return c.json({ ok: true });
+});
+
+/** Indicator fields, checked — including where its actuals come from. */
+async function readIndicator(b: Record<string, any>, existing: Record<string, any> | null): Promise<Record<string, unknown> | { error: string }> {
+  const out: Record<string, unknown> = {};
+  if (!existing || b.name !== undefined) {
+    const name = String(b.name ?? "").trim();
+    if (!name || name.length > 300) return { error: "Give the indicator a name" };
+    out.name = name;
+  }
+  if (b.code !== undefined) out.code = String(b.code ?? "").trim().slice(0, 20);
+  if (b.definition !== undefined) out.definition = String(b.definition ?? "").trim().slice(0, 4000);
+  if (b.evidenceHint !== undefined) out.evidence_hint = String(b.evidenceHint ?? "").trim().slice(0, 300);
+  if (b.unit !== undefined) {
+    if (!ME_UNITS.includes(b.unit)) return { error: "Unit is percent, count or number" };
+    out.unit = b.unit;
+  }
+  if (b.direction !== undefined) {
+    if (!["increase", "decrease"].includes(b.direction)) return { error: "Direction is increase or decrease" };
+    out.direction = b.direction;
+  }
+  if (b.baselineValue !== undefined) {
+    if (b.baselineValue === null || b.baselineValue === "") out.baseline_value = null;
+    else if (!Number.isFinite(Number(b.baselineValue))) return { error: "The baseline is a number" };
+    else out.baseline_value = Number(b.baselineValue);
+  }
+  if (b.baselinePeriod !== undefined) out.baseline_period = String(b.baselinePeriod ?? "").trim().slice(0, 40) || null;
+  if (!existing || b.source !== undefined || b.sourceConfig !== undefined) {
+    const source = String(b.source ?? existing?.source ?? "manual");
+    const raw = b.sourceConfig ?? existing?.source_config ?? {};
+    let kobo = null;
+    if (source === "kobo" && raw.formId) {
+      const { data: f } = await admin.from("kobo_forms").select("id, schema").eq("id", String(raw.formId)).maybeSingle();
+      if (!f) return { error: "That Kobo survey isn't attached" };
+      kobo = { fields: ((f.schema as KoboSchema | null)?.fields ?? []).filter((x) => !x.repeats.length) };
+    }
+    const clean = cleanSourceConfig(source, raw, kobo);
+    if ("error" in clean) return clean;
+    out.source = source;
+    out.source_config = clean.config;
+    if (source === "portal" && b.unit === undefined && !existing) out.unit = PORTAL_METRICS[clean.config.metric].unit;
+  }
+  return out;
+}
+
+app.post("/mel/indicators", requirePermission("me.framework.manage"), async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const o = await melOutcomeOf(b.outcomeId);
+  if (!o) return c.json({ error: "Outcome not found" }, 404);
+  const fields = await readIndicator(b, null);
+  if ("error" in fields) return c.json(fields, 400);
+  const id = rid("ind");
+  const { error } = await admin.from("me_indicators").insert({ id, outcome_id: o.id, position: Number(b.position) || 0, unit: "percent", direction: "increase", ...fields });
+  if (error) return c.json({ error: error.message }, 400);
+  await audit(c, "me.indicator_created", "me_indicator", id, { outcomeId: o.id, name: fields.name, source: fields.source });
+  return c.json({ id });
+});
+
+app.patch("/mel/indicators/:id", requirePermission("me.framework.manage"), async (c) => {
+  const { data: i } = await admin.from("me_indicators").select("*").eq("id", c.req.param("id")).maybeSingle();
+  if (!i) return c.json({ error: "Indicator not found" }, 404);
+  const b = await c.req.json().catch(() => ({}));
+  const fields = await readIndicator(b, i);
+  if ("error" in fields) return c.json(fields, 400);
+  if (b.archived !== undefined) fields.archived_at = b.archived ? new Date().toISOString() : null;
+  await admin.from("me_indicators").update({ ...fields, updated_at: new Date().toISOString() }).eq("id", i.id);
+  await audit(c, "me.indicator_updated", "me_indicator", i.id, { fields: Object.keys(fields) });
+  return c.json({ ok: true });
+});
+
+/* Set (or clear, with value null) a target for an indicator, period and
+   scope. Every change is in the audit log, with the old and new value. */
+app.put("/mel/targets", requirePermission("me.framework.manage"), async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const { data: i } = await admin.from("me_indicators").select("id").eq("id", String(b.indicatorId ?? "")).maybeSingle();
+  if (!i) return c.json({ error: "Indicator not found" }, 404);
+  const cal = await melCalendar();
+  if (!periodRange(String(b.period ?? ""), cal.terms, cal.years)) return c.json({ error: "Choose a term or school year" }, 400);
+  const scope = await melScope(b.scopeType, b.scopeId);
+  if (!scope) return c.json({ error: "Choose the whole programme, a county or a school" }, 400);
+  const { data: existing } = await admin.from("me_targets").select("*").eq("indicator_id", i.id).eq("period", b.period)
+    .eq("scope_type", scope.type).eq("scope_id", scope.id).maybeSingle();
+  if (b.value === null || b.value === "") {
+    if (existing) {
+      await admin.from("me_targets").delete().eq("id", existing.id);
+      await audit(c, "me.target_cleared", "me_indicator", i.id, { period: b.period, scope: `${scope.type}:${scope.id}`, from: Number(existing.target_value) });
+    }
+    return c.json({ ok: true });
+  }
+  const value = Number(b.value);
+  if (!Number.isFinite(value)) return c.json({ error: "The target is a number" }, 400);
+  const row = { target_value: value, note: String(b.note ?? "").trim().slice(0, 1000) || null, set_by: c.get("actor").id, set_at: new Date().toISOString() };
+  const { error } = existing
+    ? await admin.from("me_targets").update(row).eq("id", existing.id)
+    : await admin.from("me_targets").insert({ id: rid("tgt"), indicator_id: i.id, period: b.period, scope_type: scope.type, scope_id: scope.id, ...row });
+  if (error) return c.json({ error: error.message }, 400);
+  await audit(c, "me.target_set", "me_indicator", i.id, { period: b.period, scope: `${scope.type}:${scope.id}`, from: existing ? Number(existing.target_value) : null, to: value });
+  return c.json({ ok: true });
+});
+
+// ---- results, actuals, evidence ----
+
+/* ?period= &county= &school= (name, like the dashboard filters) */
+app.get("/mel/programmes/:id/results", requirePermission("me.view"), async (c) => {
+  const schoolName = String(c.req.query("school") ?? "").trim();
+  let scope: MelScope | null;
+  if (schoolName) {
+    const { data: s } = await admin.from("schools").select("id").eq("name", schoolName).maybeSingle();
+    scope = s ? await melScope("school", s.id) : null;
+  } else if (c.req.query("county")) scope = await melScope("county", c.req.query("county"));
+  else scope = await melScope("programme", "");
+  if (!scope) return c.json({ error: "That county or school isn't in the portal" }, 400);
+  try {
+    const res = await melResults(c.req.param("id"), String(c.req.query("period") ?? ""), scope);
+    if ("error" in res) return c.json({ error: res.error }, res.status);
+    return c.json(res);
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+/* One indicator in one period, by county and by school: target, live and recorded. */
+app.get("/mel/indicators/:id/breakdown", requirePermission("me.view"), async (c) => {
+  const { data: i } = await admin.from("me_indicators").select("*").eq("id", c.req.param("id")).maybeSingle();
+  if (!i) return c.json({ error: "Indicator not found" }, 404);
+  const period = String(c.req.query("period") ?? "");
+  const cal = await melCalendar();
+  const range = periodRange(period, cal.terms, cal.years);
+  if (!range) return c.json({ error: "Choose a term or school year" }, 400);
+  const [counties, { data: schools }, targets, actuals] = await Promise.all([
+    loadCounties().catch(() => [] as County[]),
+    selectAll(() => admin.from("schools").select("id, name, code, county").order("id")),
+    selectIn("me_targets", "indicator_id", [i.id]),
+    selectIn("me_actuals", "indicator_id", [i.id]),
+  ]);
+  const scopes: MelScope[] = [
+    { type: "programme", id: "", label: "Whole programme" },
+    ...counties.map((x) => ({ type: "county" as const, id: x.name, label: `${x.name} County`, county: x.name })),
+    ...(schools ?? []).map((s) => ({ type: "school" as const, id: s.id as string, label: `${s.name} (${s.code})`, schoolName: s.name as string, county: s.county as string })),
+  ];
+  let live: Map<string, Computed>;
+  try { live = await melLive([i], range, scopes); } catch (e) { return c.json({ error: (e as Error).message }, 500); }
+  return c.json({
+    indicator: mapIndicator(i), period: { id: period, label: range.label },
+    rows: scopes.map((s) => {
+      const rec = actuals.find((a) => !a.superseded_at && a.period === period && a.scope_type === s.type && (a.scope_id ?? "") === s.id);
+      const lv = live.get(`${i.id}|${s.type}|${s.id}`) ?? null;
+      const tgt = targetFor(targets, i.id, period, s);
+      const value = rec && rec.status !== "rejected" && rec.value != null ? Number(rec.value) : lv?.value ?? null;
+      return {
+        scopeType: s.type, scopeId: s.id, label: s.label, county: s.county ?? null,
+        target: tgt ? { value: tgt.value, from: tgt.from } : null, live: lv,
+        recorded: rec ? { id: rec.id, value: rec.value == null ? null : Number(rec.value), status: rec.status } : null,
+        value, achievement: achievement(value, tgt?.value ?? null, i.direction),
+      };
+    }),
+  });
+});
+
+/* Record an actual: a snapshot of the value now and how it was worked
+   out (computed sources), or the value someone enters (manual). It replaces
+   any earlier version for the same indicator, period and scope — which is
+   kept, marked superseded. Evidence for computed values is attached
+   automatically. */
+app.post("/mel/actuals", requirePermission("me.actuals.record"), async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const { data: i } = await admin.from("me_indicators").select("*").eq("id", String(b.indicatorId ?? "")).maybeSingle();
+  if (!i || i.archived_at) return c.json({ error: "Indicator not found" }, 404);
+  const cal = await melCalendar();
+  const period = String(b.period ?? "");
+  const range = periodRange(period, cal.terms, cal.years);
+  if (!range) return c.json({ error: "Choose a term or school year" }, 400);
+  const scope = await melScope(b.scopeType, b.scopeId);
+  if (!scope) return c.json({ error: "Choose the whole programme, a county or a school" }, 400);
+  const note = String(b.note ?? "").trim().slice(0, 2000) || null;
+  let snap: Computed;
+  if (i.source === "manual") {
+    const value = Number(b.value);
+    if (b.value === undefined || b.value === null || b.value === "" || !Number.isFinite(value)) return c.json({ error: "Enter the value" }, 400);
+    const num = b.numerator === undefined || b.numerator === "" ? null : Number(b.numerator);
+    const den = b.denominator === undefined || b.denominator === "" ? null : Number(b.denominator);
+    if ((num != null && !Number.isFinite(num)) || (den != null && !Number.isFinite(den))) return c.json({ error: "Numerator and denominator are numbers" }, 400);
+    snap = { value, numerator: num, denominator: den, n: den ?? 0, method: "Entered by hand" };
+  } else {
+    let live: Map<string, Computed>;
+    try { live = await melLive([i], range, [scope]); } catch (e) { return c.json({ error: (e as Error).message }, 500); }
+    const v = live.get(`${i.id}|${scope.type}|${scope.id}`);
+    if (!v || v.value == null) return c.json({ error: "There's no data to record for this period and scope yet" }, 409);
+    snap = v;
+  }
+  const actorId = c.get("actor").id;
+  const now = new Date().toISOString();
+  const { data: prev } = await admin.from("me_actuals").select("id").eq("indicator_id", i.id).eq("period", period)
+    .eq("scope_type", scope.type).eq("scope_id", scope.id).is("superseded_at", null).maybeSingle();
+  if (prev) await admin.from("me_actuals").update({ superseded_at: now }).eq("id", prev.id);
+  const id = rid("act");
+  const { error } = await admin.from("me_actuals").insert({
+    id, indicator_id: i.id, period, scope_type: scope.type, scope_id: scope.id,
+    value: snap.value, numerator: snap.numerator, denominator: snap.denominator, n: snap.n,
+    source: i.source, method: snap.method, note, status: "recorded", recorded_by: actorId, recorded_at: now,
+  });
+  if (error) {
+    if (prev) await admin.from("me_actuals").update({ superseded_at: null }).eq("id", prev.id);
+    return c.json({ error: error.message }, 400);
+  }
+  if (prev) await admin.from("me_actuals").update({ superseded_by: id }).eq("id", prev.id);
+  // Evidence that comes with a computed value.
+  if (i.source === "kobo") {
+    const { data: f } = await admin.from("kobo_forms").select("id, title").eq("id", i.source_config?.formId).maybeSingle();
+    await admin.from("me_evidence").insert({
+      id: rid("evd"), actual_id: id, kind: "kobo_form", title: f?.title ?? "Kobo survey", kobo_form_id: f?.id ?? null, record_count: snap.n,
+      details: { measure: i.source_config?.measure, question: i.source_config?.questionLabel ?? i.source_config?.question ?? null, choices: i.source_config?.choices ?? null,
+        numerator: snap.numerator, denominator: snap.denominator, period: range.label, scope: scope.label, validated: true },
+      added_by: actorId,
+    });
+  } else if (i.source === "portal") {
+    await admin.from("me_evidence").insert({
+      id: rid("evd"), actual_id: id, kind: "portal_data", title: PORTAL_METRICS[i.source_config?.metric]?.label ?? "Portal data",
+      details: { method: snap.method, numerator: snap.numerator, denominator: snap.denominator, n: snap.n, period: range.label, scope: scope.label },
+      added_by: actorId,
+    });
+  }
+  await audit(c, "me.actual_recorded", "me_indicator", i.id, {
+    actualId: id, period, scope: `${scope.type}:${scope.id}`, value: snap.value, source: i.source, replaced: prev?.id ?? null,
+  });
+  return c.json({ id, value: snap.value });
+});
+
+/* Verification: someone other than the person who recorded it confirms it
+   (or rejects it, with a reason). */
+app.post("/mel/actuals/:id/verify", requirePermission("me.actuals.verify"), async (c) => {
+  const { data: a } = await admin.from("me_actuals").select("*").eq("id", c.req.param("id")).maybeSingle();
+  if (!a) return c.json({ error: "Actual not found" }, 404);
+  if (a.superseded_at) return c.json({ error: "A newer version has been recorded — verify that one" }, 409);
+  if (a.status !== "recorded") return c.json({ error: `This actual is already ${a.status}` }, 409);
+  if (a.recorded_by === c.get("actor").id) return c.json({ error: "Someone other than the person who recorded it must verify it" }, 403);
+  const b = await c.req.json().catch(() => ({}));
+  const decision = String(b.decision ?? "");
+  if (!["verified", "rejected"].includes(decision)) return c.json({ error: "Decision is verified or rejected" }, 400);
+  const note = String(b.note ?? "").trim().slice(0, 2000);
+  if (decision === "rejected" && note.length < 3) return c.json({ error: "Say why it's rejected" }, 400);
+  await admin.from("me_actuals").update({
+    status: decision, verified_by: c.get("actor").id, verified_at: new Date().toISOString(), verification_note: note || null,
+  }).eq("id", a.id);
+  await audit(c, `me.actual_${decision}`, "me_indicator", a.indicator_id, { actualId: a.id, period: a.period, scope: `${a.scope_type}:${a.scope_id}`, value: a.value, note: note || undefined });
+  return c.json({ ok: true });
+});
+
+/* One recorded actual: its versions, verification and evidence (files signed). */
+app.get("/mel/actuals/:id", requirePermission("me.view"), async (c) => {
+  const { data: a } = await admin.from("me_actuals").select("*").eq("id", c.req.param("id")).maybeSingle();
+  if (!a) return c.json({ error: "Actual not found" }, 404);
+  const { data: versions } = await admin.from("me_actuals").select("*").eq("indicator_id", a.indicator_id).eq("period", a.period)
+    .eq("scope_type", a.scope_type).eq("scope_id", a.scope_id);
+  const vs = (versions ?? []).sort((x: Record<string, any>, y: Record<string, any>) => String(y.recorded_at).localeCompare(String(x.recorded_at)));
+  const evidence = await selectIn("me_evidence", "actual_id", vs.map((v: Record<string, any>) => v.id as string));
+  const people = await dqNames(vs.flatMap((v: Record<string, any>) => [v.recorded_by, v.verified_by]).concat(evidence.map((e) => e.added_by)));
+  return c.json({
+    versions: await Promise.all(vs.map(async (v: Record<string, any>) => ({
+      id: v.id, value: v.value == null ? null : Number(v.value), numerator: v.numerator == null ? null : Number(v.numerator),
+      denominator: v.denominator == null ? null : Number(v.denominator), n: v.n, method: v.method, note: v.note, status: v.status,
+      recordedBy: people.get(v.recorded_by) ?? null, recordedAt: v.recorded_at, current: !v.superseded_at,
+      verifiedBy: v.verified_by ? people.get(v.verified_by) ?? null : null, verifiedAt: v.verified_at, verificationNote: v.verification_note,
+      evidence: await Promise.all(evidence.filter((e) => e.actual_id === v.id).map(async (e) => ({
+        id: e.id, kind: e.kind, title: e.title, recordCount: e.record_count, url: e.url, details: e.details ?? {},
+        addedBy: people.get(e.added_by) ?? null, addedAt: e.added_at,
+        file: e.file?.path ? (await signFiles([e.file as LibFile], true))[0] : null,
+      }))),
+    }))),
+  });
+});
+
+/* Evidence a person adds: a link, a note, or an uploaded file. */
+app.post("/mel/actuals/:id/evidence", requirePermission("me.actuals.record"), async (c) => {
+  const { data: a } = await admin.from("me_actuals").select("id, superseded_at, indicator_id").eq("id", c.req.param("id")).maybeSingle();
+  if (!a) return c.json({ error: "Actual not found" }, 404);
+  if (a.superseded_at) return c.json({ error: "Add evidence to the current version" }, 409);
+  const b = await c.req.json().catch(() => ({}));
+  const kind = String(b.kind ?? "");
+  const title = String(b.title ?? "").trim().slice(0, 300);
+  if (!["link", "note", "file"].includes(kind)) return c.json({ error: "Evidence is a link, a note or a file" }, 400);
+  if (!title) return c.json({ error: "Give the evidence a title" }, 400);
+  const row: Record<string, unknown> = { id: rid("evd"), actual_id: a.id, kind, title, added_by: c.get("actor").id, details: {} };
+  if (kind === "link") {
+    const url = String(b.url ?? "").trim();
+    if (!/^https?:\/\/\S+$/.test(url)) return c.json({ error: "The link starts with https://" }, 400);
+    row.url = url;
+  }
+  if (kind === "note") row.details = { text: String(b.text ?? "").trim().slice(0, 4000) };
+  if (kind === "file") {
+    const f = b.file ?? {};
+    const prefix = `me-evidence/${a.id}/`;
+    if (typeof f.path !== "string" || !f.path.startsWith(prefix) || f.path.includes("..")) return c.json({ error: "Upload the file first" }, 400);
+    row.file = { name: String(f.name ?? "file").slice(0, 200), path: f.path, size: Number(f.size) || 0 };
+  }
+  const { error } = await admin.from("me_evidence").insert(row);
+  if (error) return c.json({ error: error.message }, 400);
+  await audit(c, "me.evidence_added", "me_indicator", a.indicator_id, { actualId: a.id, kind, title });
+  return c.json({ id: row.id });
+});
+
+app.post("/mel/actuals/:id/evidence-upload", requirePermission("me.actuals.record"), async (c) => {
+  const { data: a } = await admin.from("me_actuals").select("id, superseded_at").eq("id", c.req.param("id")).maybeSingle();
+  if (!a || a.superseded_at) return c.json({ error: "Actual not found" }, 404);
+  const b = await c.req.json().catch(() => ({}));
+  const name = String(b.name ?? "").trim();
+  if (!name) return c.json({ error: "Missing file name" }, 400);
+  if (Number(b.size) > 50 * 1024 * 1024) return c.json({ error: "Files can be up to 50 MB" }, 400);
+  const path = `me-evidence/${a.id}/${rid("f")}/${safePath(name)}`;
+  const { data, error } = await admin.storage.from(LIBRARY_BUCKET).createSignedUploadUrl(path);
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ upload: { name, path, token: data.token, signedUrl: data.signedUrl, size: Number(b.size) || 0 } });
+});
+
+// ---- reports ----
+
+const mapMelReport = (r: Record<string, any>, people: Map<string, string>) => ({
+  id: r.id, programmeId: r.programme_id, period: r.period, scopeType: r.scope_type, scopeId: r.scope_id, title: r.title,
+  status: r.status, generatedAt: r.generated_at, generatedBy: people.get(r.generated_by) ?? null,
+  finalizedAt: r.finalized_at ?? null, finalizedBy: r.finalized_by ? people.get(r.finalized_by) ?? null : null, note: r.note ?? null,
+});
+
+app.get("/mel/reports", requirePermission("me.view"), async (c) => {
+  const { data } = await selectAll(() => {
+    let q = admin.from("me_reports").select("id, programme_id, period, scope_type, scope_id, title, status, generated_at, generated_by, finalized_at, finalized_by, note").order("id");
+    if (c.req.query("programmeId")) q = q.eq("programme_id", String(c.req.query("programmeId")));
+    return q;
+  });
+  const people = await dqNames((data ?? []).flatMap((r) => [r.generated_by, r.finalized_by]));
+  return c.json({ reports: (data ?? []).sort((a, b) => String(b.generated_at).localeCompare(String(a.generated_at))).map((r) => mapMelReport(r, people)) });
+});
+
+/* A report: the results for a programme, period and scope, frozen as they
+   are now. A draft can be refreshed; a final one never changes. */
+app.post("/mel/reports", requirePermission("me.reports.manage"), async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const scope = await melScope(b.scopeType, b.scopeId);
+  if (!scope) return c.json({ error: "Choose the whole programme, a county or a school" }, 400);
+  let res;
+  try { res = await melResults(String(b.programmeId ?? ""), String(b.period ?? ""), scope); } catch (e) { return c.json({ error: (e as Error).message }, 500); }
+  if ("error" in res) return c.json({ error: res.error }, res.status);
+  const id = rid("rpt");
+  const title = String(b.title ?? "").trim().slice(0, 200) || `${res.programme.name} — ${res.period.label} — ${scope.label}`;
+  const { error } = await admin.from("me_reports").insert({
+    id, programme_id: res.programme.id, period: res.period.id, scope_type: scope.type, scope_id: scope.id, title, status: "draft",
+    content: res, generated_by: c.get("actor").id, generated_at: new Date().toISOString(),
+  });
+  if (error) return c.json({ error: error.message }, 400);
+  await audit(c, "me.report_generated", "me_report", id, { programmeId: res.programme.id, period: res.period.id, scope: `${scope.type}:${scope.id}` });
+  return c.json({ id });
+});
+
+app.get("/mel/reports/:id", requirePermission("me.view"), async (c) => {
+  const { data: r } = await admin.from("me_reports").select("*").eq("id", c.req.param("id")).maybeSingle();
+  if (!r) return c.json({ error: "Report not found" }, 404);
+  const people = await dqNames([r.generated_by, r.finalized_by]);
+  return c.json({ report: mapMelReport(r, people), content: r.content });
+});
+
+app.post("/mel/reports/:id/refresh", requirePermission("me.reports.manage"), async (c) => {
+  const { data: r } = await admin.from("me_reports").select("*").eq("id", c.req.param("id")).maybeSingle();
+  if (!r) return c.json({ error: "Report not found" }, 404);
+  if (r.status === "final") return c.json({ error: "A final report can't change" }, 409);
+  const scope = await melScope(r.scope_type, r.scope_id);
+  if (!scope) return c.json({ error: "That county or school no longer exists" }, 409);
+  const res = await melResults(r.programme_id, r.period, scope);
+  if ("error" in res) return c.json({ error: res.error }, res.status);
+  const { error } = await admin.from("me_reports").update({ content: res, generated_by: c.get("actor").id, generated_at: new Date().toISOString() }).eq("id", r.id);
+  if (error) return c.json({ error: error.message }, 400);
+  await audit(c, "me.report_refreshed", "me_report", r.id, {});
+  return c.json({ ok: true });
+});
+
+app.post("/mel/reports/:id/finalize", requirePermission("me.reports.manage"), async (c) => {
+  const { data: r } = await admin.from("me_reports").select("*").eq("id", c.req.param("id")).maybeSingle();
+  if (!r) return c.json({ error: "Report not found" }, 404);
+  if (r.status === "final") return c.json({ error: "This report is already final" }, 409);
+  const b = await c.req.json().catch(() => ({}));
+  const note = String(b.note ?? "").trim().slice(0, 2000) || null;
+  const { error } = await admin.from("me_reports").update({ status: "final", finalized_by: c.get("actor").id, finalized_at: new Date().toISOString(), note }).eq("id", r.id);
+  if (error) return c.json({ error: error.message }, 400);
+  await audit(c, "me.report_finalized", "me_report", r.id, { note });
+  return c.json({ ok: true });
 });
 
 // ---- staff accounts: invitations, approval, roles, status, audit ----
