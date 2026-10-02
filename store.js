@@ -5,12 +5,18 @@
    has no direct database or storage access. File uploads use a signed
    upload URL the API hands back; downloads use signed URLs the API puts
    on each file.
+
+   What can be done offline — answers, handing in, marks, form responses,
+   visits, reading — goes through sync.js: sent now when there's a
+   connection, otherwise queued on this device with the change shown
+   locally until it's sent. Everything else needs a connection.
    ============================================================ */
 
 import { esc, groupByFolder } from "./util.js";
 import { supabase } from "./supabase.js";
-import { apiGet, apiSend } from "./api.js";
-import { youTubeEmbedUrl } from "./viewer.js";
+import { apiGet, apiSend, keepOffline, offlineCopy, OfflineError } from "./api.js";
+import { youTubeEmbedUrl, viewableKind } from "./viewer.js";
+import * as sync from "./sync.js";
 
 const LIBRARY_BUCKET = "library";
 
@@ -167,6 +173,19 @@ export function formatBytes(n = 0) {
 const OPEN_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>`;
 const DOWNLOAD_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>`;
 
+/* Saved on this device, to read without a connection — for what the
+   portal's own viewer shows offline (PDF, images, video, audio, text).
+   Word/Excel/PowerPoint go through Microsoft's online viewer, so they
+   can't be. It's a copy for the viewer, never a download to keep. */
+const OFFLINE_KINDS = new Set(["pdf", "image", "video", "audio", "text"]);
+export function saveOfflineButton(item, f) {
+  if (!OFFLINE_KINDS.has(viewableKind(f.name))) return "";
+  const saved = sync.savedFile(item.id, f.name);
+  return `<button type="button" class="lib-save${saved ? " is-saved" : ""}" data-save-offline="${esc(item.id)}" data-file-name="${esc(f.name)}"
+    data-item-title="${esc(item.title)}" data-view-url="${esc(f.viewUrl || "")}" data-size="${Number(f.size) || 0}"
+    title="${saved ? "Saved on this device — tap to remove" : "Save on this device to read without a connection"}">${saved ? "✓ Offline" : "Save offline"}</button>`;
+}
+
 function openButton(item, f, label, cls = "lib-open") {
   return `<button type="button" class="${cls}" data-track-item="${esc(item.id)}" data-file-name="${esc(f.name)}" data-item-title="${esc(item.title)}" data-view-url="${esc(f.viewUrl || "")}"${
     f.downloadUrl ? ` data-can-download="1"` : ""}>${label}</button>`;
@@ -191,10 +210,10 @@ export function libraryFilesHtml(item) {
   if (files.length === 1) {
     const f = files[0];
     const size = f.size ? ` <span class="lib-size">${esc(formatBytes(f.size))}</span>` : "";
-    return `<span class="lib-actions">${openButton(item, f, `${OPEN_ICON}<span>View</span>${size}`)}${downloadLink(f)}</span>`;
+    return `<span class="lib-actions">${openButton(item, f, `${OPEN_ICON}<span>View</span>${size}`)}${saveOfflineButton(item, f)}${downloadLink(f)}</span>`;
   }
   const rows = files.map((f) => `<li>${openButton(item, f, esc(f.name), "lib-file-btn")}${
-    f.size ? ` <span class="lib-size">${esc(formatBytes(f.size))}</span>` : ""}${downloadLink(f)}</li>`).join("");
+    f.size ? ` <span class="lib-size">${esc(formatBytes(f.size))}</span>` : ""}${saveOfflineButton(item, f)}${downloadLink(f)}</li>`).join("");
   return `<details class="lib-folder">
     <summary><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>
     ${files.length} files${item.fileSize ? ` <span class="lib-size">${esc(formatBytes(item.fileSize))}</span>` : ""}</summary>
@@ -383,11 +402,24 @@ export async function restoreForm(id) {
 /* Uploads a filled copy of a `file` form; returns the reference to send
    along with the response ({ name, path, size }). */
 export async function uploadFilledForm(formId, file) {
-  const { upload } = await apiSend("POST", `/forms/${formId}/response-upload`, { name: file.name, size: file.size });
-  const { error } = await supabase.storage.from(LIBRARY_BUCKET)
-    .uploadToSignedUrl(upload.path, upload.token, file, { contentType: file.type || undefined });
-  if (error) throw error;
-  return { name: file.name, path: upload.path, size: file.size };
+  return uploadOrKeep(file, `/forms/${formId}/response-upload`, { name: file.name, size: file.size });
+}
+
+/** Uploads a file now, or — without a connection — keeps it on this device
+    to upload at sync (the reference says so: { name, size, pendingUpload }). */
+async function uploadOrKeep(file, uploadPath, uploadBody) {
+  if (sync.isOnline()) {
+    try {
+      const { upload } = await apiSend("POST", uploadPath, uploadBody);
+      const { error } = await supabase.storage.from(LIBRARY_BUCKET)
+        .uploadToSignedUrl(upload.path, upload.token, file, { contentType: file.type || undefined });
+      if (error) throw error;
+      return { name: file.name, path: upload.path, size: file.size };
+    } catch (err) {
+      if (!sync.isNetworkError(err)) throw err;
+    }
+  }
+  return sync.stashUpload(file, { uploadPath, uploadBody });
 }
 
 export async function getResponses() {
@@ -395,13 +427,15 @@ export async function getResponses() {
   return responses || [];
 }
 
+/** Sends a form response — or queues it offline: then { queued: true }. */
 export async function addResponse(r) {
-  const { response } = await apiSend("POST", "/responses", {
-    formId: r.formId,
-    answers: r.answers || [],
-    files: r.files || [],
+  const { data, queued } = await sync.send({
+    method: "POST", path: "/responses",
+    body: { formId: r.formId, answers: r.answers || [], files: r.files || [] },
+    label: `Form: ${r.title || "response"}`, kind: "form-response",
+    group: `form:${r.formId}`, dedupe: `form:${r.formId}`,
   });
-  return response;
+  return queued ? { queued: true } : data.response;
 }
 
 /* ---------------------------------------------------------------- assignments
@@ -447,9 +481,51 @@ export async function getSubmissions(params = {}) {
 export async function getSubmission(id) {
   return apiGet(`/submissions/${id}`);
 }
-export async function markSubmission(id, { answers, feedback }) {
-  return apiSend("POST", `/submissions/${id}/mark`, { answers, feedback });
+/** Saves marks — or queues them offline, with the marks this device last
+    saw (baseMarkedAt) so a clash with someone else's marking is caught. */
+export async function markSubmission(id, { answers, feedback }, { baseMarkedAt = null, label = "Marks" } = {}) {
+  const { data, queued } = await sync.send({
+    method: "POST", path: `/submissions/${id}/mark`,
+    body: { answers, feedback }, offlineBody: { answers, feedback, baseMarkedAt },
+    label, kind: "mark", group: `mark:${id}`, dedupe: `mark:${id}`, touches: [`/submissions/${id}`],
+    meta: { submissionId: id },
+    local: () => localMarks(id, answers, feedback),
+  });
+  if (queued && !data) throw new OfflineError("You're offline, and this work isn't saved on this device.");
+  return queued ? { ...data, queued: true } : data;
 }
+
+/** This device's copy of a submission, marked locally until the marks are sent. */
+async function localMarks(id, answers, feedback) {
+  const d = await offlineCopy(`/submissions/${id}`);
+  if (!d) return null;
+  const v = structuredClone(d);
+  const given = new Map((answers || []).map((x) => [x.questionId, x]));
+  let total = 0, max = 0;
+  for (const q of v.questions || []) {
+    const g = given.get(q.id);
+    let a = v.answers.find((x) => x.questionId === q.id);
+    if (!a) { a = { questionId: q.id, response: null }; v.answers.push(a); }
+    if (g) { a.marks = g.marks; a.feedback = g.feedback ?? a.feedback ?? null; }
+    total += Number(a.marks ?? a.autoMarks ?? 0);
+    max += Number(q.maxMarks) || 0;
+  }
+  v.submission = {
+    ...v.submission, status: "marked", marks: total, maxMarks: max, percentage: max ? Math.round((total / max) * 1000) / 10 : 0,
+    band: null, feedback: feedback ?? v.submission.feedback ?? null, localMarkedAt: new Date().toISOString(),
+  };
+  v.pendingSync = true;
+  await keepOffline(`/submissions/${id}`, v);
+  return v;
+}
+
+sync.registerKind("mark", {
+  async applied(item, reply) { if (reply?.submission) await keepOffline(`/submissions/${item.meta.submissionId}`, reply); },
+  async settled(item, server) {
+    if (server?.submission) await keepOffline(`/submissions/${item.meta.submissionId}`, server);
+    else if (sync.isOnline()) await getSubmission(item.meta.submissionId).catch(() => {});
+  },
+});
 
 // learner
 export async function getMyAssignments() {
@@ -460,23 +536,100 @@ export async function getMyAssignments() {
 export async function getMyAssignment(id) {
   return apiGet(`/learner/assignments/${id}`);
 }
+/* ---- a learner's work, online or offline ----
+   Start, save and hand in go straight to the server when there's a
+   connection. Without one they're queued (one queued copy of the answers
+   per assignment — a later save or the hand-in replaces it) and this
+   device's copy of the assignment shows them, marked "waiting to sync".
+   The queued copy carries the time the device last heard from the server
+   (baseSavedAt), so answers changed on another device meanwhile come
+   back as a conflict instead of being overwritten. */
+const asgPath = (id) => `/learner/assignments/${id}`;
+const ASG_LIST = "/learner/assignments";
+
+async function learnerWork(id, what, { method, path, answers, submit = false }) {
+  const view = await offlineCopy(asgPath(id));
+  const title = view?.assignment?.title ? `“${view.assignment.title}”` : "an assignment";
+  const base = view?.submission?.lastSavedAt ?? null;
+  const body = answers ? { answers } : {};
+  const { data, queued } = await sync.send({
+    method, path, body,
+    offlineBody: answers ? { ...body, baseSavedAt: base, ...(submit ? { clientSubmittedAt: new Date().toISOString() } : {}) } : body,
+    label: `${what} ${title}`, kind: "learner-work", group: `asg:${id}`,
+    dedupe: answers ? `asg-work:${id}` : `asg-start:${id}`,
+    touches: [asgPath(id), ASG_LIST], meta: { assignmentId: id },
+    local: () => localAssignment(id, { start: !answers, answers, submit }),
+  });
+  if (queued && !data) throw new OfflineError("You're offline, and this assignment isn't saved on this device yet.");
+  return queued ? { ...data, queued: true } : data;
+}
+
+/** This device's copy of an assignment (and the list), with the offline work on it. */
+async function localAssignment(id, { start, answers, submit }) {
+  const view = await offlineCopy(asgPath(id));
+  if (!view) return null;
+  const v = structuredClone(view);
+  const now = new Date().toISOString();
+  v.submission = v.submission || { status: "in_progress", startedAt: now, lastSavedAt: null, submittedAt: null, isLate: false };
+  if (start && v.completion === "not_started") v.completion = "in_progress";
+  if (answers) {
+    const byQ = new Map((v.answers || []).map((a) => [a.questionId, a]));
+    for (const a of answers) byQ.set(a.questionId, { ...(byQ.get(a.questionId) || {}), questionId: a.questionId, response: a.response ?? null, files: a.files ?? byQ.get(a.questionId)?.files ?? [] });
+    v.answers = [...byQ.values()];
+    v.completion = v.completion === "not_started" ? "in_progress" : v.completion;
+    v.submission = { ...v.submission, localSavedAt: now };
+  }
+  if (submit) {
+    v.completion = "submitted";
+    v.submission = { ...v.submission, status: "submitted", submittedAt: now, offlineSubmittedAt: now };
+  }
+  v.pendingSync = true;
+  await keepOffline(asgPath(id), v);
+  await patchAssignmentList(id, v, { pendingSync: true });
+  return v;
+}
+async function patchAssignmentList(id, view, extra = {}) {
+  const list = await offlineCopy(ASG_LIST);
+  const row = list?.assignments?.find((a) => a.id === id);
+  if (!row) return;
+  row.completion = view.completion;
+  row.submission = view.submission ? { ...(row.submission || {}), ...view.submission } : row.submission;
+  row.canWork = view.completion === "in_progress" || view.completion === "not_started" ? !view.cannotWork : false;
+  row.pendingSync = !!extra.pendingSync;
+  await keepOffline(ASG_LIST, list);
+}
+
+sync.registerKind("learner-work", {
+  async applied(item, reply) {
+    if (!reply?.assignment) return;
+    await keepOffline(asgPath(item.meta.assignmentId), reply);
+    await patchAssignmentList(item.meta.assignmentId, reply);
+  },
+  async settled(item, server) {
+    const id = item.meta.assignmentId;
+    if (server?.assignment) {
+      await keepOffline(asgPath(id), server);
+      await patchAssignmentList(id, server);
+    } else if (sync.isOnline()) {
+      await getMyAssignment(id).catch(() => {});
+      await getMyAssignments().catch(() => {});
+    }
+  },
+});
+
 export async function startAssignment(id) {
-  return apiSend("POST", `/learner/assignments/${id}/start`, {});
+  return learnerWork(id, "Started", { method: "POST", path: `${asgPath(id)}/start` });
 }
 export async function saveAssignmentAnswers(id, answers) {
-  return apiSend("PUT", `/learner/assignments/${id}/answers`, { answers });
+  return learnerWork(id, "Answers for", { method: "PUT", path: `${asgPath(id)}/answers`, answers });
 }
 export async function submitAssignment(id, answers) {
-  return apiSend("POST", `/learner/assignments/${id}/submit`, { answers });
+  return learnerWork(id, "Handed in", { method: "POST", path: `${asgPath(id)}/submit`, answers, submit: true });
 }
-/** Uploads one file for a file-upload question; returns { name, path, size }
-    to send with the answer. */
+/** Uploads one file for a file-upload question — or keeps it on this device
+    until there's a connection. Returns the reference to send with the answer. */
 export async function uploadAnswerFile(assignmentId, questionId, file) {
-  const { upload } = await apiSend("POST", `/learner/assignments/${assignmentId}/upload`, { questionId, name: file.name, size: file.size });
-  const { error } = await supabase.storage.from(LIBRARY_BUCKET)
-    .uploadToSignedUrl(upload.path, upload.token, file, { contentType: file.type || undefined });
-  if (error) throw error;
-  return { name: file.name, path: upload.path, size: file.size };
+  return uploadOrKeep(file, `${asgPath(assignmentId)}/upload`, { questionId, name: file.name, size: file.size });
 }
 
 /** Results grouped `by` learner | class | subject | grade | term | year |
@@ -504,9 +657,14 @@ export async function getFieldReports() {
    [{ formId, answers?, files? }] — saved together with the report. */
 /* `clientRef` is the visit's own id from this device: sending the same
    visit again returns the saved one instead of a duplicate. */
-export async function addFieldReport({ schoolId, visitType, responses = [], clientRef }) {
-  const { report } = await apiSend("POST", "/field-reports", { schoolId, visitType, responses, clientRef });
-  return report;
+/* Offline, the visit (with any filled copies, kept as files on this device)
+   is queued and sent when the connection is back: then { queued: true }. */
+export async function addFieldReport({ schoolId, visitType, responses = [], clientRef, label = "Field visit" }) {
+  const { data, queued } = await sync.send({
+    method: "POST", path: "/field-reports", body: { schoolId, visitType, responses, clientRef },
+    label, kind: "field-visit", group: `visit:${clientRef || schoolId}`,
+  });
+  return queued ? { queued: true } : data.report;
 }
 
 /* ---------------------------------------------------------------- schools directory

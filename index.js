@@ -1,3 +1,4 @@
+import "./pwa.js";
 import { $, $$, friendlyError, toast } from "./util.js";
 import { supabase, setRememberMe, getRememberMe } from "./supabase.js";
 import {

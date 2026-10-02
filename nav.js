@@ -14,9 +14,15 @@
    here is page-specific.
    ============================================================ */
 
-import { $, $$, toast } from "./util.js";
-import { startLibraryInteraction, completeLibraryInteraction, awardLibraryBadge } from "./store.js";
+import "./pwa.js";
+import { $, $$, toast, confirmDialog } from "./util.js";
+import { startLibraryInteraction, completeLibraryInteraction, awardLibraryBadge, formatBytes } from "./store.js";
 import { openViewer, openYouTubeViewer, viewableKind, isViewerOpen, currentOpenId, showBadgeCelebration } from "./viewer.js";
+import * as sync from "./sync.js";
+import { mountSyncStatus } from "./sync-ui.js";
+
+// Online / offline, last sync and what's waiting — on every dashboard.
+mountSyncStatus();
 /* ---------------------------------------------------------------- reading-badge celebration
    A real "you've been at this a while" moment, not a claim about what
    was learned: once a viewer session on one resource stays open past
@@ -63,17 +69,32 @@ const pendingInteractions = [];
 function openTracked(itemId, title, open) {
   let interactionId = null;
   let closed = false;
+  // Without a connection the reading is timed here and sent later as one
+  // finished session (start and end), like any other offline activity.
+  let offline = !sync.isOnline();
+  const startedAt = new Date();
+  const sendLater = () => sync.send({
+    method: "POST", path: `/library/${itemId}/interactions`,
+    body: { startedAt: startedAt.toISOString(), completedAt: new Date().toISOString() },
+    label: `Reading: ${title || "a resource"}`, kind: "reading",
+  }).catch(() => {});
   open(() => {
     closed = true;
     if (interactionId) completeLibraryInteraction(interactionId).catch(() => {});
+    else if (offline) sendLater();
   });
+  if (offline) return;
   scheduleBadgeCheck(itemId, title);
   startLibraryInteraction(itemId)
     .then((interaction) => {
       interactionId = interaction?.id || null;
       if (closed && interactionId) completeLibraryInteraction(interactionId).catch(() => {});
     })
-    .catch(() => {}); // tracking must never get in the way of reading
+    .catch((err) => {
+      if (!sync.isNetworkError(err)) return; // tracking must never get in the way of reading
+      offline = true;
+      if (closed) sendLater();
+    });
 }
 
 document.addEventListener("click", (e) => {
@@ -97,6 +118,21 @@ document.addEventListener("click", (e) => {
     e.preventDefault();
     const canDownload = link.dataset.canDownload === "1";
     const title = link.dataset.itemTitle || fileName;
+    // Saved on this device: open that copy — no connection or data needed.
+    if (sync.savedFile(itemId, fileName)) {
+      sync.savedFileUrl(itemId, fileName).then((url) => {
+        if (!url) return;
+        openTracked(itemId, title, (onClose) => openViewer({ title, url, name: fileName, allowDownload: false }, () => {
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          onClose?.();
+        }));
+      });
+      return;
+    }
+    if (!sync.isOnline()) {
+      toast("Not saved on this device", "This resource needs a connection. Next time you're online, use “Save offline” to keep it for reading offline.");
+      return;
+    }
     if (!viewUrl) {
       toast("Couldn't open that", "The file link has expired — refresh the page and try again.", "error");
       return;
@@ -120,6 +156,49 @@ document.addEventListener("click", (e) => {
   startLibraryInteraction(itemId)
     .then((interaction) => { if (interaction) pendingInteractions.push(interaction.id); })
     .catch(() => {}); // tracking must never block or break the actual link
+});
+
+/* ---------------------------------------------------------------- "Save offline"
+   Downloads a resource onto this device for reading without a connection
+   (in the portal's viewer only), or removes the saved copy. */
+document.addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-save-offline]");
+  if (!btn) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const itemId = btn.dataset.saveOffline;
+  const name = btn.dataset.fileName;
+  const title = btn.dataset.itemTitle || name;
+  const saved = sync.savedFile(itemId, name);
+  const mark = (on) => $$(`[data-save-offline="${CSS.escape(itemId)}"][data-file-name="${CSS.escape(name)}"]`).forEach((b) => {
+    b.classList.toggle("is-saved", on);
+    b.textContent = on ? "✓ Offline" : "Save offline";
+    b.title = on ? "Saved on this device — tap to remove" : "Save on this device to read without a connection";
+  });
+  if (saved) {
+    if (!(await confirmDialog({ title: "Remove the offline copy?", body: `“${title}” won't open without a connection until you save it again.`, confirmLabel: "Remove" }))) return;
+    const key = sync.status().savedFiles.find((f) => f.itemId === itemId && f.name === name)?.key;
+    if (key) await sync.removeSavedFile(key);
+    mark(false);
+    return;
+  }
+  if (!sync.isOnline()) { toast("You're offline", "Saving a resource needs a connection."); return; }
+  const size = Number(btn.dataset.size) || 0;
+  if (size > 20 * 1024 * 1024 && !(await confirmDialog({
+    title: `Save ${formatBytes(size)} on this device?`, body: "Downloading it uses that much data, and that much space on the device.", confirmLabel: "Save offline",
+  }))) return;
+  btn.disabled = true;
+  btn.textContent = "Saving…";
+  try {
+    await sync.saveFile({ itemId, title, name, size, url: btn.dataset.viewUrl });
+    mark(true);
+    toast("Saved for offline reading", `“${title}” opens without a connection now.`, "success");
+  } catch (err) {
+    mark(false);
+    toast("Couldn't save it", err?.message || "Check your connection and try again.", "error");
+  } finally {
+    btn.disabled = false;
+  }
 });
 
 /* A library card (store.js libraryItemCard) is clickable as a whole —
@@ -245,17 +324,16 @@ if (userBtn && userMenu) {
 }
 
 /* ---------------------------------------------------------------- offline banner
-   The one network state worth interrupting every dashboard for — once
-   the connection drops, actions (save, submit, sign in) start failing,
-   so say so up front rather than leaving each one to fail silently and
-   separately. Plain document flow at the very top of <body>, so it
-   pushes the page down instead of overlapping it; appears the instant
-   the browser goes offline (or immediately on load, if it already is)
-   and disappears the instant it's back. Nothing to wire per page. */
+   Said up front the moment the connection drops: work that can be done
+   offline (answers, hand-ins, marks, forms, visits, reading) is kept on
+   the device and synced later; the rest waits for the connection. Plain
+   document flow at the very top of <body>, so it pushes the page down
+   instead of overlapping it; appears the instant the browser goes
+   offline (or on load, if it already is) and goes when it's back. */
 const offlineBanner = document.createElement("div");
 offlineBanner.className = "offline-banner";
 offlineBanner.hidden = true;
-offlineBanner.innerHTML = `<span class="dot"></span> You're offline — some actions won't work until you reconnect.`;
+offlineBanner.innerHTML = `<span class="dot"></span> You're offline — keep working: your work is saved on this device and syncs when you reconnect.`;
 document.body.prepend(offlineBanner);
 
 function updateOnlineState() {

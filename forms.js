@@ -12,6 +12,7 @@
 
 import { $$, esc, toast, friendlyError, emptyState } from "./util.js";
 import { addResponse, uploadFilledForm } from "./store.js";
+import { waiting } from "./sync.js";
 
 export const FORM_KIND_LABEL = { questions: "Questions", file: "File form", link: "Link" };
 
@@ -97,10 +98,14 @@ function wireFileBoxes(root) {
 export function mountFormList(el, { forms, responses, userId, onSubmitted }) {
   const list = forms.filter((f) => !f.visitType);
   const done = new Set(responses.filter((r) => r.respondentId === userId && !r.visitId).map((r) => r.formId));
+  // Answered offline and waiting to be sent counts as done here.
+  for (const f of list) if (waiting(`form:${f.id}`)) done.add(f.id);
+  const pill = (f) => waiting(`form:${f.id}`) ? `<span class="pill">Waiting to sync</span>`
+    : done.has(f.id) ? `<span class="pill ok">Submitted</span>` : `<span class="pill warm">Pending</span>`;
   el.innerHTML = list.length
     ? list.map((f) => `
         <div class="form-card" data-form="${esc(f.id)}">
-          <div class="fc-head"><h3>${esc(f.title)}</h3>${done.has(f.id) ? `<span class="pill ok">Submitted</span>` : `<span class="pill warm">Pending</span>`}</div>
+          <div class="fc-head"><h3>${esc(f.title)}</h3>${pill(f)}</div>
           <div class="fc-meta">${f.description ? esc(f.description) : "From " + esc(f.createdBy)}</div>
           <div class="form-tags">${formTagsHtml(f)}</div>
           ${done.has(f.id) ? "" : `<button class="btn btn-outline" type="button" data-fill-form>Fill out</button>
@@ -129,8 +134,9 @@ export function mountFormList(el, { forms, responses, userId, onSubmitted }) {
     btn.classList.add("is-saving");
     btn.textContent = "Saving…";
     try {
-      await addResponse(await collectFormResponse(box, form));
-      toast("Form submitted successfully.", "", "success");
+      const res = await addResponse({ ...(await collectFormResponse(box, form)), title: form.title });
+      if (res?.queued) toast("Saved on this device", "It's sent when you're back online.", "success");
+      else toast("Form submitted successfully.", "", "success");
       onSubmitted?.();
     } catch (err) {
       console.error("could not submit form response:", err);

@@ -674,7 +674,7 @@ async function main() {
 main();
 
 async function doSignOut() {
-  await signOut();
+  if ((await signOut()) === false) return;
   location.href = "index.html";
 }
 $("#signOutBtn")?.addEventListener("click", doSignOut);

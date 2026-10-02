@@ -40,6 +40,12 @@ export const COMPLETION_LABEL = { not_started: "Not started", in_progress: "In p
 export const fmtWhen = (iso) => (iso ? new Date(iso).toLocaleString(undefined, {
   weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
 }) : "");
+/** "Handed in …" — with the device's time when it was handed in offline. */
+export const handedInText = (s) => !s?.submittedAt ? "" : s.offlineSubmittedAt
+  ? `Handed in offline ${fmtWhen(s.offlineSubmittedAt)}${s.offlineSubmittedAt !== s.submittedAt ? ` (received ${fmtWhen(s.submittedAt)})` : ""}`
+  : `Handed in ${fmtWhen(s.submittedAt)}`;
+const PENDING_NOTE = `<p class="sync-note"><i class="sync-dot" aria-hidden="true"></i> Saved on this device — waiting to sync. It's sent automatically when you're back online.</p>`;
+
 export const fmtDay = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "");
 const pct = (v) => (v == null ? "—" : `${Math.round(v)}%`);
 const num = (v) => (v == null ? "—" : String(Math.round(v * 100) / 100));
@@ -488,7 +494,8 @@ export async function openMarking(submissionId, { canMark = false, onDone = () =
   panel.innerHTML = `
     <p class="hint" style="margin-top:0"><b>${esc(d.learner?.fullName || "Learner")}</b>${d.learner?.learnerCode ? ` <span class="code-chip">${esc(d.learner.learnerCode)}</span>` : ""}
       · ${esc(d.assignment.title)} · ${esc(d.assignment.subject)}</p>
-    <p class="hint">${completionPill(s.status, { late: s.isLate })} ${s.submittedAt ? `Handed in ${esc(fmtWhen(s.submittedAt))}` : "Not handed in yet"}
+    ${d.pendingSync ? PENDING_NOTE : ""}
+    <p class="hint">${completionPill(s.status, { late: s.isLate })} ${s.submittedAt ? esc(handedInText(s)) : "Not handed in yet"}
       ${s.status === "marked" ? ` · ${markPill(s.percentage, s.band)} · marked ${esc(fmtDay(s.markedAt))} by ${esc(s.markerName || "—")}` : ""}</p>
     <form class="fill-form" data-mark>
       ${d.questions.map((q, i) => {
@@ -547,8 +554,12 @@ export async function openMarking(submissionId, { canMark = false, onDone = () =
     const btn = form.querySelector("[type=submit]");
     btn.disabled = true;
     try {
-      const res = await markSubmission(submissionId, body);
-      toast("Marked", `${d.learner?.fullName || "Learner"}: ${pct(res.submission.percentage)}${res.submission.band ? ` (${res.submission.band})` : ""}.`, "success");
+      const res = await markSubmission(submissionId, body, {
+        baseMarkedAt: s.markedAt ?? null,
+        label: `Marks for ${d.learner?.fullName || "a learner"} — “${d.assignment.title}”`,
+      });
+      if (res.queued) toast("Marks saved on this device", "They're sent when you're back online.", "success");
+      else toast("Marked", `${d.learner?.fullName || "Learner"}: ${pct(res.submission.percentage)}${res.submission.band ? ` (${res.submission.band})` : ""}.`, "success");
       closeViewer();
       onDone(res);
     } catch (ex) {
@@ -598,7 +609,10 @@ export async function openLearnerAssignment(id, { onChange = () => {} } = {}) {
     return;
   }
   // Files picked so far for each file question (kept between saves).
-  const files = Object.fromEntries(d.answers.map((x) => [x.questionId, (x.files || []).map((f) => ({ name: f.name, path: f.path, size: f.size }))]));
+  // (A file chosen offline keeps its pendingUpload reference until it's uploaded at sync.)
+  const files = Object.fromEntries(d.answers.map((x) => [x.questionId, (x.files || []).map((f) => ({
+    name: f.name, path: f.path, size: f.size, ...(f.pendingUpload ? { pendingUpload: f.pendingUpload } : {}),
+  }))]));
 
   function render() {
     const a = d.assignment;
@@ -610,7 +624,8 @@ export async function openLearnerAssignment(id, { onChange = () => {} } = {}) {
     panel.innerHTML = `
       <p class="hint" style="margin-top:0">${esc(a.subject)} · ${esc(a.className || "")}${a.dueAt ? ` · due <b>${esc(fmtWhen(a.dueAt))}</b>` : ""}${a.estimatedMinutes ? ` · about ${a.estimatedMinutes} min` : ""} · ${num(a.maxMarks)} mark${a.maxMarks === 1 ? "" : "s"}</p>
       <h2 style="margin:.2rem 0 .4rem">${esc(a.title)}</h2>
-      <p>${completionPill(d.completion, { late: s?.isLate, overdue })}${s?.submittedAt ? ` Handed in ${esc(fmtWhen(s.submittedAt))}` : ""}</p>
+      ${d.pendingSync ? PENDING_NOTE : ""}
+      <p>${completionPill(d.completion, { late: s?.isLate, overdue })}${s?.submittedAt ? ` ${esc(handedInText(s))}` : ""}</p>
       ${marked ? `
         <div class="chart-stats" style="grid-template-columns:repeat(3,1fr);margin:.5rem 0">
           <div><b>${num(s.marks)}/${num(s.maxMarks)}</b><span>Marks</span></div>
@@ -634,7 +649,7 @@ export async function openLearnerAssignment(id, { onChange = () => {} } = {}) {
                 <button class="btn btn-outline" type="button" data-save>Save progress</button>
                 <button class="btn btn-primary" type="submit">Hand in</button>
               </div>
-              <p class="field-hint" data-saved>${s?.lastSavedAt ? `Last saved ${esc(fmtWhen(s.lastSavedAt))}` : ""}</p>` : ""}
+              <p class="field-hint" data-saved>${s?.localSavedAt ? `Saved on this device ${esc(fmtWhen(s.localSavedAt))}` : s?.lastSavedAt ? `Last saved ${esc(fmtWhen(s.lastSavedAt))}` : ""}</p>` : ""}
           </form>`}`;
   }
   render();
@@ -658,7 +673,11 @@ export async function openLearnerAssignment(id, { onChange = () => {} } = {}) {
   panel.addEventListener("click", async (e) => {
     if (e.target.closest("[data-start]")) {
       e.target.disabled = true;
-      try { d = await startAssignment(id); render(); onChange(); } catch (err) {
+      try {
+        d = await startAssignment(id);
+        render(); onChange();
+        if (d.queued) toast("Started on this device", "Work on it now — it's sent when you're back online.", "success");
+      } catch (err) {
         e.target.disabled = false;
         toast("Couldn't start", friendlyError(err), "error");
       }
@@ -668,7 +687,7 @@ export async function openLearnerAssignment(id, { onChange = () => {} } = {}) {
       try {
         d = await saveAssignmentAnswers(id, collect());
         render();
-        toast("Saved", "Your answers are saved.", "success");
+        toast("Saved", d.queued ? "Your answers are saved on this device and sent when you're back online." : "Your answers are saved.", "success");
         onChange();
       } catch (err) {
         btn.disabled = false;
@@ -690,7 +709,8 @@ export async function openLearnerAssignment(id, { onChange = () => {} } = {}) {
       files[qid] = [...(files[qid] || []), ref].slice(-5);
       d = await saveAssignmentAnswers(id, collect());
       render();
-      toast("Uploaded", `${file.name} is attached to your answer.`, "success");
+      toast(ref.pendingUpload ? "Kept on this device" : "Uploaded",
+        ref.pendingUpload ? `${file.name} is uploaded when you're back online.` : `${file.name} is attached to your answer.`, "success");
     } catch (err) {
       toast("Couldn't upload", friendlyError(err), "error");
       render();
@@ -713,7 +733,8 @@ export async function openLearnerAssignment(id, { onChange = () => {} } = {}) {
     try {
       d = await submitAssignment(id, answers);
       render();
-      toast("Handed in", d.completion === "marked" ? `You scored ${pct(d.submission.percentage)}.` : "Your teacher will mark it.", "success");
+      toast("Handed in", d.queued ? "It's on this device and goes to your teacher when you're back online."
+        : d.completion === "marked" ? `You scored ${pct(d.submission.percentage)}.` : "Your teacher will mark it.", "success");
       onChange();
     } catch (err) {
       btn.disabled = false;

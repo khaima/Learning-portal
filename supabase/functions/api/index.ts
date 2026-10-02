@@ -419,7 +419,8 @@ app.use(
       if (/^https:\/\/learning-portal[\w-]*\.vercel\.app$/.test(origin)) return origin;
       return null;
     },
-    allowHeaders: ["authorization", "content-type"],
+    allowHeaders: ["authorization", "content-type", "idempotency-key"],
+    exposeHeaders: ["idempotent-replay"],
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   }),
 );
@@ -647,6 +648,55 @@ app.use("*", async (c, next) => {
   c.set("userId", data.user.id);
   c.set("email", data.user.email ?? "");
   await next();
+});
+
+/* ---- once only: retries from the offline queue ----
+   A device that worked offline sends each queued activity with an
+   Idempotency-Key. The first request with a key does the work and keeps
+   the reply; a repeat — the first attempt arrived but its reply was lost
+   on a bad connection — gets that reply back instead of doing it twice
+   (two visits, two hand-ins). A key belongs to the account, method and
+   path that first used it. Server errors (5xx) aren't kept, so those are
+   retried for real. */
+const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9_-]{8,80}$/;
+const IDEMPOTENCY_KEEP_MS = 30 * 864e5;
+app.use("*", async (c, next) => {
+  const key = c.req.header("Idempotency-Key");
+  if (!key || c.req.method === "GET" || c.req.method === "OPTIONS") return next();
+  if (!IDEMPOTENCY_KEY_RE.test(key)) return c.json({ error: "Invalid Idempotency-Key" }, 400);
+  const actorId = String(c.get("learnerId") ?? c.get("userId") ?? "");
+  const path = new URL(c.req.url).pathname;
+  const { data: prior } = await admin.from("sync_requests").select("*").eq("key", key).maybeSingle();
+  if (prior) {
+    if (prior.actor_id !== actorId || prior.method !== c.req.method || prior.path !== path) {
+      return c.json({ error: "That Idempotency-Key was already used for something else" }, 422);
+    }
+    if (prior.status_code != null) {
+      // deno-lint-ignore no-explicit-any
+      return c.json(prior.response ?? {}, prior.status_code as any, { "Idempotent-Replay": "true" });
+    }
+    if (Date.now() - new Date(prior.created_at).getTime() < 120_000) {
+      return c.json({ error: "Still being processed — it will be retried shortly.", retryable: true }, 409);
+    }
+    // The first attempt never finished (the function stopped): let this one do it.
+    await admin.from("sync_requests").delete().eq("key", key);
+  }
+  const { error } = await admin.from("sync_requests").insert({ key, actor_id: actorId, method: c.req.method, path, created_at: new Date().toISOString() });
+  if (error) {
+    if (isUniqueViolation(error)) return c.json({ error: "Still being processed — it will be retried shortly.", retryable: true }, 409);
+    return c.json({ error: error.message }, 500);
+  }
+  await next();
+  if (c.res.status >= 500) {
+    await admin.from("sync_requests").delete().eq("key", key);
+    return;
+  }
+  let body: unknown = null;
+  try { body = await c.res.clone().json(); } catch { body = null; }
+  await admin.from("sync_requests").update({ status_code: c.res.status, response: body, completed_at: new Date().toISOString() }).eq("key", key);
+  if (Math.random() < 0.02) {
+    await admin.from("sync_requests").delete().lt("created_at", new Date(Date.now() - IDEMPOTENCY_KEEP_MS).toISOString());
+  }
 });
 
 async function loadStaffProfile(userId: string) {
@@ -2208,9 +2258,23 @@ const mapInteraction = (r: Record<string, unknown>) => ({
   durationSeconds: r.duration_seconds,
 });
 
+/* A resource read on a device without a connection: the session arrives
+   later with its own start and end (the device's clock) — kept only when
+   plausible: not in the future, not more than 60 days old, at most 4 hours. */
+function offlineReading(startedAt: unknown, completedAt: unknown) {
+  if (typeof startedAt !== "string" || typeof completedAt !== "string") return null;
+  const start = new Date(startedAt), end = new Date(completedAt), now = Date.now();
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) return null;
+  if (end < start || end.getTime() > now + 2 * 60_000 || start.getTime() < now - 60 * 864e5) return null;
+  const seconds = Math.min(4 * 3600, Math.round((end.getTime() - start.getTime()) / 1000));
+  return { started_at: start.toISOString(), completed_at: new Date(start.getTime() + seconds * 1000).toISOString(), duration_seconds: seconds };
+}
+
 app.post("/library/:id/interactions", requireActive(), async (c) => {
   const itemId = c.req.param("id");
   const actor = c.get("actor");
+  const body = await c.req.json().catch(() => ({}));
+  const offline = offlineReading(body.startedAt, body.completedAt);
   const { data: item } = await admin
     .from("library_items").select("id, audience").eq("id", itemId).maybeSingle();
   if (!item || !canSeeLibrary(item.audience as string, actor.role)) {
@@ -2226,6 +2290,7 @@ app.post("/library/:id/interactions", requireActive(), async (c) => {
       role: actor.role,
       full_name: actor.fullName,
       school: actor.school ?? "",
+      ...(offline ?? {}),
     })
     .select()
     .single();
@@ -2794,6 +2859,7 @@ const mapSubmission = (s: Record<string, any>, showMarks = true) => ({
   startedAt: s.started_at ?? null,
   lastSavedAt: s.last_saved_at ?? null,
   submittedAt: s.submitted_at ?? null,
+  offlineSubmittedAt: s.offline_submitted_at ?? null,
   isLate: !!s.is_late,
   ...(showMarks ? {
     marks: s.marks == null ? null : Number(s.marks),
@@ -3246,6 +3312,14 @@ app.post("/submissions/:id/mark", requirePermission("assignments.grade"), async 
   if (!teachesAssignment(scope, a)) return c.json({ error: "Only a teacher of this class can mark it" }, 403);
   if (s.status === "in_progress") return c.json({ error: "This hasn't been handed in yet" }, 409);
   const b = await c.req.json().catch(() => ({}));
+  // Marks given offline: if it was marked (or re-marked) since this device
+  // last saw it, the teacher chooses which marks stand.
+  if (b.force !== true && "baseMarkedAt" in b && changedSince(s.marked_at, b.baseMarkedAt)) {
+    return c.json({
+      error: "Someone marked this while you were offline.",
+      conflict: { kind: "marked_elsewhere", server: await submissionDetail(s, a) },
+    }, 409);
+  }
   const given = new Map<string, { marks?: unknown; feedback?: unknown }>();
   for (const x of Array.isArray(b.answers) ? b.answers : []) if (x && typeof x.questionId === "string") given.set(x.questionId, x);
   const questions = await questionsOf(a.id);
@@ -3396,6 +3470,7 @@ app.post("/learner/assignments/:id/start", requirePermission("assignments.submit
     if (why) return c.json({ error: why }, 409);
     const { error } = await admin.from("assignment_submissions").insert({
       id: rid("sub"), assignment_id: a.id, learner_id: me.id, school_id: me.school_id, class_id: me.class_id, status: "in_progress",
+      started_at: new Date().toISOString(), last_saved_at: new Date().toISOString(),
     });
     if (error && !isUniqueViolation(error)) return c.json({ error: error.message }, 400);
   }
@@ -3429,11 +3504,69 @@ async function saveAnswers(me: Record<string, any>, a: Record<string, any>, s: R
   return null;
 }
 
+/* ---- offline work arriving later ----
+   The device says which version it worked from: the time it last saw
+   (baseSavedAt / baseMarkedAt — null when it had none). If the work was
+   changed since, somewhere else, that's a conflict: the reply carries the
+   server's copy, and the person decides which to keep (resending with
+   force: true keeps theirs). Requests without a base are online edits and
+   are never checked. */
+function changedSince(serverAt: unknown, base: unknown): boolean {
+  const server = serverAt ? Date.parse(String(serverAt)) : null;
+  const seen = base ? Date.parse(String(base)) : null;
+  if (server == null) return false;
+  if (seen == null || !Number.isFinite(seen)) return true;
+  return server - seen > 1000;
+}
+
+/** Answers changed on another device since this one saw them. */
+async function answersChangedElsewhere(s: Record<string, any>, b: Record<string, any>) {
+  if (b.force === true || !("baseSavedAt" in b)) return false;
+  if (b.baseSavedAt == null) {
+    // This device never saw saved answers: only a conflict if some exist.
+    const { data } = await admin.from("submission_answers").select("id").eq("submission_id", s.id).limit(1);
+    return !!data?.length;
+  }
+  return changedSince(s.last_saved_at, b.baseSavedAt);
+}
+
+/** The learner's open submission — or the refusal, with the server's copy
+    when the work was handed in already (so an offline device can show it). */
+// deno-lint-ignore no-explicit-any
+async function openForWork(c: any, me: Record<string, any>, a: Record<string, any>, b: Record<string, any>) {
+  const open = await openSubmission(me, a);
+  if ("error" in open) {
+    return c.json({
+      error: open.error,
+      ...("handedIn" in open ? { conflict: { kind: "already_handed_in", server: await learnerAssignmentView(me, a) } } : {}),
+    }, open.status);
+  }
+  if (await answersChangedElsewhere(open.s, b)) {
+    return c.json({
+      error: "These answers were changed on another device.",
+      conflict: { kind: "changed_elsewhere", server: await learnerAssignmentView(me, a) },
+    }, 409);
+  }
+  return open.s as Record<string, any>;
+}
+
+/** When work handed in offline was handed in: the device's time, if it's
+    plausible — not in the future, not before the assignment was out. */
+function offlineHandInTime(raw: unknown, a: Record<string, any>, now: Date): Date | null {
+  if (typeof raw !== "string") return null;
+  const t = new Date(raw);
+  if (!Number.isFinite(t.getTime())) return null;
+  if (t.getTime() > now.getTime() + 2 * 60_000) return null;
+  const opened = a.starts_at ?? a.published_at ?? a.created_at;
+  if (opened && t.getTime() < new Date(opened).getTime()) return null;
+  return t;
+}
+
 /** The learner's open (in-progress) submission, or why they can't work on it. */
 async function openSubmission(me: Record<string, any>, a: Record<string, any>) {
   const { data: s } = await admin.from("assignment_submissions").select("*").eq("assignment_id", a.id).eq("learner_id", me.id).maybeSingle();
   if (!s) return { error: "Start the assignment first", status: 409 as const };
-  if (s.status !== "in_progress") return { error: "You've already handed this in", status: 409 as const };
+  if (s.status !== "in_progress") return { error: "You've already handed this in", status: 409 as const, handedIn: true };
   const why = cannotWork(me, a);
   if (why) return { error: why, status: 409 as const };
   return { s };
@@ -3443,10 +3576,10 @@ app.put("/learner/assignments/:id/answers", requirePermission("assignments.submi
   const me = await learnerSelf(c);
   const a = me ? await learnerAssignment(me, c.req.param("id")) : null;
   if (!me || !a) return c.json({ error: "Assignment not found" }, 404);
-  const open = await openSubmission(me, a);
-  if ("error" in open) return c.json({ error: open.error }, open.status);
   const b = await c.req.json().catch(() => ({}));
-  const err = await saveAnswers(me, a, open.s, b.answers);
+  const s = await openForWork(c, me, a, b);
+  if (s instanceof Response) return s;
+  const err = await saveAnswers(me, a, s, b.answers);
   if (err) return c.json({ error: err }, 400);
   return c.json(await learnerAssignmentView(me, a));
 });
@@ -3477,14 +3610,16 @@ app.post("/learner/assignments/:id/submit", requirePermission("assignments.submi
   const me = await learnerSelf(c);
   const a = me ? await learnerAssignment(me, c.req.param("id")) : null;
   if (!me || !a) return c.json({ error: "Assignment not found" }, 404);
-  const open = await openSubmission(me, a);
-  if ("error" in open) return c.json({ error: open.error }, open.status);
   const b = await c.req.json().catch(() => ({}));
+  const sub = await openForWork(c, me, a, b);
+  if (sub instanceof Response) return sub;
+  const open = { s: sub };
   const err = await saveAnswers(me, a, open.s, b.answers);
   if (err) return c.json({ error: err }, 400);
   const questions = await questionsOf(a.id);
   const { data: answers } = await admin.from("submission_answers").select("*").eq("submission_id", open.s.id);
   const now = new Date();
+  const offlineAt = offlineHandInTime(b.clientSubmittedAt, a, now);
   let total = 0, max = 0, allAuto = questions.length > 0;
   for (const q of questions) {
     const qq = toQuestion(q);
@@ -3498,7 +3633,8 @@ app.post("/learner/assignments/:id/submit", requirePermission("assignments.submi
   }
   const at = now.toISOString();
   const patch: Record<string, unknown> = {
-    status: "submitted", submitted_at: at, last_saved_at: at, is_late: isLate(a.due_at, now), max_marks: round2(max),
+    status: "submitted", submitted_at: at, last_saved_at: at, is_late: isLate(a.due_at, offlineAt ?? now), max_marks: round2(max),
+    offline_submitted_at: offlineAt ? offlineAt.toISOString() : null,
   };
   if (allAuto) {
     const pct = percentOf(total, max);
@@ -3509,7 +3645,8 @@ app.post("/learner/assignments/:id/submit", requirePermission("assignments.submi
     .eq("id", open.s.id).eq("status", "in_progress").select().maybeSingle();
   if (uErr) return c.json({ error: uErr.message }, 400);
   if (!done) return c.json({ error: "You've already handed this in" }, 409);
-  await audit(c, "submission.submitted", "submission", open.s.id, { assignmentId: a.id, late: patch.is_late, autoMarked: allAuto });
+  await audit(c, "submission.submitted", "submission", open.s.id,
+    { assignmentId: a.id, late: patch.is_late, autoMarked: allAuto, ...(offlineAt ? { handedInOffline: patch.offline_submitted_at } : {}) });
   return c.json(await learnerAssignmentView(me, a));
 });
 

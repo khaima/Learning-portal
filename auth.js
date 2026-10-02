@@ -14,10 +14,12 @@
    are reached only through the `api` Edge Function.
    ============================================================ */
 
-import { supabase } from "./supabase.js";
+import { supabase, storedStaffUserId } from "./supabase.js";
+import { setOwner, unsentCount, forgetThisDevice, isNetworkError } from "./sync.js";
+import { getMeta, setMeta } from "./offline.js";
 import { ApiError, rawRequest, learnerToken, setLearnerToken } from "./api.js";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./config.js";
-import { friendlyError } from "./util.js";
+import { friendlyError, confirmDialog } from "./util.js";
 
 export const DASHBOARD_PATH = {
   teacher: "teacher.html",
@@ -127,21 +129,57 @@ export async function learnerLogin(username, pin) {
 
 let cachedProfile;
 
+/* ---- signed in without a connection ----
+   This device remembers who was signed in and their profile, so a
+   dashboard still opens offline. Keyed by the session itself — a learner's
+   token (hashed, never stored twice) or the staff account's id — so it only
+   ever answers for the session that's actually here. */
+async function sessionKey() {
+  const lt = learnerToken();
+  if (lt) {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(lt));
+    return "L:" + [...new Uint8Array(digest)].slice(0, 16).map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  const uid = storedStaffUserId();
+  return uid ? `S:${uid}` : null;
+}
+async function rememberProfile(profile) {
+  if (!profile?.id || profile.needsOnboarding) return;
+  const key = await sessionKey().catch(() => null);
+  if (key) await setMeta(`session:${key}`, { profile, savedAt: new Date().toISOString() });
+  await setOwner(profile.id);
+}
+async function profileOnThisDevice() {
+  const key = await sessionKey().catch(() => null);
+  const saved = key ? await getMeta(`session:${key}`) : null;
+  if (!saved?.profile) return null;
+  await setOwner(saved.profile.id);
+  return { ...saved.profile, offline: true };
+}
+const unreachable = (err) => isNetworkError(err) || (err instanceof ApiError && err.status >= 500);
+
 /** The signed-in actor's profile, or null. Cached for the page view.
     `{ needsOnboarding: true, email }` for staff who signed in but haven't
     onboarded. */
 export async function getProfile({ force } = {}) {
   if (cachedProfile !== undefined && !force) return cachedProfile;
   if (!learnerToken()) {
-    const { data } = await supabase.auth.getSession();
-    if (!data.session) { cachedProfile = null; return null; }
+    const { data, error } = await supabase.auth.getSession();
+    if (!data.session) {
+      // Offline with an expired token: it can't be refreshed now, but it's still this person's session.
+      if (storedStaffUserId() && (!navigator.onLine || isNetworkError(error))) return (cachedProfile = await profileOnThisDevice());
+      cachedProfile = null;
+      return null;
+    }
   }
   try {
     const res = await rawRequest("GET", "/me");
     cachedProfile = res.needsOnboarding
       ? { needsOnboarding: true, email: res.email }
       : res.profile;
+    await rememberProfile(cachedProfile);
   } catch (err) {
+    if (unreachable(err)) return (cachedProfile = await profileOnThisDevice());
     if (err instanceof ApiError && err.status === 401 && learnerToken()) {
       setLearnerToken(null); // stale learner session
     }
@@ -165,15 +203,31 @@ export async function setMySchool(schoolId) {
   return res.profile;
 }
 
+/* Signing out on a shared device forgets this account's offline copies and
+   saved resources — but never work that hasn't been sent: that stays and
+   goes the next time they sign in here. Returns false if they chose to stay. */
 export async function signOut() {
+  const unsent = unsentCount();
+  if (unsent) {
+    const ok = await confirmDialog({
+      title: `${unsent} ${unsent === 1 ? "activity hasn't" : "activities haven't"} been sent yet`,
+      body: "They stay on this device and are sent the next time you sign in here with a connection. Sign out anyway?",
+      confirmLabel: "Sign out",
+    });
+    if (!ok) return false;
+  }
+  const key = await sessionKey().catch(() => null);
+  if (key) await setMeta(`session:${key}`, null);
+  await forgetThisDevice();
   const lt = learnerToken();
   cachedProfile = null;
   if (lt) {
     await rawRequest("POST", "/learner/logout", { token: lt }).catch(() => {});
     setLearnerToken(null);
-    return;
+    return true;
   }
   await supabase.auth.signOut().catch(() => {});
+  return true;
 }
 
 /* Call at the top of every dashboard. Async: checks the real session and

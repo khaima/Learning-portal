@@ -5,7 +5,7 @@ import { normalizeLibraryAudience } from "./data.js";
 import {
   getLibrary, getLibraryFolders, getForms, getResponses, mountLibraryShelves, libraryPreviewHtml,
   getLearners, addLearner, updateLearner, getMyLibraryUsage, getLearnerActivity,
-  getClasses, setLearnerStatus, getSubjects, getStaffAssignments, getSubmissions, getResults,
+  getClasses, setLearnerStatus, getSubjects, getStaffAssignments, getSubmissions, getSubmission, getResults,
   addLearnersToClass, removeLearnerFromClass,
 } from "./store.js";
 import { statusPill, openArchiveDialog, openHistoryPanel } from "./learners-ui.js";
@@ -15,6 +15,14 @@ import {
 } from "./assignments-ui.js";
 import { openContentPanel } from "./viewer.js";
 import { mountFormList } from "./forms.js";
+import * as sync from "./sync.js";
+
+/* Offline: at every sync, the work waiting to be marked is downloaded
+   (the list and each piece), so it can be marked without a connection. */
+sync.registerPrefetch(async () => {
+  const subs = await getSubmissions({ limit: 500 });
+  for (const x of subs.filter((s) => s.status === "submitted").slice(0, 40)) await getSubmission(x.id);
+});
 
 const ICON = {
   classes: '<path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/>',
@@ -202,7 +210,8 @@ async function main() {
       <div class="task-row">
         <span class="task-dot"></span>
         <div style="flex:1;min-width:0"><b>${esc(x.learnerName || "Learner")}</b><span>${esc(x.assignmentTitle)} · ${esc(x.subject)}${x.className ? ` · ${esc(x.className)}` : ""} · handed in ${esc(fmtWhen(x.submittedAt))}${x.isLate ? ' <span class="pill warm">Late</span>' : ""}</span></div>
-        <button type="button" class="pill warm" style="border:0;cursor:pointer" data-open-sub="${esc(x.id)}">Mark</button>
+        ${sync.waiting(`mark:${x.id}`) ? `<button type="button" class="pill" style="border:0;cursor:pointer" data-open-sub="${esc(x.id)}">Marked · waiting to sync</button>`
+          : `<button type="button" class="pill warm" style="border:0;cursor:pointer" data-open-sub="${esc(x.id)}">Mark</button>`}
       </div>`;
   }
   function markedRow(x) {
@@ -279,6 +288,12 @@ async function main() {
     });
   }
   $("#gradingSearch")?.addEventListener("input", () => renderQueueInto("#gradingQueue", "#gradingSearch"));
+  // Marks sent (or settled) from the queue: refresh what's shown.
+  let lastWaiting = sync.status().items.length;
+  sync.onChange((st) => {
+    if (st.items.length < lastWaiting) loadSubmissions(); else renderAllAssignmentViews();
+    lastWaiting = st.items.length;
+  });
   $("#assignSearch")?.addEventListener("input", () => renderQueueInto("#taskList", "#assignSearch"));
 
   function assignmentRow(a) {
@@ -830,7 +845,7 @@ async function main() {
 main();
 
 async function doSignOut() {
-  await signOut();
+  if ((await signOut()) === false) return;
   location.href = "index.html";
 }
 $("#signOutBtn")?.addEventListener("click", doSignOut);

@@ -227,6 +227,61 @@ Who does what: M&E (and administrators) own the framework and targets,
 verify actuals and issue reports; the Education Team can see everything and
 record actuals and evidence.
 
+### Offline: work without a connection
+
+```
+ONLINE → download assigned content → LOCAL DEVICE → work offline → stored locally
+       → NETWORK AVAILABLE → SYNC → SERVER
+```
+
+Built for schools with an unreliable connection. Every dashboard shows a
+**sync status** in its top bar — **● Online** or **● Offline**, the **last
+sync** time and how many activities are **waiting to sync** — and opens
+the **Offline & sync** panel: what's waiting, anything that needs a
+decision, **Sync now**, and the resources saved on the device.
+
+- **The app itself** works offline: a service worker (`sw.js`) keeps the
+  pages, scripts and styles on the device, network-first (a new deploy
+  shows up on the next online load; on a slow connection the device's copy
+  is used after 4 seconds). It never stores data — signed-in replies stay
+  out of shared browser caches. The portal can also be installed to a
+  phone's home screen (`manifest.webmanifest`).
+- **Downloaded content** (IndexedDB, `offline.js`), kept per account:
+  what the server sent for the pages people work in — assignments, the
+  library list, class lists, work to mark, forms, schools. At every sync a
+  learner's assignments are downloaded (and the reading they point to, if
+  it's 5 MB or less), and a teacher's work to mark. Any PDF, image, video,
+  audio or text resource can be **saved offline** on purpose; it opens only
+  in the portal's own viewer (never as a download — those stay with the
+  Education Team). Word/Excel/PowerPoint need Microsoft's online viewer, so
+  they can't be.
+- **Work offline** — kept on the device and sent later (`sync.js`):
+  learners start, answer, save and hand in assignments (files they attach
+  are kept and uploaded at sync); teachers mark; teachers, school heads and
+  field officers answer forms; field officers record visits (with filled
+  copies); reading time is recorded. The change shows straight away,
+  marked *waiting to sync*. Anything else needs a connection and says so.
+- **Sync** runs on load, when the connection comes back, every few minutes,
+  and on *Sync now*. Activities go in order; each carries its own
+  **Idempotency-Key**, so a send that arrived but whose reply was lost is
+  never done twice (the API keeps each key's reply — `sync_requests`). A
+  connection failure is retried; a **refusal** (e.g. the assignment was
+  closed) is kept and shown — try again or discard.
+- **Conflicts**: queued work carries the version the device last saw. If
+  the same work was changed elsewhere meanwhile — answers saved on another
+  device, work marked by someone else, work already handed in — the server
+  returns its copy and the person chooses: **keep mine** or **use the
+  other one**. Later activities on the same thing wait until it's settled.
+- **Work handed in offline** records when it was handed in on the device
+  (`offline_submitted_at`, shown as "handed in offline … received …");
+  lateness goes by that time when it's plausible (not in the future, not
+  before the assignment was out).
+- **Shared devices**: signing out removes that account's downloaded copies
+  and saved resources from the device — but never work that hasn't been
+  sent (the person is warned first, and it goes the next time they sign in
+  there). Signed in, a dashboard opens offline from the profile this device
+  remembers for that session.
+
 ### Content usage tracking
 
 Every "Open to read" click on any dashboard is timed:
@@ -528,7 +583,9 @@ the caller's own row in the database — nothing the browser sends.
   [`data_quality_test.ts`](supabase/functions/api/data_quality_test.ts) all
   fifteen data quality checks and the score, and
   [`me_test.ts`](supabase/functions/api/me_test.ts) the M&E rules (sources,
-  periods, targets, achievement):
+  periods, targets, achievement); the authorization suite also covers
+  offline sync (a retried write happens once, conflicts on answers and
+  marks, offline hand-in times, offline reading):
   `cd supabase/functions/api && deno test --allow-env --config deno.json authz_test.ts lms_test.ts intelligence_test.ts kobo_pipeline_test.ts data_quality_test.ts me_test.ts impact_test.ts`
 
 ### Turning on Google sign-in
@@ -594,6 +651,11 @@ same data everywhere, because the database is the source of truth.
 - **Moving a learner to another class mid-year** updates their current
   enrollment rather than starting a new one, so work set earlier in the new
   class can show as missing for them.
+- **Offline covers day-to-day work, not administration.** Creating
+  assignments, adding learners, managing classes, the Education Team's
+  dashboards and signing in for the first time on a device all need a
+  connection. Lateness of work handed in offline relies on the device's
+  clock (teachers see both times).
 
 ## Try it
 
@@ -621,7 +683,11 @@ used).
 | `field.html` / `field.js` | Field Officer dashboard (county → school → visit report) |
 | `education.html` / `education.js` | Education Team dashboard (upload, form builder, results, stats) |
 | `supabase.js` | The Supabase Auth client (password + Google) and the "remember me" storage adapter |
-| `api.js` | Thin fetch wrapper over the `api` Edge Function; attaches the JWT |
+| `api.js` | Thin fetch wrapper over the `api` Edge Function; attaches the JWT; serves this device's copies offline |
+| `offline.js` | What the device keeps (IndexedDB): copies per account, the queue, files, settings |
+| `sync.js` | Offline work: send or queue, sync in order, idempotency keys, conflicts, files chosen offline, downloads |
+| `sync-ui.js` | The sync status in every top bar and the Offline & sync panel |
+| `sw.js` / `pwa.js` / `manifest.webmanifest` | The offline app (service worker) and home-screen install |
 | `auth.js` | Sessions, the profile, `requireRole` for each dashboard |
 | `store.js` | Every data call — library, forms, responses, assignments, reports, stats |
 | `config.js` | Supabase URL, publishable key, API base URL |

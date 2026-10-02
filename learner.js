@@ -7,6 +7,27 @@ import {
   getMyAssignments, getResults,
 } from "./store.js";
 import { openLearnerAssignment, completionPill, markPill, fmtWhen, resultsTableHtml } from "./assignments-ui.js";
+import { getMyAssignment } from "./store.js";
+import { viewableKind } from "./viewer.js";
+import * as sync from "./sync.js";
+
+/* Offline: at every sync, this learner's assignments (and the reading they
+   point to, if it's small) are downloaded, so they can be opened, answered
+   and handed in without a connection. */
+const AUTO_SAVE_LIMIT = 5 * 1024 * 1024;
+const OFFLINE_KINDS = ["pdf", "image", "video", "audio", "text"];
+sync.registerPrefetch(async () => {
+  const list = await getMyAssignments();
+  for (const a of list.filter((x) => !x.opensLater).slice(0, 60)) {
+    const d = await getMyAssignment(a.id);
+    const canWork = d.completion === "not_started" || d.completion === "in_progress";
+    for (const f of (canWork && d.resource?.files) || []) {
+      if (!OFFLINE_KINDS.includes(viewableKind(f.name)) || !f.viewUrl || (f.size || 0) > AUTO_SAVE_LIMIT || sync.savedFile(d.resource.id, f.name)) continue;
+      await sync.saveFile({ itemId: d.resource.id, title: d.resource.title, name: f.name, size: f.size, url: f.viewUrl }).catch(() => {});
+    }
+  }
+  await Promise.all([getLibrary(), getLibraryFolders(), getMyLibraryUsage(), getResults({ by: "subject" })]);
+});
 
 const CIRCUMFERENCE = 2 * Math.PI * 34;
 const HOME_TEASER_LIMIT = 3; // keep the digest scannable — the sidebar is where the full list lives
@@ -64,7 +85,8 @@ async function main() {
         <span class="task-dot"></span>
         <div style="flex:1;min-width:0"><b>${esc(a.title)}</b><span>${esc(a.subject)}${a.dueAt ? ` · due ${esc(fmtWhen(a.dueAt))}` : ""}${
           a.opensLater ? ` · opens ${esc(fmtWhen(a.startsAt))}` : ""}${a.estimatedMinutes ? ` · about ${a.estimatedMinutes} min` : ""}</span></div>
-        <span>${completionPill(a.completion, { late: s?.isLate, overdue: a.overdue })} ${a.completion === "marked" ? markPill(s.percentage, s.band) : ""}</span>
+        <span>${completionPill(a.completion, { late: s?.isLate, overdue: a.overdue })} ${a.completion === "marked" ? markPill(s.percentage, s.band) : ""}${
+          a.pendingSync || sync.waiting(`asg:${a.id}`) ? ' <span class="pill">Waiting to sync</span>' : ""}</span>
         ${action ? `<button class="mark-done" type="button" data-open-asg="${esc(a.id)}">${action}</button>` : ""}
       </div>`;
   }
@@ -330,6 +352,13 @@ async function main() {
     if (btn) openLearnerAssignment(btn.dataset.openAsg, { onChange: refreshAssignments });
   });
 
+  // When queued work lands (or is settled), show the server's version.
+  let lastWaiting = sync.status().items.length;
+  sync.onChange((st) => {
+    if (st.items.length < lastWaiting) refreshAssignments();
+    lastWaiting = st.items.length;
+  });
+
   [assignments, [library, libraryFolders], usage] = await Promise.all([
     loadAssignments(), Promise.all([loadLibrary(), loadFolders()]), loadUsage(),
   ]);
@@ -339,7 +368,7 @@ async function main() {
 main();
 
 async function doSignOut() {
-  await signOut();
+  if ((await signOut()) === false) return;
   location.href = "index.html";
 }
 $("#signOutBtn")?.addEventListener("click", doSignOut);

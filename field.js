@@ -389,11 +389,13 @@ async function main() {
     };
     try {
       const responses = formsBox ? await collectVisitResponses(formsBox, currentVisit.forms) : [];
-      await addFieldReport({
+      const res = await addFieldReport({
         schoolId: currentVisit.schoolId, visitType: currentVisit.visitType, responses,
-        clientRef: currentVisit.clientRef,
+        clientRef: currentVisit.clientRef, label: `Visit: ${currentVisit.school} (${currentVisit.visitType})`,
       });
       currentVisit.formsSent = responses.length;
+      // No connection: the visit — filled copies included — waits on this device and goes by itself.
+      currentVisit.queued = !!res?.queued;
     } catch (err) {
       console.error("could not save field report:", err);
       done();
@@ -408,9 +410,10 @@ async function main() {
     }
     done();
     clearDraft();
-    toast("Visit report submitted successfully.", "", "success");
+    if (currentVisit.queued) toast("Visit saved on this device", "It's sent automatically when you're back online — you can close the page.", "success");
+    else toast("Visit report submitted successfully.", "", "success");
     $("#confirmedSummary").innerHTML =
-      `<div><b>Visit report submitted</b><br>${esc(currentVisit.school)} · ${esc(currentVisit.county)} · ${esc(currentVisit.visitType)}` +
+      `<div><b>${currentVisit.queued ? "Visit saved on this device — waiting to sync" : "Visit report submitted"}</b><br>${esc(currentVisit.school)} · ${esc(currentVisit.county)} · ${esc(currentVisit.visitType)}` +
       `${currentVisit.forms.length ? `<br>${currentVisit.formsSent} of ${currentVisit.forms.length} form${currentVisit.forms.length === 1 ? "" : "s"} sent` : ""}</div>`;
     $("#visitFormsFill").innerHTML = "";
     setDraftStatus("");
@@ -573,7 +576,7 @@ async function main() {
 main();
 
 async function doSignOut() {
-  await signOut();
+  if ((await signOut()) === false) return;
   location.href = "index.html";
 }
 $("#signOutBtn")?.addEventListener("click", doSignOut);

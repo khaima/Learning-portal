@@ -253,6 +253,7 @@ function freshWorld() {
     dq_scans: [],
     me_programmes: [], me_outcomes: [], me_indicators: [], me_targets: [], me_actuals: [], me_evidence: [], me_reports: [],
     trainings: [], training_attendance: [],
+    sync_requests: [],
     staff_invitations: [],
     audit_log: [],
   };
@@ -260,15 +261,15 @@ function freshWorld() {
   return db;
 }
 
-async function call(method: string, path: string, token?: string, body?: unknown) {
-  const headers: Record<string, string> = { "content-type": "application/json" };
+async function call(method: string, path: string, token?: string, body?: unknown, extra: Record<string, string> = {}) {
+  const headers: Record<string, string> = { "content-type": "application/json", ...extra };
   if (token) headers.authorization = `Bearer ${token}`;
   const res = await app.request(`/api${path}`, {
     method, headers, body: body === undefined ? undefined : JSON.stringify(body),
   });
   let json: Row = {};
   try { json = await res.json(); } catch { /* empty */ }
-  return { status: res.status, json };
+  return { status: res.status, json, replay: res.headers.get("idempotent-replay") === "true" };
 }
 const tokenFor = (role: R) => (role === "learner" ? "hpl_learnertoken" : `tok_${role}`);
 
@@ -1545,4 +1546,108 @@ Deno.test("M&E dashboard: indicators tagged for a dashboard, target vs actual, t
   assertEquals(trend.points.map((p: Row) => [p.period, p.target, p.value]), [["2026-T1", null, null], ["2026-T2", 60, 100], ["2026-T3", 75, 75]]);
   const narok = (await call("GET", `/mel/indicators/${ind}/trend?school=${encodeURIComponent(SCHOOL.name)}`, "tok_me")).json;
   assertEquals(narok.points.map((p: Row) => p.value), [null, 100, 66.7]);
+});
+
+/* ------------------------------------------------------------ offline sync */
+
+const key = (k: string) => ({ "Idempotency-Key": k });
+
+Deno.test("offline queue: a retried write happens once, and a key belongs to whoever first used it", async () => {
+  const db = freshWorld();
+  const first = await call("POST", "/learner/assignments/asg_1/start", LEARNER, {}, key("start-asg1-0001"));
+  const again = await call("POST", "/learner/assignments/asg_1/start", LEARNER, {}, key("start-asg1-0001"));
+  assertEquals([first.status, again.status, first.replay, again.replay], [200, 200, false, true], "the second gets the first reply back");
+  assertEquals(again.json, first.json);
+  assertEquals(db.assignment_submissions.filter((s) => s.learner_id === "learner-id").length, 1);
+  // A visit sent twice — once on a bad connection, then again from the queue — is filed once.
+  const visit = { schoolId: "sch_1", visitType: "Learning", responses: [] };
+  const v1 = await call("POST", "/field-reports", "tok_field_officer", visit, key("visit-0000-0001"));
+  const v2 = await call("POST", "/field-reports", "tok_field_officer", visit, key("visit-0000-0001"));
+  assertEquals([v1.status, v2.status, v2.replay], [200, 200, true]);
+  assertEquals(db.field_reports.length, 1);
+  assertEquals((await call("POST", "/field-reports", "tok_teacher", visit, key("visit-0000-0001"))).status, 422, "someone else's key");
+  assertEquals((await call("POST", "/field-reports", "tok_field_officer", visit, key("bad key!"))).status, 400);
+  // A refusal is kept too: retrying the same key gives the same answer, not a second try.
+  const no1 = await call("PUT", "/learner/assignments/asg_b/answers", LEARNER, { answers: [] }, key("answers-asgb-01"));
+  const no2 = await call("PUT", "/learner/assignments/asg_b/answers", LEARNER, { answers: [] }, key("answers-asgb-01"));
+  assertEquals([no1.status, no2.status, no2.replay], [404, 404, true]);
+  // Without a key nothing changes: the online path is untouched.
+  assertEquals((await call("POST", "/learner/assignments/asg_1/start", LEARNER, {})).status, 200);
+});
+
+Deno.test("offline answers: changes made elsewhere since the device saw them are a conflict, unless the learner keeps theirs", async () => {
+  const db = freshWorld();
+  const started = await call("POST", "/learner/assignments/asg_1/start", LEARNER, {});
+  const seen = started.json.submission.lastSavedAt;
+  const ok = await call("PUT", "/learner/assignments/asg_1/answers", LEARNER, { answers: [{ questionId: "q_tm", response: "From the tablet" }], baseSavedAt: seen });
+  assertEquals(ok.status, 200, "nothing changed since: saved");
+  // Another device saves later…
+  const sub = db.assignment_submissions.find((s) => s.learner_id === "learner-id")!;
+  sub.last_saved_at = new Date(Date.now() + 60_000).toISOString();
+  const stale = await call("PUT", "/learner/assignments/asg_1/answers", LEARNER, { answers: [{ questionId: "q_tm", response: "From the phone" }], baseSavedAt: ok.json.submission.lastSavedAt });
+  assertEquals([stale.status, stale.json.conflict?.kind], [409, "changed_elsewhere"]);
+  assertEquals(stale.json.conflict.server.answers.find((x: Row) => x.questionId === "q_tm").response, "From the tablet", "the server's copy comes back");
+  assertEquals(db.submission_answers.find((x) => x.question_id === "q_tm")!.response, "From the tablet", "nothing overwritten");
+  // A device that never saw saved answers conflicts only if some exist.
+  assertEquals((await call("PUT", "/learner/assignments/asg_1/answers", LEARNER, { answers: [], baseSavedAt: null })).json.conflict?.kind, "changed_elsewhere");
+  // Keep mine.
+  const forced = await call("PUT", "/learner/assignments/asg_1/answers", LEARNER, { answers: [{ questionId: "q_tm", response: "From the phone" }], baseSavedAt: seen, force: true });
+  assertEquals(forced.status, 200);
+  assertEquals(db.submission_answers.find((x) => x.question_id === "q_tm")!.response, "From the phone");
+});
+
+Deno.test("offline hand-in: lateness goes by when it was handed in on the device, if plausible; already handed in is a conflict", async () => {
+  const db = freshWorld();
+  const asg = db.assignments.find((a) => a.id === "asg_1")!;
+  asg.due_at = new Date(Date.now() - 2 * 864e5).toISOString(); // due two days ago
+  await call("POST", "/learner/assignments/asg_1/start", LEARNER, {});
+  const handedIn = new Date(Date.now() - 3 * 864e5).toISOString(); // on the device, before it was due
+  const res = await call("POST", "/learner/assignments/asg_1/submit", LEARNER, { answers: [{ questionId: "q_mc", response: 0 }], clientSubmittedAt: handedIn, baseSavedAt: null });
+  assertEquals(res.status, 200, JSON.stringify(res.json));
+  const sub = db.assignment_submissions.find((s) => s.learner_id === "learner-id")!;
+  assertEquals([sub.is_late, sub.offline_submitted_at], [false, handedIn]);
+  assertEquals(res.json.submission.offlineSubmittedAt, handedIn);
+  assert(db.audit_log.some((x) => x.action === "submission.submitted" && x.details?.handedInOffline === handedIn));
+  // Sent again from another device that still had it open: the server's copy comes back.
+  const late = await call("PUT", "/learner/assignments/asg_1/answers", LEARNER, { answers: [], baseSavedAt: null });
+  assertEquals([late.status, late.json.conflict?.kind, late.json.conflict?.server?.completion], [409, "already_handed_in", "submitted"]);
+  // A time in the future (a wrong clock) isn't believed.
+  const w2 = freshWorld();
+  w2.assignments.find((a) => a.id === "asg_1")!.due_at = new Date(Date.now() - 864e5).toISOString();
+  await call("POST", "/learner/assignments/asg_1/start", LEARNER, {});
+  await call("POST", "/learner/assignments/asg_1/submit", LEARNER, { answers: [], clientSubmittedAt: new Date(Date.now() + 864e5).toISOString() });
+  const s2 = w2.assignment_submissions.find((s) => s.learner_id === "learner-id")!;
+  assertEquals([s2.is_late, s2.offline_submitted_at], [true, null]);
+});
+
+Deno.test("offline marking: marks given while someone else marked it are a conflict; keep mine overrides", async () => {
+  const db = freshWorld();
+  await call("POST", "/learner/assignments/asg_1/start", LEARNER, {});
+  await call("POST", "/learner/assignments/asg_1/submit", LEARNER, { answers: [{ questionId: "q_mc", response: 0 }, { questionId: "q_tm", response: "Because" }] });
+  const sub = db.assignment_submissions.find((s) => s.learner_id === "learner-id")!;
+  const marks = (m: number) => ({ answers: [{ questionId: "q_tm", marks: m }] });
+  // Downloaded unmarked (baseMarkedAt null); marked online meanwhile.
+  const online = await call("POST", `/submissions/${sub.id}/mark`, "tok_teacher", marks(1));
+  assertEquals(online.status, 200);
+  const offline = await call("POST", `/submissions/${sub.id}/mark`, "tok_teacher", { ...marks(2), baseMarkedAt: null });
+  assertEquals([offline.status, offline.json.conflict?.kind, offline.json.conflict?.server?.submission?.marks], [409, "marked_elsewhere", 3]);
+  assertEquals(sub.marks, 3, "unchanged");
+  // Saw the latest marks: no conflict.
+  assertEquals((await call("POST", `/submissions/${sub.id}/mark`, "tok_teacher", { ...marks(2), baseMarkedAt: online.json.submission.markedAt })).status, 200);
+  assertEquals(sub.marks, 4);
+  // Keep mine.
+  assertEquals((await call("POST", `/submissions/${sub.id}/mark`, "tok_teacher", { ...marks(0), baseMarkedAt: null, force: true })).status, 200);
+  assertEquals(sub.marks, 2);
+});
+
+Deno.test("offline reading: a session read without a connection arrives later with its own times, if plausible", async () => {
+  const db = freshWorld();
+  const start = new Date(Date.now() - 3 * 3600e3), end = new Date(Date.now() - 3 * 3600e3 + 20 * 60e3);
+  const r = await call("POST", "/library/lib_1/interactions", LEARNER, { startedAt: start.toISOString(), completedAt: end.toISOString() });
+  assertEquals(r.status, 200);
+  const row = db.library_interactions.find((x) => x.id === r.json.interaction.id)!;
+  assertEquals([row.started_at, row.duration_seconds], [start.toISOString(), 1200]);
+  // A clock in the future isn't believed: it's recorded as starting now, like an online open.
+  const bad = await call("POST", "/library/lib_1/interactions", LEARNER, { startedAt: new Date(Date.now() + 864e5).toISOString(), completedAt: new Date(Date.now() + 2 * 864e5).toISOString() });
+  assertEquals(db.library_interactions.find((x) => x.id === bad.json.interaction.id)!.duration_seconds, undefined);
 });

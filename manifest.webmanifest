@@ -1,0 +1,14 @@
+{
+  "name": "HPF Digital Learning Portal",
+  "short_name": "HPF Learning",
+  "description": "Learn, teach, support and measure — works offline and syncs when the connection is back.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#FAF6EF",
+  "theme_color": "#1E4C8A",
+  "icons": [
+    { "src": "./assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "./assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
