@@ -108,6 +108,49 @@ sessions, responses, Kobo submissions, assignment due dates). Forms and Kobo
 surveys aren't tied to a school, so the page says so when a school is
 picked.
 
+### Data Quality Center
+
+Programme intelligence → **Data quality**: every problem in the portal's
+records, how serious it is, where it is, and what's being done about it.
+
+- **Checks** ([`data_quality.ts`](supabase/functions/api/data_quality.ts)):
+  duplicate learner records (same name among a school's active learners),
+  duplicate staff records (same name, or an email one letter apart),
+  missing school, missing county, school/county combinations that don't
+  agree, missing grade, invalid grade (not a portal grade, or not the
+  class's grade), duplicate Kobo submissions, unmatched Kobo officer
+  references, missing required Kobo fields, orphaned records (no open
+  enrollment, an enrollment left open after leaving, an archived class, a
+  deleted library resource…), invalid dates, inactive users still
+  assigned to classes or owning open work, learners without a class, and
+  teachers / school heads without a school.
+- **Each issue** has a type, a severity (High / Medium / Low), the
+  record(s) it affects, its school and county, when it was **first found**,
+  its **status** — `OPEN`, `UNDER_REVIEW`, `RESOLVED`, `IGNORED` — and,
+  once resolved, **who resolved it and when**.
+- **Scans** run when the page (or the Overview) is opened and the last scan
+  is over 15 minutes old, and on **Scan now**. A problem found again keeps
+  its history and first-found date; one no longer found is resolved "at
+  the source" by the scan; a resolved one that comes back reopens. A scan
+  never overrides **Ignored** (a person's decision that it's fine).
+- **Score** — each check's pass rate (records with no open issue), weighted
+  by severity, for the county / school picked; the trend is kept per scan.
+- **Filters** — county, school and date (first found) from the filter bar;
+  issue type, severity, status and a search on the page. Select several to
+  change their status together.
+- **Corrections** — where a fix is clear, it can be made from the issue:
+  set a grade, place a learner in a class, place a teacher in a school, use
+  the school's county, archive one copy of a duplicate learner (as Inactive
+  — never deleted), open or close an enrollment, end a class assignment,
+  accept or exclude a Kobo submission. Each goes through the portal's normal
+  edit and needs that edit's permission too (so M&E and the Education Team
+  can triage but not change learner records; administrators can).
+- **Nothing is deleted.** Every detection, status change and correction is
+  an event in the issue's history (`dq_issue_events`, which even the API
+  can't edit), with who, when, why and — for corrections — the value
+  before and after; corrections and status changes also go to the audit
+  log.
+
 ### Content usage tracking
 
 Every "Open to read" click on any dashboard is timed:
@@ -404,8 +447,10 @@ the caller's own row in the database — nothing the browser sends.
   every number on the Programme Intelligence dashboard, and
   [`kobo_pipeline_test.ts`](supabase/functions/api/kobo_pipeline_test.ts)
   every Kobo validation and normalization rule (the authorization tests
-  also run sync and the push against a stand-in KoboToolbox):
-  `cd supabase/functions/api && deno test --allow-env --config deno.json authz_test.ts lms_test.ts intelligence_test.ts kobo_pipeline_test.ts`
+  also run sync and the push against a stand-in KoboToolbox), and
+  [`data_quality_test.ts`](supabase/functions/api/data_quality_test.ts) all
+  fifteen data quality checks and the score:
+  `cd supabase/functions/api && deno test --allow-env --config deno.json authz_test.ts lms_test.ts intelligence_test.ts kobo_pipeline_test.ts data_quality_test.ts`
 
 ### Turning on Google sign-in
 
@@ -503,6 +548,7 @@ used).
 | `config.js` | Supabase URL, publishable key, API base URL |
 | `data.js` | Static UI constants (roles, subjects, question types) |
 | `util.js` | Tiny shared DOM / escaping / toast helpers |
+| `dq-ui.js` | The Data Quality Center: score, checks, issues, history, corrections |
 | `kobo-ui.js` | The Kobo data pipeline panel (checks, mapping, school aliases, review queue) and the live-push setup |
 | `intelligence-ui.js` | The Education Team's Programme Intelligence pages |
 | `assignments-ui.js` | Assignment builder, marking, results table, and the learner's assignment screen |

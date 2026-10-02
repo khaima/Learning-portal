@@ -248,6 +248,9 @@ function freshWorld() {
     kobo_records: [],
     kobo_record_issues: [],
     kobo_school_aliases: [],
+    dq_issues: [],
+    dq_issue_events: [],
+    dq_scans: [],
     staff_invitations: [],
     audit_log: [],
   };
@@ -351,6 +354,13 @@ const ROUTES: RouteSpec[] = [
   r("POST", "/field-reports", ["field_officer"], { schoolId: "sch_1", visitType: "Learning", responses: [] }),
   r("GET", "/stats", ANALYSTS),
   r("GET", "/intelligence", ANALYSTS),
+  r("POST", "/data-quality/scan", ANALYSTS, {}),
+  r("GET", "/data-quality/summary", ANALYSTS),
+  r("GET", "/data-quality/issues", ANALYSTS),
+  r("GET", "/data-quality/issues/:id", ANALYSTS),
+  r("PATCH", "/data-quality/issues/:id", ANALYSTS, { status: "UNDER_REVIEW" }),
+  r("POST", "/data-quality/issues/bulk", ANALYSTS, { ids: ["x1"], status: "UNDER_REVIEW" }),
+  r("POST", "/data-quality/issues/:id/fix", ANALYSTS, { action: "set_learner_grade", grade: "Grade 4" }),
   r("GET", "/school/overview", ["school_leader"]),
   r("GET", "/users", EDU_ADMIN),
   r("GET", "/users/invitations", USER_ADMIN),
@@ -1179,4 +1189,124 @@ Deno.test("Kobo field mapping: only the survey's own questions; saving re-checks
   } finally {
     restore();
   }
+});
+
+/* ------------------------------------------------------------ 11. Data Quality Center */
+
+/** A world with known problems: a duplicate learner, one with no class, one with a bad grade. */
+function dqWorld() {
+  const db = freshWorld();
+  const base = db.learners[0];
+  db.learners.push(
+    { ...base, id: "dup-id", username: "kid.dup", user_code: "NRK-001-L0007", learner_code: "NRK-001-L0007", created_at: "2026-09-05T00:00:00Z" },
+    { ...base, id: "noclass-id", username: "kid.nc", full_name: "Kid Noclass", class_id: null, user_code: "NRK-001-L0008", learner_code: "NRK-001-L0008" },
+    { ...base, id: "badgrade-id", username: "kid.bg", full_name: "Kid Badgrade", grade: "Std 4", user_code: "NRK-001-L0009", learner_code: "NRK-001-L0009" },
+  );
+  for (const id of ["dup-id", "noclass-id", "badgrade-id"]) {
+    db.learner_enrollments.push({ id: `enr-${id}`, learner_id: id, school_id: SCHOOL.id, class_id: "cls_1", status: "ACTIVE", enrollment_date: "2026-09-01" });
+  }
+  return db;
+}
+const dqByKey = (db: Db, key: string) => db.dq_issues.find((i) => i.issue_key === key)!;
+
+Deno.test("data quality: scans open issues, keep first-detected dates, resolve what's fixed at the source, reopen what comes back", async () => {
+  const db = dqWorld();
+  const scan = await call("POST", "/data-quality/scan", "tok_me");
+  assertEquals(scan.status, 200, JSON.stringify(scan.json));
+  const nc = dqByKey(db, "learner_without_class:learner:noclass-id");
+  const bg = dqByKey(db, "invalid_grade:learner:badgrade-id");
+  assert(nc && bg && dqByKey(db, `duplicate_learner:${SCHOOL.id}|kid one`), "the three planted problems are found");
+  assertEquals([nc.status, nc.severity, nc.school_id, nc.county], ["OPEN", "LOW", SCHOOL.id, "Narok"]);
+  assert(db.dq_issue_events.some((e) => e.issue_id === nc.id && e.action === "detected"));
+  const first = nc.first_detected_at;
+  const sum = await call("GET", "/data-quality/summary", "tok_me");
+  assert(sum.json.score.value < 100);
+  assertEquals(sum.json.byType.find((t: Row) => t.type === "learner_without_class").OPEN, 1);
+  // Fixed elsewhere (e.g. by the school head): the next scan resolves it — by the scan, not a person.
+  db.learners.find((l) => l.id === "noclass-id")!.class_id = "cls_1";
+  await call("POST", "/data-quality/scan", "tok_me");
+  assertEquals([nc.status, nc.resolved_by, nc.resolution, nc.still_present], ["RESOLVED", null, "No longer found — fixed at the source", false]);
+  assert(db.dq_issue_events.some((e) => e.issue_id === nc.id && e.action === "auto_resolved"));
+  // It comes back: the same issue reopens, with its history and first-detected date.
+  db.learners.find((l) => l.id === "noclass-id")!.class_id = null;
+  await call("POST", "/data-quality/scan", "tok_me");
+  assertEquals([nc.status, nc.reopened_count, nc.first_detected_at], ["OPEN", 1, first]);
+  assertEquals(db.dq_issues.filter((i) => i.issue_key === nc.issue_key).length, 1);
+  assertEquals(db.dq_scans.length, 3);
+  assertEquals(db.learners.length, 5, "a scan never deletes or changes records");
+});
+
+Deno.test("data quality: status workflow with reasons, ignore sticks, filters by county/school/type/severity/status/date", async () => {
+  const db = dqWorld();
+  db.learners.push({ ...db.learners[1], id: "b-noclass", username: "kid.bnc", full_name: "Kid B Noclass", class_id: null, learner_code: "NRK-002-L0009" });
+  db.learner_enrollments.push({ id: "enr-bnc", learner_id: "b-noclass", school_id: SCHOOL_B.id, class_id: null, status: "ACTIVE", enrollment_date: "2026-09-01" });
+  await call("POST", "/data-quality/scan", "tok_education_team");
+  const nc = dqByKey(db, "learner_without_class:learner:noclass-id");
+  assertEquals((await call("PATCH", `/data-quality/issues/${nc.id}`, "tok_me", { status: "UNDER_REVIEW" })).status, 200);
+  assertEquals((await call("PATCH", `/data-quality/issues/${nc.id}`, "tok_me", { status: "IGNORED" })).status, 400, "a reason is required");
+  assertEquals((await call("PATCH", `/data-quality/issues/${nc.id}`, "tok_me", { status: "IGNORED", note: "Joins a class next term" })).status, 200);
+  assertEquals((await call("PATCH", `/data-quality/issues/${nc.id}`, "tok_me", { status: "UNDER_REVIEW" })).status, 400, "reopen it first");
+  assert(db.audit_log.some((a) => a.action === "dq.status_changed" && a.target_id === nc.id && a.details.to === "IGNORED"));
+  await call("POST", "/data-quality/scan", "tok_education_team");
+  assertEquals(nc.status, "IGNORED", "a scan never overrides a person's decision to ignore");
+  // Resolving by hand while it's still there: the next scan reopens it.
+  const bg = dqByKey(db, "invalid_grade:learner:badgrade-id");
+  await call("PATCH", `/data-quality/issues/${bg.id}`, "tok_me", { status: "RESOLVED", note: "Told the school" });
+  assertEquals([bg.status, bg.resolved_by], ["RESOLVED", "me-id"]);
+  await call("POST", "/data-quality/scan", "tok_education_team");
+  assertEquals(bg.status, "OPEN");
+  // Filters.
+  const list = async (qs: string) => (await call("GET", `/data-quality/issues?${qs}`, "tok_me")).json.issues.map((i: Row) => i.entity.id).sort();
+  assertEquals(await list(`school=${encodeURIComponent(SCHOOL_B.name)}&type=learner_without_class`), ["b-noclass"]);
+  assertEquals(await list(`county=Narok&type=learner_without_class&status=OPEN`), ["b-noclass"], "ignored ones drop out of OPEN");
+  assertEquals(await list("type=invalid_grade&severity=MEDIUM"), ["badgrade-id"]);
+  assertEquals(await list("status=IGNORED"), ["noclass-id"]);
+  assertEquals(await list("from=2099-01-01"), [], "first detected in that range");
+  const today = new Date().toISOString().slice(0, 10);
+  assert((await list(`from=${today}&to=${today}`)).length >= 4);
+  const ignoredSummary = (await call("GET", "/data-quality/summary?status=IGNORED", "tok_me")).json;
+  assertEquals(ignoredSummary.totals.byStatus.IGNORED, 1);
+  // Bulk: several at once, each audited.
+  const ids = db.dq_issues.filter((i) => i.status === "OPEN").map((i) => i.id);
+  const bulk = await call("POST", "/data-quality/issues/bulk", "tok_education_team", { ids, status: "UNDER_REVIEW" });
+  assertEquals(bulk.json.changed, ids.length);
+  assertEquals(db.dq_issue_events.filter((e) => e.action === "status_changed" && e.to_status === "UNDER_REVIEW").length, ids.length + 1);
+});
+
+Deno.test("data quality corrections: through the normal edit, audited before/after, never a deletion, permission-checked", async () => {
+  const db = dqWorld();
+  await call("POST", "/data-quality/scan", "tok_admin");
+  const bg = dqByKey(db, "invalid_grade:learner:badgrade-id");
+  // The fixes offered depend on who's asking.
+  assertEquals((await call("GET", `/data-quality/issues/${bg.id}`, "tok_me")).json.fixes, [], "M&E can triage, not edit learners");
+  assertEquals((await call("POST", `/data-quality/issues/${bg.id}/fix`, "tok_education_team", { action: "set_learner_grade", grade: "Grade 4" })).status, 403);
+  const offered = (await call("GET", `/data-quality/issues/${bg.id}`, "tok_admin")).json.fixes.map((f: Row) => f.action);
+  assertEquals(offered, ["set_learner_grade"]);
+  assertEquals((await call("POST", `/data-quality/issues/${bg.id}/fix`, "tok_admin", { action: "set_learner_grade", grade: "Grade 99" })).status, 400);
+  const fixed = await call("POST", `/data-quality/issues/${bg.id}/fix`, "tok_admin", { action: "set_learner_grade", grade: "Grade 4", note: "Checked the register" });
+  assertEquals(fixed.status, 200, JSON.stringify(fixed.json));
+  assertEquals(db.learners.find((l) => l.id === "badgrade-id")!.grade, "Grade 4");
+  assertEquals([bg.status, bg.resolved_by], ["RESOLVED", "admin-id"]);
+  assert(String(bg.resolution).startsWith("Corrected: Grade set to Grade 4"));
+  const ev = db.dq_issue_events.find((e) => e.issue_id === bg.id && e.action === "corrected")!;
+  assertEquals([ev.details.before, ev.details.after, ev.actor_id], [{ grade: "Std 4" }, { grade: "Grade 4" }, "admin-id"]);
+  assert(db.audit_log.some((a) => a.action === "dq.corrected" && a.target_id === bg.id));
+  assert(db.audit_log.some((a) => a.action === "learner.updated" && a.target_id === "badgrade-id" && a.details.via === "data_quality"));
+  assertEquals(fixed.json.issue.status, "RESOLVED", "the re-scan agrees it's fixed");
+  // Place the class-less learner; archive the duplicate (kept, reversible).
+  const nc = dqByKey(db, "learner_without_class:learner:noclass-id");
+  assertEquals((await call("POST", `/data-quality/issues/${nc.id}/fix`, "tok_admin", { action: "place_learner_in_class", classId: "cls_1" })).status, 200);
+  assertEquals(db.learners.find((l) => l.id === "noclass-id")!.class_id, "cls_1");
+  const dup = dqByKey(db, `duplicate_learner:${SCHOOL.id}|kid one`);
+  assertEquals((await call("POST", `/data-quality/issues/${dup.id}/fix`, "tok_admin", { action: "archive_duplicate_learner", learnerId: "learner-b-id" })).status, 400, "only one of the duplicates");
+  assertEquals((await call("POST", `/data-quality/issues/${dup.id}/fix`, "tok_admin", { action: "archive_duplicate_learner", learnerId: "dup-id" })).status, 200);
+  const d = db.learners.find((l) => l.id === "dup-id")!;
+  assertEquals([d.enrollment_status, db.learners.length], ["INACTIVE", 5], "archived, never deleted");
+  assert(String(d.exit_reason).includes("Duplicate record of NRK-001-L0001"));
+  assertEquals(dup.status, "RESOLVED");
+  // A correction that isn't on offer for this issue is refused.
+  assertEquals((await call("POST", `/data-quality/issues/${nc.id}/fix`, "tok_admin", { action: "set_learner_grade", grade: "Grade 4" })).status, 403);
+  // The issue's own history reads in order.
+  const hist = (await call("GET", `/data-quality/issues/${bg.id}`, "tok_me")).json.events.map((e: Row) => `${e.action}:${e.by}`);
+  assertEquals(hist, ["detected:Scan", "corrected:admin person"]);
 });

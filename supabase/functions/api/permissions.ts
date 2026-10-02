@@ -80,6 +80,9 @@ export const PERMISSIONS = [
   // dashboards
   "stats.view",
   "intelligence.view",    // the Programme Intelligence dashboard (every school)
+  "data_quality.view",    // the Data Quality Center: issues, score, history
+  "data_quality.manage",  // move issues through review / resolve / ignore, and correct them
+                          // (a correction also needs the permission for that edit itself)
   "school.overview.view",
   // KoboToolbox
   "kobo.manage",
@@ -110,7 +113,7 @@ const EDUCATION_TEAM: Permission[] = [
   "forms.manage", "forms.responses.view",
   "assignments.view.all",
   "field_reports.view.all",
-  "stats.view", "intelligence.view",
+  "stats.view", "intelligence.view", "data_quality.view", "data_quality.manage",
   "kobo.manage", "kobo.results.view",
   "users.view",
 ];
@@ -134,7 +137,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "forms.responses.view",
     "assignments.view.all",
     "field_reports.view.all",
-    "stats.view", "intelligence.view",
+    "stats.view", "intelligence.view", "data_quality.view", "data_quality.manage",
     "kobo.results.view",
   ],
   field_officer: ["forms.respond", "field_reports.create", "field_reports.view.own", "kobo.surveys.fill"],

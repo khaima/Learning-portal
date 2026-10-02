@@ -209,12 +209,7 @@ export function dataCollectionHtml(d) {
         + `<p class="field-hint">Submissions failing each check. Open Kobo Surveys → Data pipeline to review them.</p>`)}
       ${card("Feedback by role", "", bars(D.feedback.byRole))}
       ${card("Forms by audience", "", bars(D.forms.byAudience))}
-      ${card("Data quality", "checks on the records behind every number", `
-        <div class="intel-quality">${D.quality.map((q) => `
-          <div class="intel-q ${q.value ? "warn" : "ok"}">
-            <b>${q.value ? `${q.value}${q.total ? ` of ${q.total}` : ""}` : "✓"}</b>
-            <div><strong>${esc(q.label)}</strong><span>${esc(q.note)}</span></div>
-          </div>`).join("")}</div>`, { wide: true })}
+      ${card("Data quality", "", `<p style="margin:.2rem 0">Duplicates, missing or contradictory records, failed Kobo checks and more are tracked — with their status, who's handling them and every correction — in the <a href="#data-quality">Data Quality Center</a>.</p>`, { wide: true })}
     </div>`;
 }
 

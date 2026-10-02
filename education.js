@@ -7,6 +7,7 @@ import {
 } from "./data.js";
 import {
   getLibrary, addLibraryItem, setLibraryPublished, deleteLibraryItem, updateLibraryItem, getForms, addForm, deleteForm, archiveForm, restoreForm, getResponses, getStats, getIntelligence,
+  dqSummary, dqIssues, dqBulkStatus, dqScan,
   uploadLibraryFiles, libraryFilesHtml, libraryTypeIcon, librarySectionsHtml, getLibraryUsage,
   getLibraryFolders, createLibraryFolder, deleteLibraryFolder, setLibraryFolder,
   koboConfig, saveKoboConfig, koboAssets, koboAssetPreview, koboForms, attachKoboForm,
@@ -19,8 +20,9 @@ import {
 import { openIframeViewer } from "./viewer.js";
 import { formTagsHtml } from "./forms.js";
 import { statusPill, openHistoryPanel, openTransferDialog } from "./learners-ui.js";
-import { overviewHtml, qualityAlerts, learningHtml, implementationHtml, dataCollectionHtml, impactHtml } from "./intelligence-ui.js";
+import { overviewHtml, learningHtml, implementationHtml, dataCollectionHtml, impactHtml } from "./intelligence-ui.js";
 import { openKoboPipeline, webhookBoxHtml, wireWebhookBox } from "./kobo-ui.js";
+import { dqTopHtml, dqTypesHtml, dqListHtml, openDqIssue } from "./dq-ui.js";
 
 const AUDIENCE_LABEL = Object.fromEntries(FORM_AUDIENCES.map((a) => [a.value, a.label]));
 const STAFF_ROLES = ROLES.filter((r) => r.value !== "learner");
@@ -47,6 +49,7 @@ async function main() {
     learning: ["intelligence.view"],
     implementation: ["intelligence.view"],
     "data-collection": ["intelligence.view"],
+    "data-quality": ["data_quality.view"],
     impact: ["intelligence.view"],
     schools: ["stats.view", "schools.manage"],
     users: ["users.view"],
@@ -243,6 +246,8 @@ async function main() {
      global filters above — county/school/role throughout, date range only
      where a real date exists (new-learner intake, field visits). */
   async function renderStats() {
+    dqOffset = 0;
+    renderDq();
     renderIntelligence();
     $("#schoolsBody").innerHTML = skeleton(4);
     let s;
@@ -283,7 +288,7 @@ async function main() {
     }
     lastIntel = d;
     const o = overviewHtml(d);
-    $("#statRow").innerHTML = o.tiles;
+    $("#statRow").innerHTML = o.tiles + (lastDq?.score ? dqTile(lastDq) : "");
     $("#intelAreas").innerHTML = o.areas;
     $("#intel-learning").innerHTML = learningHtml(d);
     $("#intel-implementation").innerHTML = implementationHtml(d);
@@ -294,6 +299,142 @@ async function main() {
     if (d.currentTerm) $("#topSub").textContent = `Live across every account · ${d.currentTerm}`;
     renderAttention();
   }
+  /* ------------------------------------------------------------ Data Quality Center
+     Issues found by scans, their status and history, and corrections.
+     Scans run when the page (or the Overview) is opened and the last one
+     is over 15 minutes old, and on "Scan now". */
+  let lastDq = null;
+  let dqOffset = 0;
+  const dqSelected = new Set();
+  const DQ_PAGE = 40;
+  const dqTile = (s) => `<a class="stat-tile dq-tile-link" href="#data-quality"><div class="s-label">Data quality</div><div class="s-num">${s.score.value}</div><div class="s-sub">${esc(s.score.label)} · ${s.totals.byStatus.OPEN + s.totals.byStatus.UNDER_REVIEW} open issue${s.totals.byStatus.OPEN + s.totals.byStatus.UNDER_REVIEW === 1 ? "" : "s"}</div></a>`;
+  const dqFilters = (withList = false) => ({
+    county: gf.county, school: gf.school, from: gf.from, to: gf.to,
+    ...(withList ? { type: $("#dq_type").value, severity: $("#dq_severity").value, status: $("#dq_status").value, q: $("#dq_q").value.trim() } : {}),
+  });
+  $("#dq_type").innerHTML = `<option value="">All types</option>${[
+    ["duplicate_learner", "Duplicate learner records"], ["duplicate_staff", "Duplicate staff records"], ["missing_school", "Missing school"],
+    ["missing_county", "Missing county"], ["school_county_mismatch", "Invalid school / county combination"], ["missing_grade", "Missing grade"],
+    ["invalid_grade", "Invalid grade"], ["duplicate_kobo_submission", "Duplicate Kobo submissions"], ["unmatched_kobo_officer", "Unmatched Kobo officer references"],
+    ["missing_kobo_required", "Missing required Kobo fields"], ["orphaned_record", "Orphaned records"], ["invalid_date", "Invalid dates"],
+    ["inactive_user_active_assignment", "Inactive users with active assignments"], ["learner_without_class", "Learners without a class"],
+    ["staff_without_school", "Teachers / school heads without a school"],
+  ].map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join("")}`;
+
+  /** The score, counts and checks — scanning first when the last scan is
+      stale (or on "Scan now"). Also feeds the Overview tile and "Needs attention". */
+  async function renderDq({ scan = false } = {}) {
+    if (!has("data_quality.view")) return;
+    $("#dqTop").innerHTML = skeleton(3, { avatar: false });
+    let s;
+    try {
+      if (scan) await dqScan();
+      s = await dqSummary(dqFilters());
+      if (!scan && s.stale) {
+        await dqScan({ auto: true });
+        s = await dqSummary(dqFilters());
+      }
+    } catch (err) {
+      $("#dqTop").innerHTML = errorState(friendlyError(err), () => renderDq());
+      return;
+    }
+    lastDq = s;
+    $("#dqMeta").textContent = s.lastScan ? `last scan ${new Date(s.lastScan.at).toLocaleString()}` : "not scanned yet";
+    $("#dqTop").innerHTML = dqTopHtml(s);
+    $("#dqTypes").innerHTML = dqTypesHtml(s);
+    if (lastIntel && s.score && !$("#statRow .dq-tile-link")) $("#statRow").insertAdjacentHTML("beforeend", dqTile(s));
+    renderAttention();
+    renderDqList();
+  }
+
+  async function renderDqList() {
+    $("#dqList").innerHTML = skeleton(4);
+    let res;
+    try {
+      res = await dqIssues({ ...dqFilters(true), limit: DQ_PAGE, offset: dqOffset });
+    } catch (err) {
+      $("#dqList").innerHTML = errorState(friendlyError(err), renderDqList);
+      return;
+    }
+    const canManage = has("data_quality.manage");
+    $("#dqCount").textContent = `${res.total} issue${res.total === 1 ? "" : "s"}`;
+    $("#dqList").innerHTML = dqListHtml(res.issues, dqSelected, canManage);
+    $("#dqPager").innerHTML = res.total > DQ_PAGE ? `
+      <span>${dqOffset + 1}–${Math.min(res.total, dqOffset + DQ_PAGE)} of ${res.total}</span>
+      <span><button type="button" class="btn btn-outline q-small" data-dq-page="-1" ${dqOffset ? "" : "disabled"}>← Previous</button>
+      <button type="button" class="btn btn-outline q-small" data-dq-page="1" ${dqOffset + DQ_PAGE < res.total ? "" : "disabled"}>Next →</button></span>` : "";
+    syncDqBulk();
+  }
+  function syncDqBulk() {
+    $("#dqBulk").hidden = !dqSelected.size;
+    $("#dqBulkCount").textContent = `${dqSelected.size} selected`;
+  }
+  const dqRefresh = () => { renderDq(); renderAttention(); };
+
+  for (const id of ["#dq_type", "#dq_severity", "#dq_status"]) {
+    $(id).addEventListener("change", () => { dqOffset = 0; dqSelected.clear(); renderDqList(); });
+  }
+  let dqSearchTimer = null;
+  $("#dq_q").addEventListener("input", () => {
+    clearTimeout(dqSearchTimer);
+    dqSearchTimer = setTimeout(() => { dqOffset = 0; renderDqList(); }, 300);
+  });
+  $("#dqScanBtn").addEventListener("click", async () => {
+    const btn = $("#dqScanBtn");
+    btn.disabled = true;
+    btn.textContent = "Scanning…";
+    try {
+      const r = await dqScan();
+      toast("Scan finished", `${r.found} issue(s) found: ${r.opened} new, ${r.reopened} reopened, ${r.autoResolved} resolved at the source. Score ${r.score}.`, "success");
+      await renderDq();
+    } catch (err) {
+      toast("Couldn't scan", friendlyError(err), "error");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Scan now";
+    }
+  });
+  $("#dqTypes").addEventListener("click", (e) => {
+    const row = e.target.closest("[data-dq-type]");
+    if (!row) return;
+    $("#dq_type").value = row.dataset.dqType;
+    $("#dq_status").value = "active";
+    dqOffset = 0;
+    renderDqList();
+    $("#dqList").scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  $("#dqList").addEventListener("change", (e) => {
+    const box = e.target.closest("[data-dq-select]");
+    if (!box) return;
+    if (box.checked) dqSelected.add(box.dataset.dqSelect); else dqSelected.delete(box.dataset.dqSelect);
+    syncDqBulk();
+  });
+  $("#dqList").addEventListener("click", (e) => {
+    if (!e.target.closest("[data-dq-open]")) return;
+    openDqIssue(e.target.closest("[data-dq-issue]").dataset.dqIssue, { onChange: dqRefresh });
+  });
+  $("#dqPager").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-dq-page]");
+    if (!b) return;
+    dqOffset = Math.max(0, dqOffset + Number(b.dataset.dqPage) * DQ_PAGE);
+    renderDqList();
+  });
+  $("#dqBulk").addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-bulk]");
+    if (!b) return;
+    if (b.dataset.bulk === "clear") { dqSelected.clear(); renderDqList(); return; }
+    const note = $("#dqBulkNote").value.trim();
+    try {
+      const r = await dqBulkStatus([...dqSelected], b.dataset.bulk, note);
+      toast(`${r.changed} issue(s) updated`, r.skipped.length ? `${r.skipped.length} skipped: ${r.skipped[0]}` : "", r.skipped.length ? "error" : "success");
+      dqSelected.clear();
+      $("#dqBulkNote").value = "";
+      dqRefresh();
+    } catch (err) {
+      toast("Couldn't update them", friendlyError(err), "error");
+    }
+  });
+
   // A school name anywhere on these pages narrows everything to it.
   for (const p of INTEL_PAGES) {
     $(`#intel-${p}`).addEventListener("click", (e) => {
@@ -317,7 +458,11 @@ async function main() {
     for (const f of formsCache.filter((f) => !f.archivedAt && !responsesCache.some((r) => r.formId === f.id)).slice(0, 5)) {
       items.push({ tone: "warn", title: "Form with no responses yet", detail: `"${f.title}" (sent to ${AUDIENCE_LABEL[f.audience] || f.audience}) has no responses yet.` });
     }
-    if (lastIntel) items.push(...qualityAlerts(lastIntel).slice(0, 6));
+    // Data problems: from the Data Quality Center (open and under review).
+    const sevRank = { HIGH: 0, MEDIUM: 1, LOW: 2 };
+    for (const t of (lastDq?.byType || []).filter((t) => t.OPEN + t.UNDER_REVIEW).sort((a, b) => sevRank[a.severity] - sevRank[b.severity]).slice(0, 6)) {
+      items.push({ tone: t.severity === "HIGH" ? "warn" : "info", title: t.label, detail: `${t.OPEN + t.UNDER_REVIEW} open — see Data quality.` });
+    }
     if (!koboState.configured) {
       items.push({ tone: "info", title: "KoboToolbox not connected", detail: "Connect a KoboToolbox account to attach field surveys — see Kobo Surveys." });
     }

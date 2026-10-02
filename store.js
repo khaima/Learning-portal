@@ -619,6 +619,33 @@ export function wireSchoolPicker(countySel, schoolSel, data, { countyId, schoolI
    portal-wide regardless of from/to. topGrades caps the "grade
    performance" ranking to the top N grades (0 or omitted = show every
    grade). */
+/* ---------------------------------------------------------------- Data Quality Center */
+/** Score, counts by status / severity / type, scan history. Filters:
+    county, school, type, severity, status (or "active"), from, to. */
+export async function dqSummary(params = {}) {
+  return apiGet(`/data-quality/summary${qs(params)}`);
+}
+/** { total, issues } — same filters, plus q, limit, offset. */
+export async function dqIssues(params = {}) {
+  return apiGet(`/data-quality/issues${qs(params)}`);
+}
+/** { issue, details, events, fixes, moves } */
+export async function dqIssue(id) {
+  return apiGet(`/data-quality/issues/${id}`);
+}
+export async function dqSetStatus(id, status, note = "") {
+  return apiSend("PATCH", `/data-quality/issues/${id}`, { status, note });
+}
+export async function dqBulkStatus(ids, status, note = "") {
+  return apiSend("POST", "/data-quality/issues/bulk", { ids, status, note });
+}
+export async function dqFix(id, body) {
+  return apiSend("POST", `/data-quality/issues/${id}/fix`, body);
+}
+export async function dqScan({ auto = false } = {}) {
+  return apiSend("POST", `/data-quality/scan${auto ? "?auto=1" : ""}`, {});
+}
+
 /** The Programme Intelligence dashboard: learning, implementation, data
     collection and impact, under the same filters as getStats. */
 export async function getIntelligence({ county, school, from, to } = {}) {

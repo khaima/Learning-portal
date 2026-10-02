@@ -34,6 +34,11 @@ import {
   counts as countsOnDashboards, detectMapping, type KoboMapping, type KoboSchema, nameKey, parseKoboSchema,
   type PipelineContext, processBatch, RULES as KOBO_RULES, sha256, stableStringify, suggestSchool, summarizeAnswers,
 } from "./kobo_pipeline.ts";
+import {
+  checkedIn, detectAll as detectDataQuality, type DqStatus, ISSUE_TYPE_IDS as DQ_TYPE_IDS, ISSUE_TYPES as DQ_TYPES,
+  type IssueType as DqIssueType, qualityScore, SEVERITIES as DQ_SEVERITIES, type Snapshot as DqSnapshot,
+  STATUS_MOVES as DQ_STATUS_MOVES, STATUSES as DQ_STATUSES,
+} from "./data_quality.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY =
@@ -4006,6 +4011,531 @@ app.get("/intelligence", requirePermission("intelligence.view"), async (c) => {
     libraryItems: libraryItems.data, libraryInteractions: libraryInteractions.data,
     koboRecords: koboRecords.data, koboIssues: koboIssues.data, bands: await loadBands(),
   }, { county: q("county"), school: q("school"), from: date("from"), to: date("to") }));
+});
+
+// ---------------------------------------------------------------- Data Quality Center
+// A register of every data problem the portal finds (data_quality.ts),
+// kept in step by scans: new problems open, problems found again after
+// being resolved reopen, problems no longer found resolve themselves (as
+// "fixed at the source"). People move issues through OPEN → UNDER_REVIEW →
+// RESOLVED / IGNORED, and can correct some directly — always through the
+// same audited code paths as normal edits, never by deleting anything.
+// Every step is an append-only event on the issue, and corrections also
+// go to the main audit log.
+
+const DQ_STALE_MS = 15 * 60 * 1000;
+const DQ_COLS = [
+  "id", "issue_key", "type", "kind", "severity", "status", "summary", "entity_type", "entity_id", "entity_label",
+  "related", "school_id", "county", "details", "first_detected_at", "last_detected_at", "still_present",
+  "status_changed_at", "status_changed_by", "resolved_at", "resolved_by", "resolution", "note", "reopened_count",
+] as const;
+/** A complete dq_issues row (every column), so batched upserts never null anything out. */
+function dqRow(base: Record<string, unknown>, patch: Record<string, unknown>) {
+  const merged = { ...base, ...patch };
+  return Object.fromEntries(DQ_COLS.map((k) => [k, merged[k] ?? null]));
+}
+
+async function dqSnapshot(): Promise<DqSnapshot> {
+  const read = (table: string, cols: string, order = "id") => selectAll(() => admin.from(table).select(cols).order(order));
+  const r = await Promise.all([
+    read("schools", "id, name, code, county"),
+    read("counties", "name, code", "name"),
+    read("profiles", "id, role, status, full_name, email, school_id, county, created_at"),
+    read("learners", "id, full_name, learner_code, user_code, grade, school_id, county, class_id, current_teacher_id, enrollment_status, created_at"),
+    read("learner_enrollments", "id, learner_id, school_id, class_id, status, enrollment_date, exit_date"),
+    read("classes", "id, school_id, grade, name, archived_at"),
+    read("class_teachers", "id, class_id, teacher_id, role, ended_at"),
+    read("assignments", "id, class_id, school_id, status, created_by, title"),
+    read("terms", "id, academic_year_id, starts_on, ends_on"),
+    read("field_reports", "id, school, school_id, county, visit_type, created_at"),
+    read("kobo_records", "id, kobo_form_id, kobo_id, status, review, school_id, county, school_value"),
+    read("kobo_record_issues", "id, record_id, rule, severity, field, message"),
+    read("kobo_forms", "id, title, active"),
+    read("library_items", "id"),
+    read("library_interactions", "id, library_item_id"),
+  ]);
+  const failed = r.find((x) => x.error);
+  if (failed) throw new Error(failed.error!.message);
+  const [schools, counties, profiles, learners, enrollments, classes, classTeachers, assignments, terms,
+    fieldReports, koboRecords, koboIssues, koboForms, libraryItems, libraryInteractions] = r.map((x) => x.data);
+  return {
+    schools, counties, profiles, learners, enrollments, classes, classTeachers, assignments, terms,
+    fieldReports, koboRecords, koboIssues, koboForms, libraryItems, libraryInteractions, grades: GRADES,
+  };
+}
+
+/** Finds every problem, brings the register up to date, and records the
+    scan (with its score). Returns the scan's counts. */
+async function runDqScan(actorId: string | null, trigger: "manual" | "auto" | "correction") {
+  const scanId = rid("dqs");
+  const started = new Date().toISOString();
+  const { issues, checked } = detectDataQuality(await dqSnapshot());
+  const { data: existing, error } = await selectAll(() => admin.from("dq_issues").select("*").order("id"));
+  if (error) throw new Error(error.message);
+  const byKey = new Map(existing.map((e) => [e.issue_key as string, e]));
+  const now = new Date().toISOString();
+  const rows: Record<string, unknown>[] = [];
+  const events: Record<string, unknown>[] = [];
+  const seen = new Set<string>();
+  let opened = 0, reopened = 0, autoResolved = 0;
+  for (const d of issues) {
+    seen.add(d.key);
+    const e = byKey.get(d.key);
+    const fields = {
+      type: d.type, kind: d.kind, severity: d.severity, summary: d.summary,
+      entity_type: d.entity.type, entity_id: d.entity.id, entity_label: d.entity.label, related: d.related,
+      school_id: d.schoolId, county: d.county, details: d.details, still_present: true,
+    };
+    if (!e) {
+      const id = rid("dq");
+      rows.push(dqRow({ id, issue_key: d.key, status: "OPEN", first_detected_at: now, reopened_count: 0 }, { ...fields, last_detected_at: now }));
+      events.push({ issue_id: id, action: "detected", to_status: "OPEN", details: { scan: scanId } });
+      opened++;
+    } else if (e.status === "RESOLVED") {
+      rows.push(dqRow(e, {
+        ...fields, last_detected_at: now, status: "OPEN", reopened_count: (e.reopened_count ?? 0) + 1,
+        resolved_at: null, resolved_by: null, resolution: null, status_changed_at: now, status_changed_by: null,
+      }));
+      events.push({ issue_id: e.id, action: "reopened", from_status: "RESOLVED", to_status: "OPEN", note: "Found again by a scan", details: { scan: scanId } });
+      reopened++;
+    } else if (stableStringify(Object.fromEntries(Object.keys(fields).map((k) => [k, e[k] ?? null]))) !== stableStringify(fields)) {
+      rows.push(dqRow(e, { ...fields, last_detected_at: now }));
+    }
+  }
+  for (const e of existing) {
+    if (seen.has(e.issue_key) || !e.still_present) continue;
+    if (e.status === "OPEN" || e.status === "UNDER_REVIEW") {
+      rows.push(dqRow(e, {
+        still_present: false, status: "RESOLVED", resolved_at: now, resolved_by: null,
+        resolution: "No longer found — fixed at the source", status_changed_at: now, status_changed_by: null,
+      }));
+      events.push({ issue_id: e.id, action: "auto_resolved", from_status: e.status, to_status: "RESOLVED", note: "No longer found by a scan", details: { scan: scanId } });
+      autoResolved++;
+    } else {
+      rows.push(dqRow(e, { still_present: false }));
+    }
+  }
+  for (let i = 0; i < rows.length; i += 300) {
+    const { error: uErr } = await admin.from("dq_issues").upsert(rows.slice(i, i + 300), { onConflict: "id" });
+    if (uErr) throw new Error(uErr.message);
+  }
+  for (let i = 0; i < events.length; i += 500) {
+    const { error: eErr } = await admin.from("dq_issue_events").insert(events.slice(i, i + 500));
+    if (eErr) throw new Error(eErr.message);
+  }
+  // The portal-wide score after this scan.
+  const { data: all } = await selectAll(() => admin.from("dq_issues").select("type, status, still_present").order("id"));
+  const score = qualityScore(checkedIn(checked, null), openCountsByType(all ?? []));
+  await admin.from("dq_scans").insert({
+    id: scanId, started_at: started, finished_at: new Date().toISOString(), actor_id: actorId, trigger,
+    found: issues.length, opened, reopened, auto_resolved: autoResolved, checked, score: score.score,
+  });
+  return { scanId, found: issues.length, opened, reopened, autoResolved, score: score.score };
+}
+
+/** OPEN + UNDER_REVIEW issues still present, by type — what the score counts. */
+function openCountsByType(rows: Record<string, any>[]) {
+  const out: Record<string, number> = {};
+  for (const r of rows) if ((r.status === "OPEN" || r.status === "UNDER_REVIEW") && r.still_present !== false) out[r.type] = (out[r.type] ?? 0) + 1;
+  return out as Partial<Record<DqIssueType, number>>;
+}
+
+async function latestDqScan() {
+  const { data } = await selectAll(() => admin.from("dq_scans").select("*").order("id"));
+  return (data ?? []).sort((a, b) => String(b.started_at).localeCompare(String(a.started_at)));
+}
+
+/** ?county= ?school= (name) ?type= ?severity= ?status= (or "active": OPEN +
+    UNDER_REVIEW) ?from= ?to= (first detected), ?q= */
+// deno-lint-ignore no-explicit-any
+async function dqFiltered(c: any) {
+  const f = (k: string) => String(c.req.query(k) ?? "").trim();
+  const { data: issues, error } = await selectAll(() => admin.from("dq_issues").select("*").order("id"));
+  if (error) throw new Error(error.message);
+  let schoolIds: Set<string> | null = null;
+  if (f("school") || f("county")) {
+    const { data: schools } = await selectAll(() => admin.from("schools").select("id, name, county").order("id"));
+    schoolIds = new Set(schools.filter((s) => (!f("school") || s.name === f("school")) && (!f("county") || s.county === f("county"))).map((s) => s.id as string));
+  }
+  const inScope = (i: Record<string, any>) =>
+    (!f("county") || i.county === f("county") || (i.school_id && schoolIds!.has(i.school_id))) &&
+    (!f("school") || (i.school_id && schoolIds!.has(i.school_id)));
+  const q = f("q").toLowerCase();
+  const scoped = issues.filter(inScope);
+  const filtered = scoped.filter((i) =>
+    (!f("type") || i.type === f("type")) && (!f("severity") || i.severity === f("severity")) &&
+    (!f("status") || i.status === f("status") || (f("status") === "active" && (i.status === "OPEN" || i.status === "UNDER_REVIEW"))) &&
+    (!f("from") || String(i.first_detected_at).slice(0, 10) >= f("from")) &&
+    (!f("to") || String(i.first_detected_at).slice(0, 10) <= f("to")) &&
+    (!q || `${i.summary} ${i.entity_label}`.toLowerCase().includes(q)));
+  return { scoped, filtered, schoolIds };
+}
+
+async function dqNames(ids: unknown[]) {
+  const list = [...new Set(ids.filter(Boolean))] as string[];
+  if (!list.length) return new Map<string, string>();
+  const { data } = await admin.from("profiles").select("id, full_name").in("id", list);
+  return new Map((data ?? []).map((p: Record<string, unknown>) => [p.id as string, p.full_name as string]));
+}
+const SEVERITY_ORDER: Record<string, number> = { HIGH: 0, MEDIUM: 1, LOW: 2 };
+const mapDqIssue = (i: Record<string, any>, names: Map<string, string>, schoolName: Map<string, string>) => ({
+  id: i.id, type: i.type, typeLabel: DQ_TYPES[i.type as DqIssueType]?.label ?? i.type, kind: i.kind,
+  severity: i.severity, status: i.status, summary: i.summary,
+  entity: { type: i.entity_type, id: i.entity_id, label: i.entity_label }, related: i.related ?? [],
+  schoolId: i.school_id ?? null, school: i.school_id ? schoolName.get(i.school_id) ?? null : null, county: i.county ?? null,
+  firstDetectedAt: i.first_detected_at, lastDetectedAt: i.last_detected_at, stillPresent: i.still_present !== false,
+  statusChangedAt: i.status_changed_at ?? null, statusChangedBy: i.status_changed_by ? names.get(i.status_changed_by) ?? null : null,
+  resolvedAt: i.resolved_at ?? null,
+  resolvedBy: i.resolved_by ? names.get(i.resolved_by) ?? "—" : i.resolved_at ? "Scan (fixed at the source)" : null,
+  resolution: i.resolution ?? null, note: i.note ?? null, reopenedCount: i.reopened_count ?? 0,
+});
+async function schoolNameMap() {
+  const { data } = await selectAll(() => admin.from("schools").select("id, name").order("id"));
+  return new Map((data ?? []).map((s) => [s.id as string, s.name as string]));
+}
+
+app.post("/data-quality/scan", requirePermission("data_quality.view"), async (c) => {
+  try {
+    const res = await runDqScan(c.get("actor").id, c.req.query("auto") ? "auto" : "manual");
+    return c.json(res);
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+app.get("/data-quality/summary", requirePermission("data_quality.view"), async (c) => {
+  let scoped: Record<string, any>[], filtered: Record<string, any>[], schoolIds: Set<string> | null;
+  try { ({ scoped, filtered, schoolIds } = await dqFiltered(c)); } catch (e) { return c.json({ error: (e as Error).message }, 500); }
+  const scans = await latestDqScan();
+  const last = scans[0] ?? null;
+  // The score is about the data as it is now, within the county/school picked.
+  const checked = last ? checkedIn(last.checked as never, schoolIds) : null;
+  const score = checked ? qualityScore(checked, openCountsByType(scoped)) : null;
+  const by = <K extends string>(rows: Record<string, any>[], k: string, keys: readonly K[]) =>
+    Object.fromEntries(keys.map((x) => [x, rows.filter((r) => r[k] === x).length])) as Record<K, number>;
+  const live = filtered.filter((i) => i.status === "OPEN" || i.status === "UNDER_REVIEW");
+  const affected = new Set<string>();
+  for (const i of live) {
+    affected.add(`${i.entity_type}:${i.entity_id}`);
+    for (const r of i.related ?? []) affected.add(`${r.type}:${r.id}`);
+  }
+  const names = await schoolNameMap();
+  const bySchool = new Map<string, number>();
+  for (const i of live) bySchool.set(i.school_id ?? "", (bySchool.get(i.school_id ?? "") ?? 0) + 1);
+  return c.json({
+    lastScan: last ? { at: last.finished_at ?? last.started_at, found: last.found, opened: last.opened, reopened: last.reopened, autoResolved: last.auto_resolved, trigger: last.trigger } : null,
+    stale: !last || Date.now() - new Date(last.started_at).getTime() > DQ_STALE_MS,
+    score: score ? { value: score.score, label: score.label } : null,
+    history: scans.slice(0, 30).reverse().map((s) => ({ at: s.started_at, score: s.score == null ? null : Number(s.score) })),
+    totals: {
+      issues: filtered.length,
+      byStatus: by(filtered, "status", DQ_STATUSES),
+      bySeverity: by(live, "severity", DQ_SEVERITIES),
+      affectedRecords: affected.size,
+    },
+    byType: DQ_TYPE_IDS.map((t) => {
+      const rows = filtered.filter((i) => i.type === t);
+      const p = score?.perType.find((x) => x.type === t);
+      return {
+        type: t, label: DQ_TYPES[t].label, severity: DQ_TYPES[t].severity, checked: p?.checked ?? 0, passRate: p?.passRate ?? null,
+        ...by(rows, "status", DQ_STATUSES),
+      };
+    }),
+    bySchool: [...bySchool.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10)
+      .map(([id, n]) => ({ schoolId: id || null, school: id ? names.get(id) ?? id : "(no school)", open: n })),
+  });
+});
+
+app.get("/data-quality/issues", requirePermission("data_quality.view"), async (c) => {
+  let filtered: Record<string, any>[];
+  try { ({ filtered } = await dqFiltered(c)); } catch (e) { return c.json({ error: (e as Error).message }, 500); }
+  filtered.sort((a, b) =>
+    (SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]) ||
+    String(b.first_detected_at).localeCompare(String(a.first_detected_at)) || String(a.id).localeCompare(String(b.id)));
+  const offset = Math.max(0, Number(c.req.query("offset")) || 0);
+  const page = filtered.slice(offset, offset + Math.max(1, Math.min(200, Number(c.req.query("limit")) || 50)));
+  const [names, schools] = await Promise.all([dqNames(page.flatMap((i) => [i.resolved_by, i.status_changed_by])), schoolNameMap()]);
+  return c.json({ total: filtered.length, issues: page.map((i) => mapDqIssue(i, names, schools)) });
+});
+
+/* ---- corrections ----
+   Each is the smallest change that fixes the problem, through the same
+   code path (and permission) as the normal edit. None deletes anything. */
+type DqFix = { action: string; label: string; description: string; params: { name: string; label: string; options: { value: string; label: string }[]; value?: string }[] };
+
+// deno-lint-ignore no-explicit-any
+async function dqFixesFor(c: any, i: Record<string, any>): Promise<DqFix[]> {
+  if (!actorCan(c, "data_quality.manage") || i.status === "RESOLVED" || i.status === "IGNORED" || !i.still_present) return [];
+  const fixes: DqFix[] = [];
+  const actor = c.get("actor");
+  const learner = i.entity_type === "learner" ? (await admin.from("learners").select("*").eq("id", i.entity_id).maybeSingle()).data : null;
+  const prof = i.entity_type === "profile" ? (await admin.from("profiles").select("*").eq("id", i.entity_id).maybeSingle()).data : null;
+  const canLearners = actorCan(c, "learners.manage.all");
+  const canPlace = actorCan(c, "users.placement.assign") && prof && canManageAccount(actor, prof);
+  if ((i.type === "missing_grade" || i.type === "invalid_grade") && learner && canLearners) {
+    fixes.push({
+      action: "set_learner_grade", label: "Set the grade", description: "Updates the learner's grade (and their current enrollment).",
+      params: [{ name: "grade", label: "Grade", options: GRADES.map((g) => ({ value: g, label: g })), value: (i.details?.classGrade as string) ?? undefined }],
+    });
+  }
+  if (i.type === "learner_without_class" && learner?.school_id && canLearners) {
+    const yearId = (await currentCalendar()).yearId;
+    const { data: classes } = await admin.from("classes").select("id, name, grade, academic_year_id, archived_at").eq("school_id", learner.school_id);
+    const open = (classes ?? []).filter((x: Record<string, unknown>) => !x.archived_at && (!yearId || x.academic_year_id === yearId));
+    if (open.length) {
+      fixes.push({
+        action: "place_learner_in_class", label: "Place in a class", description: "Puts the learner in one of their school's classes this year.",
+        params: [{ name: "classId", label: "Class", options: open.map((x: Record<string, unknown>) => ({ value: x.id as string, label: `${x.name} (${x.grade})` })),
+          value: (open.find((x: Record<string, unknown>) => x.grade === learner.grade)?.id as string) ?? undefined }],
+      });
+    }
+  }
+  if (i.type === "staff_without_school" && prof && canPlace) {
+    const { data: schools } = await selectAll(() => admin.from("schools").select("id, name, code, county").order("id"));
+    fixes.push({
+      action: "set_profile_school", label: "Place in a school", description: "Gives the account its school (and its county and code).",
+      params: [{ name: "schoolId", label: "School", options: schools.map((s) => ({ value: s.id as string, label: `${s.name} (${s.code}, ${s.county})` })) }],
+    });
+  }
+  if (i.type === "school_county_mismatch" && ((learner && canLearners) || canPlace) && i.details?.expected) {
+    fixes.push({ action: "align_county", label: `Use the school's county (${i.details.expected})`, description: "Sets the recorded county to the school's county.", params: [] });
+  }
+  if (i.type === "duplicate_learner" && canLearners) {
+    const ids = (i.details?.learnerIds as string[]) ?? [];
+    const { data: rows } = ids.length ? await admin.from("learners").select("id, full_name, learner_code, user_code, grade, enrollment_status").in("id", ids) : { data: [] };
+    const active = (rows ?? []).filter((l: Record<string, unknown>) => (l.enrollment_status ?? ACTIVE) === ACTIVE);
+    if (active.length >= 2) {
+      fixes.push({
+        action: "archive_duplicate_learner", label: "Archive the duplicate", description: "Archives one record as Inactive (“duplicate record”) — kept, reversible, never deleted.",
+        params: [{ name: "learnerId", label: "Which record is the duplicate?", options: active.map((l: Record<string, unknown>) => ({ value: l.id as string, label: `${l.full_name} — ${l.learner_code ?? l.user_code ?? ""}${l.grade ? `, ${l.grade}` : ""}` })) }],
+      });
+    }
+  }
+  if (i.type === "orphaned_record" && canLearners && i.kind === "no_active_enrollment") {
+    fixes.push({ action: "open_enrollment", label: "Open an enrollment record", description: "Records the learner's current school and class as an enrollment.", params: [] });
+  }
+  if (i.type === "orphaned_record" && canLearners && i.kind === "stale_enrollment") {
+    fixes.push({ action: "close_enrollment", label: "Close the enrollment", description: "Closes it with the learner's own leaving status and date.", params: [] });
+  }
+  if (i.entity_type === "class_teacher" && actorCan(c, "classes.manage.all") && ["inactive_user_active_assignment", "orphaned_record"].includes(i.type)) {
+    fixes.push({ action: "end_class_assignment", label: "End this class assignment", description: "Ends the teacher's assignment to the class (kept in history).", params: [] });
+  }
+  if (i.entity_type === "kobo_record" && actorCan(c, "kobo.manage")) {
+    fixes.push({ action: "kobo_accept", label: "Accept the submission anyway", description: "Counts it on the dashboards despite the check (Kobo data pipeline).", params: [] });
+    fixes.push({ action: "kobo_exclude", label: "Exclude the submission", description: "Keeps it off the dashboards (Kobo data pipeline).", params: [] });
+  }
+  return fixes;
+}
+
+/** Applies one correction. Returns what changed, or a refusal. */
+// deno-lint-ignore no-explicit-any
+async function applyDqFix(c: any, i: Record<string, any>, b: Record<string, any>, note: string):
+  Promise<{ before: Record<string, unknown>; after: Record<string, unknown>; description: string } | Response> {
+  const actor = c.get("actor");
+  const loadLearnerRow = async () => (await admin.from("learners").select("*").eq("id", i.entity_id).maybeSingle()).data;
+  switch (b.action) {
+    case "set_learner_grade": {
+      const l = await loadLearnerRow();
+      if (!l) return c.json({ error: "Learner not found" }, 404);
+      const grade = String(b.grade ?? "");
+      if (!GRADES.includes(grade as never)) return c.json({ error: "Choose a grade" }, 400);
+      await admin.from("learners").update({ grade, updated_at: new Date().toISOString() }).eq("id", l.id);
+      await admin.from("learner_enrollments").update({ grade }).eq("learner_id", l.id).eq("status", ACTIVE);
+      await audit(c, "learner.updated", "learner", l.id, { fields: ["grade"], from: l.grade ?? null, to: grade, via: "data_quality", issueId: i.id });
+      return { before: { grade: l.grade ?? null }, after: { grade }, description: `Grade set to ${grade}` };
+    }
+    case "place_learner_in_class": {
+      const l = await loadLearnerRow();
+      const cls = await loadClass(b.classId);
+      if (!l || !cls || cls.archived_at || cls.school_id !== l.school_id) return c.json({ error: "Choose a class in the learner's school" }, 400);
+      await setLearnerClass(c, l, cls);
+      return { before: { classId: l.class_id ?? null }, after: { classId: cls.id, class: cls.name }, description: `Placed in ${cls.name}` };
+    }
+    case "set_profile_school": {
+      const { data: p } = await admin.from("profiles").select("*").eq("id", i.entity_id).maybeSingle();
+      if (!p) return c.json({ error: "Account not found" }, 404);
+      if (!canManageAccount(actor, p)) return c.json({ error: NO_PERMISSION }, 403);
+      const school = await loadSchool(b.schoolId);
+      if (!school) return c.json({ error: "Choose a school" }, 400);
+      await placeInSchool("profiles", p.id, school, p.role);
+      await audit(c, "school.changed", "profile", p.id, { from: p.school_id ?? null, to: school.id, via: "data_quality", issueId: i.id });
+      return { before: { schoolId: p.school_id ?? null, county: p.county ?? null }, after: { schoolId: school.id, school: school.name, county: school.county }, description: `Placed in ${school.name}` };
+    }
+    case "align_county": {
+      const expected = String(i.details?.expected ?? "");
+      if (!expected) return c.json({ error: "Nothing to align" }, 400);
+      if (i.entity_type === "learner") {
+        if (!actorCan(c, "learners.manage.all")) return c.json({ error: NO_PERMISSION }, 403);
+        const l = await loadLearnerRow();
+        if (!l) return c.json({ error: "Learner not found" }, 404);
+        await admin.from("learners").update({ county: expected, updated_at: new Date().toISOString() }).eq("id", l.id);
+        await audit(c, "learner.updated", "learner", l.id, { fields: ["county"], from: l.county ?? null, to: expected, via: "data_quality", issueId: i.id });
+        return { before: { county: l.county ?? null }, after: { county: expected }, description: `County set to ${expected}` };
+      }
+      if (i.entity_type === "profile") {
+        const { data: p } = await admin.from("profiles").select("*").eq("id", i.entity_id).maybeSingle();
+        if (!p) return c.json({ error: "Account not found" }, 404);
+        if (!actorCan(c, "users.placement.assign") || !canManageAccount(actor, p)) return c.json({ error: NO_PERMISSION }, 403);
+        await admin.from("profiles").update({ county: expected }).eq("id", p.id);
+        await audit(c, "county.changed", "profile", p.id, { from: p.county ?? null, to: expected, via: "data_quality", issueId: i.id });
+        return { before: { county: p.county ?? null }, after: { county: expected }, description: `County set to ${expected}` };
+      }
+      return c.json({ error: "This record's county can't be corrected here" }, 400);
+    }
+    case "archive_duplicate_learner": {
+      const ids = (i.details?.learnerIds as string[]) ?? [];
+      if (!ids.includes(String(b.learnerId))) return c.json({ error: "Choose one of the duplicate records" }, 400);
+      const { data: l } = await admin.from("learners").select("*").eq("id", String(b.learnerId)).maybeSingle();
+      const keep = ids.find((x) => x !== l?.id);
+      const { data: other } = keep ? await admin.from("learners").select("learner_code, user_code").eq("id", keep).maybeSingle() : { data: null };
+      if (!l) return c.json({ error: "Learner not found" }, 404);
+      const res: Response = await setLearnerStatus(c, l, "INACTIVE", `Duplicate record${other ? ` of ${other.learner_code ?? other.user_code}` : ""} (Data Quality Center)`, today());
+      if (res.status >= 400) return res;
+      return { before: { learnerId: l.id, status: l.enrollment_status ?? ACTIVE }, after: { learnerId: l.id, status: "INACTIVE" }, description: `Archived ${l.full_name} (${l.learner_code ?? l.user_code}) as a duplicate` };
+    }
+    case "open_enrollment": {
+      const l = await loadLearnerRow();
+      if (!l || (l.enrollment_status ?? ACTIVE) !== ACTIVE) return c.json({ error: "Only an active learner can have an open enrollment" }, 409);
+      const { data: openRow } = await admin.from("learner_enrollments").select("id").eq("learner_id", l.id).eq("status", ACTIVE).maybeSingle();
+      if (openRow) return c.json({ error: "This learner already has an open enrollment" }, 409);
+      const cal = await currentCalendar();
+      if (!cal.yearId) return c.json({ error: "No current academic year is set" }, 409);
+      const id = rid("enr");
+      await admin.from("learner_enrollments").insert({
+        id, learner_id: l.id, school_id: l.school_id, class_id: l.class_id ?? null, academic_year_id: l.academic_year_id ?? cal.yearId,
+        term_id: l.term_id ?? cal.termId, grade: l.grade ?? "", teacher_id: l.current_teacher_id ?? null, status: ACTIVE,
+        enrollment_date: l.enrollment_date ?? today(), created_by: actor.id,
+      });
+      await audit(c, "learner.enrollment_opened", "learner", l.id, { enrollmentId: id, via: "data_quality", issueId: i.id });
+      return { before: { enrollment: null }, after: { enrollmentId: id }, description: "Opened an enrollment record from the learner's current school and class" };
+    }
+    case "close_enrollment": {
+      const l = await loadLearnerRow();
+      if (!l || (l.enrollment_status ?? ACTIVE) === ACTIVE) return c.json({ error: "This learner is still active" }, 409);
+      await closeEnrollment(c, l.id, l.enrollment_status, l.exit_date ?? today(), l.exit_reason ?? "Closed by a data quality correction");
+      await audit(c, "learner.enrollment_closed", "learner", l.id, { status: l.enrollment_status, via: "data_quality", issueId: i.id });
+      return { before: { enrollment: "ACTIVE" }, after: { enrollment: l.enrollment_status }, description: `Closed the open enrollment as ${l.enrollment_status}` };
+    }
+    case "end_class_assignment": {
+      const { data: ct } = await admin.from("class_teachers").select("*").eq("id", i.entity_id).maybeSingle();
+      if (!ct || ct.ended_at) return c.json({ error: "That assignment has already ended" }, 409);
+      const now = new Date().toISOString();
+      await admin.from("class_teachers").update({ ended_at: now, ended_by: actor.id }).eq("id", ct.id);
+      if (ct.role === "class_teacher") {
+        await admin.from("learners").update({ current_teacher_id: null }).eq("class_id", ct.class_id).eq("current_teacher_id", ct.teacher_id);
+      }
+      await audit(c, "class.teacher_removed", "class", ct.class_id, { teacherId: ct.teacher_id, via: "data_quality", issueId: i.id });
+      return { before: { ended: false }, after: { ended: true, endedAt: now }, description: "Ended the class assignment" };
+    }
+    case "kobo_accept":
+    case "kobo_exclude": {
+      if (note.length < 3) return c.json({ error: "Say why, for the record" }, 400);
+      const { data: r } = await admin.from("kobo_records").select("id, status, review, kobo_form_id, kobo_id").eq("id", i.entity_id).maybeSingle();
+      if (!r || r.status === "removed") return c.json({ error: "Submission not found" }, 404);
+      const decision = b.action === "kobo_accept" ? "accepted" : "excluded";
+      await admin.from("kobo_records").update({ review: decision, review_note: note, reviewed_by: actor.id, reviewed_at: new Date().toISOString() }).eq("id", r.id);
+      await audit(c, `kobo.record_${decision}`, "kobo_record", r.id, { formId: r.kobo_form_id, koboId: r.kobo_id, status: r.status, note, via: "data_quality", issueId: i.id });
+      return { before: { review: r.review ?? null }, after: { review: decision }, description: decision === "accepted" ? "Accepted in the Kobo data pipeline" : "Excluded in the Kobo data pipeline" };
+    }
+  }
+  return c.json({ error: "That correction isn't available" }, 400);
+}
+
+// deno-lint-ignore no-explicit-any
+async function dqIssueDetail(c: any, id: string) {
+  const { data: i } = await admin.from("dq_issues").select("*").eq("id", id).maybeSingle();
+  if (!i) return null;
+  const { data: events } = await admin.from("dq_issue_events").select("*").eq("issue_id", id);
+  const sorted = (events ?? []).sort((a: Record<string, any>, b: Record<string, any>) => String(a.created_at).localeCompare(String(b.created_at)) || Number(a.id) - Number(b.id));
+  const [names, schools] = await Promise.all([
+    dqNames([i.resolved_by, i.status_changed_by, ...sorted.map((e: Record<string, any>) => e.actor_id)]), schoolNameMap(),
+  ]);
+  return {
+    issue: mapDqIssue(i, names, schools),
+    details: i.details ?? {},
+    events: sorted.map((e: Record<string, any>) => ({
+      at: e.created_at, action: e.action, from: e.from_status ?? null, to: e.to_status ?? null,
+      by: e.actor_id ? names.get(e.actor_id) ?? "—" : "Scan", note: e.note ?? null, details: e.details ?? {},
+    })),
+    fixes: await dqFixesFor(c, i),
+    moves: actorCan(c, "data_quality.manage") ? DQ_STATUS_MOVES[i.status as DqStatus] : [],
+  };
+}
+
+app.get("/data-quality/issues/:id", requirePermission("data_quality.view"), async (c) => {
+  const d = await dqIssueDetail(c, c.req.param("id"));
+  return d ? c.json(d) : c.json({ error: "Issue not found" }, 404);
+});
+
+/** One status change, with its event and audit entry. */
+// deno-lint-ignore no-explicit-any
+async function moveDqIssue(c: any, i: Record<string, any>, to: DqStatus, note: string): Promise<string | null> {
+  if (!DQ_STATUS_MOVES[i.status as DqStatus]?.includes(to)) return `An issue that is ${i.status} can't become ${to}`;
+  if ((to === "RESOLVED" || to === "IGNORED") && note.length < 3) return "Say why, for the record";
+  const now = new Date().toISOString();
+  const actorId = c.get("actor").id;
+  const patch: Record<string, unknown> = { status: to, status_changed_at: now, status_changed_by: actorId, note: note || i.note || null };
+  if (to === "RESOLVED") Object.assign(patch, { resolved_at: now, resolved_by: actorId, resolution: note });
+  if (to === "OPEN") Object.assign(patch, { resolved_at: null, resolved_by: null, resolution: null });
+  const { error } = await admin.from("dq_issues").update(patch).eq("id", i.id);
+  if (error) return error.message;
+  await admin.from("dq_issue_events").insert({ issue_id: i.id, action: "status_changed", from_status: i.status, to_status: to, actor_id: actorId, note: note || null });
+  await audit(c, "dq.status_changed", "dq_issue", i.id, { type: i.type, from: i.status, to, note: note || undefined });
+  return null;
+}
+
+app.patch("/data-quality/issues/:id", requirePermission("data_quality.manage"), async (c) => {
+  const { data: i } = await admin.from("dq_issues").select("*").eq("id", c.req.param("id")).maybeSingle();
+  if (!i) return c.json({ error: "Issue not found" }, 404);
+  const b = await c.req.json().catch(() => ({}));
+  const to = String(b.status ?? "") as DqStatus;
+  if (!DQ_STATUSES.includes(to)) return c.json({ error: "Status must be OPEN, UNDER_REVIEW, RESOLVED or IGNORED" }, 400);
+  const err = await moveDqIssue(c, i, to, String(b.note ?? "").trim().slice(0, 1000));
+  if (err) return c.json({ error: err }, 400);
+  return c.json(await dqIssueDetail(c, i.id));
+});
+
+app.post("/data-quality/issues/bulk", requirePermission("data_quality.manage"), async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const ids = Array.isArray(b.ids) ? [...new Set(b.ids.map(String))].slice(0, 500) as string[] : [];
+  const to = String(b.status ?? "") as DqStatus;
+  if (!ids.length) return c.json({ error: "Pick some issues" }, 400);
+  if (!DQ_STATUSES.includes(to)) return c.json({ error: "Status must be OPEN, UNDER_REVIEW, RESOLVED or IGNORED" }, 400);
+  const note = String(b.note ?? "").trim().slice(0, 1000);
+  const rows = await selectIn("dq_issues", "id", ids);
+  let changed = 0;
+  const skipped: string[] = [];
+  for (const i of rows) {
+    const err = await moveDqIssue(c, i, to, note);
+    if (err) skipped.push(`${i.summary}: ${err}`); else changed++;
+  }
+  return c.json({ changed, skipped });
+});
+
+app.post("/data-quality/issues/:id/fix", requirePermission("data_quality.manage"), async (c) => {
+  const { data: i } = await admin.from("dq_issues").select("*").eq("id", c.req.param("id")).maybeSingle();
+  if (!i) return c.json({ error: "Issue not found" }, 404);
+  const b = await c.req.json().catch(() => ({}));
+  const offered = await dqFixesFor(c, i);
+  if (!offered.some((f) => f.action === b.action)) return c.json({ error: "That correction isn't available for this issue (or to you)" }, 403);
+  const note = String(b.note ?? "").trim().slice(0, 1000);
+  const res = await applyDqFix(c, i, b, note);
+  if (res instanceof Response) return res;
+  const now = new Date().toISOString();
+  const actorId = c.get("actor").id;
+  const resolution = `Corrected: ${res.description}${note ? ` — ${note}` : ""}`;
+  await admin.from("dq_issues").update({
+    status: "RESOLVED", resolved_at: now, resolved_by: actorId, resolution, note: note || i.note || null,
+    status_changed_at: now, status_changed_by: actorId,
+  }).eq("id", i.id);
+  await admin.from("dq_issue_events").insert({
+    issue_id: i.id, action: "corrected", from_status: i.status, to_status: "RESOLVED", actor_id: actorId, note: note || null,
+    details: { correction: b.action, before: res.before, after: res.after, description: res.description },
+  });
+  await audit(c, "dq.corrected", "dq_issue", i.id, { type: i.type, correction: b.action, entity: `${i.entity_type}:${i.entity_id}`, before: res.before, after: res.after });
+  // Check the data again: if the problem is still there, the issue reopens.
+  try { await runDqScan(actorId, "correction"); } catch (e) { console.error("dq scan after correction:", (e as Error).message); }
+  return c.json(await dqIssueDetail(c, i.id));
 });
 
 // ---- staff accounts: invitations, approval, roles, status, audit ----
