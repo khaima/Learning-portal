@@ -63,54 +63,79 @@ Edge Function API in front of a locked-down Postgres database. Six pages:
   unanswered form can be deleted. The database refuses to delete forms,
   visits or staff accounts that still have records attached. Also
   connect **KoboToolbox** to publish field surveys (see below), see a
-  **Content usage report** (see below), and read the **Programme
-  Intelligence** dashboard (see below).
+  **Content usage report** (see below), and read the **impact
+  dashboards** (see below).
 
-### Programme Intelligence dashboard
+### Impact dashboards
 
-The Education Team's dashboard opens on **Programme intelligence**: an
-Overview and four areas. The global filters (county, school, term or
-date range) rescope every one of them at once, and clicking a school name
-narrows everything to that school.
+The Education Team's dashboard opens on **Impact dashboards**. The global
+filters (county, school, term or date range) rescope every one of them at
+once, and clicking a school name narrows everything to that school.
 
-- **Overview** — headline numbers from each area, a card per area, and
-  **Needs attention**, which includes any data-quality check that finds
-  something.
-- **Learning** — learners, teachers, schools, classes; assignments set and
-  waiting to be marked; **completion** (work handed in, late, missing) and
-  **results** (average mark, band) — by grade and by subject; learners by
-  grade; and library use (sessions, time, readers, the share of learners
-  reading, most-opened resources).
-- **Programme implementation** — field visits by type (**Learning,
-  Infrastructure, ICT, MEP, Teacher support**), by county and by term; the
-  share of schools visited and visited this term; and the schools not
-  visited yet.
-- **Data collection** — Kobo submissions per survey (with how many were
-  rejected in review or couldn't be linked to an officer, counted at each
-  sync), officers who've done each survey, forms and feedback, **response
-  rates** (everyone a form reaches vs. who answered; visit forms vs. visits
-  of that type), and **data-quality checks**: unlinked visits, learners not
-  in a class, classes without a class teacher, work waiting over 14 days
-  for marking, staff with no school.
-- **Impact** — **learner growth** (learners on roll each term, and how many
-  joined), **teacher participation** (set work, marked, used the library,
-  answered forms), **digital resource use** by term, **assessment outcomes**
-  by term, a **school performance** table, and **programme reach**
-  (counties, schools reached and visited, learners, teachers, officers).
+- **Executive overview** — six headline numbers: **schools, learners,
+  teachers, active users** (anyone who did something in the portal in the
+  period picked, or the last 30 days: read, started or handed in work, set
+  or marked work, filed a visit, answered a form, sent a Kobo survey),
+  **completion** and **library use (hours)**; then average mark, field
+  visits, Kobo submissions and the data quality score; a card per
+  dashboard; and **Needs attention**.
+- **Reach** — schools, learners and teachers **by county**, **grade
+  distribution**, **gender where it has been recorded** (see below),
+  accounts by role, teachers by employment type (BOM / TSC), and learner
+  growth term by term.
+- **Learning** — assignments (by subject), **completion** (by grade),
+  **assessment results** (by grade, bands), **subject performance**
+  (completion and results side by side), **learner progress** (average mark
+  by term, and how many learners improved from their first marked term to
+  their latest), and school performance.
+- **Teacher development** — the **training register** (sessions —
+  workshops, cluster meetings, coaching, online courses — and who
+  attended), share of teachers trained (by county), **ICT integration**
+  through M&E indicators shown here (e.g. *% of teachers integrating ICT*
+  from validated observation forms), teachers' own **digital resource use**,
+  and **teacher activity** (set work, marked, used the library, answered
+  forms; active by county). Training sessions are archived, never deleted;
+  taking a teacher off the list keeps them on record as not attended; every
+  change is in the audit log.
+- **Field operations** — **visits** by type (Learning, Infrastructure, ICT,
+  MEP, Teacher support), month, county and term; schools not visited yet;
+  **completed forms** (visit forms filled, response rates); **Kobo
+  submissions** by survey, month and county, and the checks they fail.
+- **Digital resources** — **resources** (by shelf, subject, type),
+  **opens**, **usage time**, **active users** (learners and staff), learner
+  reach, use by month and term, and the **most-used content**.
+- **M&E** — every indicator in the active programmes: **target against
+  actual** (the bar is the actual, coloured met / close / not met; the line
+  is the target), for a period and the county or school picked. Pick an
+  indicator for its **trend over time** (term by term, against its targets)
+  and its **county and school comparison**. Recording and verifying actuals
+  stays on *Indicator results*.
+
+M&E can tag any indicator to **also show on** one of the five dashboards
+(Results framework → Edit indicator), so e.g. *% of teachers integrating
+ICT* appears on Teacher development next to the training numbers.
+
+**Gender** is new and **optional**: female, male or prefer not to say, or
+left empty. Teachers and school heads can record it for learners (the add
+form, the CSV's optional fifth column, or Edit); administrators for staff.
+Dashboards only ever show it as **totals**, and any group **under 5 shows
+as "<5"** — with a second group hidden too when one alone would let it be
+worked out — so no one can be picked out.
 
 Completion and results are separate measures everywhere: handing work in
 isn't the same as doing well in it. Every number is computed server-side
-from the live tables (`GET /api/intelligence`, in
+from the live tables (`GET /api/impact`, in
+[`impact.ts`](supabase/functions/api/impact.ts), built on
 [`intelligence.ts`](supabase/functions/api/intelligence.ts)) for the
 Education Team, M&E and administrators; nothing is seeded or estimated. The
 date filter applies only to rows with a real date (visits, library
-sessions, responses, Kobo submissions, assignment due dates). Forms and Kobo
-surveys aren't tied to a school, so the page says so when a school is
-picked.
+sessions, responses, Kobo submissions, assignment due dates, training
+dates). Forms aren't tied to a school, so a school filter doesn't narrow
+them.
 
 ### Data Quality Center
 
-Programme intelligence → **Data quality**: every problem in the portal's
+M&E and data → **Data quality**: every problem in the portal's
 records, how serious it is, where it is, and what's being done about it.
 
 - **Checks** ([`data_quality.ts`](supabase/functions/api/data_quality.ts)):
@@ -295,9 +320,8 @@ KoboToolbox ─→ API ─→ raw submission (kept exactly as received)
   and the **review queue**, where each flagged submission can be
   **accepted** onto the dashboards or **excluded**, always with a reason
   (audited). M&E can see all of it but change nothing.
-- **Dashboards** — Survey results and the Programme Intelligence *Data
-  collection* area read only the records that pass, or that a person
-  accepted.
+- **Dashboards** — Survey results, *Field operations* and M&E read only
+  the records that pass, or that a person accepted.
 
 Survey answers can include personal data (for example learner names in an
 assessment). Like everything else they're reachable only through the API,
@@ -489,7 +513,9 @@ the caller's own row in the database — nothing the browser sends.
   assignment cycle (visibility, hand-in, late work, marking, results).
   [`lms_test.ts`](supabase/functions/api/lms_test.ts) unit-tests the marking
   and results rules, [`intelligence_test.ts`](supabase/functions/api/intelligence_test.ts)
-  every number on the Programme Intelligence dashboard, and
+  the shared dashboard numbers, [`impact_test.ts`](supabase/functions/api/impact_test.ts)
+  the impact dashboards (active users, gender suppression, progress,
+  training, field operations, resources), and
   [`kobo_pipeline_test.ts`](supabase/functions/api/kobo_pipeline_test.ts)
   every Kobo validation and normalization rule (the authorization tests
   also run sync and the push against a stand-in KoboToolbox), and
@@ -497,7 +523,7 @@ the caller's own row in the database — nothing the browser sends.
   fifteen data quality checks and the score, and
   [`me_test.ts`](supabase/functions/api/me_test.ts) the M&E rules (sources,
   periods, targets, achievement):
-  `cd supabase/functions/api && deno test --allow-env --config deno.json authz_test.ts lms_test.ts intelligence_test.ts kobo_pipeline_test.ts data_quality_test.ts me_test.ts`
+  `cd supabase/functions/api && deno test --allow-env --config deno.json authz_test.ts lms_test.ts intelligence_test.ts kobo_pipeline_test.ts data_quality_test.ts me_test.ts impact_test.ts`
 
 ### Turning on Google sign-in
 
@@ -598,7 +624,8 @@ used).
 | `mel-ui.js` | M&E: results, the indicator panel (record / verify / evidence), framework editor, reports |
 | `dq-ui.js` | The Data Quality Center: score, checks, issues, history, corrections |
 | `kobo-ui.js` | The Kobo data pipeline panel (checks, mapping, school aliases, review queue) and the live-push setup |
-| `intelligence-ui.js` | The Education Team's Programme Intelligence pages |
+| `impact-ui.js` | The impact dashboards: executive overview, reach, learning, teacher development, field operations, digital resources, M&E |
+| `training-ui.js` | The training register: record a session, mark who attended, archive |
 | `assignments-ui.js` | Assignment builder, marking, results table, and the learner's assignment screen |
 | `learners-ui.js` | Shared learner dialogs: archive, history, transfer |
 | `styles.css` | The whole design system (light + dark, one file) |

@@ -108,9 +108,10 @@
               <div class="field"><label for="nl_class">Class</label><select id="nl_class"><option value="">Not in a class yet</option></select></div>
               <div class="field" id="nl_grade_field"><label for="nl_grade">Grade</label><input id="nl_grade" type="text" placeholder="e.g. Grade 5"></div>
             </div>
-            <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:.9rem">
+            <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.9rem">
               <div class="field"><label for="nl_user">Username</label><input id="nl_user" type="text" autocapitalize="none" spellcheck="false" placeholder="e.g. naomi.k" required></div>
               <div class="field"><label for="nl_pin">4-digit PIN</label><input id="nl_pin" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="0000" required></div>
+              <div class="field"><label for="nl_gender">Gender <span class="hint-inline">— optional</span></label><select id="nl_gender"><option value="">Not recorded</option><option value="female">Female</option><option value="male">Male</option><option value="prefer_not_to_say">Prefer not to say</option></select></div>
             </div>
             <p class="hint" id="nl_school_hint">Placed automatically in your own school and county.</p>
             <div class="field-error" id="addLearnerError" hidden></div>
@@ -126,7 +127,7 @@
               <span style="font-size:.82rem;color:var(--ink-soft)">fill it in, then upload it back:</span>
               <input type="file" id="learnerCsvInput" accept=".csv,text/csv" style="max-width:14rem">
             </div>
-            <p class="hint">One learner per row: full name is required; username, grade, and PIN are optional — left blank, we'll generate them for you and show you the result. Every learner is placed automatically in your own school and county.</p>
+            <p class="hint">One learner per row: full name is required; username, grade, PIN and gender (female, male or prefer not to say) are optional — left blank, we'll generate them for you and show you the result. Every learner is placed automatically in your own school and county.</p>
             <div id="bulkLearnerResult"></div>
           </div>
           <div class="field" style="max-width:14rem;margin:1rem 0 .3rem">

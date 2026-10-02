@@ -634,6 +634,9 @@ export const setMelTarget = (body) => apiSend("PUT", "/mel/targets", body);
 /** { programme, period, scope, outcomes: [{ indicators: [...] }], summary } */
 export const melResults = (id, { period, county, school } = {}) => apiGet(`/mel/programmes/${id}/results${qs({ period, county, school })}`);
 export const melBreakdown = (indicatorId, period) => apiGet(`/mel/indicators/${indicatorId}/breakdown${qs({ period })}`);
+/** Every indicator (or those tagged for one dashboard: theme) with target, value and achievement. */
+export const melDashboard = ({ period, county, school, theme } = {}) => apiGet(`/mel/dashboard${qs({ period, county, school, theme })}`);
+export const melTrend = (indicatorId, { county, school } = {}) => apiGet(`/mel/indicators/${indicatorId}/trend${qs({ county, school })}`);
 export const recordMelActual = (body) => apiSend("POST", "/mel/actuals", body);
 export const verifyMelActual = (id, decision, note = "") => apiSend("POST", `/mel/actuals/${id}/verify`, { decision, note });
 export const melActual = (id) => apiGet(`/mel/actuals/${id}`);
@@ -679,11 +682,27 @@ export async function dqScan({ auto = false } = {}) {
   return apiSend("POST", `/data-quality/scan${auto ? "?auto=1" : ""}`, {});
 }
 
-/** The Programme Intelligence dashboard: learning, implementation, data
-    collection and impact, under the same filters as getStats. */
-export async function getIntelligence({ county, school, from, to } = {}) {
-  return apiGet(`/intelligence${qs({ county, school, from, to })}`);
+/** The impact dashboards — executive overview, reach, learning, teacher
+    development, field operations and digital resources — under the same
+    filters as getStats. */
+export async function getImpact({ county, school, from, to } = {}) {
+  return apiGet(`/impact${qs({ county, school, from, to })}`);
 }
+
+/* ---------------------------------------------------------------- training register */
+export async function getTrainings({ archived = false } = {}) {
+  return apiGet(`/trainings${archived ? "?archived=1" : ""}`);
+}
+export async function getTraining(id) {
+  const { training } = await apiGet(`/trainings/${id}`);
+  return training;
+}
+export async function trainingTeachers() {
+  const { teachers } = await apiGet("/trainings/teachers");
+  return teachers || [];
+}
+export const createTraining = (body) => apiSend("POST", "/trainings", body);
+export const updateTraining = (id, patch) => apiSend("PATCH", `/trainings/${id}`, patch);
 
 export async function getStats({ county, school, from, to, topGrades } = {}) {
   const params = new URLSearchParams();
@@ -881,8 +900,8 @@ export async function getLearners(params = {}) {
   return learners || [];
 }
 
-export async function addLearner({ fullName, username, grade, pin, classId, schoolId }) {
-  const { learner } = await apiSend("POST", "/learners", { fullName, username, grade, pin, classId, schoolId });
+export async function addLearner({ fullName, username, grade, pin, classId, schoolId, gender }) {
+  const { learner } = await apiSend("POST", "/learners", { fullName, username, grade, pin, classId, schoolId, gender });
   return learner;
 }
 

@@ -359,7 +359,7 @@ async function main() {
     const active = l.status === "ACTIVE";
     const left = !active && l.exitDate ? ` · left ${esc(new Date(`${l.exitDate}T00:00:00`).toLocaleDateString())}${l.exitReason ? ` (${esc(l.exitReason)})` : ""}` : "";
     return `
-      <div class="task-row" data-learner="${esc(l.id)}" data-username="${esc(l.username)}" data-grade="${esc(l.grade || "")}">
+      <div class="task-row" data-learner="${esc(l.id)}" data-username="${esc(l.username)}" data-grade="${esc(l.grade || "")}" data-gender="${esc(l.gender || "")}">
         <div style="flex:1;min-width:0">
           <button type="button" data-act="view" style="background:none;border:0;padding:0;font:inherit;cursor:pointer;color:var(--brand-fg);text-align:left"><b>${esc(l.fullName)}</b></button>
           <span>${statusPill(l.status)} ${l.userCode ? `<span class="code-chip">${esc(l.userCode)}</span> ` : ""}@${esc(l.username)}${l.className ? " · " + esc(l.className) : l.grade ? " · " + esc(l.grade) : ""}${l.locked ? ' · <span class="pill warm">Locked</span>' : ""}${left}</span>
@@ -503,6 +503,7 @@ async function main() {
         grade: $("#nl_grade").value.trim(),
         pin: $("#nl_pin").value.trim(),
         classId: $("#nl_class").value || undefined,
+        gender: $("#nl_gender").value || undefined,
       });
       addForm.reset();
       addForm.hidden = true;
@@ -521,7 +522,7 @@ async function main() {
   // A blank template to fill in offline and bring back — matches exactly
   // what the parser below reads, so a filled-in copy round-trips cleanly.
   $("#downloadLearnerTemplate").addEventListener("click", () => {
-    const csv = "﻿Full name,Username,Grade,PIN\r\n";
+    const csv = "﻿Full name,Username,Grade,PIN,Gender\r\n";
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     a.download = "learners-template.csv";
@@ -541,6 +542,13 @@ async function main() {
   }
   const randomPin = () => String(Math.floor(1000 + Math.random() * 9000));
 
+  // Gender is optional: F / M, female / male, or "prefer not to say".
+  function csvGender(v) {
+    const g = String(v || "").trim().toLowerCase();
+    if (!g) return undefined;
+    return { f: "female", m: "male" }[g] || g.replace(/\s+/g, "_");
+  }
+
   function parseLearnerCsv(text) {
     return text
       .split(/\r?\n/)
@@ -548,8 +556,8 @@ async function main() {
       .filter(Boolean)
       .map((line) => line.split(",").map((cell) => cell.trim().replace(/^"|"$/g, "")))
       .filter((cells) => cells[0] && cells[0].toLowerCase() !== "full name")
-      .map(([fullName, username, grade, pin]) => ({
-        fullName, username: (username || "").toLowerCase(), grade: grade || "", pin: pin || "",
+      .map(([fullName, username, grade, pin, gender]) => ({
+        fullName, username: (username || "").toLowerCase(), grade: grade || "", pin: pin || "", gender: csvGender(gender),
       }));
   }
 
@@ -575,7 +583,7 @@ async function main() {
       const username = row.username && !taken.has(row.username) ? row.username : suggestUsername(row.fullName || "learner", taken);
       const pin = /^\d{4}$/.test(row.pin) ? row.pin : randomPin();
       try {
-        const learner = await addLearner({ fullName: row.fullName, username, grade: row.grade, pin });
+        const learner = await addLearner({ fullName: row.fullName, username, grade: row.grade, pin, gender: row.gender });
         taken.add(username);
         created.push({ fullName: row.fullName, username, pin, code: learner.userCode });
       } catch (err) {
@@ -611,10 +619,14 @@ async function main() {
         if (username === null) return;
         const grade = prompt("Grade / class", rowEl.dataset.grade);
         if (grade === null) return;
+        const GENDER_WORDS = { female: "female", male: "male", prefer_not_to_say: "prefer not to say" };
+        const gender = prompt("Gender — optional: female, male or prefer not to say (leave empty if not recorded)", GENDER_WORDS[rowEl.dataset.gender] || "");
+        if (gender === null) return;
         await updateLearner(id, {
           fullName: fullName.trim(),
           username: username.trim().toLowerCase(),
           grade: grade.trim(),
+          gender: { f: "female", m: "male" }[gender.trim().toLowerCase()] || gender.trim(),
         });
         toast("Learner updated", "");
       } else if (act === "pin") {

@@ -30,6 +30,7 @@ import {
   expectedFrom,
 } from "./lms.ts";
 import { buildIntelligence, VISIT_TYPES as INTEL_VISIT_TYPES } from "./intelligence.ts";
+import { buildImpact, GENDERS } from "./impact.ts";
 import {
   counts as countsOnDashboards, detectMapping, type KoboMapping, type KoboSchema, nameKey, parseKoboSchema,
   type PipelineContext, processBatch, RULES as KOBO_RULES, sha256, stableStringify, suggestSchool, summarizeAnswers,
@@ -1092,6 +1093,16 @@ const EXIT_STATUSES: EnrollmentStatus[] = ["TRANSFERRED", "DROPPED_OUT", "COMPLE
 const today = () => new Date().toISOString().slice(0, 10);
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+/** Gender is optional — female, male, prefer not to say, or left empty
+    (not recorded). Returns false for anything else. Dashboards only ever
+    show it as totals, with small numbers hidden. */
+const GENDER_ERROR = "Gender is female, male, prefer not to say — or leave it empty";
+function cleanGender(v: unknown): string | null | false {
+  const g = String(v ?? "").trim().toLowerCase().replace(/\s+/g, "_");
+  if (!g) return null;
+  return (GENDERS as readonly string[]).includes(g) ? g : false;
+}
+
 type LearnerScope =
   | { kind: "all" }
   | { kind: "school"; schoolId: string }
@@ -1202,6 +1213,7 @@ const mapRosterLearner = (r: Record<string, unknown>, names: { classes?: Record<
   username: r.username,
   fullName: r.full_name,
   grade: r.grade,
+  gender: r.gender ?? null,
   school: r.school,
   schoolId: r.school_id ?? null,
   county: r.county,
@@ -1274,6 +1286,8 @@ app.post("/learners", requirePermission("learners.manage", "learners.manage.scho
     return c.json({ error: "Username: 3–32 chars, lowercase letters, digits, . _ -" }, 400);
   }
   if (!PIN_RE.test(pin)) return c.json({ error: "PIN must be exactly 4 digits" }, 400);
+  const gender = cleanGender(b.gender);
+  if (gender === false) return c.json({ error: GENDER_ERROR }, 400);
 
   // The school is the caller's own — only an all-schools administrator
   // picks one. A client can never place a learner in someone else's school.
@@ -1307,6 +1321,7 @@ app.post("/learners", requirePermission("learners.manage", "learners.manage.scho
       pin_salt: salt,
       full_name: fullName,
       grade,
+      gender,
       school: school.name,
       county: school.county,
       enrollment_status: ACTIVE,
@@ -1344,6 +1359,11 @@ app.patch("/learners/:id", requirePermission("learners.manage", "learners.manage
     patch.full_name = fn;
   }
   if (b.grade !== undefined) patch.grade = String(b.grade).trim();
+  if (b.gender !== undefined) {
+    const g = cleanGender(b.gender);
+    if (g === false) return c.json({ error: GENDER_ERROR }, 400);
+    patch.gender = g;
+  }
   if (b.username !== undefined) {
     const u = String(b.username).trim().toLowerCase();
     if (!USERNAME_RE.test(u)) {
@@ -3980,21 +4000,21 @@ async function loadIntelligenceInput(): Promise<Parameters<typeof buildIntellige
     selectAll(() => admin.from(table).select(cols).order(order));
   const r = await Promise.all([
     read("schools", "id, name, county, code"),
-    read("profiles", "id, role, status, school_id, county"),
-    read("learners", "id, school_id, class_id, grade, enrollment_status"),
+    read("profiles", "id, role, status, school_id, county, teacher_type, gender"),
+    read("learners", "id, school_id, class_id, grade, enrollment_status, gender"),
     read("learner_enrollments", "id, learner_id, school_id, class_id, enrollment_date, exit_date, status"),
     read("terms", "id, academic_year_id, term_no, starts_on, ends_on"),
     read("classes", "id, school_id, academic_year_id, grade, archived_at"),
     read("class_teachers", "id, class_id, teacher_id, role, ended_at"),
     read("subjects", "id, name"),
     read("assignments", "id, school_id, class_id, subject_id, grade, academic_year_id, term_id, starts_at, due_at, status, created_by, created_at, published_at"),
-    read("assignment_submissions", "id, assignment_id, learner_id, school_id, status, is_late, percentage, submitted_at, marked_by"),
+    read("assignment_submissions", "id, assignment_id, learner_id, school_id, status, is_late, percentage, started_at, last_saved_at, submitted_at, marked_at, marked_by"),
     read("field_reports", "id, school, school_id, county, visit_type, officer_id, created_at"),
     read("forms", "id, title, audience, county, visit_type, archived_at"),
     read("responses", "id, form_id, respondent_id, respondent_role, submitted_at, visit_id"),
     read("kobo_forms", "id, title, active, submission_count, rejected_count, unattributed_count, synced_at"),
     read("kobo_submissions", "kobo_form_id, officer_id, submitted_at", "kobo_form_id"),
-    read("library_items", "id, title"),
+    read("library_items", "id, title, audience, subject, type, published"),
     read("library_interactions", "id, library_item_id, actor_kind, actor_id, school, started_at, completed_at, duration_seconds"),
     read("kobo_records", "id, kobo_form_id, status, review, school_id, county, officer_id, submitted_at, warning_count"),
     read("kobo_record_issues", "id, record_id, rule, severity"),
@@ -4016,6 +4036,217 @@ app.get("/intelligence", requirePermission("intelligence.view"), async (c) => {
   let input;
   try { input = await loadIntelligenceInput(); } catch (e) { return c.json({ error: (e as Error).message }, 500); }
   return c.json(buildIntelligence(input, { county: q("county"), school: q("school"), from: date("from"), to: date("to") }));
+});
+
+// ---- impact dashboards ----
+// Executive overview, reach, learning, teacher development, field
+// operations and digital resources in one read, computed by impact.ts (on
+// top of buildIntelligence). Same filters as /intelligence. M&E indicators
+// tagged for a dashboard come from /mel/dashboard?theme=.
+async function loadImpactInput() {
+  const [base, trainings, attendance] = await Promise.all([
+    loadIntelligenceInput(),
+    selectAll(() => admin.from("trainings").select("id, title, kind, held_on, ends_on, county, school_id, archived_at").order("id")),
+    selectAll(() => admin.from("training_attendance").select("training_id, teacher_id, attended").order("training_id").order("teacher_id")),
+  ]);
+  const failed = [trainings, attendance].find((x) => x.error);
+  if (failed) throw new Error(failed.error!.message);
+  return { ...base, trainings: trainings.data, trainingAttendance: attendance.data };
+}
+
+app.get("/impact", requirePermission("intelligence.view"), async (c) => {
+  const q = (k: string) => String(c.req.query(k) ?? "").trim() || null;
+  const date = (k: string) => { const v = q(k); return v && DATE_RE.test(v) ? v : null; };
+  let input;
+  try { input = await loadImpactInput(); } catch (e) { return c.json({ error: (e as Error).message }, 500); }
+  return c.json(buildImpact(input, { county: q("county"), school: q("school"), from: date("from"), to: date("to") }));
+});
+
+// ---- training register (Teacher development) ----
+// Sessions and the teachers who attended. Nothing is deleted: a session is
+// archived, and taking a teacher off the list marks them not attended.
+// Every change is in the audit log.
+const TRAINING_KINDS = ["workshop", "cluster", "coaching", "online", "other"];
+
+async function readTraining(b: Record<string, any>, existing: Record<string, any> | null): Promise<Record<string, unknown> | { error: string }> {
+  const out: Record<string, unknown> = {};
+  if (!existing || b.title !== undefined) {
+    const t = String(b.title ?? "").trim();
+    if (!t || t.length > 200) return { error: "Give the session a title" };
+    out.title = t;
+  }
+  if (b.topic !== undefined) out.topic = String(b.topic ?? "").trim().slice(0, 300);
+  if (b.facilitator !== undefined) out.facilitator = String(b.facilitator ?? "").trim().slice(0, 200);
+  if (b.notes !== undefined) out.notes = String(b.notes ?? "").trim().slice(0, 4000);
+  if (b.kind !== undefined) {
+    if (!TRAINING_KINDS.includes(b.kind)) return { error: "Choose the kind of session" };
+    out.kind = b.kind;
+  }
+  if (!existing || b.heldOn !== undefined) {
+    if (!DATE_RE.test(String(b.heldOn ?? ""))) return { error: "When was it held? (a date like 2026-09-14)" };
+    out.held_on = b.heldOn;
+  }
+  if (b.endsOn !== undefined) {
+    if (b.endsOn && !DATE_RE.test(String(b.endsOn))) return { error: "The end date looks like 2026-09-16" };
+    out.ends_on = b.endsOn || null;
+  }
+  const start = String(out.held_on ?? existing?.held_on ?? "");
+  const end = out.ends_on !== undefined ? out.ends_on : existing?.ends_on;
+  if (end && String(end) < start) return { error: "It can't end before it starts" };
+  // Where: a school (its county follows), or a county, or neither (online).
+  if (b.schoolId !== undefined || b.county !== undefined) {
+    if (b.schoolId) {
+      const school = await loadSchool(b.schoolId);
+      if (!school) return { error: "Choose a school from the list" };
+      out.school_id = school.id;
+      out.county = school.county;
+    } else {
+      const county = String(b.county ?? "").trim();
+      if (county && !(await isCounty(county))) return { error: "Choose a county from the list" };
+      out.school_id = null;
+      out.county = county || null;
+    }
+  }
+  return out;
+}
+
+/** Only real teacher accounts can be on an attendance list. */
+async function teacherIdsIn(ids: unknown): Promise<string[] | { error: string }> {
+  const list = Array.isArray(ids) ? [...new Set(ids.map(String))].slice(0, 500) : [];
+  if (!list.length) return [];
+  const rows = await selectIn("profiles", "id", list, "id, role");
+  const ok = new Set(rows.filter((r) => r.role === "teacher").map((r) => r.id as string));
+  const bad = list.filter((id) => !ok.has(id));
+  return bad.length ? { error: "Only teachers can be on the attendance list" } : list;
+}
+
+async function trainingDetail(id: string) {
+  const { data: t } = await admin.from("trainings").select("*").eq("id", id).maybeSingle();
+  if (!t) return null;
+  const rows = await selectIn("training_attendance", "training_id", [id]);
+  const people = rows.length ? await selectIn("profiles", "id", rows.map((r) => r.teacher_id as string), "id, full_name, school, county") : [];
+  const who = new Map(people.map((p) => [p.id, p]));
+  const school = t.school_id ? await loadSchool(t.school_id) : null;
+  return {
+    id: t.id, title: t.title, topic: t.topic, kind: t.kind, heldOn: t.held_on, endsOn: t.ends_on ?? null,
+    county: t.county ?? null, schoolId: t.school_id ?? null, school: school?.name ?? null,
+    facilitator: t.facilitator, notes: t.notes, archived: !!t.archived_at, createdAt: t.created_at,
+    attendance: rows.map((r) => ({
+      teacherId: r.teacher_id, name: who.get(r.teacher_id)?.full_name ?? "Former account",
+      school: who.get(r.teacher_id)?.school ?? "", county: who.get(r.teacher_id)?.county ?? "",
+      attended: r.attended !== false, recordedAt: r.recorded_at,
+    })).sort((a, b) => Number(b.attended) - Number(a.attended) || String(a.name).localeCompare(String(b.name))),
+  };
+}
+
+/* Teachers to pick from for an attendance list. */
+app.get("/trainings/teachers", requirePermission("trainings.manage"), async (c) => {
+  const { data, error } = await selectAll(() => admin.from("profiles").select("id, full_name, school, school_id, county, status")
+    .eq("role", "teacher").order("full_name").order("id"));
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({
+    teachers: (data ?? []).filter((p) => (p.status ?? "active") === "active")
+      .map((p) => ({ id: p.id, name: p.full_name, school: p.school ?? "", schoolId: p.school_id ?? null, county: p.county ?? "" })),
+  });
+});
+
+/* ?archived=1 includes archived sessions. */
+app.get("/trainings", requirePermission("intelligence.view", "trainings.manage"), async (c) => {
+  const [{ data, error }, { data: att }, { data: schools }] = await Promise.all([
+    selectAll(() => admin.from("trainings").select("*").order("held_on", { ascending: false }).order("id")),
+    selectAll(() => admin.from("training_attendance").select("training_id, attended").order("training_id").order("teacher_id")),
+    selectAll(() => admin.from("schools").select("id, name").order("id")),
+  ]);
+  if (error) return c.json({ error: error.message }, 500);
+  const schoolName = new Map((schools ?? []).map((s) => [s.id, s.name]));
+  const archived = c.req.query("archived") === "1";
+  return c.json({
+    canManage: actorCan(c, "trainings.manage"),
+    kinds: TRAINING_KINDS,
+    trainings: (data ?? []).filter((t) => archived || !t.archived_at)
+      .sort((a, b) => String(b.held_on).localeCompare(String(a.held_on)) || String(a.id).localeCompare(String(b.id))).map((t) => ({
+      id: t.id, title: t.title, topic: t.topic, kind: t.kind, heldOn: t.held_on, endsOn: t.ends_on ?? null,
+      county: t.county ?? null, schoolId: t.school_id ?? null, school: t.school_id ? schoolName.get(t.school_id) ?? null : null,
+      facilitator: t.facilitator, archived: !!t.archived_at,
+      attendees: (att ?? []).filter((a) => a.training_id === t.id && a.attended !== false).length,
+    })),
+  });
+});
+
+app.get("/trainings/:id", requirePermission("intelligence.view", "trainings.manage"), async (c) => {
+  const t = await trainingDetail(c.req.param("id"));
+  return t ? c.json({ training: t }) : c.json({ error: "Session not found" }, 404);
+});
+
+app.post("/trainings", requirePermission("trainings.manage"), async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const fields = await readTraining(b, null);
+  if ("error" in fields) return c.json(fields, 400);
+  const teachers = await teacherIdsIn(b.teacherIds);
+  if ("error" in teachers) return c.json(teachers, 400);
+  const id = rid("trn");
+  const actorId = c.get("actor").id;
+  const { error } = await admin.from("trainings").insert({
+    id, kind: "workshop", topic: "", facilitator: "", notes: "", ...fields, created_by: actorId, created_at: new Date().toISOString(),
+  });
+  if (error) return c.json({ error: error.message }, 400);
+  if (teachers.length) {
+    const { error: aErr } = await admin.from("training_attendance").insert(teachers.map((t) => ({
+      training_id: id, teacher_id: t, attended: true, recorded_by: actorId, recorded_at: new Date().toISOString(),
+    })));
+    if (aErr) return c.json({ error: aErr.message }, 400);
+  }
+  await audit(c, "training.created", "training", id, { title: fields.title, heldOn: fields.held_on, attendees: teachers.length });
+  return c.json({ training: await trainingDetail(id) });
+});
+
+/* Change the details, archive / restore (archived: true/false), and mark
+   attendance: attendance = [{ teacherId, attended }] — adding a teacher, or
+   taking one off the list (kept, as not attended). */
+app.patch("/trainings/:id", requirePermission("trainings.manage"), async (c) => {
+  const { data: t } = await admin.from("trainings").select("*").eq("id", c.req.param("id")).maybeSingle();
+  if (!t) return c.json({ error: "Session not found" }, 404);
+  const b = await c.req.json().catch(() => ({}));
+  const fields = await readTraining(b, t);
+  if ("error" in fields) return c.json(fields, 400);
+  // Only what actually changes is written (and audited).
+  for (const k of Object.keys(fields)) if (String(fields[k] ?? "") === String(t[k] ?? "")) delete fields[k];
+  if (b.archived !== undefined && !!b.archived !== !!t.archived_at) fields.archived_at = b.archived ? new Date().toISOString() : null;
+  const changes = Array.isArray(b.attendance) ? b.attendance.slice(0, 500) : [];
+  const ids = await teacherIdsIn(changes.map((x: Record<string, unknown>) => x?.teacherId));
+  if ("error" in ids) return c.json(ids, 400);
+  if (Object.keys(fields).length) {
+    const { error } = await admin.from("trainings").update(fields).eq("id", t.id);
+    if (error) return c.json({ error: error.message }, 400);
+    await audit(c, b.archived === true ? "training.archived" : b.archived === false ? "training.restored" : "training.updated",
+      "training", t.id, { fields: Object.keys(fields) });
+  }
+  if (changes.length) {
+    const actorId = c.get("actor").id;
+    const existing = await selectIn("training_attendance", "training_id", [t.id]);
+    const added: string[] = [], removed: string[] = [], restored: string[] = [];
+    for (const ch of changes) {
+      const teacherId = String(ch.teacherId);
+      const attended = ch.attended !== false;
+      const row = existing.find((r) => r.teacher_id === teacherId);
+      const now = new Date().toISOString();
+      if (!row) {
+        if (!attended) continue;
+        const { error } = await admin.from("training_attendance").insert({ training_id: t.id, teacher_id: teacherId, attended: true, recorded_by: actorId, recorded_at: now });
+        if (error) return c.json({ error: error.message }, 400);
+        added.push(teacherId);
+      } else if ((row.attended !== false) !== attended) {
+        const { error } = await admin.from("training_attendance").update({ attended, recorded_by: actorId, recorded_at: now })
+          .eq("training_id", t.id).eq("teacher_id", teacherId);
+        if (error) return c.json({ error: error.message }, 400);
+        (attended ? restored : removed).push(teacherId);
+      }
+    }
+    if (added.length || removed.length || restored.length) {
+      await audit(c, "training.attendance_changed", "training", t.id, { added, removed, restored });
+    }
+  }
+  return c.json({ training: await trainingDetail(t.id) });
 });
 
 // ---------------------------------------------------------------- Data Quality Center
@@ -4589,18 +4820,33 @@ const mapIndicator = (i: Record<string, any>) => ({
   id: i.id, outcomeId: i.outcome_id, code: i.code, name: i.name, definition: i.definition, unit: i.unit, direction: i.direction,
   source: i.source, sourceConfig: i.source_config ?? {}, evidenceHint: i.evidence_hint ?? "",
   baselineValue: i.baseline_value == null ? null : Number(i.baseline_value), baselinePeriod: i.baseline_period ?? null,
+  dashboardTheme: i.dashboard_theme ?? null,
   archived: !!i.archived_at,
 });
+
+/** Impact dashboards an indicator can be shown on (besides M&E's own). */
+const DASHBOARD_THEMES = ["reach", "learning", "teacher_development", "field_operations", "digital_resources"];
 
 /** Live values for indicators in one period and scope, from Kobo records
     and the portal's own measures. Loads only what the indicators need. */
 async function melLive(indicators: Record<string, any>[], range: { from: string; to: string }, scopes: MelScope[]) {
+  return melCompute(await melLoad(indicators), indicators, range, scopes);
+}
+
+/** The rows melCompute() needs for these indicators — loaded once, so a
+    trend can work out many periods from one read. */
+async function melLoad(indicators: Record<string, any>[]) {
   const needIntel = indicators.some((i) => i.source === "portal");
   const formIds = [...new Set(indicators.filter((i) => i.source === "kobo").map((i) => i.source_config?.formId).filter(Boolean))] as string[];
   const [input, kobo] = await Promise.all([
     needIntel ? loadIntelligenceInput() : null,
     formIds.length ? selectIn("kobo_records", "kobo_form_id", formIds, "id, kobo_form_id, status, review, observed_on, county, school_id, answers") : [],
   ]);
+  return { input, kobo };
+}
+
+function melCompute(loaded: Awaited<ReturnType<typeof melLoad>>, indicators: Record<string, any>[], range: { from: string; to: string }, scopes: MelScope[]) {
+  const { input, kobo } = loaded;
   const out = new Map<string, Computed>(); // `${indicatorId}|${scopeType}|${scopeId}`
   for (const scope of scopes) {
     const intel = input ? buildIntelligence(input, {
@@ -4853,6 +5099,11 @@ async function readIndicator(b: Record<string, any>, existing: Record<string, an
     else out.baseline_value = Number(b.baselineValue);
   }
   if (b.baselinePeriod !== undefined) out.baseline_period = String(b.baselinePeriod ?? "").trim().slice(0, 40) || null;
+  if (b.dashboardTheme !== undefined) {
+    const t = String(b.dashboardTheme ?? "").trim();
+    if (t && !DASHBOARD_THEMES.includes(t)) return { error: "Choose a dashboard to show it on, or none" };
+    out.dashboard_theme = t || null;
+  }
   if (!existing || b.source !== undefined || b.sourceConfig !== undefined) {
     const source = String(b.source ?? existing?.source ?? "manual");
     const raw = b.sourceConfig ?? existing?.source_config ?? {};
@@ -4928,15 +5179,21 @@ app.put("/mel/targets", requirePermission("me.framework.manage"), async (c) => {
 
 // ---- results, actuals, evidence ----
 
-/* ?period= &county= &school= (name, like the dashboard filters) */
-app.get("/mel/programmes/:id/results", requirePermission("me.view"), async (c) => {
+/** The place picked in the dashboard filters: ?school= (name) or ?county=. */
+// deno-lint-ignore no-explicit-any
+async function melScopeFromQuery(c: any): Promise<MelScope | null> {
   const schoolName = String(c.req.query("school") ?? "").trim();
-  let scope: MelScope | null;
   if (schoolName) {
     const { data: s } = await admin.from("schools").select("id").eq("name", schoolName).maybeSingle();
-    scope = s ? await melScope("school", s.id) : null;
-  } else if (c.req.query("county")) scope = await melScope("county", c.req.query("county"));
-  else scope = await melScope("programme", "");
+    return s ? await melScope("school", s.id) : null;
+  }
+  if (c.req.query("county")) return await melScope("county", c.req.query("county"));
+  return await melScope("programme", "");
+}
+
+/* ?period= &county= &school= (name, like the dashboard filters) */
+app.get("/mel/programmes/:id/results", requirePermission("me.view"), async (c) => {
+  const scope = await melScopeFromQuery(c);
   if (!scope) return c.json({ error: "That county or school isn't in the portal" }, 400);
   try {
     const res = await melResults(c.req.param("id"), String(c.req.query("period") ?? ""), scope);
@@ -4945,6 +5202,98 @@ app.get("/mel/programmes/:id/results", requirePermission("me.view"), async (c) =
   } catch (e) {
     return c.json({ error: (e as Error).message }, 500);
   }
+});
+
+/* The M&E dashboard: every indicator in the active programmes — or only
+   those tagged for one impact dashboard (?theme=) — for a period (default:
+   the current term) and place (?county= / ?school=): target, value
+   (recorded, else live) and achievement. */
+app.get("/mel/dashboard", requirePermission("me.view"), async (c) => {
+  const scope = await melScopeFromQuery(c);
+  if (!scope) return c.json({ error: "That county or school isn't in the portal" }, 400);
+  const theme = String(c.req.query("theme") ?? "").trim();
+  if (theme && !DASHBOARD_THEMES.includes(theme)) return c.json({ error: "Unknown dashboard" }, 400);
+  const cal = await melCalendar();
+  const terms = cal.periods.filter((p) => /-T\d$/.test(p.id));
+  const period = String(c.req.query("period") ?? "") || (terms.find((p) => p.current) ?? terms.at(-1))?.id || "";
+  const range = periodRange(period, cal.terms, cal.years);
+  const summary = { met: 0, close: 0, not_met: 0, no_data: 0 };
+  const empty = { periods: cal.periods, period: range ? { id: period, label: range.label } : null, scope: { type: scope.type, id: scope.id, label: scope.label }, indicators: [], summary };
+  if (!range) return c.json(empty);
+  const { data: programmes } = await selectAll(() => admin.from("me_programmes").select("id, code, name, status").order("id"));
+  const progs = (programmes ?? []).filter((p) => p.status === "active");
+  if (!progs.length) return c.json(empty);
+  const outcomes = (await selectIn("me_outcomes", "programme_id", progs.map((p) => p.id as string))).filter((o) => !o.archived_at);
+  const indicators = outcomes.length
+    ? (await selectIn("me_indicators", "outcome_id", outcomes.map((o) => o.id as string))).filter((i) => !i.archived_at && (!theme || i.dashboard_theme === theme))
+    : [];
+  if (!indicators.length) return c.json(empty);
+  const ids = indicators.map((i) => i.id as string);
+  let targets, actuals, live;
+  try {
+    [targets, actuals, live] = await Promise.all([
+      selectIn("me_targets", "indicator_id", ids), selectIn("me_actuals", "indicator_id", ids), melLive(indicators, range, [scope]),
+    ]);
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+  const outcomeOf = new Map(outcomes.map((o) => [o.id, o]));
+  const progOf = new Map(progs.map((p) => [p.id, p]));
+  const rows = indicators.map((i) => {
+    const o = outcomeOf.get(i.outcome_id)!;
+    const p = progOf.get(o.programme_id)!;
+    const rec = actuals.find((a) => !a.superseded_at && a.indicator_id === i.id && a.period === period && a.scope_type === scope.type && (a.scope_id ?? "") === scope.id);
+    const lv = live.get(`${i.id}|${scope.type}|${scope.id}`) ?? null;
+    const tgt = targetFor(targets, i.id, period, scope);
+    const value = rec && rec.status !== "rejected" && rec.value != null ? Number(rec.value) : lv?.value ?? null;
+    const ach = achievement(value, tgt?.value ?? null, i.direction);
+    summary[ach.status]++;
+    return {
+      ...mapIndicator(i),
+      programme: { id: p.id, name: p.name }, outcome: { id: o.id, code: o.code, title: o.title },
+      target: tgt ? { value: tgt.value, from: tgt.from } : null,
+      value, valueSource: rec && rec.status !== "rejected" ? rec.status : lv?.value != null ? "live" : "none",
+      detail: lv ? { numerator: lv.numerator ?? null, denominator: lv.denominator ?? null, n: lv.n ?? null, method: lv.method } : null,
+      achievement: ach,
+      sort: [String(p.name), Number(o.position) || 0, String(o.code), Number(i.position) || 0, String(i.code)],
+    };
+  }).sort((a, b) => {
+    for (let k = 0; k < a.sort.length; k++) {
+      const x = a.sort[k], y = b.sort[k];
+      const d = typeof x === "number" ? x - (y as number) : String(x).localeCompare(String(y), undefined, { numeric: true });
+      if (d) return d;
+    }
+    return 0;
+  }).map(({ sort: _s, ...r }) => r);
+  return c.json({ ...empty, indicators: rows, summary });
+});
+
+/* One indicator over time, for the place picked (?county= / ?school=):
+   each term so far — the value (recorded, else live) against its target. */
+app.get("/mel/indicators/:id/trend", requirePermission("me.view"), async (c) => {
+  const { data: i } = await admin.from("me_indicators").select("*").eq("id", c.req.param("id")).maybeSingle();
+  if (!i) return c.json({ error: "Indicator not found" }, 404);
+  const scope = await melScopeFromQuery(c);
+  if (!scope) return c.json({ error: "That county or school isn't in the portal" }, 400);
+  const cal = await melCalendar();
+  const today = new Date().toISOString().slice(0, 10);
+  const terms = cal.terms.filter((t: Record<string, any>) => String(t.starts_on) <= today).slice(-9);
+  const [targets, actuals] = await Promise.all([selectIn("me_targets", "indicator_id", [i.id]), selectIn("me_actuals", "indicator_id", [i.id])]);
+  let loaded;
+  try { loaded = await melLoad([i]); } catch (e) { return c.json({ error: (e as Error).message }, 500); }
+  const points = terms.map((t: Record<string, any>) => {
+    const range = periodRange(t.id, cal.terms, cal.years)!;
+    const lv = melCompute(loaded, [i], range, [scope]).get(`${i.id}|${scope.type}|${scope.id}`) ?? null;
+    const rec = actuals.find((a) => !a.superseded_at && a.period === t.id && a.scope_type === scope.type && (a.scope_id ?? "") === scope.id);
+    const tgt = targetFor(targets, i.id, t.id, scope);
+    const value = rec && rec.status !== "rejected" && rec.value != null ? Number(rec.value) : lv?.value ?? null;
+    return {
+      period: t.id, label: range.label, target: tgt?.value ?? null, value,
+      valueSource: rec && rec.status !== "rejected" ? rec.status : lv?.value != null ? "live" : "none",
+      achievement: achievement(value, tgt?.value ?? null, i.direction),
+    };
+  });
+  return c.json({ indicator: mapIndicator(i), scope: { type: scope.type, id: scope.id, label: scope.label }, points });
 });
 
 /* One indicator in one period, by county and by school: target, live and recorded. */
@@ -5233,6 +5582,7 @@ const mapUserRow = (r: Record<string, unknown>) => ({
   schoolId: r.school_id ?? null,
   userCode: r.user_code ?? null,
   teacherType: r.teacher_type ?? null,
+  gender: r.gender ?? null,
   createdAt: r.created_at,
   status: r.status ?? "active",
   statusReason: r.status_reason ?? null,
@@ -5483,7 +5833,7 @@ app.patch("/users/:id", requirePermission("users.edit", "users.roles.assign", "u
   const id = existing.id as string;
   const b = await c.req.json().catch(() => ({}));
 
-  const wantsDetails = b.fullName !== undefined || b.email !== undefined || b.teacherType !== undefined;
+  const wantsDetails = b.fullName !== undefined || b.email !== undefined || b.teacherType !== undefined || b.gender !== undefined;
   const wantsRole = b.role !== undefined && b.role !== existing.role;
   const wantsPlacement = (b.schoolId !== undefined && b.schoolId !== existing.school_id) ||
     (b.county !== undefined && String(b.county).trim() !== (existing.county ?? ""));
@@ -5532,6 +5882,11 @@ app.patch("/users/:id", requirePermission("users.edit", "users.roles.assign", "u
     patch.teacher_type = tt || null;
   }
   if (nextRole !== "teacher" && existing.teacher_type) patch.teacher_type = null; // only teachers carry BOM/TSC
+  if (b.gender !== undefined) {
+    const g = cleanGender(b.gender);
+    if (g === false) return c.json({ error: GENDER_ERROR }, 400);
+    patch.gender = g;
+  }
 
   let newEmail: string | null = null;
   if (b.email !== undefined) {
@@ -5586,7 +5941,7 @@ app.patch("/users/:id", requirePermission("users.edit", "users.roles.assign", "u
     await audit(c, "county.changed", "profile", id, { from: existing.county ?? "", to: data?.county ?? "" });
   }
   if (newEmail) await audit(c, "email.changed", "profile", id, { from: existing.email, to: newEmail });
-  const detailFields = ["full_name", "teacher_type"].filter((k) => k in patch && patch[k] !== existing[k]);
+  const detailFields = ["full_name", "teacher_type", "gender"].filter((k) => k in patch && patch[k] !== existing[k]);
   if (detailFields.length) await audit(c, "account.updated", "profile", id, { fields: detailFields });
 
   return c.json({ user: mapUserRow(data!) });

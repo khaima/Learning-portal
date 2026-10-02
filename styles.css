@@ -1405,3 +1405,43 @@ a.stat-tile.dq-tile-link:hover{ border-color:var(--brand); }
 .mel-report section{ margin-bottom:1.2rem; break-inside:avoid; }
 .mel-report section h3{ font-size:1rem; margin:.3rem 0 .4rem; }
 @media print{ .mel-report .lms-table{ min-width:0; font-size:.75rem; } }
+
+/* ---- impact dashboards ---- */
+.exec-row .s-num{ font-size:2.15rem; }
+.s-num .s-unit{ font-size:.5em; font-weight:600; }
+@media (min-width:700px){ .exec-row{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
+@media (min-width:1280px){ .exec-row{ grid-template-columns:repeat(6,minmax(0,1fr)); } }
+.chart-grid > [data-mel-theme]:empty{ display:none; }
+/* columns over time (visits, Kobo submissions, opens by month) */
+.col-chart{ display:grid; grid-auto-flow:column; grid-auto-columns:minmax(0,1fr); gap:.3rem; height:150px; padding-top:.3rem; }
+.col{ display:flex; flex-direction:column; align-items:center; min-width:0; }
+.col-num{ font-size:.64rem; font-weight:700; color:var(--ink-soft); min-height:1rem; font-variant-numeric:tabular-nums; }
+.col-track{ position:relative; flex:1; width:100%; max-width:28px; }
+.col-bar{ position:absolute; left:0; right:0; bottom:0; min-height:2px; border-radius:5px 5px 0 0; background:var(--chart-1); transition:height .5s cubic-bezier(.22,.72,.27,1); }
+.col-lbl{ font-size:.62rem; color:var(--ink-soft); margin-top:.3rem; white-space:nowrap; overflow:hidden; max-width:100%; }
+/* actual against target: the bar is the actual, the line the target */
+.cmp-chart .cmp-track{ position:relative; overflow:visible; }
+.cmp-chart .bar-row .bar-fill.cmp-met{ background:var(--success); }
+.cmp-chart .bar-row .bar-fill.cmp-close{ background:var(--accent); }
+.cmp-chart .bar-row .bar-fill.cmp-not_met{ background:var(--danger); }
+.cmp-chart .bar-row .bar-fill.cmp-no_data{ background:var(--chart-1); }
+.cmp-target{ position:absolute; top:-4px; bottom:-4px; width:3px; margin-left:-1.5px; border-radius:2px; background:var(--ink); }
+.cmp-chart .bar-label .intel-link{ max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block; vertical-align:bottom; }
+.cmp-key{ display:flex; flex-wrap:wrap; align-items:center; gap:.35rem; }
+.cmp-key-target{ display:inline-block; width:3px; height:14px; border-radius:2px; background:var(--ink); }
+/* trend over time */
+.trend-svg{ width:100%; height:auto; display:block; overflow:visible; }
+.trend-svg .t-grid{ stroke:var(--line); stroke-width:1; }
+.trend-svg .t-lbl{ fill:var(--ink-soft); font-size:12px; font-family:"Work Sans",sans-serif; }
+@media (max-width:640px){ .trend-svg .t-lbl{ font-size:17px; } }
+.trend-svg .t-val{ fill:none; stroke:var(--chart-1); stroke-width:2.5; stroke-linejoin:round; stroke-linecap:round; }
+.trend-svg .t-tgt{ fill:none; stroke:var(--chart-2); stroke-width:2; stroke-dasharray:6 5; }
+.trend-svg .t-dot{ fill:var(--chart-1); stroke:var(--paper-raised); stroke-width:2; }
+.trend-svg .t-tgt-dot{ fill:var(--chart-2); }
+.trend-key{ display:flex; align-items:center; gap:.4rem; }
+.trend-key i{ display:inline-block; width:18px; height:0; border-top:3px solid var(--chart-1); }
+.trend-key i.trend-key-tgt{ border-top:2px dashed var(--chart-2); margin-left:.6rem; }
+/* training register: who attended */
+.training-people{ max-height:16rem; overflow-y:auto; display:grid; grid-template-columns:repeat(auto-fill,minmax(15rem,1fr)); gap:.15rem .9rem; }
+.training-person{ margin:0; align-items:flex-start; }
+.training-person small{ display:block; }

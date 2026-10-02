@@ -23,6 +23,11 @@ const STATUS = {
   met: { label: "Met", cls: "ok" }, close: { label: "Close", cls: "warm" },
   not_met: { label: "Not met", cls: "danger" }, no_data: { label: "No data", cls: "" },
 };
+/** Impact dashboards an indicator can also appear on. */
+const DASHBOARD_THEMES = {
+  reach: "Reach", learning: "Learning", teacher_development: "Teacher development",
+  field_operations: "Field operations", digital_resources: "Digital resources",
+};
 const SOURCE_LABEL = { verified: "Verified", recorded: "Recorded", live: "Live", none: "—", rejected: "Rejected" };
 const fmtDay = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—");
 
@@ -232,7 +237,7 @@ export function frameworkHtml(fw, canManage) {
           return `
           <div class="mel-ind" data-indicator="${esc(i.id)}">
             <div><b>${i.code ? `${esc(i.code)} ` : ""}${esc(i.name)}</b>
-              <div class="hint-inline">${esc(i.unit)} · ${i.direction === "decrease" ? "lower is better" : "higher is better"} · ${esc(sourceSummary(i, fw))}${i.baselineValue != null ? ` · baseline ${fmtValue(i.baselineValue, i.unit)}${i.baselinePeriod ? ` (${esc(i.baselinePeriod)})` : ""}` : ""}${i.evidenceHint ? ` · evidence: ${esc(i.evidenceHint)}` : ""}</div>
+              <div class="hint-inline">${esc(i.unit)} · ${i.direction === "decrease" ? "lower is better" : "higher is better"} · ${esc(sourceSummary(i, fw))}${i.baselineValue != null ? ` · baseline ${fmtValue(i.baselineValue, i.unit)}${i.baselinePeriod ? ` (${esc(i.baselinePeriod)})` : ""}` : ""}${i.evidenceHint ? ` · evidence: ${esc(i.evidenceHint)}` : ""}${i.dashboardTheme ? ` · <span class="pill">on ${esc(DASHBOARD_THEMES[i.dashboardTheme] || i.dashboardTheme)}</span>` : ""}</div>
               <div class="hint-inline">Targets: ${targets.length ? targets.map((t) => `${esc(periodLabel(fw, t.period))}${t.scopeType !== "programme" ? ` (${esc(scopeLabel(fw, t))})` : ""} ${fmtValue(t.value, i.unit)}`).join(" · ") : "none yet"}</div></div>
             ${canManage ? `<span class="roster-actions"><button type="button" data-edit-indicator>Edit</button><button type="button" data-targets>Targets</button><button type="button" class="danger" data-archive-indicator>Archive</button></span>` : ""}
           </div>`;
@@ -323,6 +328,8 @@ function openIndicatorEditor(fw, outcome, i, reload) {
         <div class="field"><label>Baseline</label><input name="baselineValue" type="number" step="any" value="${i?.baselineValue ?? ""}"></div>
         <div class="field"><label>Baseline period</label><input name="baselinePeriod" maxlength="40" value="${esc(i?.baselinePeriod || "")}" placeholder="2026 Term 1"></div>
       </div>
+      <div class="field"><label>Also show on <span class="hint-inline">— an impact dashboard, as well as M&amp;E</span></label><select name="dashboardTheme">
+        <option value="">Only on M&amp;E</option>${Object.entries(DASHBOARD_THEMES).map(([v, l]) => `<option value="${v}"${i?.dashboardTheme === v ? " selected" : ""}>${esc(l)}</option>`).join("")}</select></div>
       <fieldset class="mel-source"><legend>Where the actuals come from</legend>
         <label class="q-choice"><input type="radio" name="source" value="kobo"${src === "kobo" ? " checked" : ""}> Validated Kobo survey data</label>
         <label class="q-choice"><input type="radio" name="source" value="portal"${src === "portal" ? " checked" : ""}> A measure the portal already tracks</label>
@@ -377,6 +384,7 @@ function openIndicatorEditor(fw, outcome, i, reload) {
     const body = {
       code: val("code"), name: val("name"), definition: val("definition"), unit: val("unit"), direction: val("direction"),
       evidenceHint: val("evidenceHint"), baselineValue: val("baselineValue"), baselinePeriod: val("baselinePeriod"), source, sourceConfig,
+      dashboardTheme: val("dashboardTheme"),
     };
     try {
       if (i) await updateMelIndicator(i.id, body); else await createMelIndicator({ outcomeId: outcome.id, ...body });

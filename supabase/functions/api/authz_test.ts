@@ -252,6 +252,7 @@ function freshWorld() {
     dq_issue_events: [],
     dq_scans: [],
     me_programmes: [], me_outcomes: [], me_indicators: [], me_targets: [], me_actuals: [], me_evidence: [], me_reports: [],
+    trainings: [], training_attendance: [],
     staff_invitations: [],
     audit_log: [],
   };
@@ -356,6 +357,12 @@ const ROUTES: RouteSpec[] = [
   r("POST", "/field-reports", ["field_officer"], { schoolId: "sch_1", visitType: "Learning", responses: [] }),
   r("GET", "/stats", ANALYSTS),
   r("GET", "/intelligence", ANALYSTS),
+  r("GET", "/impact", ANALYSTS),
+  r("GET", "/trainings", ANALYSTS),
+  r("GET", "/trainings/teachers", ANALYSTS),
+  r("GET", "/trainings/:id", ANALYSTS),
+  r("POST", "/trainings", ANALYSTS, { title: "ICT workshop", heldOn: "2026-09-10" }),
+  r("PATCH", "/trainings/:id", ANALYSTS, { title: "Renamed" }),
   r("POST", "/data-quality/scan", ANALYSTS, {}),
   r("GET", "/data-quality/summary", ANALYSTS),
   r("GET", "/data-quality/issues", ANALYSTS),
@@ -373,6 +380,8 @@ const ROUTES: RouteSpec[] = [
   r("POST", "/mel/indicators", ME_LEAD_ROLES, { outcomeId: "x1", name: "I", source: "manual" }),
   r("PATCH", "/mel/indicators/:id", ME_LEAD_ROLES, { name: "I" }),
   r("GET", "/mel/indicators/:id/breakdown", ANALYSTS, undefined, "/mel/indicators/x1/breakdown?period=2026-T3"),
+  r("GET", "/mel/indicators/:id/trend", ANALYSTS),
+  r("GET", "/mel/dashboard", ANALYSTS),
   r("PUT", "/mel/targets", ME_LEAD_ROLES, { indicatorId: "x1", period: "2026-T3", scopeType: "programme", value: 75 }),
   r("POST", "/mel/actuals", ANALYSTS, { indicatorId: "x1", period: "2026-T3", scopeType: "programme", value: 1 }),
   r("GET", "/mel/actuals/:id", ANALYSTS),
@@ -1449,4 +1458,91 @@ Deno.test("M&E reports: generated from the results, frozen once final", async ()
   assertEquals((await call("POST", `/mel/reports/${made.json.id}/finalize`, "tok_me")).status, 409);
   assert(db.audit_log.some((x) => x.action === "me.report_finalized"));
   assertEquals((await call("GET", `/mel/reports?programmeId=${prog}`, "tok_education_team")).json.reports.map((x: Row) => x.status), ["final"]);
+});
+
+/* ------------------------------------------------------------ impact dashboards */
+
+Deno.test("impact dashboards: analysts only, the six areas, gender kept optional and hidden when small", async () => {
+  const db = freshWorld();
+  for (const tok of ["tok_teacher", "tok_school_leader", "tok_field_officer", "hpl_learnertoken"]) {
+    assertEquals((await call("GET", "/impact", tok)).status, 403, tok);
+  }
+  const r = await call("GET", "/impact", "tok_education_team");
+  assertEquals(r.status, 200, JSON.stringify(r.json));
+  for (const k of ["executive", "reach", "learning", "teachers", "fieldOps", "resources"]) assert(k in r.json, k);
+  assertEquals([r.json.executive.schools, r.json.executive.learners], [2, 2]);
+  // Gender: optional, checked, and never shown for fewer than 5 people.
+  assertEquals((await call("POST", "/learners", "tok_teacher", { fullName: "Kid Two", username: "kid.two", pin: "1234", classId: "cls_1", gender: "boy" })).status, 400);
+  const made = await call("POST", "/learners", "tok_teacher", { fullName: "Kid Two", username: "kid.two", pin: "1234", classId: "cls_1", gender: "female" });
+  assertEquals([made.status, made.json.learner.gender], [200, "female"]);
+  assertEquals((await call("PATCH", "/learners/learner-id", "tok_teacher", { gender: "prefer not to say" })).json.learner.gender, "prefer_not_to_say");
+  assertEquals((await call("PATCH", "/learners/learner-id", "tok_teacher", { gender: "" })).json.learner.gender, null, "it can be cleared");
+  assert(db.audit_log.some((x) => x.action === "learner.updated" && x.details?.fields?.includes("gender")));
+  assertEquals((await call("PATCH", "/users/teacher2-id", "tok_admin", { gender: "male" })).json.user.gender, "male");
+  const g = (await call("GET", "/impact", "tok_me")).json.reach.gender.learners;
+  assertEquals([g.total, g.recorded], [3, 1]);
+  assertEquals(g.overall.find((x: Row) => x.key === "female").value, null, "one girl is shown as fewer than 5");
+  // Filters narrow it.
+  const b = (await call("GET", `/impact?school=${encodeURIComponent(SCHOOL_B.name)}`, "tok_me")).json;
+  assertEquals([b.executive.schools, b.executive.learners], [1, 1]);
+});
+
+Deno.test("training register: sessions and attendance, never deleted, every change audited, counted on Teacher development", async () => {
+  const db = freshWorld();
+  assertEquals((await call("POST", "/trainings", "tok_education_team", { title: "", heldOn: "2026-09-10" })).status, 400);
+  assertEquals((await call("POST", "/trainings", "tok_education_team", { title: "ICT workshop", heldOn: "2026-09-10", endsOn: "2026-09-01" })).status, 400);
+  assertEquals((await call("POST", "/trainings", "tok_education_team", { title: "ICT workshop", heldOn: "2026-09-10", teacherIds: ["school_leader-id"] })).status, 400,
+    "only teachers on the list");
+  const made = await call("POST", "/trainings", "tok_education_team", {
+    title: "ICT workshop", kind: "workshop", heldOn: "2026-09-10", county: "Narok", teacherIds: ["teacher-id", "teacher-b-id"],
+  });
+  assertEquals(made.status, 200, JSON.stringify(made.json));
+  const id = made.json.training.id;
+  assertEquals(made.json.training.attendance.length, 2);
+  const picker = (await call("GET", "/trainings/teachers", "tok_me")).json.teachers.map((t: Row) => t.id);
+  assert(picker.includes("teacher-id") && !picker.includes("pending-id"), "active teachers only");
+  let t = (await call("GET", "/impact", "tok_me")).json.teachers.training;
+  assertEquals([t.sessions, t.teachersTrained], [1, 2]);
+  // Taking a teacher off the list keeps the row.
+  const off = await call("PATCH", `/trainings/${id}`, "tok_me", { attendance: [{ teacherId: "teacher-b-id", attended: false }, { teacherId: "teacher2-id" }] });
+  assertEquals(off.status, 200, JSON.stringify(off.json));
+  assertEquals(db.training_attendance.length, 3);
+  assertEquals(db.training_attendance.find((a) => a.teacher_id === "teacher-b-id")!.attended, false);
+  assert(db.audit_log.some((x) => x.action === "training.attendance_changed" && x.details.removed.includes("teacher-b-id") && x.details.added.includes("teacher2-id")));
+  t = (await call("GET", `/impact?school=${encodeURIComponent(SCHOOL.name)}`, "tok_me")).json.teachers.training;
+  assertEquals([t.sessions, t.teachersTrained], [1, 2], "a county workshop shows for the school its teachers went from");
+  // Archived, not deleted.
+  assertEquals((await call("PATCH", `/trainings/${id}`, "tok_education_team", { archived: true })).status, 200);
+  assertEquals(db.trainings.length, 1);
+  assertEquals((await call("GET", "/trainings", "tok_me")).json.trainings.length, 0);
+  assertEquals((await call("GET", "/trainings?archived=1", "tok_me")).json.trainings.length, 1);
+  assertEquals((await call("GET", "/impact", "tok_me")).json.teachers.training.sessions, 0);
+  assert(db.audit_log.some((x) => x.action === "training.archived"));
+});
+
+Deno.test("M&E dashboard: indicators tagged for a dashboard, target vs actual, trend over terms", async () => {
+  melWorld();
+  const prog = (await call("POST", "/mel/programmes", "tok_me", { name: "Teach2030" })).json.id;
+  const out = (await call("POST", "/mel/outcomes", "tok_me", { programmeId: prog, title: "ICT" })).json.id;
+  assertEquals((await call("POST", "/mel/indicators", "tok_me", { outcomeId: out, name: "x", source: "manual", dashboardTheme: "nowhere" })).status, 400);
+  const ind = (await call("POST", "/mel/indicators", "tok_me", {
+    outcomeId: out, name: "% of teachers integrating ICT", dashboardTheme: "teacher_development",
+    source: "kobo", sourceConfig: { formId: "kb_1", measure: "percent_choice", question: "ict_used", choices: ["yes"] },
+  })).json.id;
+  await call("POST", "/mel/indicators", "tok_me", { outcomeId: out, name: "Untagged", unit: "count", source: "manual" });
+  await call("PUT", "/mel/targets", "tok_me", { indicatorId: ind, period: "2026-T3", scopeType: "programme", value: 75 });
+  await call("PUT", "/mel/targets", "tok_me", { indicatorId: ind, period: "2026-T2", scopeType: "programme", value: 60 });
+  const all = (await call("GET", "/mel/dashboard?period=2026-T3", "tok_education_team")).json;
+  assertEquals(all.indicators.length, 2);
+  const tagged = (await call("GET", "/mel/dashboard?period=2026-T3&theme=teacher_development", "tok_education_team")).json;
+  assertEquals(tagged.indicators.map((i: Row) => [i.name, i.dashboardTheme, i.target.value, i.value, i.achievement.status]),
+    [["% of teachers integrating ICT", "teacher_development", 75, 75, "met"]]);
+  assertEquals((await call("GET", "/mel/dashboard?theme=reach", "tok_me")).json.indicators.length, 0);
+  assertEquals((await call("GET", "/mel/dashboard?theme=bogus", "tok_me")).status, 400);
+  const school = (await call("GET", `/mel/dashboard?period=2026-T3&school=${encodeURIComponent(SCHOOL_B.name)}&theme=teacher_development`, "tok_me")).json;
+  assertEquals([school.scope.type, school.indicators[0].value], ["school", 100]);
+  const trend = (await call("GET", `/mel/indicators/${ind}/trend`, "tok_me")).json;
+  assertEquals(trend.points.map((p: Row) => [p.period, p.target, p.value]), [["2026-T1", null, null], ["2026-T2", 60, 100], ["2026-T3", 75, 75]]);
+  const narok = (await call("GET", `/mel/indicators/${ind}/trend?school=${encodeURIComponent(SCHOOL.name)}`, "tok_me")).json;
+  assertEquals(narok.points.map((p: Row) => p.value), [null, 100, 66.7]);
 });

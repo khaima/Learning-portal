@@ -6,9 +6,10 @@ import {
   normalizeLibraryAudience, VISIT_TYPES, PORTAL_ADMIN_ROLES,
 } from "./data.js";
 import {
-  getLibrary, addLibraryItem, setLibraryPublished, deleteLibraryItem, updateLibraryItem, getForms, addForm, deleteForm, archiveForm, restoreForm, getResponses, getStats, getIntelligence,
+  getLibrary, addLibraryItem, setLibraryPublished, deleteLibraryItem, updateLibraryItem, getForms, addForm, deleteForm, archiveForm, restoreForm, getResponses, getStats, getImpact,
   dqSummary, dqIssues, dqBulkStatus, dqScan,
   melProgrammes, melProgramme, createMelProgramme, melResults, melReports, createMelReport, melReport, refreshMelReport, finalizeMelReport,
+  melDashboard, melTrend, melBreakdown, getTrainings,
   uploadLibraryFiles, libraryFilesHtml, libraryTypeIcon, librarySectionsHtml, getLibraryUsage,
   getLibraryFolders, createLibraryFolder, deleteLibraryFolder, setLibraryFolder,
   koboConfig, saveKoboConfig, koboAssets, koboAssetPreview, koboForms, attachKoboForm,
@@ -21,7 +22,11 @@ import {
 import { openIframeViewer, openContentPanel } from "./viewer.js";
 import { formTagsHtml } from "./forms.js";
 import { statusPill, openHistoryPanel, openTransferDialog } from "./learners-ui.js";
-import { overviewHtml, learningHtml, implementationHtml, dataCollectionHtml, impactHtml } from "./intelligence-ui.js";
+import {
+  executiveHtml, execMelArea, reachHtml, learningHtml, teachersHtml, trainingListHtml, fieldOpsHtml, resourcesHtml,
+  themeIndicatorsHtml, melDashHtml, melIndicatorHtml,
+} from "./impact-ui.js";
+import { openTrainingPanel } from "./training-ui.js";
 import { openKoboPipeline, webhookBoxHtml, wireWebhookBox } from "./kobo-ui.js";
 import { dqTopHtml, dqTypesHtml, dqListHtml, openDqIssue } from "./dq-ui.js";
 import { resultsHtml, openIndicatorPanel, frameworkHtml, wireFramework, reportHtml, reportCsv } from "./mel-ui.js";
@@ -48,14 +53,16 @@ async function main() {
   const has = (...p) => p.some((x) => perms.has(x));
   const PAGE_NEEDS = {
     overview: ["intelligence.view"],
+    reach: ["intelligence.view"],
     learning: ["intelligence.view"],
-    implementation: ["intelligence.view"],
-    "data-collection": ["intelligence.view"],
+    "teacher-development": ["intelligence.view"],
+    "field-operations": ["intelligence.view"],
+    "digital-resources": ["intelligence.view"],
+    "me-dashboard": ["me.view"],
     "data-quality": ["data_quality.view"],
     "mel-results": ["me.view"],
     "mel-framework": ["me.view"],
     "mel-reports": ["me.view"],
-    impact: ["intelligence.view"],
     schools: ["stats.view", "schools.manage"],
     users: ["users.view"],
     content: ["library.manage", "library.usage.view"],
@@ -73,6 +80,9 @@ async function main() {
     while (el && !el.classList.contains("side-group")) { if (!el.hidden) any = true; el = el.nextElementSibling; }
     g.hidden = !any;
   }
+  // Old bookmarks: the four Programme Intelligence areas became the impact dashboards.
+  const MOVED = { implementation: "field-operations", "data-collection": "field-operations", impact: "overview" };
+  if (MOVED[(location.hash || "").slice(1)]) location.hash = `#${MOVED[location.hash.slice(1)]}`;
   const firstVisible = $$(".side-nav .side-link[data-page]").find((l) => !l.hidden);
   const current = $(`.side-nav .side-link[data-page="${(location.hash || "").slice(1)}"]`);
   if (firstVisible && (!current || current.hidden)) location.hash = `#${firstVisible.dataset.page}`;
@@ -255,7 +265,8 @@ async function main() {
     renderDq();
     renderMelResults();
     renderMelReportScope();
-    renderIntelligence();
+    renderImpact();
+    renderMelDash();
     $("#schoolsBody").innerHTML = skeleton(4);
     let s;
     try {
@@ -271,41 +282,127 @@ async function main() {
     renderAttention();
   }
 
-  /* ------------------------------------------------------------ programme intelligence
-     One read feeds the Overview and the four areas — Learning,
-     Implementation, Data collection, Impact — under the same global
-     filters (county / school throughout; the date range on rows that
-     carry a real date). Computed server-side: see /intelligence. */
-  let lastIntel = null;
-  const INTEL_PAGES = ["learning", "implementation", "data-collection", "impact"];
-  async function renderIntelligence() {
+  /* ------------------------------------------------------------ impact dashboards
+     One read feeds the Executive overview and five dashboards — Reach,
+     Learning, Teacher development, Field operations, Digital resources —
+     under the same global filters (county / school throughout; the date
+     range on rows that carry a real date). Computed server-side: /impact.
+     M&E indicators (and those tagged for each dashboard) come from
+     /mel/dashboard. */
+  let lastImpact = null;
+  let lastMelDash = null;
+  const IMP_PAGES = { reach: reachHtml, learning: learningHtml, "teacher-development": teachersHtml, "field-operations": fieldOpsHtml, "digital-resources": resourcesHtml };
+  async function renderImpact() {
     if (!has("intelligence.view")) return;
     $("#statRow").innerHTML = skeleton(4, { avatar: false });
-    for (const p of INTEL_PAGES) $(`#intel-${p}`).innerHTML = skeleton(4);
+    $("#statRow2").innerHTML = "";
+    for (const p of Object.keys(IMP_PAGES)) $(`#imp-${p}`).innerHTML = skeleton(4);
     let d;
     try {
-      d = await getIntelligence({ county: gf.county, school: gf.school, from: gf.from, to: gf.to });
+      d = await getImpact({ county: gf.county, school: gf.school, from: gf.from, to: gf.to });
     } catch (err) {
-      console.error("could not load programme intelligence:", err);
-      const msg = errorState(friendlyError(err, "Couldn't load this data."), renderIntelligence);
+      console.error("could not load the impact dashboards:", err);
+      const msg = errorState(friendlyError(err, "Couldn't load this data."), renderImpact);
       $("#statRow").innerHTML = msg;
       $("#intelAreas").innerHTML = "";
-      for (const p of INTEL_PAGES) $(`#intel-${p}`).innerHTML = msg;
+      for (const p of Object.keys(IMP_PAGES)) $(`#imp-${p}`).innerHTML = msg;
       return;
     }
-    lastIntel = d;
-    const o = overviewHtml(d);
-    $("#statRow").innerHTML = o.tiles + (lastDq?.score ? dqTile(lastDq) : "");
+    lastImpact = d;
+    const o = executiveHtml(d);
+    $("#statRow").innerHTML = o.headline;
+    $("#statRow2").innerHTML = o.secondary + (lastDq?.score ? dqTile(lastDq) : "");
     $("#intelAreas").innerHTML = o.areas;
-    $("#intel-learning").innerHTML = learningHtml(d);
-    $("#intel-implementation").innerHTML = implementationHtml(d);
-    $("#intel-data-collection").innerHTML = dataCollectionHtml(d);
-    $("#intel-impact").innerHTML = impactHtml(d);
-    const scope = d.scope.school || d.scope.county || "every school";
-    for (const m of $$("[data-intel-meta]")) m.textContent = `${scope} · updated ${new Date(d.generatedAt).toLocaleTimeString()}`;
+    for (const [p, html] of Object.entries(IMP_PAGES)) $(`#imp-${p}`).innerHTML = html(d);
+    const scope = d.scope.school || (d.scope.county ? `${d.scope.county} County` : "every school");
+    for (const m of $$("[data-imp-meta]")) m.textContent = `${scope} · updated ${new Date(d.generatedAt).toLocaleTimeString()}`;
     if (d.currentTerm) $("#topSub").textContent = `Live across every account · ${d.currentTerm}`;
+    fillMelSlots();
     renderAttention();
   }
+
+  /* M&E: the dashboard page, the indicators shown on each dashboard, and
+     the executive overview's M&E card — all from one /mel/dashboard read
+     for the period picked on the M&E page (default: the current term). */
+  let melDashPick = null; // the indicator open on the M&E page
+  async function renderMelDash() {
+    if (!has("me.view")) return;
+    $("#melDash").innerHTML = skeleton(4, { avatar: false });
+    try {
+      lastMelDash = await melDashboard({ period: $("#melDashPeriod").value, county: gf.county, school: gf.school });
+    } catch (err) {
+      $("#melDash").innerHTML = errorState(friendlyError(err), renderMelDash);
+      return;
+    }
+    const d = lastMelDash;
+    if (!$("#melDashPeriod").options.length) {
+      $("#melDashPeriod").innerHTML = d.periods.map((p) => `<option value="${esc(p.id)}">${esc(p.label)}</option>`).join("");
+    }
+    if (d.period) $("#melDashPeriod").value = d.period.id;
+    $("#melDashMeta").textContent = d.period ? `${d.period.label} · ${d.scope.label}` : "";
+    $("#melDash").innerHTML = melDashHtml(d, { canManage: has("me.framework.manage") });
+    fillMelSlots();
+    if (melDashPick && d.indicators.some((i) => i.id === melDashPick)) openMelDashIndicator(melDashPick, { scroll: false });
+    else { melDashPick = null; $("#melDashDetailPanel").hidden = true; }
+  }
+  function fillMelSlots() {
+    if (!lastMelDash) return;
+    for (const slot of $$("[data-mel-theme]")) slot.innerHTML = themeIndicatorsHtml(lastMelDash, slot.dataset.melTheme, { canManage: has("me.framework.manage") });
+    const area = $("[data-exec-mel]");
+    if (area) area.innerHTML = execMelArea(lastMelDash);
+  }
+  async function openMelDashIndicator(id, { scroll = true } = {}) {
+    const ind = lastMelDash?.indicators.find((i) => i.id === id);
+    if (!ind) return;
+    melDashPick = id;
+    const box = $("#melDashDetail");
+    $("#melDashDetailPanel").hidden = false;
+    box.innerHTML = melIndicatorHtml(ind, null, null);
+    if (scroll) $("#melDashDetailPanel").scrollIntoView({ behavior: "smooth", block: "start" });
+    try {
+      const [trend, breakdown] = await Promise.all([
+        melTrend(id, { county: gf.county, school: gf.school }),
+        lastMelDash.period ? melBreakdown(id, lastMelDash.period.id) : null,
+      ]);
+      if (melDashPick === id) box.innerHTML = melIndicatorHtml(ind, trend, breakdown);
+    } catch (err) {
+      box.innerHTML = errorState(friendlyError(err), () => openMelDashIndicator(id));
+    }
+  }
+  $("#melDashPeriod").addEventListener("change", renderMelDash);
+  // An indicator picked on any dashboard opens on the M&E page.
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-mel-dash-ind]");
+    if (!btn) return;
+    if ((location.hash || "").slice(1) !== "me-dashboard") location.hash = "#me-dashboard";
+    openMelDashIndicator(btn.dataset.melDashInd);
+  });
+
+  /* The training register, on Teacher development. */
+  const trainingCtx = () => ({
+    canManage: has("trainings.manage"),
+    schools: schoolDir.schools, counties: schoolDir.counties,
+    onChange: () => { renderTrainings(); renderImpact(); },
+  });
+  async function renderTrainings() {
+    if (!has("intelligence.view")) return;
+    $("#trNewBtn").hidden = !has("trainings.manage");
+    $("#trainingList").innerHTML = skeleton(3, { avatar: false });
+    try {
+      const { trainings } = await getTrainings({ archived: $("#trArchived").checked });
+      $("#trainingList").innerHTML = trainingListHtml(trainings, { canManage: has("trainings.manage"), archived: $("#trArchived").checked });
+    } catch (err) {
+      $("#trainingList").innerHTML = errorState(friendlyError(err), renderTrainings);
+    }
+  }
+  $("#trArchived").addEventListener("change", renderTrainings);
+  $("#trNewBtn").addEventListener("click", () => openTrainingPanel(null, trainingCtx()));
+  $("#trainingList").addEventListener("click", (e) => {
+    const row = e.target.closest("[data-training]");
+    if (row) openTrainingPanel(row.dataset.training, trainingCtx());
+  });
+  renderTrainings();
+
   /* ------------------------------------------------------------ Data Quality Center
      Issues found by scans, their status and history, and corrections.
      Scans run when the page (or the Overview) is opened and the last one
@@ -349,7 +446,7 @@ async function main() {
     $("#dqMeta").textContent = s.lastScan ? `last scan ${new Date(s.lastScan.at).toLocaleString()}` : "not scanned yet";
     $("#dqTop").innerHTML = dqTopHtml(s);
     $("#dqTypes").innerHTML = dqTypesHtml(s);
-    if (lastIntel && s.score && !$("#statRow .dq-tile-link")) $("#statRow").insertAdjacentHTML("beforeend", dqTile(s));
+    if (lastImpact && s.score && !$("#statRow2 .dq-tile-link")) $("#statRow2").insertAdjacentHTML("beforeend", dqTile(s));
     renderAttention();
     renderDqList();
   }
@@ -640,8 +737,8 @@ async function main() {
   loadMel();
 
   // A school name anywhere on these pages narrows everything to it.
-  for (const p of INTEL_PAGES) {
-    $(`#intel-${p}`).addEventListener("click", (e) => {
+  for (const p of Object.keys(IMP_PAGES)) {
+    $(`#imp-${p}`).addEventListener("click", (e) => {
       const btn = e.target.closest("[data-pick-school]");
       if (!btn) return;
       pickSchoolFilter(btn.dataset.pickSchool);
@@ -1704,7 +1801,7 @@ async function main() {
       if (!schoolDir.schools.length) await renderSchoolList().catch(() => {});
       openKoboPipeline(btn.dataset.koboPipeline, {
         canManage: has("kobo.manage"), schools: schoolDir.schools,
-        onChange: () => { renderKoboForms(); loadSurveyResults(); renderIntelligence(); },
+        onChange: () => { renderKoboForms(); loadSurveyResults(); renderImpact(); },
       });
     }));
     $$("[data-kobo-archive]").forEach((btn) => btn.addEventListener("click", async () => {
@@ -1817,7 +1914,7 @@ async function main() {
       );
       renderKoboForms();
       refreshSurveyPicker();
-      renderIntelligence();
+      renderImpact();
     } catch (err) {
       toast("Sync failed", friendlyError(err), "error");
     } finally {
@@ -2281,9 +2378,14 @@ async function main() {
             <div class="field ue-county-field"><label>County</label><select class="ue-county"${canPlace ? "" : " disabled"}></select></div>
             <div class="field ue-school-field"><label>School</label><select class="ue-school"${canPlace ? "" : " disabled"}></select></div>
           </div>
-          <div class="field ue-tt-field"><label>Employment type</label>
-            <select class="ue-tt"${canDetails ? "" : " disabled"}>${["", "BOM", "TSC"].map((t) =>
-              `<option value="${t}"${t === (u.teacherType || "") ? " selected" : ""}>${t || "Not specified"}</option>`).join("")}</select></div>
+          <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem">
+            <div class="field ue-tt-field"><label>Employment type</label>
+              <select class="ue-tt"${canDetails ? "" : " disabled"}>${["", "BOM", "TSC"].map((t) =>
+                `<option value="${t}"${t === (u.teacherType || "") ? " selected" : ""}>${t || "Not specified"}</option>`).join("")}</select></div>
+            <div class="field"><label>Gender <span class="hint-inline">— optional</span></label>
+              <select class="ue-gender"${canDetails ? "" : " disabled"}>${[["", "Not recorded"], ["female", "Female"], ["male", "Male"], ["prefer_not_to_say", "Prefer not to say"]].map(([v, l]) =>
+                `<option value="${v}"${v === (u.gender || "") ? " selected" : ""}>${l}</option>`).join("")}</select></div>
+          </div>
           <p class="field-hint ue-note"></p>
           <div class="edit-actions">
             <button type="button" class="btn btn-primary" data-act="save-user">Save changes</button>
@@ -2495,6 +2597,7 @@ async function main() {
           const email = row.querySelector(".ue-email").value.trim();
           if (email.toLowerCase() !== (row.dataset.email || "").toLowerCase()) patch.email = email;
           if (role === "teacher") patch.teacherType = row.querySelector(".ue-tt").value;
+          if (row.querySelector(".ue-gender").value !== (u.gender || "")) patch.gender = row.querySelector(".ue-gender").value;
         }
         if (role !== u.role) patch.role = role;
         if (has("users.placement.assign")) {
