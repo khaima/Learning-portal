@@ -1488,3 +1488,25 @@ a.stat-tile.dq-tile-link:hover{ border-color:var(--brand); }
 }
 .lib-save:hover{ border-color:var(--brand); }
 .lib-save.is-saved{ background:var(--success-soft); border-color:transparent; color:var(--success); }
+
+/* ---- Sync center ---- */
+.sc-head{ display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:.5rem; }
+.sc-rows{ display:flex; flex-direction:column; margin:.4rem 0 1rem; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--paper-raised); overflow:hidden; }
+.sc-row{ display:flex; gap:.75rem; align-items:flex-start; padding:.75rem .9rem; }
+.sc-row + .sc-row{ border-top:1px solid var(--line); }
+.sc-icon{ flex:none; width:1.6rem; height:1.6rem; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:.9rem; background:var(--paper-sunk); color:var(--ink-soft); }
+.sc-ok .sc-icon{ background:var(--success-soft); color:var(--success); }
+.sc-warn .sc-icon, .sc-update .sc-icon{ background:var(--accent-soft); color:var(--accent-fg); }
+.sc-error .sc-icon{ background:var(--danger-soft); color:var(--danger); }
+.sc-main{ flex:1; min-width:0; }
+.sc-line{ display:flex; flex-wrap:wrap; justify-content:space-between; gap:.2rem .8rem; }
+.sc-line b{ font-size:.95rem; }
+.sc-value{ font-weight:700; font-size:.92rem; }
+.sc-ok .sc-value{ color:var(--success); }
+.sc-warn .sc-value, .sc-update .sc-value{ color:var(--accent-fg); }
+.sc-error .sc-value{ color:var(--danger); }
+.sc-detail{ display:block; font-size:.8rem; color:var(--ink-soft); margin-top:.15rem; }
+.sc-tip{ margin:.35rem 0 0; font-size:.82rem; }
+.sc-team tr.sc-attn td{ background:var(--accent-soft); }
+/* A button that can't be used right now (e.g. Sync now while offline) looks it. */
+.btn:disabled, .btn[aria-disabled="true"]{ opacity:.5; cursor:not-allowed; box-shadow:none; }

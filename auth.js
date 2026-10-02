@@ -147,13 +147,13 @@ async function rememberProfile(profile) {
   if (!profile?.id || profile.needsOnboarding) return;
   const key = await sessionKey().catch(() => null);
   if (key) await setMeta(`session:${key}`, { profile, savedAt: new Date().toISOString() });
-  await setOwner(profile.id);
+  await setOwner(profile.id, profile.role);
 }
 async function profileOnThisDevice() {
   const key = await sessionKey().catch(() => null);
   const saved = key ? await getMeta(`session:${key}`) : null;
   if (!saved?.profile) return null;
-  await setOwner(saved.profile.id);
+  await setOwner(saved.profile.id, saved.profile.role);
   return { ...saved.profile, offline: true };
 }
 const unreachable = (err) => isNetworkError(err) || (err instanceof ApiError && err.status >= 500);

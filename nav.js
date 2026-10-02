@@ -19,10 +19,17 @@ import { $, $$, toast, confirmDialog } from "./util.js";
 import { startLibraryInteraction, completeLibraryInteraction, awardLibraryBadge, formatBytes } from "./store.js";
 import { openViewer, openYouTubeViewer, viewableKind, isViewerOpen, currentOpenId, showBadgeCelebration } from "./viewer.js";
 import * as sync from "./sync.js";
-import { mountSyncStatus } from "./sync-ui.js";
+import { mountSyncStatus, openSyncPanel } from "./sync-ui.js";
 
-// Online / offline, last sync and what's waiting — on every dashboard.
+// Online / offline, last sync and what's waiting — on every dashboard; the
+// Sync center opens from it (and from a "Sync center" link where there is one).
 mountSyncStatus();
+document.addEventListener("click", (e) => {
+  const link = e.target.closest("[data-open-sync-center]");
+  if (!link) return;
+  e.preventDefault();
+  openSyncPanel();
+});
 /* ---------------------------------------------------------------- reading-badge celebration
    A real "you've been at this a while" moment, not a claim about what
    was learned: once a viewer session on one resource stays open past

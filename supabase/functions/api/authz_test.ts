@@ -253,7 +253,7 @@ function freshWorld() {
     dq_scans: [],
     me_programmes: [], me_outcomes: [], me_indicators: [], me_targets: [], me_actuals: [], me_evidence: [], me_reports: [],
     trainings: [], training_attendance: [],
-    sync_requests: [],
+    sync_requests: [], device_sync_status: [],
     staff_invitations: [],
     audit_log: [],
   };
@@ -359,6 +359,9 @@ const ROUTES: RouteSpec[] = [
   r("GET", "/stats", ANALYSTS),
   r("GET", "/intelligence", ANALYSTS),
   r("GET", "/impact", ANALYSTS),
+  r("GET", "/sync/status", ALL),
+  r("POST", "/sync/report", [...STAFF], { deviceId: "device-0001" }),
+  r("GET", "/sync/devices", EDU_ADMIN),
   r("GET", "/trainings", ANALYSTS),
   r("GET", "/trainings/teachers", ANALYSTS),
   r("GET", "/trainings/:id", ANALYSTS),
@@ -1650,4 +1653,71 @@ Deno.test("offline reading: a session read without a connection arrives later wi
   // A clock in the future isn't believed: it's recorded as starting now, like an online open.
   const bad = await call("POST", "/library/lib_1/interactions", LEARNER, { startedAt: new Date(Date.now() + 864e5).toISOString(), completedAt: new Date(Date.now() + 2 * 864e5).toISOString() });
   assertEquals(db.library_interactions.find((x) => x.id === bad.json.interaction.id)!.duration_seconds, undefined);
+});
+
+/* ------------------------------------------------------------ sync center */
+
+Deno.test("sync center: Kobo connection, last sync and each survey's error; what Kobo has from an officer and why some needs review", async () => {
+  const db = freshWorld();
+  let status = (await call("GET", "/sync/status", "tok_field_officer")).json;
+  assertEquals([status.kobo.connected, status.kobo.lastSyncedAt], [false, null], "not connected yet");
+  connectKobo(db);
+  const restore = stubKobo(() => [kRow(1), kRow(2, { school_code: "Aitong Pri" })]);
+  try {
+    assertEquals((await call("POST", "/kobo/sync", "tok_education_team")).status, 200);
+  } finally { restore(); }
+  status = (await call("GET", "/sync/status", "tok_field_officer")).json;
+  assert(status.kobo.connected && status.kobo.lastSyncedAt);
+  assertEquals([status.kobo.mine.received, status.kobo.mine.counted, status.kobo.mine.needsReview], [2, 1, 1]);
+  assert(status.kobo.mine.issues.length && /school/i.test(status.kobo.mine.issues[0].message), JSON.stringify(status.kobo.mine.issues));
+  assertEquals(status.kobo.surveys, undefined, "an officer doesn't get the survey-by-survey admin view");
+  assertEquals(status.school.visits, 0);
+  await call("POST", "/field-reports", "tok_field_officer", { schoolId: "sch_1", visitType: "Learning", responses: [] });
+  assertEquals((await call("GET", "/sync/status", "tok_field_officer")).json.school.visits, 1);
+
+  // A failed sync is kept per survey, in words — never the token.
+  const real = globalThis.fetch;
+  globalThis.fetch = ((input: string | URL | Request) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.includes("kobo.test")) return Promise.resolve(new Response("{}", { status: 401 }));
+    return real(input);
+  }) as typeof fetch;
+  try { await call("POST", "/kobo/sync", "tok_education_team"); } finally { globalThis.fetch = real; }
+  assertEquals(db.kobo_forms[0].last_sync_error, "KoboToolbox rejected the API token");
+  const admin = (await call("GET", "/sync/status", "tok_education_team")).json.kobo;
+  assertEquals([admin.failing, admin.surveys[0].error, admin.surveys[0].received], [1, "KoboToolbox rejected the API token", 2]);
+  assert(!JSON.stringify(admin).includes("test-token"));
+});
+
+Deno.test("sync center: learners and teachers see their own work as the server has it, and the content they can open", async () => {
+  freshWorld();
+  await call("POST", "/learner/assignments/asg_1/start", LEARNER, {});
+  await call("POST", "/learner/assignments/asg_1/submit", LEARNER, { answers: [{ questionId: "q_mc", response: 0 }] });
+  const learner = (await call("GET", "/sync/status", LEARNER)).json;
+  assertEquals([learner.kobo, learner.learning.handedIn, learner.content.items], [undefined, 1, 1]);
+  assert(learner.learning.lastHandedInAt);
+  const teacher = (await call("GET", "/sync/status", "tok_teacher")).json;
+  assertEquals([teacher.kobo, teacher.learning.marked], [undefined, 0]);
+});
+
+Deno.test("sync center: staff devices report their sync state; the Education Team sees who needs a look", async () => {
+  const db = freshWorld();
+  const old = new Date(Date.now() - 3 * 864e5).toISOString();
+  const report = { deviceId: "phone-0001", deviceLabel: "Android · Chrome", pending: 2, oldestPendingAt: old, lastSyncAt: old };
+  assertEquals((await call("POST", "/sync/report", "tok_field_officer", report)).status, 200);
+  assertEquals((await call("POST", "/sync/report", "tok_field_officer", { ...report, pending: 3 })).status, 200);
+  assertEquals(db.device_sync_status.length, 1, "one row per device");
+  assertEquals(db.device_sync_status[0].pending, 3);
+  assertEquals((await call("POST", "/sync/report", "tok_field_officer", { deviceId: "x" })).status, 400);
+  assertEquals((await call("POST", "/sync/report", LEARNER, report)).status, 403, "learners' shared tablets don't report");
+  await call("POST", "/sync/report", "tok_teacher", { deviceId: "laptop-0001", lastSyncAt: new Date().toISOString(), lastSyncAtFuture: true });
+  const res = await call("GET", "/sync/devices", "tok_education_team");
+  assertEquals(res.status, 200);
+  const fo = res.json.people.find((p: Row) => p.id === "field_officer-id");
+  assertEquals([fo.pending, fo.devices[0].deviceLabel], [3, "Android · Chrome"]);
+  assertEquals(fo.attention, "3 waiting on the device for 3+ day(s)");
+  assertEquals(res.json.people[0].id, "field_officer-id", "the ones needing a look come first");
+  assertEquals(res.json.people.find((p: Row) => p.id === "teacher-id").attention, null, "synced just now");
+  assertEquals(res.json.people.find((p: Row) => p.id === "teacher2-id").attention, "No device has reported yet");
+  assertEquals((await call("GET", "/sync/devices?role=field_officer", "tok_admin")).json.people.length, 1);
 });

@@ -34,8 +34,18 @@ import { supabase } from "./supabase.js";
 
 const BUCKET = "library";
 const FIVE_MIN = 5 * 60_000;
+/** Shown to the Education Team next to each device, to spot an old copy of the app. */
+export const APP_VERSION = "2026.10.03";
+
+/* What each kind of queued activity counts as, in the Sync center. */
+const AREA = {
+  "learner-work": "learning", mark: "learning", reading: "learning",
+  "field-visit": "school", "form-response": "school",
+};
+export const areaOf = (kind) => AREA[kind] || "other";
 
 let owner = null;
+let ownerRole = null;
 let items = [];            // this owner's queue, in order (kept in memory for quick checks)
 let savedFiles = new Map(); // key → { itemId, name, size, title, savedAt }
 let lastSync = null;
@@ -71,7 +81,8 @@ export function noteNetwork(ok) {
 export const currentOwner = () => owner;
 
 /** Called once the signed-in account is known (online or from this device). */
-export async function setOwner(id) {
+export async function setOwner(id, role = null) {
+  if (role) ownerRole = role;
   if (!id || id === owner) return;
   owner = id;
   lastSync = await store.getMeta(`lastSync:${owner}`);
@@ -89,7 +100,16 @@ async function refresh() {
 /* ------------------------------------------------------------ status */
 
 export function status() {
+  const open = items.filter((i) => i.status === "pending" || i.status === "syncing");
+  const byArea = {};
+  for (const i of items) {
+    const a = (byArea[areaOf(i.kind)] ||= { pending: 0, stuck: 0 });
+    if (i.status === "conflict" || i.status === "failed") a.stuck += 1; else a.pending += 1;
+  }
   return {
+    byArea,
+    oldestPendingAt: open.map((i) => i.createdAt).sort()[0] ?? null,
+    role: ownerRole,
     online: isOnline(),
     lastSync,
     syncing: flushing,
@@ -288,6 +308,7 @@ export async function sync({ manual = false } = {}) {
     // "Last sync" only when the server really answered during this sync —
     // downloads fall back to this device's copies, so they can't tell.
     if (!cut && !needsSignIn && reachedAt >= started) await markSynced();
+    if (reachedAt >= started) await reportDevice();
   } catch (err) {
     if (!isNetworkError(err)) console.error("sync:", err);
     cut = true;
@@ -318,6 +339,37 @@ async function runPrefetch(manual) {
 async function markSynced() {
   lastSync = new Date().toISOString();
   await store.setMeta(`lastSync:${owner}`, lastSync);
+}
+
+/* ------------------------------------------------------------ this device, for the field team view
+   Staff devices tell the server how they're doing after each sync —
+   counts and times only, never the work — so the Education Team can see,
+   say, that an officer's phone has had visits waiting for three days.
+   Learners' (often shared) tablets don't report. */
+function deviceId() {
+  try {
+    let id = localStorage.getItem("hpf_device_id");
+    if (!id) { id = newId(); localStorage.setItem("hpf_device_id", id); }
+    return id;
+  } catch { return null; }
+}
+export function deviceLabel() {
+  const ua = navigator.userAgent || "";
+  const os = /Android/i.test(ua) ? "Android" : /iPhone|iPad|iPod/i.test(ua) ? "iPhone/iPad" : /CrOS/i.test(ua) ? "Chromebook"
+    : /Windows/i.test(ua) ? "Windows" : /Mac OS X/i.test(ua) ? "Mac" : /Linux/i.test(ua) ? "Linux" : "Device";
+  const browser = /SamsungBrowser/i.test(ua) ? "Samsung Internet" : /Edg\//i.test(ua) ? "Edge" : /OPR\//i.test(ua) ? "Opera"
+    : /Firefox\//i.test(ua) ? "Firefox" : /Chrome\//i.test(ua) ? "Chrome" : /Safari\//i.test(ua) ? "Safari" : "browser";
+  const installed = window.matchMedia?.("(display-mode: standalone)").matches ? " · installed" : "";
+  return `${os} · ${browser}${installed}`;
+}
+async function reportDevice() {
+  const id = deviceId();
+  if (!id || !ownerRole || ownerRole === "learner") return;
+  const st = status();
+  await rawRequest("POST", "/sync/report", {
+    deviceId: id, deviceLabel: deviceLabel(), appVersion: APP_VERSION, online: true, lastSyncAt: st.lastSync,
+    pending: st.pending, failed: st.failed, conflicts: st.conflicts, savedFiles: st.savedFiles.length, oldestPendingAt: st.oldestPendingAt,
+  }, { timeoutMs: 20_000 }).catch(() => {});
 }
 
 /* ------------------------------------------------------------ settling what's stuck */

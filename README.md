@@ -282,6 +282,46 @@ decision, **Sync now**, and the resources saved on the device.
   there). Signed in, a dashboard opens offline from the profile this device
   remembers for that session.
 
+### Sync center
+
+Opened from the sync status in any top bar (and from **Sync center** in
+the field officer's and the Education Team's menus) — for troubleshooting
+Kobo and school work:
+
+```
+Kobo                ✓ Connected · Last sync 10:32
+School data         ✓ Synced
+Learning activity   ⚠ 14 pending
+Content             ✓ Synced
+[Sync now]
+```
+
+- **Kobo** — connected or not, the last sync and last pushed submission,
+  and any survey that failed at its last sync **with the reason** (e.g.
+  *KoboToolbox rejected the API token*, *Couldn't reach KoboToolbox*),
+  kept per survey (`kobo_forms.last_sync_error`) instead of only in the
+  server log. A **field officer** sees what Kobo has received from them,
+  how much counts, and **why some needs review** (e.g. *School "Aitong
+  Pri" isn't a school in the portal*) — plus what to check in Kobo Collect
+  when something they sent isn't there yet.
+- **School data** — visits and forms waiting on the device, how fresh the
+  device's copies are, and how many visits the server has from them.
+- **Learning activity** — answers, hand-ins, marks and reading waiting,
+  and what the server has received (hand-ins for a learner, marks for a
+  teacher).
+- **Content** — whether the device's library list is up to date, and the
+  resources saved for offline reading.
+- **Sync now** sends what's waiting, refreshes the device's copies and —
+  for the Education Team — syncs Kobo too.
+- Each row says what's wrong in words and what to do. Offline, it shows
+  what the device knew at its last sync.
+- **Field team devices** (Education Team and administrators): every
+  field officer's, teacher's and school head's device — last sync, what's
+  waiting, and who needs a look (work waiting for over a day, something to
+  decide on the device, no sync for a week, or never reported). Staff
+  devices report this after each sync — counts and times only, never the
+  work (`device_sync_status`); learners' shared tablets don't report.
+
 ### Content usage tracking
 
 Every "Open to read" click on any dashboard is timed:
@@ -686,7 +726,7 @@ used).
 | `api.js` | Thin fetch wrapper over the `api` Edge Function; attaches the JWT; serves this device's copies offline |
 | `offline.js` | What the device keeps (IndexedDB): copies per account, the queue, files, settings |
 | `sync.js` | Offline work: send or queue, sync in order, idempotency keys, conflicts, files chosen offline, downloads |
-| `sync-ui.js` | The sync status in every top bar and the Offline & sync panel |
+| `sync-ui.js` | The sync status in every top bar and the Sync center (Kobo, school data, learning, content, field team devices) |
 | `sw.js` / `pwa.js` / `manifest.webmanifest` | The offline app (service worker) and home-screen install |
 | `auth.js` | Sessions, the profile, `requireRole` for each dashboard |
 | `store.js` | Every data call — library, forms, responses, assignments, reports, stats |

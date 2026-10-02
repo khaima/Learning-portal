@@ -63,6 +63,11 @@ export async function getCached(owner, path) {
   if (!owner) return null;
   try { return (await tx("cache", "readonly", (s) => done(s.get(cacheKey(owner, path))))) ?? null; } catch { return null; }
 }
+/** When each of this owner's copies was last refreshed: [{ path, savedAt }]. */
+export async function cacheIndex(owner) {
+  if (!owner) return [];
+  try { return (await byOwner("cache", owner)).map((r) => ({ path: r.path, savedAt: r.savedAt, size: Array.isArray(r.data?.items) ? r.data.items.length : null })); } catch { return []; }
+}
 export async function putCached(owner, path, data) {
   if (!owner) return;
   try { await tx("cache", "readwrite", (s) => done(s.put({ key: cacheKey(owner, path), owner, path, data, savedAt: new Date().toISOString() }))); } catch { /* full or blocked */ }

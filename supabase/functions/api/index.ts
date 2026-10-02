@@ -205,6 +205,15 @@ async function koboFetch(cfg: KoboConfig, path: string) {
   }
 }
 
+/** A Kobo failure in words for the Sync center — short, and never the token. */
+function koboErrorText(e: unknown): string {
+  const msg = String((e as Error)?.message ?? e ?? "Unknown error");
+  if (/error sending request|fetch failed|failed to fetch|getaddrinfo|enotfound|dns|connect|unreachable|timed? ?out|network/i.test(msg)) {
+    return "Couldn't reach KoboToolbox (network)";
+  }
+  return msg.replace(/token\s+\S+/gi, "token").slice(0, 300);
+}
+
 async function koboJson(cfg: KoboConfig, path: string) {
   const res = await koboFetch(cfg, path);
   if (!res.ok) {
@@ -609,6 +618,9 @@ app.post("/kobo/hook", async (c) => {
   } catch (e) {
     // What was stored is processed again at the next sync; Kobo retries too.
     console.error("kobo hook:", (e as Error).message);
+    await admin.from("kobo_forms").update({
+      last_sync_attempt_at: new Date().toISOString(), last_sync_error: `A pushed submission couldn't be processed: ${koboErrorText(e)}`,
+    }).eq("id", attached.id);
     return c.json({ error: "Couldn't process the submission" }, 500);
   }
   return c.json({ ok: true });
@@ -4911,6 +4923,164 @@ app.post("/data-quality/issues/:id/fix", requirePermission("data_quality.manage"
   return c.json(await dqIssueDetail(c, i.id));
 });
 
+// ---------------------------------------------------------------- Sync center
+/* What's synced and what isn't, by area, for the person asking:
+     kobo     — the connection, each survey's last sync and error; for a
+                field officer, what Kobo has received from them and what
+                of it needs review (and why)
+     school   — a field officer's visits as the server has them
+     learning — a learner's hand-ins, a teacher's marking, as received
+     content  — how much is in the library for them, and its newest item
+   The device adds its own side (what's waiting on it). Devices of staff
+   report their sync state here, and the Education Team sees them all. */
+
+app.get("/sync/status", requireActive(), async (c) => {
+  const actor = c.get("actor");
+  const me = actor.id as string;
+  const isLearner = c.get("actorKind") === "learner";
+  const out: Record<string, unknown> = { serverTime: new Date().toISOString() };
+
+  // ---- Kobo
+  const manages = actorCan(c, "kobo.manage") || actorCan(c, "kobo.results.view");
+  const fills = actorCan(c, "kobo.surveys.fill");
+  if (manages || fills) {
+    const cfg = await loadKoboConfig();
+    const { data: forms } = await admin.from("kobo_forms").select("*").eq("active", true);
+    const { data: lastPush } = await admin.from("kobo_raw_submissions").select("received_at")
+      .eq("source", "webhook").order("received_at", { ascending: false }).limit(1);
+    const live = (forms ?? []);
+    const synced = live.map((f) => f.synced_at).filter(Boolean).sort();
+    const kobo: Record<string, unknown> = {
+      connected: !!cfg,
+      pushConfigured: !!cfg?.webhook_secret_hash,
+      lastSyncedAt: synced.at(-1) ?? null,
+      lastPushAt: lastPush?.[0]?.received_at ?? null,
+      failing: live.filter((f) => f.last_sync_error).length,
+    };
+    const counted = (r: Record<string, any>) => countsOnDashboards(r.status, r.review);
+    const needsReview = (r: Record<string, any>) => (r.status === "invalid" || r.status === "duplicate") && !r.review;
+    if (manages) {
+      const { data: recs } = await selectAll(() => admin.from("kobo_records").select("id, kobo_form_id, status, review").order("id"));
+      kobo.surveys = live.map((f) => {
+        const mine = (recs ?? []).filter((r) => r.kobo_form_id === f.id && r.status !== "removed");
+        return {
+          id: f.id, title: f.title, syncedAt: f.synced_at ?? null, lastAttemptAt: f.last_sync_attempt_at ?? null,
+          error: f.last_sync_error ?? null, received: mine.length, counted: mine.filter(counted).length, needsReview: mine.filter(needsReview).length,
+        };
+      }).sort((a, b) => String(a.title).localeCompare(String(b.title)));
+    }
+    if (fills) {
+      const { data: recs } = await selectAll(() => admin.from("kobo_records").select("id, kobo_form_id, status, review, submitted_at")
+        .eq("officer_id", me).order("id"));
+      const mine = (recs ?? []).filter((r) => r.status !== "removed");
+      const review = mine.filter(needsReview);
+      const issues = review.length ? await selectIn("kobo_record_issues", "record_id", review.map((r) => r.id as string), "record_id, severity, message") : [];
+      const byMessage = new Map<string, number>();
+      for (const i of issues.filter((x) => x.severity === "error")) byMessage.set(i.message, (byMessage.get(i.message) ?? 0) + 1);
+      kobo.mine = {
+        received: mine.length, counted: mine.filter(counted).length, needsReview: review.length,
+        lastSubmittedAt: mine.map((r) => r.submitted_at).filter(Boolean).sort().at(-1) ?? null,
+        surveys: live.map((f) => {
+          const rs = mine.filter((r) => r.kobo_form_id === f.id);
+          return { title: f.title, received: rs.length, needsReview: rs.filter(needsReview).length, lastSubmittedAt: rs.map((r) => r.submitted_at).filter(Boolean).sort().at(-1) ?? null };
+        }),
+        issues: [...byMessage.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([message, count]) => ({ message, count })),
+      };
+    }
+    out.kobo = kobo;
+  }
+
+  // ---- school work, as the server has it
+  if (actorCan(c, "field_reports.create")) {
+    const { data: visits } = await selectAll(() => admin.from("field_reports").select("id, created_at").eq("officer_id", me).order("id"));
+    out.school = { visits: visits?.length ?? 0, lastVisitAt: (visits ?? []).map((v) => v.created_at).sort().at(-1) ?? null };
+  }
+
+  // ---- learning work, as the server has it
+  if (isLearner) {
+    const { data: subs } = await admin.from("assignment_submissions").select("status, submitted_at").eq("learner_id", me);
+    const handed = (subs ?? []).filter((s) => s.status !== "in_progress");
+    out.learning = { handedIn: handed.length, lastHandedInAt: handed.map((s) => s.submitted_at).filter(Boolean).sort().at(-1) ?? null };
+  } else if (actorCan(c, "assignments.grade")) {
+    const { data: marked } = await admin.from("assignment_submissions").select("marked_at").eq("marked_by", me);
+    out.learning = { marked: marked?.length ?? 0, lastMarkedAt: (marked ?? []).map((s) => s.marked_at).filter(Boolean).sort().at(-1) ?? null };
+  }
+
+  // ---- content they can see
+  const { data: items } = await selectAll(() => admin.from("library_items").select("id, audience, published, uploaded_at").order("id"));
+  const mine = (items ?? []).filter((i) => (actorCan(c, "library.manage") || i.published) && canSeeLibrary(i.audience as string, actor.role));
+  out.content = { items: mine.length, latestAt: mine.map((i) => i.uploaded_at).filter(Boolean).sort().at(-1) ?? null };
+  return c.json(out);
+});
+
+/* A staff device's own sync state, sent after it syncs. Numbers only —
+   never the work itself. */
+const DEVICE_ID_RE = /^[A-Za-z0-9_-]{8,80}$/;
+app.post("/sync/report", requireStaff(), async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  if (!DEVICE_ID_RE.test(String(b.deviceId ?? ""))) return c.json({ error: "Invalid device" }, 400);
+  const n = (v: unknown) => Math.max(0, Math.min(100_000, Math.round(Number(v) || 0)));
+  const when = (v: unknown) => {
+    const t = typeof v === "string" ? new Date(v) : null;
+    return t && Number.isFinite(t.getTime()) && t.getTime() <= Date.now() + 5 * 60_000 ? t.toISOString() : null;
+  };
+  const row = {
+    actor_id: c.get("actor").id, device_id: String(b.deviceId),
+    device_label: String(b.deviceLabel ?? "").slice(0, 120), app_version: String(b.appVersion ?? "").slice(0, 40),
+    online: b.online !== false, last_sync_at: when(b.lastSyncAt),
+    pending: n(b.pending), failed: n(b.failed), conflicts: n(b.conflicts), saved_files: n(b.savedFiles),
+    oldest_pending_at: when(b.oldestPendingAt), reported_at: new Date().toISOString(),
+  };
+  const { error } = await admin.from("device_sync_status").upsert(row, { onConflict: "actor_id,device_id" });
+  if (error) return c.json({ error: error.message }, 400);
+  return c.json({ ok: true });
+});
+
+/** Why a device needs a look, in words — or null. */
+function deviceAttention(d: Record<string, any>, now = Date.now()): string | null {
+  const stuck = Number(d.conflicts) + Number(d.failed);
+  if (stuck) return `${stuck} ${stuck === 1 ? "activity needs" : "activities need"} a decision on the device`;
+  if (Number(d.pending) > 0 && d.oldest_pending_at && now - Date.parse(d.oldest_pending_at) > 24 * 3600e3) {
+    return `${d.pending} waiting on the device for ${Math.floor((now - Date.parse(d.oldest_pending_at)) / 864e5) || 1}+ day(s)`;
+  }
+  if (!d.last_sync_at) return "Hasn't synced yet";
+  const days = Math.floor((now - Date.parse(d.last_sync_at)) / 864e5);
+  if (days >= 7) return `Hasn't synced for ${days} days`;
+  return null;
+}
+
+/* The field team at a glance: every field officer, teacher and school head
+   with the devices they use — last sync, what's waiting, what needs a look. */
+app.get("/sync/devices", requirePermission("sync.monitor"), async (c) => {
+  const roleFilter = String(c.req.query("role") ?? "");
+  const [{ data: reports, error }, { data: staff, error: e2 }] = await Promise.all([
+    selectAll(() => admin.from("device_sync_status").select("*").order("actor_id").order("device_id")),
+    selectAll(() => admin.from("profiles").select("id, full_name, role, status, school, county").order("id")),
+  ]);
+  if (error || e2) return c.json({ error: (error ?? e2)!.message }, 500);
+  const now = Date.now();
+  const people = (staff ?? []).filter((p) => (p.status ?? "active") === "active" &&
+    ["field_officer", "teacher", "school_leader"].includes(p.role) && (!roleFilter || p.role === roleFilter));
+  const rows = people.map((p) => {
+    // The device that needs a look first, then the most recently heard from.
+    const devices = (reports ?? []).filter((d) => d.actor_id === p.id)
+      .map((d) => ({
+        deviceLabel: d.device_label, appVersion: d.app_version, online: d.online, lastSyncAt: d.last_sync_at ?? null,
+        pending: d.pending, failed: d.failed, conflicts: d.conflicts, savedFiles: d.saved_files,
+        oldestPendingAt: d.oldest_pending_at ?? null, reportedAt: d.reported_at, attention: deviceAttention(d, now),
+      }))
+      .sort((a, b) => Number(!!b.attention) - Number(!!a.attention) || String(b.reportedAt).localeCompare(String(a.reportedAt)));
+    return {
+      id: p.id, name: p.full_name, role: p.role, roleLabel: ROLE_LABEL[p.role as Role] ?? p.role, school: p.school ?? "", county: p.county ?? "",
+      devices, attention: devices.find((d) => d.attention)?.attention ?? (devices.length ? null : "No device has reported yet"),
+      pending: devices.reduce((t, d) => t + d.pending + d.failed + d.conflicts, 0),
+      lastSyncAt: devices.map((d) => d.lastSyncAt).filter(Boolean).sort().at(-1) ?? null,
+    };
+  }).sort((a, b) => Number(!!b.attention && b.devices.length > 0) - Number(!!a.attention && a.devices.length > 0)
+    || b.pending - a.pending || String(a.lastSyncAt ?? "").localeCompare(String(b.lastSyncAt ?? "")) || String(a.name).localeCompare(String(b.name)));
+  return c.json({ people: rows, generatedAt: new Date().toISOString() });
+});
+
 // ---------------------------------------------------------------- M&E layer (/mel)
 // PROGRAMME → OUTCOMES → INDICATORS → TARGETS → ACTUALS → EVIDENCE → REPORT.
 // The rules are in me.ts. Framework and targets: M&E (and admins). Actuals
@@ -6502,11 +6672,16 @@ app.post("/kobo/sync", requirePermission("kobo.manage"), async (c) => {
       const rows = await koboAllSubmissions(cfg, f.asset_uid as string);
       const stored = await storeKoboRaw(f, rows, "sync", { complete: true });
       const stats = await processKoboForm(f, cfg.officer_field);
-      await admin.from("kobo_forms").update({ synced_at: new Date().toISOString() }).eq("id", f.id);
+      const at = new Date().toISOString();
+      await admin.from("kobo_forms").update({ synced_at: at, last_sync_attempt_at: at, last_sync_error: null }).eq("id", f.id);
       done.push({ id: f.id, title: f.title, ...stored, ...stats });
     } catch (e) {
       console.error("kobo sync failed for", f0.title, (e as Error).message);
       failed.push(f0.title as string);
+      // Kept for the Sync center (the message never carries the token).
+      await admin.from("kobo_forms").update({
+        last_sync_attempt_at: new Date().toISOString(), last_sync_error: koboErrorText(e),
+      }).eq("id", f0.id);
     }
   }
   await audit(c, "kobo.synced", "kobo_forms", null, { forms: done.length, failed });
