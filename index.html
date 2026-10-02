@@ -6,87 +6,55 @@
   <meta name="description" content="HPF Digital Learning Portal — sign in.">
   <meta name="author" content="Human Practice Foundation">
   <title>HPF Digital Learning Portal — Sign in</title>
+  <!-- Kept light for slow school connections: no photos, and the fonts
+       load without holding up the page (it shows in system fonts first). -->
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Work+Sans:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=Work+Sans:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=Work+Sans:wght@400;600;700&display=swap"></noscript>
   <link rel="stylesheet" href="./styles.css">
   <link rel="icon" href="data:,">
 </head>
 <body>
-  <div class="login-page">
-    <header class="login-topbar">
-      <a class="wordmark" href="index.html">
-        <img class="wordmark-logo" src="./assets/hpf-logo.png" alt="Human Practice Foundation">
-      </a>
-      <a class="login-home-link" href="https://humanpractice.org" target="_blank" rel="noopener">Back to main website <span aria-hidden="true">→</span></a>
-    </header>
-
-    <div class="login-hero">
-      <div class="hero-bg" aria-hidden="true">
-        <div class="hero-bg-slide is-active" style="background-image:url('./assets/hero/hero-monkey-bars.jpg')"></div>
-        <div class="hero-bg-slide" style="background-image:url('./assets/hero/hero-assembly.jpg')"></div>
-        <div class="hero-bg-slide" style="background-image:url('./assets/hero/hero-digital-training.jpg')"></div>
-        <div class="hero-bg-slide" style="background-image:url('./assets/hero/hero-aerial-campus.jpg')"></div>
-        <div class="hero-bg-slide" style="background-image:url('./assets/hero/hero-walk-to-school.jpg')"></div>
-        <div class="hero-bg-overlay"></div>
-      </div>
-
-      <div class="art-copy">
-        <h1>Welcome to HPF Digital Portal</h1>
-        <p>One home for every classroom HPF supports: assignments, results, and learning resources, kept current by the people who use them.</p>
-        <p class="art-quote"><span class="art-quote-lead" data-hero-quote>When actions flow from the heart.</span> <strong>That's human practice.</strong></p>
-      </div>
+  <main class="gate">
+    <div class="gate-card" data-step="loading">
+      <header class="gate-brand">
+        <span class="gate-mark" aria-hidden="true">HPF</span>
+        <h1>Digital Learning Portal</h1>
+        <p class="gate-tagline">Learn <span aria-hidden="true">•</span> Teach <span aria-hidden="true">•</span> Support <span aria-hidden="true">•</span> Measure</p>
+      </header>
 
       <div class="login-card">
         <div class="login-inner">
 
         <!-- checking for an existing session -->
         <div id="stepLoading">
-          <p class="login-sub">One moment…</p>
+          <p class="login-sub gate-wait">One moment…</p>
         </div>
 
-        <!-- step 1: pick a role -->
+        <!-- step 1: pick a role. Plain links, so a tap before the page's
+             code has arrived still counts (index.js opens that role). -->
         <div id="stepRole" hidden>
-          <div class="login-eyebrow">Step 1 of 2</div>
-          <h2>Who's signing in?</h2>
-          <p class="login-sub">Pick your role, then sign in with your email.</p>
-          <div class="role-grid" role="group" aria-label="Choose your role" id="loginRoleGrid">
-            <button type="button" class="role-card" data-role="teacher">
-              <span class="role-check"></span>
-              <span class="r-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V6a2 2 0 0 1 2-2h13v14H6a2 2 0 0 0-2 2Zm0 0a2 2 0 0 0 2 2h13"/><path d="M9 8h7M9 11h7"/></svg></span>
-              <b>Teacher</b>
-              <p>Classes, assignments, results</p>
-            </button>
-            <button type="button" class="role-card" data-role="learner">
-              <span class="role-check"></span>
-              <span class="r-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/></svg></span>
-              <b>Learner</b>
-              <p>Coursework and library</p>
-            </button>
-            <button type="button" class="role-card" data-role="school_leader">
-              <span class="role-check"></span>
-              <span class="r-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V9l9-6 9 6v12"/><path d="M9 21v-6h6v6"/></svg></span>
-              <b>School Head</b>
-              <p>Head of institution</p>
-            </button>
-            <button type="button" class="role-card" data-role="field_officer">
-              <span class="role-check"></span>
-              <span class="r-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s7-6.1 7-11.5A7 7 0 0 0 5 9.5C5 14.9 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg></span>
-              <b>Field Officer</b>
-              <p>Visit reports by county</p>
-            </button>
-            <button type="button" class="role-card" data-role="education_team">
-              <span class="role-check"></span>
-              <span class="r-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="M6 11.5V17c0 1.7 2.7 3 6 3s6-1.3 6-3v-5.5"/><path d="M22 8v6"/></svg></span>
-              <b>Education Team</b>
-              <p>Content, forms & insights</p>
-            </button>
+          <p class="gate-prompt" id="gateRolePrompt">Sign in as</p>
+          <nav class="gate-roles" aria-labelledby="gateRolePrompt" id="loginRoleGrid">
+            <a class="gate-role" href="#teacher" data-role="teacher"><span class="gate-role-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 19V6a2 2 0 0 1 2-2h13v14H6a2 2 0 0 0-2 2Zm0 0a2 2 0 0 0 2 2h13"/><path d="M9 8h7M9 11h7"/></svg></span><b>Teacher</b></a>
+            <a class="gate-role" href="#learner" data-role="learner"><span class="gate-role-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/></svg></span><b>Learner</b></a>
+            <a class="gate-role" href="#school_leader" data-role="school_leader"><span class="gate-role-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 21V9l9-6 9 6v12"/><path d="M9 21v-6h6v6"/></svg></span><b>School Head</b></a>
+            <a class="gate-role" href="#field_officer" data-role="field_officer"><span class="gate-role-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 21s7-6.1 7-11.5A7 7 0 0 0 5 9.5C5 14.9 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg></span><b>Field Officer</b></a>
+            <a class="gate-role" href="#education_team" data-role="education_team"><span class="gate-role-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 6-7"/></svg></span><b>Education Team</b></a>
+          </nav>
+          <button type="button" class="gate-help-btn" id="gateHelpBtn" aria-expanded="false" aria-controls="gateHelp">Need help?</button>
+          <div class="gate-help" id="gateHelp" hidden>
+            <p><b>Learners</b> — your teacher gives you a username and a 4-digit PIN. After 5 wrong tries, wait 15 minutes or ask your teacher to unlock you.</p>
+            <p><b>Teachers, school heads and field officers</b> — choose your role, then sign in with your email and password. New here? Choose your role, then <i>Create an account</i>; an administrator approves it before you can use it.</p>
+            <p><b>Forgot your password?</b> Choose your role, then <i>Forgot password?</i> — or ask the Education Team to reset it.</p>
+            <p><b>On a shared school device?</b> Leave <i>Remember me</i> unticked, and sign out when you're done.</p>
+            <p><b>Still stuck?</b> Ask your HPF field officer or the Education Team.</p>
           </div>
         </div>
 
         <!-- step 2 (learners): username + PIN -->
         <div id="stepLearner" hidden>
-          <div class="login-eyebrow">Learner sign-in</div>
-          <h2>Enter your details</h2>
+          <h2>Sign in as Learner</h2>
           <p class="login-sub">Your teacher gives you a username and a 4-digit PIN.</p>
           <form id="learnerForm">
             <div class="field">
@@ -112,7 +80,6 @@
 
         <!-- step 2 (staff): email + password -->
         <div id="stepPassword" hidden>
-          <div class="login-eyebrow">Step 2 of 2</div>
           <h2><span id="pwHeadVerb">Sign in</span> as <span id="pwRoleLabel">Teacher</span></h2>
           <p class="login-sub" id="pwSub">Enter your email and password.</p>
 
@@ -213,7 +180,7 @@
                 <button type="button" class="role-card" data-role="school_leader" aria-pressed="false">
                   <span class="role-check"></span>
                   <span class="r-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V9l9-6 9 6v12"/><path d="M9 21v-6h6v6"/></svg></span>
-                  <b>School Leader</b>
+                  <b>School Head</b>
                   <p>Head of institution</p>
                 </button>
                 <button type="button" class="role-card" data-role="field_officer" aria-pressed="false">
@@ -317,11 +284,44 @@
           </div>
         </div>
 
+        <div class="gate-slow" id="gateSlow" hidden>
+          <p>The portal is taking longer than usual to load — the connection may be slow.</p>
+          <button type="button" class="btn btn-outline" onclick="location.reload()">Try again</button>
+        </div>
+
         </div>
       </div>
     </div>
-  </div>
 
+    <footer class="gate-foot">
+      <a href="https://humanpractice.org" target="_blank" rel="noopener">Human Practice Foundation</a>
+    </footer>
+  </main>
+
+  <script>
+    /* Show the role tiles at once — unless there's a session or a sign-in
+       link to check first. On a slow connection the page's code can take
+       a while; if it hasn't started after 12 seconds, say so. */
+    (function () {
+      try {
+        var stored = function (st) {
+          for (var i = 0; i < st.length; i++) {
+            var k = st.key(i);
+            if (k === "hpf_learner_token" || /^sb-.+-auth-token$/.test(k)) return true;
+          }
+          return false;
+        };
+        if (!/[?&](code|flow|invite|error)=/.test(location.search) && !stored(localStorage) && !stored(sessionStorage)) {
+          document.getElementById("stepLoading").hidden = true;
+          document.getElementById("stepRole").hidden = false;
+          document.querySelector(".gate-card").setAttribute("data-step", "role");
+        }
+      } catch (e) { /* storage blocked: wait for index.js */ }
+      setTimeout(function () {
+        if (!window.__hpfReady) document.getElementById("gateSlow").hidden = false;
+      }, 12000);
+    })();
+  </script>
   <script type="module" src="./index.js"></script>
 </body>
 </html>

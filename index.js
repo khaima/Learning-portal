@@ -6,10 +6,12 @@ import {
   getInvitation, acceptInvitation,
 } from "./auth.js";
 import { learnerToken } from "./api.js";
-import { watchSchools, wireSchoolPicker } from "./store.js";
 import { ROLES } from "./data.js";
 
 const ROLE_LABEL = Object.fromEntries(ROLES.map((r) => [r.value, r.label]));
+/* The school list (and the store code behind it) is only needed when an
+   account is being set up, so it isn't part of the sign-in page's download. */
+const schoolTools = () => import("./store.js");
 const PENDING_ROLE_KEY = "hpf_pending_role";
 
 /* "Remember me": besides where the session token lives (supabase.js),
@@ -53,39 +55,9 @@ function clearLastLearnerUsername() {
   try { localStorage.removeItem(LAST_LEARNER_KEY); } catch { /* ignore */ }
 }
 
-/* Same rotating taglines as the main HPF portal's hero. */
-const HERO_QUOTES = [
-  "When actions flow from the heart.",
-  "When word inspires but only action counts.",
-  "When compassion is lived, not just felt.",
-  "Change the future. Build the school.",
-];
-
-/* Decorative hero background: cross-fades between photo slides and
-   swaps the tagline every 4s, purely visual — left alone for
-   prefers-reduced-motion. */
-(function wireHeroBackground() {
-  const slides = $$(".hero-bg-slide");
-  const quoteEl = $("[data-hero-quote]");
-  if (slides.length < 2 && !quoteEl) return;
-  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  let i = 0;
-  let qi = 0;
-  setInterval(() => {
-    if (slides.length > 1) {
-      i = (i + 1) % slides.length;
-      slides.forEach((s, k) => s.classList.toggle("is-active", k === i));
-    }
-    if (quoteEl) {
-      qi = (qi + 1) % HERO_QUOTES.length;
-      quoteEl.classList.add("is-swapping");
-      setTimeout(() => {
-        quoteEl.textContent = HERO_QUOTES[qi];
-        quoteEl.classList.remove("is-swapping");
-      }, 600);
-    }
-  }, 4000);
-})();
+// The page's code has arrived: no "slow connection" notice needed.
+window.__hpfReady = true;
+$("#gateSlow").hidden = true;
 
 const steps = {
   loading: $("#stepLoading"),
@@ -100,6 +72,7 @@ const steps = {
 };
 function show(name) {
   for (const [k, el] of Object.entries(steps)) el.hidden = k !== name;
+  $(".gate-card").dataset.step = name; // the brand header shrinks after step 1
 }
 
 function pendingRole() {
@@ -294,7 +267,7 @@ async function route() {
   if (!hasLearner) {
     const { data } = await supabase.auth.getSession();
     if (!data.session) {
-      if (invite) await showInviteSignup(invite); else show("role");
+      if (invite) await showInviteSignup(invite); else showRoles();
       return;
     }
   }
@@ -319,7 +292,7 @@ async function route() {
     goToDashboard(profile.role);
     return;
   }
-  if (hasLearner) { show("role"); return; } // stale learner token, cleared by getProfile
+  if (hasLearner) { showRoles(); return; } // stale learner token, cleared by getProfile
   // Staff signed in but not onboarded yet (first Google sign-in lands here too).
   if (profile?.email && getRememberMe()) saveLastStaffLogin(pendingRole(), profile.email);
   $("#onboardEmail").textContent = profile?.email || "you";
@@ -329,28 +302,64 @@ async function route() {
 }
 
 // ---- step 1: role ----
-$$("#loginRoleGrid .role-card").forEach((card) =>
-  card.addEventListener("click", () => {
-    const role = card.dataset.role;
-    if (role === "learner") {
-      $("#learnerError").hidden = true;
-      $("#ln_user").value = loadLastLearnerUsername();
-      show("learner");
-      $("#ln_user").focus();
-      return;
-    }
-    setPendingRole(role);
-    $("#pwRoleLabel").textContent = ROLE_LABEL[role] || role;
-    setPwMode(false);
-    const last = loadLastStaffLogin();
-    $("#pw_email").value = last && last.role === role ? last.email : "";
-    show("password");
-    $("#pw_email").focus();
+// The role picked goes in the address (#teacher), so the phone's Back
+// button returns to the tiles instead of leaving the portal — and a tile
+// tapped before this code arrived is opened as soon as it does.
+const ROLE_TILES = new Set($$("#loginRoleGrid .gate-role").map((a) => a.dataset.role));
+const hashRole = () => { const h = location.hash.slice(1); return ROLE_TILES.has(h) ? h : null; };
+let pushedRole = false;
+
+function showRoles() {
+  show("role");
+  const role = hashRole();
+  if (role) openRole(role);
+}
+function backToRoles() {
+  if (pushedRole) { pushedRole = false; history.back(); return; } // hashchange shows the tiles
+  if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+  show("role");
+}
+$$("#loginRoleGrid .gate-role").forEach((tile) =>
+  tile.addEventListener("click", (e) => {
+    e.preventDefault();
+    const role = tile.dataset.role;
+    if (hashRole() === role) { openRole(role); return; }
+    pushedRole = true;
+    location.hash = role; // → hashchange → openRole
   })
 );
+window.addEventListener("hashchange", () => {
+  if (!["role", "learner", "password"].includes($(".gate-card").dataset.step)) return;
+  const role = hashRole();
+  if (role) openRole(role);
+  else { pushedRole = false; show("role"); }
+});
+$("#gateHelpBtn").addEventListener("click", () => {
+  const open = $("#gateHelp").hidden;
+  $("#gateHelp").hidden = !open;
+  $("#gateHelpBtn").setAttribute("aria-expanded", String(open));
+});
 
-$("#changeRole").addEventListener("click", () => show("role"));
-$("#learnerBack").addEventListener("click", () => show("role"));
+function openRole(role) {
+  if (role === "learner") {
+    $("#learnerError").hidden = true;
+    $("#ln_user").value = loadLastLearnerUsername();
+    show("learner");
+    $("#ln_user").focus();
+    return;
+  }
+  setPendingRole(role);
+  // The tile's own wording ("School Head"), so the heading matches what was tapped.
+  $("#pwRoleLabel").textContent = $(`#loginRoleGrid [data-role="${role}"] b`)?.textContent || ROLE_LABEL[role] || role;
+  setPwMode(false);
+  const last = loadLastStaffLogin();
+  $("#pw_email").value = last && last.role === role ? last.email : "";
+  show("password");
+  $("#pw_email").focus();
+}
+
+$("#changeRole").addEventListener("click", backToRoles);
+$("#learnerBack").addEventListener("click", backToRoles);
 
 // ---- learner sign-in (username + PIN) ----
 const learnerForm = $("#learnerForm");
@@ -539,9 +548,17 @@ roleCards.forEach((c) => c.addEventListener("click", () => setOnboardRole(c.data
 /* Live list: a school the Education Team adds while someone is on this
    screen appears in their dropdown when they come back to the tab (or
    within a minute) — no reload needed. */
-function loadOnboardSchools() {
+async function loadOnboardSchools() {
   $("#ob_county").innerHTML = `<option value="">Loading…</option>`;
   $("#ob_school").innerHTML = `<option value="">Loading…</option>`;
+  let watchSchools, wireSchoolPicker;
+  try {
+    ({ watchSchools, wireSchoolPicker } = await schoolTools());
+  } catch (err) {
+    onboardError.textContent = friendlyError(err, "Couldn't load the list of schools. Check your connection and reload.");
+    onboardError.hidden = false;
+    return;
+  }
   watchSchools(
     (data) => {
       const onChange = (school) => codeHint($("#ob_code_hint"), school, selectedRole);
@@ -603,9 +620,17 @@ $("#onboardSignOut").addEventListener("click", async () => {
 let schoolPicker = null;
 const schoolForm = $("#schoolForm");
 const schoolError = $("#schoolError");
-function showSchoolStep(profile) {
+async function showSchoolStep(profile) {
   show("school");
   schoolError.hidden = true;
+  let watchSchools, wireSchoolPicker;
+  try {
+    ({ watchSchools, wireSchoolPicker } = await schoolTools());
+  } catch (err) {
+    schoolError.textContent = friendlyError(err, "Couldn't load the list of schools. Check your connection and reload.");
+    schoolError.hidden = false;
+    return;
+  }
   watchSchools(
     (data) => {
       if (schoolPicker) schoolPicker.update(data);

@@ -142,85 +142,83 @@ a{ color:inherit; }
 .toast.error{ background:var(--danger); }
 .toast.success{ background:var(--success); }
 
-/* ================================================================ LANDING / SIGN-IN */
-.login-page{ min-height:100vh; display:flex; flex-direction:column; }
+/* ================================================================ LANDING / SIGN-IN
+   One light card — brand, then whichever step is showing. No photos and
+   nothing to download beyond this file and the page's code, for schools on
+   slow connections. A band of brand colour behind the top of the card is
+   the only decoration (pure CSS). */
+.gate{
+  min-height:100vh; min-height:100dvh; display:flex; flex-direction:column; align-items:center;
+  padding:clamp(1.5rem,6vh,4rem) 16px 1.5rem;
+  background:linear-gradient(180deg, var(--panel) 0, var(--panel-deep) 15rem, var(--paper) 15rem);
+}
+.gate-card{
+  width:100%; max-width:34rem; background:var(--paper-raised); border-radius:var(--radius-lg);
+  box-shadow:0 24px 60px -28px rgba(6,16,38,.45), var(--shadow); overflow:hidden;
+}
+.gate-brand{ text-align:center; padding:2rem 1.5rem 1.2rem; border-bottom:1px solid var(--line); }
+.gate-mark{
+  display:inline-flex; align-items:center; justify-content:center; width:64px; height:64px; border-radius:18px;
+  background:var(--panel); color:#fff; font-family:"Baloo 2",sans-serif; font-weight:800; font-size:1.45rem;
+  letter-spacing:-.02em; margin-bottom:.7rem;
+}
+.gate-brand h1{ font-size:1.65rem; line-height:1.15; margin:0 0 .35rem; }
+.gate-tagline{ margin:0; font-size:.9rem; font-weight:600; color:var(--ink-soft); letter-spacing:.02em; }
+.gate-tagline span{ color:var(--accent); margin:0 .2rem; }
+/* After step 1 the brand steps back: a small mark beside the name. */
+.gate-card:not([data-step="role"]):not([data-step="loading"]) .gate-brand{
+  display:flex; align-items:center; justify-content:center; gap:.6rem; padding:1rem 1.5rem;
+}
+.gate-card:not([data-step="role"]):not([data-step="loading"]) .gate-mark{ width:38px; height:38px; border-radius:11px; font-size:.95rem; margin:0; }
+.gate-card:not([data-step="role"]):not([data-step="loading"]) .gate-brand h1{ font-size:1.1rem; margin:0; }
+.gate-card:not([data-step="role"]):not([data-step="loading"]) .gate-tagline{ display:none; }
 
-.login-topbar{
-  display:flex; align-items:center; justify-content:space-between; gap:1rem;
-  padding:1.3rem clamp(1.1rem,4vw,3rem); position:relative; z-index:3;
-}
-.wordmark-logo{ display:block; height:42px; width:auto; border-radius:8px; }
-.login-home-link{
-  display:inline-flex; align-items:center; gap:.4rem; text-decoration:none; white-space:nowrap;
-  font-size:.86rem; font-weight:700; color:#fff; padding:.6rem 1.05rem;
-  background:var(--panel-deep); border:1.5px solid var(--panel-deep); border-radius:999px;
-  box-shadow:0 4px 14px -4px rgba(0,0,0,.4);
-}
-.login-home-link:hover{ background:var(--panel); border-color:var(--panel); }
-.login-home-link span{ display:inline-block; transition:transform .15s; }
-.login-home-link:hover span{ transform:translateX(3px); }
-
-.login-hero{
-  position:relative; flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
-  gap:2.2rem; padding:1rem clamp(1.1rem,4vw,3rem) 4rem; overflow:hidden; text-align:center;
-}
-
-/* Background carousel: real HPF programme photos cross-fade every 3s
-   (wired in index.js), echoing the main portal's hero carousel. Each
-   slide's image comes from an inline style in index.html; a fixed brand-
-   blue scrim sits on top so the heading and card stay legible over any
-   photo, in light or dark mode. */
-.hero-bg{ position:absolute; inset:0; z-index:0; }
-.hero-bg-slide{
-  position:absolute; inset:0; opacity:0; transition:opacity 2.2s ease-in-out;
-  background-size:cover; background-position:center;
-}
-.hero-bg-slide.is-active{ opacity:1; }
-.hero-bg-overlay{
-  position:absolute; inset:0; z-index:1;
-  background:linear-gradient(180deg, rgba(11,32,64,.8) 0%, rgba(15,44,82,.5) 38%, rgba(15,44,82,.4) 62%, rgba(11,32,64,.72) 100%);
-}
-@media (prefers-reduced-motion: reduce){ .hero-bg-slide{ transition:none; } }
-.art-copy{ position:relative; z-index:2; max-width:34rem; }
-.art-copy h1{ font-size:2.1rem; color:#fff; line-height:1.15; margin-bottom:.6rem; }
-.art-copy p{ color:rgba(255,255,255,.85); font-size:1rem; line-height:1.55; margin:0 0 1.3rem; }
-/* Rotating tagline, mirroring the main HPF portal's hero quotes — the
-   lead half cross-fades every 3s (wired in index.js) while the closing
-   line stays fixed. */
-.art-copy .art-quote{ position:relative; z-index:2; margin:0; font-size:1.1rem; line-height:1.5; color:#fff; white-space:nowrap; }
-.art-quote-lead{ font-style:italic; color:rgba(255,255,255,.88); transition:opacity .6s ease; display:inline; }
-.art-quote-lead.is-swapping{ opacity:0; }
-.art-quote strong{ font-weight:700; color:var(--accent); }
-
-.login-card{
-  position:relative; z-index:2; width:100%; max-width:25.5rem;
-  /* Frosted-glass card: translucent enough that the hero slideshow shows
-     faintly through it, blurred so the form on top stays readable over a
-     busy photo. */
-  background:color-mix(in srgb, var(--paper-raised) 86%, transparent);
-  backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
-  border-radius:var(--radius-lg); box-shadow:0 30px 70px -24px rgba(6,16,38,.55), var(--shadow);
-  padding:2.2rem 2rem;
-}
-/* "Who's signing in?" spreads out into a landscape card so its five role
-   options sit three-across instead of stacking tall. Every other step
-   (learner PIN, email/password, onboarding) keeps the narrower default. */
-.login-card:has(#stepRole:not([hidden])){ max-width:46rem; }
-#loginRoleGrid{ grid-template-columns:repeat(3, 1fr); }
-@media (max-width:820px){
-  #loginRoleGrid{ grid-template-columns:1fr 1fr; }
-}
+.login-card{ padding:1.5rem 1.6rem 1.7rem; }
 .login-inner{ width:100%; }
-@media (max-width:640px){
-  .login-topbar{ padding:1.1rem 1rem; }
-  .wordmark-logo{ height:34px; }
-  .login-home-link{ font-size:.78rem; padding:.5rem .8rem; }
-  .login-hero{ padding:.5rem 1rem 2.5rem; gap:1.6rem; }
-  .art-copy h1{ font-size:1.6rem; }
-  .art-copy .art-quote{ font-size:1.05rem; white-space:normal; }
-  .login-card{ padding:1.6rem 1.3rem; }
-  #loginRoleGrid{ grid-template-columns:1fr; }
+.gate-wait{ text-align:center; margin:1rem 0; }
+.gate-prompt{ text-align:center; font-size:.8rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-soft); margin:0 0 .9rem; }
+
+/* Five big tiles: three across, then two (the sketch's layout); two
+   across on a phone, Education Team full width. */
+.gate-roles{ display:grid; grid-template-columns:repeat(6,1fr); gap:.7rem; }
+.gate-role{ grid-column:span 2; }
+.gate-role:nth-child(n+4){ grid-column:span 3; }
+.gate-role{
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.55rem; min-height:6.4rem;
+  padding:.9rem .5rem; border:1.5px solid var(--line); border-radius:var(--radius-md); background:var(--paper-raised);
+  color:var(--ink); text-decoration:none; text-align:center; -webkit-tap-highlight-color:transparent;
+  transition:border-color .15s, box-shadow .15s, transform .15s;
 }
+.gate-role b{ font-size:.95rem; font-weight:700; line-height:1.2; }
+.gate-role-icon{
+  width:42px; height:42px; border-radius:12px; display:flex; align-items:center; justify-content:center;
+  background:var(--brand-soft); color:var(--brand-fg);
+}
+.gate-role-icon .icon{ width:22px; height:22px; }
+.gate-role:hover{ border-color:var(--brand); box-shadow:0 0 0 3px var(--brand-soft); }
+.gate-role:active{ transform:scale(.98); }
+.gate-role:focus-visible{ outline:3px solid var(--focus); outline-offset:2px; }
+@media (max-width:480px){
+  .gate-roles{ grid-template-columns:1fr 1fr; gap:.6rem; }
+  .gate-role, .gate-role:nth-child(n+4){ grid-column:span 1; }
+  .gate-role:last-child{ grid-column:1 / -1; }
+  .gate-role{ min-height:5.8rem; }
+  .gate-brand{ padding:1.6rem 1.2rem 1rem; }
+  .gate-brand h1{ font-size:1.45rem; }
+  .login-card{ padding:1.2rem 1.1rem 1.4rem; }
+}
+
+.gate-help-btn{
+  display:block; margin:1.2rem auto 0; background:none; border:0; padding:.4rem .6rem; cursor:pointer;
+  font:inherit; font-size:.9rem; font-weight:600; color:var(--brand-fg); text-decoration:underline; text-underline-offset:3px;
+}
+.gate-help{ margin-top:.8rem; padding:.9rem 1rem; border-radius:var(--radius-md); background:var(--paper-sunk); font-size:.86rem; line-height:1.5; }
+.gate-help p{ margin:0 0 .55rem; }
+.gate-help p:last-child{ margin:0; }
+.gate-slow{ margin-top:1rem; padding:.9rem 1rem; border-radius:var(--radius-md); background:var(--accent-soft); color:var(--accent-fg); font-size:.86rem; text-align:center; }
+.gate-slow p{ margin:0 0 .6rem; }
+.gate-foot{ margin-top:1.4rem; font-size:.8rem; }
+.gate-foot a{ color:var(--ink-soft); }
 .login-eyebrow{ font-size:.78rem; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--accent-fg); margin-bottom:.4rem; }
 .login-inner h2{ font-size:1.5rem; margin-bottom:.35rem; }
 .login-sub{ color:var(--ink-soft); font-size:.92rem; margin:0 0 1.4rem; }

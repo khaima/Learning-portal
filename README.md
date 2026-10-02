@@ -18,7 +18,13 @@ Edge Function API in front of a locked-down Postgres database. Six pages:
   email + password, learners with a username + 4-digit PIN. New staff
   create an account (no email verification) and a one-step form captures
   name, role and — for teachers and school heads — County → School from
-  the school list (see "Schools and codes" below).
+  the school list (see "Schools and codes" below). Built for slow school
+  connections: one light card (HPF, *Learn • Teach • Support • Measure*,
+  five role tiles, *Need help?*), no photos, fonts that don't hold up the
+  page, the tiles shown before the sign-in code has even arrived (a tap
+  still counts), a notice if the connection is too slow, and the school
+  list loaded only when an account is being set up. The role picked is in
+  the address (`#teacher`), so a phone's Back button returns to the tiles.
 - **`teacher.html`** — a teacher's classes, this week's grading queue,
   recent results, forms sent by the Education Team, Teacher Resources and
   the Digital Library, plus **My Learners**: an editable roster where the
