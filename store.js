@@ -1152,6 +1152,23 @@ export async function createAcademicYear(id, { makeCurrent = false } = {}) {
   return apiSend("POST", "/academic-years", { id, makeCurrent });
 }
 
+/* "Term 3, 2026" — the school-calendar term today falls in, for dashboard
+   headers. Picked by date rather than trusting currentTerm, so a copy saved
+   on this device last term doesn't keep showing that term. "" when the
+   calendar can't be loaded (offline before it was ever saved here) or
+   today falls outside every term. */
+export async function currentTermLabel() {
+  try {
+    const { years } = await getAcademicYears();
+    const today = new Date().toISOString().slice(0, 10);
+    for (const y of years || []) {
+      const t = (y.terms || []).find((x) => x.startsOn <= today && today <= x.endsOn);
+      if (t) return `Term ${t.termNo}, ${y.id}`;
+    }
+  } catch { /* header falls back to the school/county line */ }
+  return "";
+}
+
 /* Read-only: this learner's real assignments + library usage/badges, for
    the teacher's "view a learner's activity" panel. */
 export async function getLearnerActivity(id) {

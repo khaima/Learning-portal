@@ -4,7 +4,7 @@ import { requireRole, signOut } from "./auth.js";
 import { VISIT_TYPES } from "./data.js";
 import {
   getForms, getResponses, getFieldReports, addFieldReport, watchSchools,
-  myKoboSurveys, markKoboSubmitted,
+  myKoboSurveys, markKoboSubmitted, currentTermLabel,
 } from "./store.js";
 import { mountFormList, renderVisitForms, unfilledVisitForms, collectVisitResponses, FORM_KIND_LABEL } from "./forms.js";
 import { addResponse } from "./store.js";
@@ -35,7 +35,9 @@ async function main() {
   $("#sideName").textContent = user.fullName;
   $("#sideMeta").textContent = `Field Officer · ${user.county || "—"}`;
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
-  $("#topSub").textContent = `${user.county || "No county set"} · Term 2, 2026`;
+  const countyLine = user.county || "No county set";
+  $("#topSub").textContent = countyLine;
+  currentTermLabel().then((term) => { if (term) $("#topSub").textContent = `${countyLine} · ${term}`; });
 
   /* Schools come from the Education Team's school list (the same one every
      County → School picker uses); "visits this term" is the officer's own

@@ -6,7 +6,7 @@ import {
   getForms, getResponses, getLibrary, getLibraryFolders, mountLibraryShelves, libraryPreviewHtml, getMyLibraryUsage,
   getSchoolOverview, getClasses, createClass, updateClass, assignClassTeacher, removeClassTeacher, promoteClass,
   getLearners, updateLearner, setLearnerStatus, getEnrollments,
-  getSubjects, addClassSubject, removeClassSubject, getResults, getStaffAssignments,
+  getSubjects, addClassSubject, removeClassSubject, getResults, getStaffAssignments, currentTermLabel,
 } from "./store.js";
 import { resultsTableHtml, openAssignmentDetail, assignmentStatusPill, fmtWhen } from "./assignments-ui.js";
 import { openContentPanel, closeViewer } from "./viewer.js";
@@ -38,7 +38,8 @@ async function main() {
   $("#sideName").textContent = user.fullName;
   $("#sideMeta").textContent = `School Leader · ${user.userCode || user.county || "—"}`;
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
-  $("#topSub").textContent = `${schoolLine(user)} · Term 2, 2026`;
+  $("#topSub").textContent = schoolLine(user);
+  currentTermLabel().then((term) => { if (term) $("#topSub").textContent = `${schoolLine(user)} · ${term}`; });
 
   /* Everything on this dashboard is an aggregate — counts, percentages,
      grade-level rollups — never a single learner's name or row. That's
