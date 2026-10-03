@@ -9,7 +9,7 @@ import {
   getLibrary, addLibraryItem, setLibraryPublished, deleteLibraryItem, updateLibraryItem, getForms, addForm, deleteForm, archiveForm, restoreForm, getResponses, getStats, getImpact,
   dqSummary, dqIssues, dqBulkStatus, dqScan,
   melProgrammes, melProgramme, createMelProgramme, melResults, melReports, createMelReport, melReport, refreshMelReport, finalizeMelReport,
-  melDashboard, melTrend, melBreakdown, getTrainings,
+  melDashboard, melTrend, melBreakdown, getTrainings, setFormDue, notificationLog, runNotificationsNow,
   uploadLibraryFiles, libraryFilesHtml, libraryTypeIcon, librarySectionsHtml, getLibraryUsage,
   getLibraryFolders, createLibraryFolder, deleteLibraryFolder, setLibraryFolder,
   koboConfig, saveKoboConfig, koboAssets, koboAssetPreview, koboForms, attachKoboForm,
@@ -60,6 +60,7 @@ async function main() {
     "digital-resources": ["intelligence.view"],
     "me-dashboard": ["me.view"],
     "data-quality": ["data_quality.view"],
+    notifications: ["notifications.view.all"],
     "mel-results": ["me.view"],
     "mel-framework": ["me.view"],
     "mel-reports": ["me.view"],
@@ -1469,6 +1470,9 @@ async function main() {
     const isField = audience === "field_officer";
     $("#fb_visit_field").hidden = !isField;
     if (!isField) $("#fb_visit").value = "";
+    // Visit forms are filled in during visits: no due date.
+    $("#fb_due_field").hidden = !!$("#fb_visit").value;
+    if ($("#fb_visit").value) $("#fb_due").value = "";
     $("#fb_questions_field").hidden = fbKind !== "questions";
     $("#fb_file_field").hidden = fbKind !== "file";
     $("#fb_link_field").hidden = fbKind !== "link";
@@ -1542,6 +1546,7 @@ async function main() {
         questions,
         externalUrl: link,
         file,
+        dueOn: $("#fb_visit").value ? null : $("#fb_due").value || null,
       });
       toast("Form sent successfully.", $("#fb_reach").textContent, "success");
       e.target.reset();
@@ -1629,7 +1634,7 @@ async function main() {
               <div class="form-tags">${formTagsHtml(f)}</div>
               <div class="fc-meta">${answers.length} response(s)${f.description ? " · " + esc(f.description) : ""}</div>
               ${body}
-              <div class="fc-actions">${action}</div>
+              <div class="fc-actions">${!f.archivedAt && !f.visitType ? `<label class="fc-due">Due <input type="date" data-form-due="${esc(f.id)}" value="${esc(f.dueOn || "")}" aria-label="Due date for ${esc(f.title)}"></label>` : ""}${action}</div>
             </div>`;
     };
     const active = forms.filter((f) => !f.archivedAt);
@@ -1644,6 +1649,66 @@ async function main() {
            </div>`
         : "");
   }
+
+  // A form's due date, changed in place (empty clears it).
+  $("#formsList").addEventListener("change", async (e) => {
+    const input = e.target.closest("[data-form-due]");
+    if (!input) return;
+    try {
+      await setFormDue(input.dataset.formDue, input.value || null);
+      toast(input.value ? "Due date set" : "Due date cleared", input.value ? "Everyone it reaches who hasn't answered is reminded as it comes due." : "", "success");
+      renderForms();
+    } catch (err) {
+      toast("Couldn't change the due date", friendlyError(err), "error");
+    }
+  });
+
+  /* ------------------------------------------------------------ notifications log
+     Who was told what, when — and whether they've read it. */
+  const KIND_LABEL = {
+    assignments_due: "Due tomorrow", to_mark: "To mark", work_marked: "Marked", form_due: "Form due",
+    visit_incomplete: "Visit forms", kobo_received: "Kobo", accounts_pending: "Approvals",
+  };
+  async function renderNotificationLog() {
+    if (!has("notifications.view.all")) return;
+    $("#ntfLog").innerHTML = skeleton(4, { avatar: false });
+    let d;
+    try {
+      d = await notificationLog({ kind: $("#ntf_kind").value, role: $("#ntf_role").value, status: $("#ntf_status").value, from: gf.from, to: gf.to });
+    } catch (err) {
+      $("#ntfLog").innerHTML = errorState(friendlyError(err), renderNotificationLog);
+      return;
+    }
+    const last = d.runs[0];
+    $("#ntfMeta").textContent = last ? `Last run ${new Date(last.startedAt).toLocaleString([], { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })} (${last.trigger === "schedule" ? "hourly" : last.trigger === "user" ? "when someone opened them" : "run now"})${last.error ? " — failed" : ""}` : "Not run yet";
+    const when = (iso) => new Date(iso).toLocaleString([], { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+    $("#ntfLog").innerHTML = `
+      <p class="hint">${d.total} notification${d.total === 1 ? "" : "s"}${d.total ? ` · ${d.unread} unread` : ""}${d.total > d.notifications.length ? ` · showing the latest ${d.notifications.length}` : ""}.</p>
+      ${d.notifications.length ? `<div class="lms-table-wrap"><table class="lms-table intel-table">
+        <thead><tr><th class="lms-name">Notification</th><th class="lms-name">Sent to</th><th>Sent</th><th>Read</th></tr></thead>
+        <tbody>${d.notifications.map((n) => `<tr>
+          <td class="lms-name"><span class="pill">${esc(KIND_LABEL[n.kind] || n.kind)}</span> <b>${esc(n.title)}</b>${n.body ? `<br><span class="hint-inline">${esc(n.body)}</span>` : ""}</td>
+          <td class="lms-name">${esc(n.recipient.name)}<br><span class="hint-inline">${esc(ROLE_LABEL[n.recipient.role] || n.recipient.role)}${n.recipient.place ? ` · ${esc(n.recipient.place)}` : ""}</span></td>
+          <td>${esc(when(n.createdAt))}</td>
+          <td>${n.readAt ? esc(when(n.readAt)) : `<span class="pill warm">Unread</span>`}</td></tr>`).join("")}</tbody></table></div>`
+        : `<div class="empty-state">${emptyMsg("No notifications yet.")}</div>`}
+      ${d.runs.some((r) => r.error) ? `<p class="field-error">A recent run failed: ${esc(d.runs.find((r) => r.error).error)}</p>` : ""}`;
+  }
+  ["#ntf_kind", "#ntf_role", "#ntf_status"].forEach((s) => $(s).addEventListener("change", renderNotificationLog));
+  $("#ntfRunBtn").addEventListener("click", async () => {
+    const btn = $("#ntfRunBtn");
+    btn.disabled = true;
+    try {
+      const res = await runNotificationsNow();
+      toast(res.error ? "The run failed" : "Done", res.error || `${res.created} new notification${res.created === 1 ? "" : "s"}.`, res.error ? "error" : "success");
+      renderNotificationLog();
+    } catch (err) {
+      toast("Couldn't run it", friendlyError(err), "error");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  renderNotificationLog();
 
   $("#formsList").addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-form-act]");

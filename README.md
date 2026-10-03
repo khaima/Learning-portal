@@ -322,6 +322,35 @@ Content             ✓ Synced
   devices report this after each sync — counts and times only, never the
   work (`device_sync_status`); learners' shared tablets don't report.
 
+### Notifications
+
+Every dashboard's **bell** shows how many notifications are unread and
+opens the list — each with a link to the page to act on it. They're
+**stored and auditable**, not browser alerts: rules
+([`notifications.ts`](supabase/functions/api/notifications.ts)) run every
+hour (pg_cron) and when someone opens their notifications, and what's new
+is stored once per person (never the same thing twice):
+
+| Who | Example | When |
+|---|---|---|
+| Teacher | *3 assignments are due tomorrow.* | published work in classes they teach, due tomorrow (Kenya time) |
+| Teacher | *5 pieces of work are waiting to be marked.* | something handed in more than 3 days ago (daily) |
+| Learner | *2 assignments are due tomorrow.* / *Your "Fractions quiz" was marked: 75%.* | not handed in yet / marked in the last week |
+| School head, teacher, field officer | *Term return is due.* | a form with a **due date** they haven't answered: 3 days before, and again once overdue |
+| Field officer | *Your ICT visit form is incomplete.* | a visit in the last 30 days filed without all its type's forms — which can now be **finished afterwards** from the visit list |
+| Education Team, admins | *12 Kobo submissions received.* | new Kobo submissions since they were last told (with how many need review) |
+| Admins | *4 staff accounts awaiting approval.* | daily, while any are pending |
+
+Forms can have a **due date** (set when sending one, or changed on the
+Forms page). Reading a notification (or opening it) records when; offline,
+that's synced later. The database refuses to change or delete a
+notification, and keeps an append-only history of when each was created
+and read. The Education Team's **Notifications** page is the log: who was
+told what, when, and whether they've read it — filter by kind, role and
+status, and **Run now**. The hourly run calls the API with a secret that's
+generated inside the database (Vault) and checked there; it never appears
+in code or the browser.
+
 ### Content usage tracking
 
 Every "Open to read" click on any dashboard is timed:
@@ -625,8 +654,10 @@ the caller's own row in the database — nothing the browser sends.
   [`me_test.ts`](supabase/functions/api/me_test.ts) the M&E rules (sources,
   periods, targets, achievement); the authorization suite also covers
   offline sync (a retried write happens once, conflicts on answers and
-  marks, offline hand-in times, offline reading):
-  `cd supabase/functions/api && deno test --allow-env --config deno.json authz_test.ts lms_test.ts intelligence_test.ts kobo_pipeline_test.ts data_quality_test.ts me_test.ts impact_test.ts`
+  marks, offline hand-in times, offline reading) and notifications;
+  [`notifications_test.ts`](supabase/functions/api/notifications_test.ts)
+  covers every notification rule:
+  `cd supabase/functions/api && deno test --allow-env --config deno.json authz_test.ts lms_test.ts intelligence_test.ts kobo_pipeline_test.ts data_quality_test.ts me_test.ts impact_test.ts notifications_test.ts`
 
 ### Turning on Google sign-in
 
@@ -726,6 +757,7 @@ used).
 | `api.js` | Thin fetch wrapper over the `api` Edge Function; attaches the JWT; serves this device's copies offline |
 | `offline.js` | What the device keeps (IndexedDB): copies per account, the queue, files, settings |
 | `sync.js` | Offline work: send or queue, sync in order, idempotency keys, conflicts, files chosen offline, downloads |
+| `notify-ui.js` | The bell: unread count, the notifications list, mark as read |
 | `sync-ui.js` | The sync status in every top bar and the Sync center (Kobo, school data, learning, content, field team devices) |
 | `sw.js` / `pwa.js` / `manifest.webmanifest` | The offline app (service worker) and home-screen install |
 | `auth.js` | Sessions, the profile, `requireRole` for each dashboard |

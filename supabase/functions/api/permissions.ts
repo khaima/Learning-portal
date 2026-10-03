@@ -91,6 +91,7 @@ export const PERMISSIONS = [
   "me.reports.manage",    // generate and finalize reports
   "trainings.manage",     // the training register: sessions and who attended
   "sync.monitor",         // the Sync center's field-team view: every staff device's sync state
+  "notifications.view.all", // the notifications log: who was told what, when, and when they read it
   "school.overview.view",
   // KoboToolbox
   "kobo.manage",
@@ -123,7 +124,7 @@ const EDUCATION_TEAM: Permission[] = [
   "field_reports.view.all",
   "stats.view", "intelligence.view", "data_quality.view", "data_quality.manage",
   "me.view", "me.actuals.record",
-  "trainings.manage", "sync.monitor",
+  "trainings.manage", "sync.monitor", "notifications.view.all",
   "kobo.manage", "kobo.results.view",
   "users.view",
 ];

@@ -15,12 +15,12 @@
    the copy here is used straight away.
    ============================================================ */
 
-const VERSION = "hpf-learning-v1";
+const VERSION = "hpf-learning-v2";
 const SHELL = [
   "./", "./index.html", "./learner.html", "./teacher.html", "./leader.html", "./field.html", "./education.html",
   "./styles.css", "./manifest.webmanifest", "./assets/icon-192.png", "./assets/icon-512.png",
   "./config.js", "./supabase.js", "./api.js", "./auth.js", "./util.js", "./data.js", "./store.js", "./nav.js", "./viewer.js",
-  "./offline.js", "./sync.js", "./sync-ui.js", "./pwa.js", "./forms.js", "./assignments-ui.js", "./learners-ui.js",
+  "./offline.js", "./sync.js", "./sync-ui.js", "./notify-ui.js", "./pwa.js", "./forms.js", "./assignments-ui.js", "./learners-ui.js",
   "./index.js", "./learner.js", "./teacher.js", "./leader.js", "./field.js", "./education.js",
   "./impact-ui.js", "./training-ui.js", "./mel-ui.js", "./dq-ui.js", "./kobo-ui.js",
 ];

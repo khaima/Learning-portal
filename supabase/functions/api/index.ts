@@ -31,6 +31,7 @@ import {
 } from "./lms.ts";
 import { buildIntelligence, VISIT_TYPES as INTEL_VISIT_TYPES } from "./intelligence.ts";
 import { buildImpact, GENDERS } from "./impact.ts";
+import { buildNotifications, missingVisitForms } from "./notifications.ts";
 import {
   counts as countsOnDashboards, detectMapping, type KoboMapping, type KoboSchema, nameKey, parseKoboSchema,
   type PipelineContext, processBatch, RULES as KOBO_RULES, sha256, stableStringify, suggestSchool, summarizeAnswers,
@@ -380,6 +381,7 @@ const mapForm = async (r: Record<string, unknown>) => ({
   createdBy: r.created_by,
   createdAt: r.created_at,
   archivedAt: r.archived_at ?? null,
+  dueOn: r.due_on ?? null,
   questions: r.questions ?? [],
 });
 /* Filled copies uploaded with a response: the education team can
@@ -624,6 +626,17 @@ app.post("/kobo/hook", async (c) => {
     return c.json({ error: "Couldn't process the submission" }, 500);
   }
   return c.json({ ok: true });
+});
+
+/* ---- notifications: the hourly run ----
+   Called by pg_cron (see the notifications migration) with a secret that
+   lives in Vault; the database itself checks it. */
+app.post("/notifications/run", async (c) => {
+  const secret = c.req.header("X-Cron-Secret") ?? "";
+  if (secret.length < 32) return c.json({ error: "Not allowed" }, 401);
+  const { data: ok, error } = await admin.rpc("notify_cron_secret_ok", { candidate: secret });
+  if (error || ok !== true) return c.json({ error: "Not allowed" }, 401);
+  return c.json(await runNotifications("schedule"));
 });
 
 // ---- authentication ----
@@ -2548,6 +2561,8 @@ app.post("/forms", requirePermission("forms.manage"), async (c) => {
     return c.json({ error: "Link must start with http:// or https://" }, 400);
   }
   if (kind === "file" && !fileList.length) return c.json({ error: "Choose the form file to upload" }, 400);
+  const dueOn = b.dueOn ? String(b.dueOn) : null;
+  if (dueOn && (!DATE_RE.test(dueOn) || visitType)) return c.json({ error: visitType ? "Visit forms are filled in during visits — no due date" : "The due date looks like 2026-10-31" }, 400);
 
   const id = rid("form");
   const files: LibFile[] = [];
@@ -2572,6 +2587,7 @@ app.post("/forms", requirePermission("forms.manage"), async (c) => {
       visit_type: visitType,
       external_url: kind === "link" ? externalUrl : null,
       files,
+      due_on: dueOn,
       created_by: c.get("actor").fullName,
       questions: kind === "questions" ? questions : [],
     })
@@ -2579,6 +2595,21 @@ app.post("/forms", requirePermission("forms.manage"), async (c) => {
     .single();
   if (error) return c.json({ error: error.message }, 400);
   return c.json({ form: await mapForm(data), uploads });
+});
+
+/* A form's due date — set, changed or cleared (dueOn: null). Everyone the
+   form reaches who hasn't answered is reminded as it comes due. */
+app.patch("/forms/:id", requirePermission("forms.manage"), async (c) => {
+  const { data: form } = await admin.from("forms").select("*").eq("id", c.req.param("id")).maybeSingle();
+  if (!form) return c.json({ error: "Form not found" }, 404);
+  const b = await c.req.json().catch(() => ({}));
+  if (b.dueOn === undefined) return c.json({ error: "Nothing to change" }, 400);
+  const dueOn = b.dueOn ? String(b.dueOn) : null;
+  if (dueOn && !DATE_RE.test(dueOn)) return c.json({ error: "The due date looks like 2026-10-31" }, 400);
+  if (dueOn && form.visit_type) return c.json({ error: "Visit forms are filled in during visits — no due date" }, 400);
+  await admin.from("forms").update({ due_on: dueOn }).eq("id", form.id);
+  await audit(c, "form.due_date_set", "form", form.id, { from: form.due_on ?? null, to: dueOn });
+  return c.json({ form: await mapForm({ ...form, due_on: dueOn }) });
 });
 
 /* Permanently removes a form nobody has answered, with its blank file.
@@ -2701,7 +2732,15 @@ app.post("/responses", requirePermission("forms.respond"), async (c) => {
   const p = c.get("actor");
   const { data: form } = await admin.from("forms").select("*").eq("id", String(b.formId ?? "")).maybeSingle();
   if (!form || form.archived_at || !formReaches(form, p)) return c.json({ error: "Form not found" }, 404);
-  if (form.visit_type) return c.json({ error: "This form is filled in during a school visit" }, 400);
+  // A visit's form can be finished after the visit, by the officer who made it.
+  let visit: Record<string, any> | null = null;
+  if (form.visit_type) {
+    if (!b.visitId) return c.json({ error: "This form is filled in during a school visit" }, 400);
+    const { data: v } = await admin.from("field_reports").select("*").eq("id", String(b.visitId)).maybeSingle();
+    if (!v || v.officer_id !== p.id) return c.json({ error: "Visit not found" }, 404);
+    if (v.visit_type !== form.visit_type || (form.county && form.county !== v.county)) return c.json({ error: "That form isn't for this visit" }, 400);
+    visit = v;
+  }
   let answers: { questionId: string; value: string }[] = [];
   if (form.kind === "questions") {
     const checked = cleanAnswers(form, b.answers);
@@ -2715,12 +2754,13 @@ app.post("/responses", requirePermission("forms.respond"), async (c) => {
     files: form.kind === "file" ? cleanResponseFiles(b.files, form.id, p.id) : [],
     submitted_at: new Date().toISOString(),
   };
-  const { data: existing } = await admin.from("responses").select("id")
-    .eq("form_id", form.id).eq("respondent_id", p.id).is("visit_id", null).maybeSingle();
+  const existingQ = admin.from("responses").select("id").eq("form_id", form.id).eq("respondent_id", p.id);
+  const { data: existing } = visit ? await existingQ.eq("visit_id", visit.id).maybeSingle() : await existingQ.is("visit_id", null).maybeSingle();
   const { data, error } = existing
     ? await admin.from("responses").update(row).eq("id", existing.id).select().single()
     : await admin.from("responses")
-      .insert({ id: rid("resp"), form_id: form.id, respondent_id: p.id, ...row }).select().single();
+      .insert({ id: rid("resp"), form_id: form.id, respondent_id: p.id, ...(visit ? { visit_id: visit.id } : {}), ...row }).select().single();
+  if (!error && visit) await audit(c, "visit.form_completed", "field_report", visit.id, { formId: form.id });
   if (error) return c.json({ error: error.message }, 400);
   return c.json({ response: await mapResponse(data) });
 });
@@ -3738,7 +3778,21 @@ app.get("/field-reports", requirePermission("field_reports.view.own", "field_rep
     return q;
   });
   if (error) return c.json({ error: error.message }, 500);
-  return c.json({ reports: (data ?? []).map(mapReport) });
+  // For the officer's own visits: which of the visit's forms are still to fill.
+  let missing: Map<string, Record<string, any>[]> = new Map();
+  if (!all && data?.length) {
+    const [{ data: forms }, responses] = await Promise.all([
+      admin.from("forms").select("id, title, kind, audience, county, visit_type, archived_at, created_at, questions, external_url").not("visit_type", "is", null),
+      selectIn("responses", "visit_id", data.map((r) => r.id as string), "id, form_id, visit_id"),
+    ]);
+    missing = new Map(data.map((r) => [r.id as string, missingVisitForms(r, forms ?? [], responses)]));
+  }
+  return c.json({
+    reports: (data ?? []).map((r) => ({
+      ...mapReport(r), id: r.id, schoolId: r.school_id ?? null,
+      ...(all ? {} : { missingForms: (missing.get(r.id as string) ?? []).map((f) => ({ id: f.id, title: f.title })) }),
+    })),
+  });
 });
 
 /* The visit's id from the device (made when the visit starts), so sending
@@ -4921,6 +4975,168 @@ app.post("/data-quality/issues/:id/fix", requirePermission("data_quality.manage"
   // Check the data again: if the problem is still there, the issue reopens.
   try { await runDqScan(actorId, "correction"); } catch (e) { console.error("dq scan after correction:", (e as Error).message); }
   return c.json(await dqIssueDetail(c, i.id));
+});
+
+// ---------------------------------------------------------------- notifications
+/* Stored and auditable: the rules (notifications.ts) run hourly, and for
+   one person when they open their notifications if nothing has run for
+   them in the last quarter hour. What's new is stored — never twice for
+   the same thing — with a "created" event; reading one records a "read"
+   event. Nothing is ever deleted or rewritten (the database refuses). */
+
+async function runNotifications(trigger: "schedule" | "user" | "manual", onlyRecipient: string | null = null) {
+  const runId = rid("nrun");
+  const startedAt = new Date().toISOString();
+  await admin.from("notification_runs").insert({ id: runId, trigger, scope: onlyRecipient ? `user:${onlyRecipient}` : "all", started_at: startedAt, created: 0 });
+  try {
+    const now = new Date();
+    const read = (table: string, cols: string) => selectAll(() => admin.from(table).select(cols).order("id"));
+    const since = (days: number) => new Date(now.getTime() - days * 864e5).toISOString();
+    const results = await Promise.all([
+      read("profiles", "id, role, status, county, full_name, email"),
+      read("learners", "id, class_id, enrollment_status"),
+      read("class_teachers", "id, class_id, teacher_id, ended_at"),
+      read("classes", "id, name"),
+      read("assignments", "id, class_id, title, status, due_at, created_by"),
+      read("assignment_submissions", "id, assignment_id, learner_id, status, submitted_at, marked_at, percentage, band"),
+      read("forms", "id, title, audience, county, visit_type, due_on, archived_at, created_at"),
+      read("responses", "id, form_id, respondent_id, visit_id"),
+      selectAll(() => admin.from("field_reports").select("id, officer_id, school, county, visit_type, created_at").gt("created_at", since(31)).order("id")),
+      read("kobo_forms", "id, title"),
+      selectAll(() => admin.from("kobo_raw_submissions").select("id, kobo_form_id, received_at").gt("received_at", since(2)).order("id")),
+      selectAll(() => admin.from("notifications").select("id, recipient_id, data, created_at").eq("kind", "kobo_received").order("id")),
+    ]);
+    const failed = results.find((r) => r.error);
+    if (failed) throw new Error(failed.error!.message);
+    const [profiles, learners, classTeachers, classes, assignments, submissions, forms, responses, fieldReports, koboForms, raw, told] = results.map((r) => r.data);
+    const recs = raw.length ? await selectIn("kobo_records", "raw_id", raw.map((r) => r.id as string), "raw_id, status, review") : [];
+    const review = new Set(recs.filter((r) => (r.status === "invalid" || r.status === "duplicate") && !r.review).map((r) => r.raw_id));
+    const koboLastNotified: Record<string, string> = {};
+    for (const n of told) {
+      const until = String(n.data?.until ?? n.created_at);
+      if (!koboLastNotified[n.recipient_id] || until > koboLastNotified[n.recipient_id]) koboLastNotified[n.recipient_id] = until;
+    }
+    const candidates = buildNotifications({
+      profiles, learners, classTeachers, classes, assignments, submissions, forms, responses, fieldReports, koboForms,
+      koboReceived: raw.map((r) => ({ ...r, needs_review: review.has(r.id) })), koboLastNotified,
+      can: (role, perm) => can(role, perm as Permission),
+    }, now, onlyRecipient);
+
+    // Only what's new: one row per person per dedupe key, ever.
+    const recipients = [...new Set(candidates.map((x) => x.recipientId))];
+    const existing = recipients.length ? await selectIn("notifications", "recipient_id", recipients, "id, recipient_id, dedupe_key") : [];
+    const have = new Set(existing.map((e) => `${e.recipient_id}|${e.dedupe_key}`));
+    const rows = candidates.filter((x) => !have.has(`${x.recipientId}|${x.dedupeKey}`)).map((x) => ({
+      id: rid("ntf"), recipient_kind: x.recipientKind, recipient_id: x.recipientId, kind: x.kind, severity: x.severity,
+      title: x.title.slice(0, 300), body: x.body.slice(0, 2000), link: x.link, data: x.data, dedupe_key: x.dedupeKey,
+      run_id: runId, created_at: now.toISOString(),
+    }));
+    let created = 0;
+    for (let i = 0; i < rows.length; i += 200) {
+      const { data: inserted, error } = await admin.from("notifications")
+        .upsert(rows.slice(i, i + 200), { onConflict: "recipient_id,dedupe_key", ignoreDuplicates: true }).select("id");
+      if (error) throw new Error(error.message);
+      const ids = (inserted ?? []).map((r: Record<string, unknown>) => r.id as string);
+      created += ids.length;
+      if (ids.length) {
+        await admin.from("notification_events").insert(ids.map((id) => ({
+          notification_id: id, action: "created", actor_kind: "system", actor_id: null, details: { run: runId, trigger }, at: now.toISOString(),
+        })));
+      }
+    }
+    await admin.from("notification_runs").update({ finished_at: new Date().toISOString(), created }).eq("id", runId);
+    return { run: runId, created };
+  } catch (e) {
+    const msg = (e as Error).message;
+    console.error("notifications run:", msg);
+    await admin.from("notification_runs").update({ finished_at: new Date().toISOString(), error: msg.slice(0, 500) }).eq("id", runId);
+    return { run: runId, created: 0, error: msg };
+  }
+}
+
+const mapNotification = (n: Record<string, any>) => ({
+  id: n.id, kind: n.kind, severity: n.severity, title: n.title, body: n.body, link: n.link ?? null,
+  data: n.data ?? {}, createdAt: n.created_at, readAt: n.read_at ?? null,
+});
+
+async function unreadCount(me: string) {
+  const { count } = await admin.from("notifications").select("id", { count: "exact", head: true }).eq("recipient_id", me).is("read_at", null);
+  return count ?? 0;
+}
+
+/* My notifications, newest first (the latest 60), with the unread count. */
+app.get("/notifications", requireActive(), async (c) => {
+  const me = c.get("actor").id as string;
+  const recent = new Date(Date.now() - 15 * 60_000).toISOString();
+  const { data: runs } = await admin.from("notification_runs").select("id").in("scope", ["all", `user:${me}`]).gt("started_at", recent).limit(1);
+  if (!runs?.length) await runNotifications("user", me);
+  const { data } = await admin.from("notifications").select("*").eq("recipient_id", me).order("created_at", { ascending: false }).limit(60);
+  const list = (data ?? []).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)) || String(b.id).localeCompare(String(a.id)));
+  return c.json({ notifications: list.map(mapNotification), unread: await unreadCount(me) });
+});
+
+// deno-lint-ignore no-explicit-any
+async function markRead(c: any, n: Record<string, any>) {
+  if (n.read_at) return;
+  const at = new Date().toISOString();
+  const { error } = await admin.from("notifications").update({ read_at: at }).eq("id", n.id).is("read_at", null);
+  if (error) throw new Error(error.message);
+  await admin.from("notification_events").insert({
+    notification_id: n.id, action: "read", actor_kind: c.get("actorKind") === "learner" ? "learner" : "staff", actor_id: c.get("actor").id, at,
+  });
+}
+
+app.post("/notifications/:id/read", requireActive(), async (c) => {
+  const me = c.get("actor").id as string;
+  const { data: n } = await admin.from("notifications").select("*").eq("id", c.req.param("id")).maybeSingle();
+  if (!n || n.recipient_id !== me) return c.json({ error: "Notification not found" }, 404);
+  await markRead(c, n);
+  return c.json({ ok: true, unread: await unreadCount(me) });
+});
+
+app.post("/notifications/read-all", requireActive(), async (c) => {
+  const me = c.get("actor").id as string;
+  const { data } = await selectAll(() => admin.from("notifications").select("*").eq("recipient_id", me).is("read_at", null).order("id"));
+  for (const n of data ?? []) await markRead(c, n);
+  return c.json({ ok: true, read: data?.length ?? 0, unread: 0 });
+});
+
+/* Who was told what, when — and when they read it. ?kind= ?role= ?status=read|unread ?from= ?to= */
+app.get("/notifications/log", requirePermission("notifications.view.all"), async (c) => {
+  const q = (k: string) => String(c.req.query(k) ?? "").trim();
+  const [{ data, error }, { data: people }, { data: learners }, { data: runs }] = await Promise.all([
+    selectAll(() => admin.from("notifications").select("*").order("created_at", { ascending: false }).order("id")),
+    selectAll(() => admin.from("profiles").select("id, full_name, role, school, county").order("id")),
+    selectAll(() => admin.from("learners").select("id, full_name, school").order("id")),
+    admin.from("notification_runs").select("*").order("started_at", { ascending: false }).limit(10),
+  ]);
+  if (error) return c.json({ error: error.message }, 500);
+  const who = new Map<string, { name: string; role: string; place: string }>();
+  for (const p of people ?? []) who.set(p.id, { name: p.full_name, role: p.role, place: p.school || p.county || "" });
+  for (const l of learners ?? []) who.set(l.id, { name: l.full_name, role: "learner", place: l.school || "" });
+  const day = (v: unknown) => String(v ?? "").slice(0, 10);
+  const rows = (data ?? []).filter((n) =>
+    (!q("kind") || n.kind === q("kind")) &&
+    (!q("role") || who.get(n.recipient_id)?.role === q("role")) &&
+    (!q("status") || (q("status") === "read" ? !!n.read_at : !n.read_at)) &&
+    (!q("from") || day(n.created_at) >= q("from")) && (!q("to") || day(n.created_at) <= q("to")))
+    .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  return c.json({
+    total: rows.length,
+    unread: rows.filter((n) => !n.read_at).length,
+    notifications: rows.slice(0, 300).map((n) => ({
+      ...mapNotification(n), recipient: who.get(n.recipient_id) ?? { name: "Former account", role: n.recipient_kind, place: "" },
+    })),
+    runs: (runs ?? []).sort((a, b) => String(b.started_at).localeCompare(String(a.started_at))).map((r) => ({
+      id: r.id, trigger: r.trigger, scope: r.scope, startedAt: r.started_at, finishedAt: r.finished_at ?? null, created: r.created, error: r.error ?? null,
+    })),
+  });
+});
+
+app.post("/notifications/run-now", requirePermission("notifications.view.all"), async (c) => {
+  const res = await runNotifications("manual");
+  await audit(c, "notifications.run", "notification_runs", res.run, { created: res.created });
+  return c.json(res);
 });
 
 // ---------------------------------------------------------------- Sync center

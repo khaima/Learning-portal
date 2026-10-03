@@ -372,6 +372,7 @@ export async function addForm(form) {
     externalUrl: form.externalUrl || null,
     questions: form.questions || [],
     files: file ? [{ name: file.name, size: file.size }] : [],
+    dueOn: form.dueOn || null,
   });
   if (file && uploads?.[0]) {
     const { error } = await supabase.storage.from(LIBRARY_BUCKET)
@@ -429,14 +430,30 @@ export async function getResponses() {
 
 /** Sends a form response — or queues it offline: then { queued: true }. */
 export async function addResponse(r) {
+  const key = r.visitId ? `form:${r.formId}:${r.visitId}` : `form:${r.formId}`;
   const { data, queued } = await sync.send({
     method: "POST", path: "/responses",
-    body: { formId: r.formId, answers: r.answers || [], files: r.files || [] },
-    label: `Form: ${r.title || "response"}`, kind: "form-response",
-    group: `form:${r.formId}`, dedupe: `form:${r.formId}`,
+    body: { formId: r.formId, answers: r.answers || [], files: r.files || [], ...(r.visitId ? { visitId: r.visitId } : {}) },
+    label: `Form: ${r.title || "response"}`, kind: "form-response", group: key, dedupe: key,
   });
   return queued ? { queued: true } : data.response;
 }
+/** A form's due date (null clears it): everyone it reaches is reminded as it comes due. */
+export async function setFormDue(id, dueOn) {
+  const { form } = await apiSend("PATCH", `/forms/${id}`, { dueOn: dueOn || null });
+  return form;
+}
+
+/* ---------------------------------------------------------------- notifications
+   Stored on the server with when they were sent and read. Reading one
+   offline is queued like any other offline activity. */
+export const getNotifications = () => apiGet("/notifications");
+export async function readNotification(id, title = "") {
+  return sync.send({ method: "POST", path: `/notifications/${id}/read`, body: {}, label: `Read: ${title || "notification"}`, kind: "notification-read", dedupe: `nread:${id}` });
+}
+export const readAllNotifications = () => apiSend("POST", "/notifications/read-all", {});
+export const notificationLog = (params = {}) => apiGet(`/notifications/log${qs(params)}`);
+export const runNotificationsNow = () => apiSend("POST", "/notifications/run-now", {});
 
 /* ---------------------------------------------------------------- assignments
    Teachers build assignments for the classes they teach; learners open,

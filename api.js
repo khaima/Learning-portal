@@ -117,7 +117,7 @@ const KEEP_OFFLINE = [
   /^\/learners(\?.*)?$/, /^\/classes(\?.*)?$/, /^\/classes\/[^/?]+$/,
   /^\/assignments(\?.*)?$/, /^\/assignments\/[^/?]+$/,
   /^\/submissions(\?.*)?$/, /^\/submissions\/[^/?]+$/,
-  /^\/school\/overview$/, /^\/sync\/status$/,
+  /^\/school\/overview$/, /^\/sync\/status$/, /^\/notifications$/,
 ];
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 

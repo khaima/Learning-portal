@@ -17,11 +17,13 @@ import { waiting } from "./sync.js";
 export const FORM_KIND_LABEL = { questions: "Questions", file: "File form", link: "Link" };
 
 /** Small tags describing a form: its kind, county and visit type. */
+const dueText = (d) => new Date(`${d}T00:00:00`).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" });
 export function formTagsHtml(form) {
   return [
     `<span class="form-tag">${esc(FORM_KIND_LABEL[form.kind] || "Questions")}</span>`,
     `<span class="form-tag">${esc(form.county || "All counties")}</span>`,
     form.visitType ? `<span class="form-tag visit">${esc(form.visitType)} visits</span>` : "",
+    form.dueOn ? `<span class="form-tag due">Due ${esc(dueText(form.dueOn))}</span>` : "",
   ].join("");
 }
 

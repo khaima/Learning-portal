@@ -20,6 +20,7 @@ import { startLibraryInteraction, completeLibraryInteraction, awardLibraryBadge,
 import { openViewer, openYouTubeViewer, viewableKind, isViewerOpen, currentOpenId, showBadgeCelebration } from "./viewer.js";
 import * as sync from "./sync.js";
 import { mountSyncStatus, openSyncPanel } from "./sync-ui.js";
+import { mountBell } from "./notify-ui.js";
 
 // Online / offline, last sync and what's waiting — on every dashboard; the
 // Sync center opens from it (and from a "Sync center" link where there is one).
@@ -249,14 +250,8 @@ if (pageLinks.length) {
   showPage((location.hash || "").slice(1));
 }
 
-/* notification bell — nothing to notify about yet, but it responds */
-const bell = $(".app-top-actions .icon-btn");
-if (bell) {
-  bell.addEventListener("click", () => {
-    bell.querySelector(".dot")?.remove();
-    toast("You're all caught up", "No new notifications.");
-  });
-}
+/* notification bell — stored notifications, unread count, the list (notify-ui.js) */
+mountBell();
 
 /* ---------------------------------------------------------------- mobile nav drawer
    Below 860px the sidebar (.app-side, styles.css) goes off-canvas rather

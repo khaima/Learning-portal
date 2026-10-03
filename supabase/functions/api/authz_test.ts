@@ -17,6 +17,7 @@
  * so a new endpoint can't ship without an authorization test.
  */
 import { assert, assertEquals } from "jsr:@std/assert@1";
+import { localDay } from "./notifications.ts";
 
 Deno.env.set("SUPABASE_URL", "http://localhost:54321");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "test-service-key");
@@ -114,6 +115,10 @@ function fakeAdmin(db: Db, users: Record<string, { id: string; email: string }>)
   const ok = { data: { user: { id: "new-user" } }, error: null };
   return {
     from,
+    // The database functions the API calls: only the cron secret check.
+    rpc: (name: string, args: Row) => Promise.resolve(name === "notify_cron_secret_ok"
+      ? { data: args.candidate === CRON_SECRET, error: null }
+      : { data: null, error: { message: `no function ${name}` } }),
     auth: {
       getUser: (jwt: string) => Promise.resolve(users[jwt]
         ? { data: { user: users[jwt] }, error: null }
@@ -141,6 +146,7 @@ type R = (typeof ROLES)[number];
 const ALL: R[] = [...ROLES];
 const NON_ACTIVE = ["pending", "suspended", "rejected", "deactivated"] as const;
 
+const CRON_SECRET = "c".repeat(64);
 const SCHOOL = { id: "sch_1", name: "Aitong Primary", county: "Narok", code: "NRK-001", seq: 1 };
 const SCHOOL_B = { id: "sch_2", name: "Olpusimoru Primary", county: "Narok", code: "NRK-002", seq: 2 };
 const idOf = (role: string) => `00000000-0000-0000-0000-${role.padEnd(12, "0").slice(0, 12).replace(/[^0-9a-f]/g, "a")}`;
@@ -254,6 +260,7 @@ function freshWorld() {
     me_programmes: [], me_outcomes: [], me_indicators: [], me_targets: [], me_actuals: [], me_evidence: [], me_reports: [],
     trainings: [], training_attendance: [],
     sync_requests: [], device_sync_status: [],
+    notifications: [], notification_events: [], notification_runs: [],
     staff_invitations: [],
     audit_log: [],
   };
@@ -360,6 +367,12 @@ const ROUTES: RouteSpec[] = [
   r("GET", "/intelligence", ANALYSTS),
   r("GET", "/impact", ANALYSTS),
   r("GET", "/sync/status", ALL),
+  r("GET", "/notifications", ALL),
+  r("POST", "/notifications/:id/read", ALL, {}),
+  r("POST", "/notifications/read-all", ALL, {}),
+  r("GET", "/notifications/log", EDU_ADMIN),
+  r("POST", "/notifications/run-now", EDU_ADMIN, {}),
+  r("PATCH", "/forms/:id", EDU_ADMIN, { dueOn: "2026-10-10" }),
   r("POST", "/sync/report", [...STAFF], { deviceId: "device-0001" }),
   r("GET", "/sync/devices", EDU_ADMIN),
   r("GET", "/trainings", ANALYSTS),
@@ -434,7 +447,7 @@ const ROUTES: RouteSpec[] = [
 ];
 /** Need a sign-in but no particular permission (sign-up, own profile, school list). */
 const SIGNED_IN_ONLY = ["GET /me", "POST /me", "POST /me/accept-invite", "GET /schools"];
-const PUBLIC = ["GET /health", "POST /auth/register", "POST /learner/login", "POST /learner/logout", "GET /invitations/:token", "POST /kobo/hook"];
+const PUBLIC = ["GET /health", "POST /auth/register", "POST /learner/login", "POST /learner/logout", "GET /invitations/:token", "POST /kobo/hook", "POST /notifications/run"];
 
 const denied = (s: number) => s === 401 || s === 403;
 
@@ -1720,4 +1733,95 @@ Deno.test("sync center: staff devices report their sync state; the Education Tea
   assertEquals(res.json.people.find((p: Row) => p.id === "teacher-id").attention, null, "synced just now");
   assertEquals(res.json.people.find((p: Row) => p.id === "teacher2-id").attention, "No device has reported yet");
   assertEquals((await call("GET", "/sync/devices?role=field_officer", "tok_admin")).json.people.length, 1);
+});
+
+/* ------------------------------------------------------------ notifications */
+
+const tomorrowAt = (hhmmUtc = "09:00") => {
+  const d = new Date(Date.parse(`${localDay(new Date())}T00:00:00Z`) + 864e5).toISOString().slice(0, 10);
+  return `${d}T${hhmmUtc}:00.000Z`;
+};
+
+Deno.test("notifications: stored per person, never twice, read with a record of when", async () => {
+  const db = freshWorld();
+  db.assignments.find((a) => a.id === "asg_1")!.due_at = tomorrowAt();
+  const teacher = await call("GET", "/notifications", "tok_teacher");
+  assertEquals(teacher.status, 200);
+  const due = teacher.json.notifications.find((n: Row) => n.kind === "assignments_due");
+  assertEquals([due.title, due.link, teacher.json.unread], ["1 assignment is due tomorrow.", "teacher.html#assignments", 1]);
+  const learner = (await call("GET", "/notifications", LEARNER)).json;
+  assertEquals(learner.notifications.map((n: Row) => n.title), ["1 assignment is due tomorrow."]);
+  // Again (and a manual run): nothing new.
+  assertEquals((await call("POST", "/notifications/run-now", "tok_education_team", {})).json.created >= 0, true);
+  const before = db.notifications.length;
+  await call("POST", "/notifications/run-now", "tok_education_team", {});
+  assertEquals(db.notifications.length, before, "the same thing is never said twice");
+  assertEquals(db.notification_events.filter((e) => e.notification_id === due.id).map((e) => e.action), ["created"]);
+  // Reading: only your own; recorded once.
+  assertEquals((await call("POST", `/notifications/${due.id}/read`, LEARNER, {})).status, 404);
+  const r = await call("POST", `/notifications/${due.id}/read`, "tok_teacher", {});
+  assertEquals([r.status, r.json.unread], [200, 0]);
+  await call("POST", `/notifications/${due.id}/read`, "tok_teacher", {});
+  assertEquals(db.notification_events.filter((e) => e.notification_id === due.id).map((e) => [e.action, e.actor_id]), [["created", null], ["read", "teacher-id"]]);
+  assert(db.notifications.find((n) => n.id === due.id)!.read_at);
+  // Approvers: pending accounts. The Education Team can't approve, so isn't told.
+  assertEquals((await call("GET", "/notifications", "tok_admin")).json.notifications.find((n: Row) => n.kind === "accounts_pending")?.title, "1 staff account awaiting approval.");
+  assertEquals((await call("GET", "/notifications", "tok_education_team")).json.notifications.some((n: Row) => n.kind === "accounts_pending"), false);
+  // Mark all read.
+  await call("POST", "/notifications/read-all", "tok_admin", {});
+  assertEquals((await call("GET", "/notifications", "tok_admin")).json.unread, 0);
+});
+
+Deno.test("notifications: 'Term return is due.' from a form's due date; dates checked", async () => {
+  const db = freshWorld();
+  const tomorrow = tomorrowAt().slice(0, 10);
+  const made = await call("POST", "/forms", "tok_education_team", { title: "Term return", audience: "school_leader", kind: "questions", questions: [{ prompt: "Enrolment?" }], dueOn: tomorrow });
+  assertEquals(made.json.form.dueOn, tomorrow);
+  const head = (await call("GET", "/notifications", "tok_school_leader")).json.notifications;
+  assertEquals(head.map((n: Row) => n.title), ["Term return is due."]);
+  assertEquals(head[0].link, "leader.html#overview");
+  assertEquals((await call("PATCH", `/forms/${made.json.form.id}`, "tok_education_team", { dueOn: "next week" })).status, 400);
+  assertEquals((await call("PATCH", `/forms/${made.json.form.id}`, "tok_education_team", { dueOn: null })).status, 200);
+  assertEquals(db.forms.find((f) => f.id === made.json.form.id)!.due_on, null);
+  assert(db.audit_log.some((x) => x.action === "form.due_date_set"));
+  assertEquals((await call("POST", "/forms", "tok_education_team", { title: "V", audience: "field_officer", visitType: "ICT", kind: "questions", questions: [{ prompt: "x" }], dueOn: tomorrow })).status, 400);
+});
+
+Deno.test("notifications: 'Your ICT visit form is incomplete.' — and the officer can finish it afterwards", async () => {
+  const db = freshWorld();
+  const form = (await call("POST", "/forms", "tok_education_team", { title: "ICT checklist", audience: "field_officer", visitType: "ICT", kind: "questions", questions: [{ id: "q1", prompt: "Tablets working?" }] })).json.form;
+  db.forms.find((f) => f.id === form.id)!.created_at = new Date(Date.now() - 864e5).toISOString();
+  const visit = (await call("POST", "/field-reports", "tok_field_officer", { schoolId: "sch_1", visitType: "ICT", responses: [] })).json.report;
+  const mine = (await call("GET", "/notifications", "tok_field_officer")).json.notifications;
+  assertEquals(mine.find((n: Row) => n.kind === "visit_incomplete")?.title, "Your ICT visit form is incomplete.");
+  const reports = (await call("GET", "/field-reports", "tok_field_officer")).json.reports;
+  assertEquals(reports[0].missingForms, [{ id: form.id, title: "ICT checklist" }]);
+  // Finish it: only for your own visit, and only that visit type's forms.
+  const body = { formId: form.id, visitId: reports[0].id, answers: [{ questionId: "q1", value: "Yes" }] };
+  assertEquals((await call("POST", "/responses", "tok_field_officer", { ...body, visitId: undefined })).status, 400, "a visit form needs its visit");
+  assertEquals((await call("POST", "/responses", "tok_field_officer", body)).status, 200);
+  assertEquals((await call("GET", "/field-reports", "tok_field_officer")).json.reports[0].missingForms, []);
+  assertEquals(db.responses.filter((r) => r.visit_id === reports[0].id).length, 1);
+  assert(db.audit_log.some((x) => x.action === "visit.form_completed"));
+  void visit;
+});
+
+Deno.test("notifications: the hourly run needs the database's secret; Kobo receipts are told once", async () => {
+  const db = freshWorld();
+  assertEquals((await app.request("/api/notifications/run", { method: "POST" })).status, 401);
+  assertEquals((await app.request("/api/notifications/run", { method: "POST", headers: { "X-Cron-Secret": "d".repeat(64) } })).status, 401);
+  const now = new Date().toISOString();
+  for (let i = 0; i < 12; i++) db.kobo_raw_submissions.push({ id: `kraw${i}`, kobo_form_id: "kb_1", kobo_id: i, source: "sync", received_at: now, payload: {} });
+  const ok = await app.request("/api/notifications/run", { method: "POST", headers: { "X-Cron-Secret": CRON_SECRET } });
+  assertEquals(ok.status, 200);
+  assert((await ok.json()).created > 0);
+  assertEquals(db.notification_runs.at(-1)!.trigger, "schedule");
+  const ed = db.notifications.filter((n) => n.recipient_id === "education_team-id" && n.kind === "kobo_received");
+  assertEquals(ed.map((n) => n.title), ["12 Kobo submissions received."]);
+  await app.request("/api/notifications/run", { method: "POST", headers: { "X-Cron-Secret": CRON_SECRET } });
+  assertEquals(db.notifications.filter((n) => n.recipient_id === "education_team-id" && n.kind === "kobo_received").length, 1, "told once");
+  // The log: who was told what, and whether they've read it.
+  const log = (await call("GET", "/notifications/log?kind=kobo_received&status=unread", "tok_education_team")).json;
+  assert(log.notifications.some((n: Row) => n.recipient.name === "education_team person" && !n.readAt));
+  assertEquals(log.runs[0].trigger, "schedule");
 });

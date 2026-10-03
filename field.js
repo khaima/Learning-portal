@@ -7,6 +7,9 @@ import {
   myKoboSurveys, markKoboSubmitted,
 } from "./store.js";
 import { mountFormList, renderVisitForms, unfilledVisitForms, collectVisitResponses, FORM_KIND_LABEL } from "./forms.js";
+import { addResponse } from "./store.js";
+import { openContentPanel, closeViewer } from "./viewer.js";
+import { waiting } from "./sync.js";
 
 const ICON = {
   schools: '<path d="M4 21V8l8-5 8 5v13"/><path d="M9 21v-6h6v6"/>',
@@ -53,7 +56,52 @@ async function main() {
   }
 
   function reportRow(r) {
-    return `<div class="task-row"><div><b>${esc(r.school)}</b><span>${esc(r.county)} · ${esc(r.visitType)} · ${esc(r.detail)}</span></div></div>`;
+    const missing = (r.missingForms || []).filter((f) => !waiting(`form:${f.id}:${r.id}`));
+    return `<div class="task-row"><div style="flex:1;min-width:0"><b>${esc(r.school)}</b><span>${esc(r.county)} · ${esc(r.visitType)} · ${esc(r.detail)}</span></div>
+      ${missing.length ? `<button type="button" class="pill warm" style="border:0;cursor:pointer" data-finish-visit="${esc(r.id)}">${missing.length} form${missing.length === 1 ? "" : "s"} to finish</button>`
+        : (r.missingForms || []).length ? `<span class="pill">Waiting to sync</span>` : ""}</div>`;
+  }
+
+  /* A visit filed without all its forms: finish them now (offline too —
+     they're sent with the next sync). Notifications point here. */
+  async function openFinishVisit(id) {
+    const r = reportsCache.find((x) => x.id === id);
+    if (!r) return;
+    const forms = (await getForms().catch(() => [])).filter((f) => (r.missingForms || []).some((m) => m.id === f.id));
+    if (!forms.length) { toast("Nothing to finish", "These forms are no longer available."); return; }
+    const panel = openContentPanel({
+      title: `Finish the visit's forms`,
+      html: `<p class="hint" style="margin-top:0"><b>${esc(r.school)}</b> · ${esc(r.visitType)} visit · ${esc(r.detail)}</p>
+        <div class="visit-forms-body" data-forms></div>
+        <button type="button" class="btn btn-primary btn-block" data-send>Send the forms</button>`,
+    });
+    renderVisitForms(panel.querySelector("[data-forms]"), forms);
+    panel.querySelector("[data-send]").addEventListener("click", async (e) => {
+      const box = panel.querySelector("[data-forms]");
+      const filled = forms.filter((f) => !unfilledVisitForms(box, [f]).length);
+      if (!filled.length) { toast("Fill in at least one form", "", "error"); return; }
+      e.target.disabled = true;
+      try {
+        const responses = await collectVisitResponses(box, filled);
+        let queued = 0;
+        for (const resp of responses) {
+          const res = await addResponse({ ...resp, visitId: r.id, title: forms.find((f) => f.id === resp.formId)?.title });
+          if (res?.queued) queued += 1;
+        }
+        closeViewer();
+        toast(queued ? "Saved on this device" : "Forms sent", queued ? "They're sent when you're back online." : `${responses.length} form${responses.length === 1 ? "" : "s"} added to the visit.`, "success");
+        refreshReports();
+      } catch (err) {
+        e.target.disabled = false;
+        toast("Couldn't send them", friendlyError(err), "error");
+      }
+    });
+  }
+  for (const sel of ["#reportList", "#homeReportList"]) {
+    $(sel).addEventListener("click", (e) => {
+      const b = e.target.closest("[data-finish-visit]");
+      if (b) openFinishVisit(b.dataset.finishVisit);
+    });
   }
 
   let reportsFailed = false;
@@ -79,8 +127,8 @@ async function main() {
     try {
       const reports = await getFieldReports();
       reportsCache = reports.map((r) => ({
-        school: r.school, county: r.county, visitType: r.visitType, createdAt: r.createdAt,
-        detail: new Date(r.createdAt).toLocaleDateString(),
+        id: r.id, school: r.school, county: r.county, visitType: r.visitType, createdAt: r.createdAt,
+        detail: new Date(r.createdAt).toLocaleDateString(), missingForms: r.missingForms || [],
       }));
       reportsFailed = false;
     } catch (err) {

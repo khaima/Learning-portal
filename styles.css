@@ -1510,3 +1510,26 @@ a.stat-tile.dq-tile-link:hover{ border-color:var(--brand); }
 .sc-team tr.sc-attn td{ background:var(--accent-soft); }
 /* A button that can't be used right now (e.g. Sync now while offline) looks it. */
 .btn:disabled, .btn[aria-disabled="true"]{ opacity:.5; cursor:not-allowed; box-shadow:none; }
+
+/* ---- notifications ---- */
+.icon-btn{ position:relative; }
+.bell-count{
+  position:absolute; top:-4px; right:-4px; min-width:18px; height:18px; padding:0 4px; border-radius:999px;
+  background:var(--accent); color:#fff; font-size:.68rem; font-weight:800; line-height:18px; text-align:center;
+  border:2px solid var(--paper);
+}
+.notif-list{ list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:.5rem; }
+.notif{ display:flex; flex-wrap:wrap; gap:.6rem; justify-content:space-between; align-items:flex-start; padding:.75rem .9rem;
+  border:1px solid var(--line); border-radius:var(--radius-md); background:var(--paper-raised); }
+.notif.is-unread{ border-left:4px solid var(--brand); }
+.notif.is-unread.notif-warning{ border-left-color:var(--danger); }
+.notif.is-unread.notif-action{ border-left-color:var(--accent); }
+.notif.is-read{ opacity:.75; }
+.notif-main{ flex:1; min-width:14rem; display:flex; flex-direction:column; gap:.15rem; }
+.notif-main b{ font-size:.95rem; }
+.notif-body{ font-size:.85rem; color:var(--ink-soft); }
+.notif-meta{ font-size:.75rem; color:var(--ink-soft); }
+.notif-actions{ display:flex; gap:.4rem; flex-wrap:wrap; }
+.form-tag.due{ background:var(--accent-soft); color:var(--accent-fg); }
+.fc-due{ display:inline-flex; align-items:center; gap:.4rem; font-size:.8rem; color:var(--ink-soft); margin-right:.6rem; }
+.fc-due input{ border:1.5px solid var(--line); border-radius:var(--radius-sm); padding:.3rem .45rem; font:inherit; font-size:.8rem; background:var(--paper-raised); color:var(--ink); }
