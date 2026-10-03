@@ -35,7 +35,7 @@ import { supabase } from "./supabase.js";
 const BUCKET = "library";
 const FIVE_MIN = 5 * 60_000;
 /** Shown to the Education Team next to each device, to spot an old copy of the app. */
-export const APP_VERSION = "2026.10.03b";
+export const APP_VERSION = "2026.10.03c";
 
 /* What each kind of queued activity counts as, in the Sync center. */
 const AREA = {

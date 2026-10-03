@@ -1099,6 +1099,14 @@ body.viewer-locked{ overflow:hidden; }
 
 /* ---- survey results (live charts) ---- */
 .chart-meta{ font-size:.78rem; color:var(--ink-soft); margin:0 0 .9rem; }
+
+/* Export reports (reports-ui.js) */
+.export-center .xp-row{ margin-bottom:.7rem; }
+.export-center .xp-report{ flex:2 1 18rem; max-width:28rem; }
+.export-center .xp-desc{ margin:0 0 .8rem; max-width:62rem; }
+.export-center .xp-actions{ display:flex; flex-wrap:wrap; gap:.5rem; }
+.export-center .xp-actions .btn{ min-width:6.5rem; }
+.export-center .xp-result{ margin:.7rem 0 0; }
 .chart-grid{
   display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:1.1rem;
 }

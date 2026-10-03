@@ -239,6 +239,11 @@ if (pageLinks.length) {
     pages.forEach((p) => { p.hidden = p.dataset.page !== page; });
     pageLinks.forEach((l) => l.classList.toggle("active", l.dataset.page === page));
     window.scrollTo(0, 0);
+    // Export reports: loaded the first time a page that has it is opened.
+    for (const el of $$(`.dash-page[data-page="${page}"] [data-export-center]:not([data-mounted])`)) {
+      el.dataset.mounted = "1";
+      import("./reports-ui.js").then((m) => m.mountExportCenter(el)).catch(() => { delete el.dataset.mounted; });
+    }
   }
 
   pageLinks.forEach((link) => {

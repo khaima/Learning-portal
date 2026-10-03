@@ -375,6 +375,19 @@ const ROUTES: RouteSpec[] = [
   r("PATCH", "/forms/:id", EDU_ADMIN, { dueOn: "2026-10-10" }),
   r("POST", "/sync/report", [...STAFF], { deviceId: "device-0001" }),
   r("GET", "/sync/devices", EDU_ADMIN),
+  // Reports export: each report's own permissions decide who may export it.
+  r("GET", "/reports", [...STAFF]),
+  r("GET", "/reports/:id", LEARNER_VIEWERS, undefined, "/reports/learner-register"),
+  r("GET", "/reports/:id", [...ANALYSTS, "school_leader"], undefined, "/reports/teacher-register"),
+  r("GET", "/reports/:id", [...ANALYSTS, "school_leader"], undefined, "/reports/school-register"),
+  r("GET", "/reports/:id", LEARNER_VIEWERS, undefined, "/reports/assignment-report"),
+  r("GET", "/reports/:id", LEARNER_VIEWERS, undefined, "/reports/assessment-report"),
+  r("GET", "/reports/:id", [...ANALYSTS, "field_officer"], undefined, "/reports/field-visit-report"),
+  r("GET", "/reports/:id", ANALYSTS, undefined, "/reports/kobo-report"),
+  r("GET", "/reports/:id", ANALYSTS, undefined, "/reports/library-usage"),
+  r("GET", "/reports/:id", ANALYSTS, undefined, "/reports/me-indicator-report"),
+  r("GET", "/reports/:id", [...ANALYSTS, "school_leader"], undefined, "/reports/term-report"),
+  r("GET", "/reports/:id", ANALYSTS, undefined, "/reports/county-report"),
   r("GET", "/trainings", ANALYSTS),
   r("GET", "/trainings/teachers", ANALYSTS),
   r("GET", "/trainings/:id", ANALYSTS),
@@ -1824,4 +1837,119 @@ Deno.test("notifications: the hourly run needs the database's secret; Kobo recei
   const log = (await call("GET", "/notifications/log?kind=kobo_received&status=unread", "tok_education_team")).json;
   assert(log.notifications.some((n: Row) => n.recipient.name === "education_team person" && !n.readAt));
   assertEquals(log.runs[0].trigger, "schedule");
+});
+
+/* ------------------------------------------------------------ reports export */
+
+/** A world with something in every report: marked work, visits, Kobo, reading, an indicator. */
+function reportWorld() {
+  const db = freshWorld();
+  const now = new Date().toISOString();
+  db.assignment_submissions.push(
+    { id: "sub_1", assignment_id: "asg_1", learner_id: "learner-id", school_id: SCHOOL.id, class_id: "cls_1", status: "marked", started_at: now, last_saved_at: now,
+      submitted_at: now, is_late: false, marks: 3, max_marks: 4, percentage: 75, band: "ME", marked_at: now, marked_by: "teacher-id", auto_marked: false },
+    { id: "sub_b", assignment_id: "asg_b", learner_id: "learner-b-id", school_id: SCHOOL_B.id, class_id: "cls_2", status: "marked", started_at: now, last_saved_at: now,
+      submitted_at: now, is_late: true, marks: 1, max_marks: 1, percentage: 100, band: "EE", marked_at: now, marked_by: "teacher-b-id", auto_marked: true },
+  );
+  db.field_reports.push(
+    { id: "fr_1", officer_id: "field_officer-id", school: SCHOOL.name, county: "Narok", visit_type: "ICT", school_id: SCHOOL.id, created_at: now },
+    { id: "fr_2", officer_id: "other-officer-id", school: SCHOOL_B.name, county: "Narok", visit_type: "ICT", school_id: SCHOOL_B.id, created_at: now },
+  );
+  db.profiles.push({ id: "other-officer-id", role: "field_officer", status: "active", full_name: "Other Officer", email: "other@test.org", school: "", school_id: null, county: "Narok" });
+  db.kobo_records.push({ id: "kr_1", raw_id: "kraw_1", kobo_form_id: "kb_1", kobo_id: 101, submitted_at: now, observed_on: now.slice(0, 10), school_id: SCHOOL.id,
+    school_value: SCHOOL.name, county: "Narok", officer_id: "field_officer-id", status: "invalid", review: null, answers: {}, record_hash: "h" });
+  db.kobo_record_issues.push({ id: 1, record_id: "kr_1", kobo_form_id: "kb_1", rule: "required", severity: "error", field: "q1", message: "q1 is required", value: null });
+  db.library_interactions[0] = { ...db.library_interactions[0], actor_kind: "learner", school: SCHOOL.name, duration_seconds: 600, completed_at: now };
+  db.trainings.push({ id: "tr_1", title: "ICT workshop", held_on: "2026-09-10", county: "Narok", school_id: null, archived_at: null });
+  db.training_attendance.push({ training_id: "tr_1", teacher_id: "teacher-id", attended: true });
+  db.me_programmes.push({ id: "prog_1", code: "P1", name: "Digital learning", status: "active" });
+  db.me_outcomes.push({ id: "out_1", programme_id: "prog_1", code: "O1", title: "Learners use digital content", position: 1, archived_at: null });
+  db.me_indicators.push({ id: "ind_1", outcome_id: "out_1", code: "1.1", name: "Learners reading digitally", unit: "number", direction: "increase",
+    source: "manual", source_config: {}, baseline_value: 10, position: 1, archived_at: null });
+  db.me_targets.push({ id: "tg_1", indicator_id: "ind_1", period: "2026-T3", scope_type: "programme", scope_id: null, target_value: 100 });
+  db.me_actuals.push({ id: "act_1", indicator_id: "ind_1", period: "2026-T3", scope_type: "programme", scope_id: null, value: 80, status: "verified", superseded_at: null, recorded_by: "me-id" });
+  return db;
+}
+const sectionRows = (json: Row, title: string) => (json.sections as Row[]).find((x) => x.title === title)?.rows as Row[];
+
+Deno.test("reports: the catalogue lists only the reports a person may export", async () => {
+  reportWorld();
+  const ids = async (tok: string) => ((await call("GET", "/reports", tok)).json.reports as Row[]).map((x) => x.id);
+  assertEquals((await ids("tok_education_team")).length, 11);
+  assertEquals(await ids("tok_teacher"), ["learner-register", "assignment-report", "assessment-report"]);
+  assertEquals(await ids("tok_field_officer"), ["field-visit-report"]);
+  assertEquals(await ids("tok_school_leader"), ["learner-register", "teacher-register", "school-register", "assignment-report", "assessment-report", "term-report"]);
+  const head = (await call("GET", "/reports", "tok_school_leader")).json;
+  assert(head.reports.every((x: Row) => x.scope === "Your school"), "a head's exports are their school");
+  assertEquals((await call("GET", "/reports/no-such-report", "tok_education_team")).status, 404);
+});
+
+Deno.test("reports: every report builds for the Education Team, and every export is audited", async () => {
+  const db = reportWorld();
+  for (const id of ["learner-register", "teacher-register", "school-register", "assignment-report", "assessment-report", "field-visit-report",
+    "kobo-report", "library-usage", "me-indicator-report", "term-report", "county-report"]) {
+    const res = await call("GET", `/reports/${id}?format=xlsx&period=2026-T3`, "tok_education_team");
+    assertEquals(res.status, 200, `${id}: ${JSON.stringify(res.json)}`);
+    assert(Array.isArray(res.json.sections) && res.json.sections.length > 0, id);
+    for (const sec of res.json.sections as Row[]) {
+      for (const row of sec.rows as Row[]) for (const col of sec.columns as Row[]) assert(col.key in row, `${id} / ${sec.title}: ${col.key}`);
+    }
+    assertEquals(res.json.generatedBy, "education_team person");
+    const entry = db.audit_log.at(-1)!;
+    assertEquals([entry.action, entry.target_id, entry.details.format], ["report.exported", id, "xlsx"]);
+  }
+  const mel = (await call("GET", "/reports/me-indicator-report?period=2026-T3", "tok_education_team")).json;
+  const ind = sectionRows(mel, "Indicators")[0];
+  assertEquals([ind.indicator, ind.baseline, ind.target, ind.actual, ind.achievement, ind.status], ["Learners reading digitally", 10, 100, 80, 80, "Close"]);
+  const kobo = (await call("GET", "/reports/kobo-report", "tok_education_team")).json;
+  assertEquals(sectionRows(kobo, "Submissions")[0].issues, "q1 is required");
+  assertEquals(sectionRows(kobo, "Surveys")[0].review, 1);
+});
+
+Deno.test("reports: never PINs or usernames; staff emails only for those who manage accounts", async () => {
+  reportWorld();
+  const learners = (await call("GET", "/reports/learner-register", "tok_education_team")).json;
+  const text = JSON.stringify(learners);
+  assert(!text.includes("kid.one") && !text.includes("pin_") && !text.includes("username"), "no usernames or PINs");
+  assertEquals(sectionRows(learners, "Learners").map((x) => x.name), ["Kid One", "Kid B"], "by school, then name");
+  const ed = (await call("GET", "/reports/teacher-register", "tok_education_team")).json;
+  assert(sectionRows(ed, "Teachers").every((x) => String(x.email).endsWith("@test.org")));
+  const me = (await call("GET", "/reports/teacher-register", "tok_me")).json;
+  assert(!JSON.stringify(me).includes("@test.org"), "the M&E team sees the register, not emails");
+  assertEquals(sectionRows(me, "Teachers").length, 3, "all schools' active teachers");
+  assertEquals(sectionRows(me, "Teachers").find((x) => x.name === "teacher person")!.trainings, 1);
+});
+
+Deno.test("reports: a school head's exports are their own school, whatever they ask for", async () => {
+  reportWorld();
+  const other = `school=${encodeURIComponent(SCHOOL.name)}`;
+  const learners = (await call("GET", `/reports/learner-register?${other}`, "tok_head_b")).json;
+  assertEquals(sectionRows(learners, "Learners").map((x) => x.name), ["Kid B"], "never the other school's learners");
+  assertEquals([learners.scope, learners.limitedTo, learners.filters.school], [SCHOOL_B.name, "Your school", SCHOOL_B.name]);
+  const schools = (await call("GET", `/reports/school-register?${other}`, "tok_head_b")).json;
+  assertEquals(sectionRows(schools, "Schools").map((x) => x.name), [SCHOOL_B.name]);
+  const teachers = (await call("GET", `/reports/teacher-register?${other}&status=all`, "tok_head_b")).json;
+  assertEquals(sectionRows(teachers, "Teachers").map((x) => x.name), ["Teacher B"]);
+  assertEquals(sectionRows(teachers, "School heads").map((x) => x.name), ["Head B"]);
+  assert(!JSON.stringify(teachers).includes("@test.org"));
+  const work = (await call("GET", `/reports/assignment-report?${other}`, "tok_head_b")).json;
+  assertEquals(sectionRows(work, "Assignments").map((x) => x.title), ["Reading check"]);
+  const term = (await call("GET", `/reports/term-report?period=2026-T3&${other}`, "tok_head_b")).json;
+  assertEquals(sectionRows(term, "By school").map((x) => x.school), [SCHOOL_B.name]);
+  assertEquals(term.limitedTo, "Your school");
+});
+
+Deno.test("reports: a teacher's exports are their classes; a field officer's are their own visits", async () => {
+  reportWorld();
+  // teacher-id first added Kid B, but Kid B is in another school now.
+  assertEquals(sectionRows((await call("GET", "/reports/learner-register", "tok_teacher")).json, "Learners").map((x) => x.name), ["Kid One"]);
+  const work = (await call("GET", "/reports/assignment-report", "tok_teacher")).json;
+  assertEquals(sectionRows(work, "Assignments").map((x) => [x.title, x.handedIn, x.completion, x.average]), [["Fractions quiz", 1, 100, 75]]);
+  const marked = sectionRows((await call("GET", "/reports/assessment-report", "tok_teacher")).json, "Marked work");
+  assertEquals(marked.map((x) => [x.learner, x.percent, x.band, x.markedBy]), [["Kid One", 75, "ME", "teacher person"]]);
+  assertEquals((await call("GET", "/reports/assignment-report", "tok_teacher2")).json.sections[0].rows, [], "teaches no class");
+  const visits = sectionRows((await call("GET", "/reports/field-visit-report", "tok_field_officer")).json, "Field visits");
+  assertEquals(visits.map((x) => x.school), [SCHOOL.name]);
+  const all = sectionRows((await call("GET", "/reports/field-visit-report", "tok_education_team")).json, "Field visits");
+  assertEquals(all.length, 2);
 });

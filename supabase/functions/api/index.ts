@@ -32,6 +32,7 @@ import {
 import { buildIntelligence, VISIT_TYPES as INTEL_VISIT_TYPES } from "./intelligence.ts";
 import { buildImpact, GENDERS } from "./impact.ts";
 import { buildNotifications, missingVisitForms } from "./notifications.ts";
+import { type Column, GENDER_TEXT, REPORTS, STATUS_TEXT, reportsFor, rowCount, type Section } from "./reports.ts";
 import {
   counts as countsOnDashboards, detectMapping, type KoboMapping, type KoboSchema, nameKey, parseKoboSchema,
   type PipelineContext, processBatch, RULES as KOBO_RULES, sha256, stableStringify, suggestSchool, summarizeAnswers,
@@ -4975,6 +4976,550 @@ app.post("/data-quality/issues/:id/fix", requirePermission("data_quality.manage"
   // Check the data again: if the problem is still there, the issue reopens.
   try { await runDqScan(actorId, "correction"); } catch (e) { console.error("dq scan after correction:", (e as Error).message); }
   return c.json(await dqIssueDetail(c, i.id));
+});
+
+// ---------------------------------------------------------------- reports (export)
+/* The Reports export: a report is built from the same rows the screens
+   use, limited by the same scope rules — so an export never holds more
+   than its person could see in the portal. A school head's exports are
+   their school, whatever filter is sent; a teacher's are their classes; a
+   field officer's are their own visits. Every export is in the audit log
+   (who, which report, filters, how many rows, which format). The browser
+   writes the file (Excel, CSV or PDF) from what comes back. */
+
+type RF = {
+  county: string | null; school: string | null; from: string | null; to: string | null;
+  period: string | null; programme: string | null; status: string | null;
+};
+type RCtx = { c: any; f: RF; actor: Actor; schools: Map<string, Record<string, any>>; inPlace: (schoolId: unknown) => boolean; now: Date };
+
+function reportFilters(c: any): RF {
+  const q = (k: string) => String(c.req.query(k) ?? "").trim();
+  const date = (k: string) => (DATE_RE.test(q(k)) ? q(k) : null);
+  return {
+    county: q("county") || null, school: q("school") || null, from: date("from"), to: date("to"),
+    period: q("period") || null, programme: q("programme") || null, status: q("status") || null,
+  };
+}
+const rDay = (v: unknown) => String(v ?? "").slice(0, 10);
+const inDates = (f: RF, v: unknown) => { const d = rDay(v); return (!f.from || (!!d && d >= f.from)) && (!f.to || (!!d && d <= f.to)); };
+const pct1 = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 1000) / 10 : null);
+const nameMap = (rows: Record<string, any>[] | null | undefined, field = "full_name") => new Map((rows ?? []).map((r) => [r.id, r[field]]));
+/** Registers read county, then school, then class, then name. */
+const byPlace = (a: Record<string, any>, b: Record<string, any>) =>
+  ["county", "school", "class", "name"].reduce((d, k) => d || String(a[k] ?? "").localeCompare(String(b[k] ?? ""), undefined, { numeric: true }), 0);
+
+async function reportContext(c: any, id: string): Promise<RCtx> {
+  const f = reportFilters(c);
+  const actor = c.get("actor") as Actor;
+  const { data } = await selectAll(() => admin.from("schools").select("id, name, code, county").order("id"));
+  const schools = new Map((data ?? []).map((s) => [s.id as string, s]));
+  // Below the all-schools level the place is always their own school, whatever was asked for.
+  const limited = scopeNote(c, id);
+  if (limited === "Your school" || limited === "Your classes") {
+    const own = actor.schoolId ? schools.get(actor.schoolId) : null;
+    f.school = own?.name ?? "__none__";
+    f.county = own?.county ?? null;
+  }
+  const inPlace = (schoolId: unknown) => {
+    const s = schools.get(String(schoolId ?? ""));
+    if (!f.county && !f.school) return true;
+    return !!s && (!f.county || s.county === f.county) && (!f.school || s.name === f.school);
+  };
+  return { c, f, actor, schools, inPlace, now: new Date() };
+}
+
+// ---- 1. learner register
+async function reportLearners(x: RCtx): Promise<Section[]> {
+  const scope = await learnerScope(x.c);
+  const [{ data: learners }, { data: classes }] = await Promise.all([
+    selectAll(() => admin.from("learners").select("id, full_name, gender, grade, class_id, school_id, school, county, learner_code, user_code, " +
+      "teacher_id, current_teacher_id, enrollment_status, enrollment_date, exit_date, exit_reason").order("full_name").order("id")),
+    selectAll(() => admin.from("classes").select("id, name").order("id")),
+  ]);
+  const cls = nameMap(classes, "name");
+  const status = x.f.status ?? "active";
+  const rows = (learners ?? [])
+    .filter((l) => inLearnerScope(scope, l) && x.inPlace(l.school_id) &&
+      (status === "all" || (status === "archived" ? l.enrollment_status !== ACTIVE : (l.enrollment_status ?? ACTIVE) === ACTIVE)))
+    .map((l) => ({
+      code: l.learner_code ?? l.user_code ?? "", name: l.full_name, gender: GENDER_TEXT[l.gender] ?? "", grade: l.grade ?? "",
+      class: l.class_id ? cls.get(l.class_id) ?? "" : "", school: x.schools.get(l.school_id)?.name ?? l.school ?? "",
+      county: x.schools.get(l.school_id)?.county ?? l.county ?? "", status: STATUS_TEXT[l.enrollment_status ?? ACTIVE] ?? l.enrollment_status,
+      enrolled: l.enrollment_date ?? null, left: l.exit_date ?? null, reason: l.exit_reason ?? "",
+    })).sort(byPlace);
+  return [{
+    title: "Learners",
+    columns: [
+      { key: "code", label: "Learner code" }, { key: "name", label: "Full name" }, { key: "gender", label: "Gender" },
+      { key: "grade", label: "Grade" }, { key: "class", label: "Class" }, { key: "school", label: "School" }, { key: "county", label: "County" },
+      { key: "status", label: "Status" }, { key: "enrolled", label: "Enrolled", type: "date" }, { key: "left", label: "Left", type: "date" },
+      { key: "reason", label: "Reason left" },
+    ],
+    rows,
+  }];
+}
+
+// ---- 2. teacher register (teachers and school heads)
+async function reportTeachers(x: RCtx): Promise<Section[]> {
+  const withEmail = actorCan(x.c, "users.view");
+  const [{ data: staff }, { data: ct }, { data: classes }, { data: attendance }] = await Promise.all([
+    selectAll(() => admin.from("profiles").select("id, role, full_name, email, gender, teacher_type, school, school_id, county, status, user_code")
+      .in("role", ["teacher", "school_leader"]).order("full_name").order("id")),
+    selectAll(() => admin.from("class_teachers").select("class_id, teacher_id, ended_at").order("class_id")),
+    selectAll(() => admin.from("classes").select("id, name, archived_at").order("id")),
+    selectAll(() => admin.from("training_attendance").select("training_id, teacher_id, attended").order("training_id")),
+  ]);
+  const cls = nameMap(classes, "name");
+  const status = x.f.status ?? "active";
+  const people = (staff ?? []).filter((p) => x.inPlace(p.school_id) && (status === "all" || (p.status ?? "active") === "active"));
+  const row = (p: Record<string, any>) => ({
+    code: p.user_code ?? "", name: p.full_name, ...(withEmail ? { email: p.email ?? "" } : {}), gender: GENDER_TEXT[p.gender] ?? "",
+    type: p.role === "teacher" ? p.teacher_type ?? "" : "", school: x.schools.get(p.school_id)?.name ?? p.school ?? "",
+    county: x.schools.get(p.school_id)?.county ?? p.county ?? "", status: STATUS_TEXT[p.status ?? "active"] ?? p.status,
+    classes: (ct ?? []).filter((t) => t.teacher_id === p.id && !t.ended_at).map((t) => cls.get(t.class_id)).filter(Boolean).join(", "),
+    trainings: (attendance ?? []).filter((a) => a.teacher_id === p.id && a.attended !== false).length,
+  });
+  const columns: Column[] = [
+    { key: "code", label: "Staff code" }, { key: "name", label: "Full name" }, ...(withEmail ? [{ key: "email", label: "Email" }] : []),
+    { key: "gender", label: "Gender" }, { key: "type", label: "Employment type" }, { key: "school", label: "School" }, { key: "county", label: "County" },
+    { key: "status", label: "Status" }, { key: "classes", label: "Classes taught" }, { key: "trainings", label: "Trainings attended", type: "number" },
+  ];
+  return [
+    { title: "Teachers", columns, rows: people.filter((p) => p.role === "teacher").map(row).sort(byPlace) },
+    { title: "School heads", columns: columns.filter((c) => !["type", "classes"].includes(c.key)), rows: people.filter((p) => p.role === "school_leader").map(row).sort(byPlace) },
+  ];
+}
+
+// ---- 3. school register
+async function reportSchools(x: RCtx): Promise<Section[]> {
+  const [{ data: learners }, { data: staff }, { data: classes }, { data: visits }, { data: kobo }] = await Promise.all([
+    selectAll(() => admin.from("learners").select("id, school_id, enrollment_status").order("id")),
+    selectAll(() => admin.from("profiles").select("id, role, status, school_id").order("id")),
+    selectAll(() => admin.from("classes").select("id, school_id, archived_at").order("id")),
+    selectAll(() => admin.from("field_reports").select("id, school_id, created_at").order("id")),
+    selectAll(() => admin.from("kobo_records").select("id, school_id, status, review, submitted_at").order("id")),
+  ]);
+  const rows = [...x.schools.values()].filter((s) => x.inPlace(s.id)).sort((a, b) => String(a.county).localeCompare(String(b.county)) || String(a.name).localeCompare(String(b.name))).map((s) => {
+    const v = (visits ?? []).filter((r) => r.school_id === s.id && inDates(x.f, r.created_at));
+    return {
+      code: s.code, name: s.name, county: s.county,
+      learners: (learners ?? []).filter((l) => l.school_id === s.id && (l.enrollment_status ?? ACTIVE) === ACTIVE).length,
+      teachers: (staff ?? []).filter((p) => p.school_id === s.id && p.role === "teacher" && (p.status ?? "active") === "active").length,
+      heads: (staff ?? []).filter((p) => p.school_id === s.id && p.role === "school_leader" && (p.status ?? "active") === "active").length,
+      classes: (classes ?? []).filter((k) => k.school_id === s.id && !k.archived_at).length,
+      visits: v.length, lastVisit: v.map((r) => r.created_at).sort().at(-1) ?? null,
+      kobo: (kobo ?? []).filter((r) => r.school_id === s.id && countsOnDashboards(r.status, r.review) && inDates(x.f, r.submitted_at)).length,
+    };
+  });
+  return [{
+    title: "Schools",
+    columns: [
+      { key: "code", label: "School code" }, { key: "name", label: "School" }, { key: "county", label: "County" },
+      { key: "learners", label: "Learners", type: "number" }, { key: "teachers", label: "Teachers", type: "number" },
+      { key: "heads", label: "School heads", type: "number" }, { key: "classes", label: "Classes", type: "number" },
+      { key: "visits", label: "Field visits", type: "number" }, { key: "lastVisit", label: "Last visit", type: "date" },
+      { key: "kobo", label: "Kobo submissions (counted)", type: "number" },
+    ],
+    rows,
+  }];
+}
+
+// ---- 4 & 5. assignments and assessment — the same scope as the Results screens
+async function scopedWork(x: RCtx) {
+  const scope = await assignmentScope(x.c);
+  if (scope.kind === "none") return null;
+  const work = await loadWork({ schoolId: scope.kind === "all" ? null : scope.schoolId, classIds: scope.kind === "teacher" ? scope.classIds : null });
+  const inPeriod = (a: Record<string, any>) => !x.f.period || a.term_id === x.f.period || a.academic_year_id === x.f.period;
+  const assignments = work.assignments.filter((a) => inAssignmentScope(scope, a) && x.inPlace(a.school_id) && inPeriod(a) &&
+    (!x.f.from && !x.f.to ? true : inDates(x.f, a.due_at ?? a.published_at)));
+  const ids = new Set(assignments.map((a) => a.id as string));
+  return { assignments, pairs: work.pairs.filter((p) => ids.has(p.a.id)), submissions: work.submissions.filter((s) => ids.has(s.assignment_id)), bands: await loadBands() };
+}
+
+async function reportAssignments(x: RCtx): Promise<Section[]> {
+  const w = await scopedWork(x);
+  const columns: Column[] = [
+    { key: "title", label: "Assignment" }, { key: "subject", label: "Subject" }, { key: "class", label: "Class" }, { key: "school", label: "School" },
+    { key: "county", label: "County" }, { key: "teacher", label: "Set by" }, { key: "term", label: "Term" }, { key: "status", label: "Status" },
+    { key: "due", label: "Due", type: "datetime" }, { key: "expected", label: "Learners set", type: "number" }, { key: "handedIn", label: "Handed in", type: "number" },
+    { key: "late", label: "Late", type: "number" }, { key: "missing", label: "Missing", type: "number" }, { key: "completion", label: "Completion %", type: "percent" },
+    { key: "marked", label: "Marked", type: "number" }, { key: "average", label: "Average mark %", type: "percent" },
+  ];
+  if (!w) return [{ title: "Assignments", columns, rows: [] }];
+  const names = await assignmentNames(w.assignments);
+  const groups = new Map(groupResults(w.pairs, "assignment", w.bands, x.now).map((g) => [g.key, g]));
+  const rows = w.assignments.sort((a, b) => String(a.due_at ?? "").localeCompare(String(b.due_at ?? ""))).map((a) => {
+    const g = groups.get(a.id);
+    return {
+      title: a.title, subject: names.subjects[a.subject_id] ?? a.subject_id, class: names.classes[a.class_id] ?? "", school: x.schools.get(a.school_id)?.name ?? "",
+      county: x.schools.get(a.school_id)?.county ?? "", teacher: names.teachers[a.created_by] ?? "", term: termLabel(a.term_id) ?? "",
+      status: a.status === "published" ? "Open" : a.status === "closed" ? "Closed" : a.status,
+      due: a.due_at ?? null, expected: g?.completion.assigned ?? 0, handedIn: g?.completion.submitted ?? 0, late: g?.completion.late ?? 0,
+      missing: g?.completion.missing ?? 0, completion: g?.completion.rate ?? null, marked: g?.achievement.marked ?? 0, average: g?.achievement.averagePercent ?? null,
+    };
+  });
+  return [{ title: "Assignments", columns, rows }];
+}
+
+async function reportAssessment(x: RCtx): Promise<Section[]> {
+  const w = await scopedWork(x);
+  const groupCols: Column[] = [
+    { key: "label", label: "" }, { key: "assigned", label: "Work set", type: "number" }, { key: "completion", label: "Completion %", type: "percent" },
+    { key: "marked", label: "Marked", type: "number" }, { key: "average", label: "Average mark %", type: "percent" }, { key: "band", label: "Band" },
+  ];
+  const workCols: Column[] = [
+    { key: "learner", label: "Learner" }, { key: "code", label: "Learner code" }, { key: "class", label: "Class" }, { key: "school", label: "School" },
+    { key: "subject", label: "Subject" }, { key: "assignment", label: "Assignment" }, { key: "marks", label: "Marks", type: "number" },
+    { key: "max", label: "Out of", type: "number" }, { key: "percent", label: "%", type: "percent" }, { key: "band", label: "Band" },
+    { key: "late", label: "Late" }, { key: "markedBy", label: "Marked by" }, { key: "markedAt", label: "Marked", type: "date" },
+  ];
+  if (!w) return [{ title: "Marked work", columns: workCols, rows: [] }];
+  const names = await assignmentNames(w.assignments);
+  const by = (dim: ResultDimension, label: (k: string) => string, title: string): Section => ({
+    title, columns: groupCols.map((col) => (col.key === "label" ? { ...col, label: title.replace(/^By /, "").replace(/^\w/, (m) => m.toUpperCase()) } : col)),
+    rows: groupResults(w.pairs, dim, w.bands, x.now).map((g) => ({
+      label: label(g.key), assigned: g.completion.assigned, completion: g.completion.rate, marked: g.achievement.marked,
+      average: g.achievement.averagePercent, band: g.achievement.band ?? "",
+    })).sort((a, b) => String(a.label).localeCompare(String(b.label), undefined, { numeric: true })),
+  });
+  const marked = w.submissions.filter((s) => s.status === "marked");
+  const [learners, markers] = await Promise.all([
+    marked.length ? selectIn("learners", "id", [...new Set(marked.map((s) => s.learner_id as string))], "id, full_name, learner_code, user_code") : [],
+    marked.length ? selectIn("profiles", "id", [...new Set(marked.map((s) => s.marked_by as string).filter(Boolean))], "id, full_name") : [],
+  ]);
+  const lName = new Map(learners.map((l) => [l.id, l]));
+  const mName = nameMap(markers);
+  const asg = new Map(w.assignments.map((a) => [a.id, a]));
+  return [
+    by("subject", (k) => names.subjects[k] ?? k, "By subject"),
+    by("class", (k) => names.classes[k] ?? k, "By class"),
+    {
+      title: "Marked work", columns: workCols,
+      rows: marked.map((s) => {
+        const a = asg.get(s.assignment_id)!;
+        const l = lName.get(s.learner_id);
+        return {
+          learner: l?.full_name ?? "", code: l?.learner_code ?? l?.user_code ?? "", class: names.classes[a.class_id] ?? "", school: x.schools.get(a.school_id)?.name ?? "",
+          subject: names.subjects[a.subject_id] ?? a.subject_id, assignment: a.title, marks: s.marks == null ? null : Number(s.marks),
+          max: s.max_marks == null ? null : Number(s.max_marks), percent: s.percentage == null ? null : Number(s.percentage), band: s.band ?? "",
+          late: s.is_late ? "Late" : "", markedBy: s.auto_marked ? "Marked automatically" : mName.get(s.marked_by) ?? "", markedAt: s.marked_at ?? null,
+        };
+      }).sort((a, b) => String(a.learner).localeCompare(String(b.learner)) || String(a.assignment).localeCompare(String(b.assignment))),
+    },
+  ];
+}
+
+// ---- 6. field visits
+async function reportVisits(x: RCtx): Promise<Section[]> {
+  const all = actorCan(x.c, "field_reports.view.all");
+  const [{ data: visits }, { data: officers }, { data: forms }] = await Promise.all([
+    selectAll(() => {
+      let q = admin.from("field_reports").select("*").order("created_at", { ascending: false }).order("id");
+      if (!all) q = q.eq("officer_id", x.actor.id);
+      return q;
+    }),
+    selectAll(() => admin.from("profiles").select("id, full_name").eq("role", "field_officer").order("id")),
+    admin.from("forms").select("id, title, kind, county, visit_type, archived_at, created_at").not("visit_type", "is", null),
+  ]);
+  const place = (r: Record<string, any>) => !x.f.county && !x.f.school ? true
+    : r.school_id ? x.inPlace(r.school_id) : (!x.f.county || r.county === x.f.county) && (!x.f.school || r.school === x.f.school);
+  const mine = (visits ?? []).filter((r) => place(r) && inDates(x.f, r.created_at));
+  const responses = mine.length ? await selectIn("responses", "visit_id", mine.map((r) => r.id as string), "id, form_id, visit_id") : [];
+  const formTitle = nameMap(forms ?? [], "title");
+  const officer = nameMap(officers);
+  return [{
+    title: "Field visits",
+    columns: [
+      { key: "date", label: "Date", type: "datetime" }, { key: "officer", label: "Field officer" }, { key: "school", label: "School" },
+      { key: "code", label: "School code" }, { key: "county", label: "County" }, { key: "type", label: "Visit type" },
+      { key: "filled", label: "Forms filled" }, { key: "missing", label: "Forms still to fill" },
+    ],
+    rows: mine.map((r) => ({
+      date: r.created_at, officer: officer.get(r.officer_id) ?? "", school: x.schools.get(r.school_id)?.name ?? r.school ?? "",
+      code: x.schools.get(r.school_id)?.code ?? "", county: r.county ?? "", type: r.visit_type,
+      filled: responses.filter((p) => p.visit_id === r.id).map((p) => formTitle.get(p.form_id) ?? "Form").join(", "),
+      missing: missingVisitForms(r, forms ?? [], responses).map((f) => f.title).join(", "),
+    })),
+  }];
+}
+
+// ---- 7. Kobo
+async function reportKobo(x: RCtx): Promise<Section[]> {
+  const [{ data: forms }, { data: records }, { data: officers }] = await Promise.all([
+    selectAll(() => admin.from("kobo_forms").select("id, title, active, synced_at, last_sync_error").order("id")),
+    selectAll(() => admin.from("kobo_records").select("id, kobo_form_id, kobo_id, submitted_at, observed_on, school_id, school_value, county, officer_id, status, review").order("id")),
+    selectAll(() => admin.from("profiles").select("id, full_name").order("id")),
+  ]);
+  const recs = (records ?? []).filter((r) => r.status !== "removed" && (!x.f.county && !x.f.school ? true : x.inPlace(r.school_id)) && inDates(x.f, r.submitted_at));
+  const issues = recs.length ? await selectIn("kobo_record_issues", "record_id", recs.map((r) => r.id as string), "record_id, severity, message") : [];
+  const survey = nameMap(forms, "title");
+  const officer = nameMap(officers);
+  const needsReview = (r: Record<string, any>) => (r.status === "invalid" || r.status === "duplicate") && !r.review;
+  return [
+    {
+      title: "Surveys",
+      columns: [
+        { key: "title", label: "Survey" }, { key: "active", label: "Attached" }, { key: "synced", label: "Last sync", type: "datetime" },
+        { key: "error", label: "Last sync problem" }, { key: "received", label: "Received", type: "number" }, { key: "counted", label: "Counted", type: "number" },
+        { key: "invalid", label: "Failing checks", type: "number" }, { key: "duplicate", label: "Duplicates", type: "number" },
+        { key: "rejected", label: "Rejected in Kobo", type: "number" }, { key: "review", label: "Need review", type: "number" },
+      ],
+      rows: (forms ?? []).map((f) => {
+        const mine = recs.filter((r) => r.kobo_form_id === f.id);
+        return {
+          title: f.title, active: f.active === false ? "No" : "Yes", synced: f.synced_at ?? null, error: f.last_sync_error ?? "",
+          received: mine.length, counted: mine.filter((r) => countsOnDashboards(r.status, r.review)).length,
+          invalid: mine.filter((r) => r.status === "invalid").length, duplicate: mine.filter((r) => r.status === "duplicate").length,
+          rejected: mine.filter((r) => r.status === "rejected").length, review: mine.filter(needsReview).length,
+        };
+      }),
+    },
+    {
+      title: "Submissions",
+      columns: [
+        { key: "survey", label: "Survey" }, { key: "koboId", label: "Kobo ID", type: "number" }, { key: "submitted", label: "Submitted", type: "datetime" },
+        { key: "observed", label: "Visit date", type: "date" }, { key: "school", label: "School" }, { key: "county", label: "County" },
+        { key: "officer", label: "Field officer" }, { key: "status", label: "Status" }, { key: "review", label: "Review" }, { key: "issues", label: "Issues" },
+      ],
+      rows: recs.sort((a, b) => String(b.submitted_at ?? "").localeCompare(String(a.submitted_at ?? ""))).map((r) => ({
+        survey: survey.get(r.kobo_form_id) ?? "", koboId: r.kobo_id == null ? null : Number(r.kobo_id), submitted: r.submitted_at ?? null, observed: r.observed_on ?? null,
+        school: x.schools.get(r.school_id)?.name ?? (r.school_value ? `${r.school_value} (not matched)` : ""), county: r.county ?? "",
+        officer: officer.get(r.officer_id) ?? "", status: KOBO_STATUS_TEXT[r.status] ?? r.status,
+        review: r.review === "accepted" ? "Accepted" : r.review === "excluded" ? "Excluded" : needsReview(r) ? "Needs review" : "",
+        issues: issues.filter((i) => i.record_id === r.id).map((i) => i.message).join("; "),
+      })),
+    },
+  ];
+}
+
+const KOBO_STATUS_TEXT: Record<string, string> = { valid: "Passed checks", invalid: "Failing checks", duplicate: "Duplicate", rejected: "Rejected in Kobo" };
+
+// ---- 8. library usage
+async function reportLibrary(x: RCtx): Promise<Section[]> {
+  const [{ data: items }, { data: interactions }] = await Promise.all([
+    selectAll(() => admin.from("library_items").select("id, title, subject, type, audience, published").order("id")),
+    selectAll(() => admin.from("library_interactions").select("id, library_item_id, actor_kind, actor_id, school, started_at, completed_at, duration_seconds").order("id")),
+  ]);
+  const placeNames = new Set([...x.schools.values()].filter((s) => x.inPlace(s.id)).map((s) => s.name));
+  const rows = (interactions ?? []).filter((i) => inDates(x.f, i.started_at) && (!x.f.county && !x.f.school ? true : placeNames.has(i.school)));
+  const hours = (rs: Record<string, any>[]) => Math.round(rs.reduce((t, i) => t + (Number(i.duration_seconds) || 0), 0) / 360) / 10;
+  const shelf = (a: unknown) => (a === "staff" ? "Teacher Resources" : a === "school_leader" ? "For School Head" : "Digital Library");
+  const bySchool = new Map<string, Record<string, any>[]>();
+  for (const i of rows) { const k = i.school || "(no school)"; if (!bySchool.has(k)) bySchool.set(k, []); bySchool.get(k)!.push(i); }
+  return [
+    {
+      title: "By resource",
+      columns: [
+        { key: "title", label: "Resource" }, { key: "shelf", label: "Shelf" }, { key: "subject", label: "Subject" }, { key: "type", label: "Type" },
+        { key: "opens", label: "Opens", type: "number" }, { key: "readers", label: "Readers", type: "number" },
+        { key: "learnerOpens", label: "Opens by learners", type: "number" }, { key: "staffOpens", label: "Opens by staff", type: "number" },
+        { key: "hours", label: "Hours", type: "number" }, { key: "finished", label: "Read to the end", type: "number" },
+      ],
+      rows: (items ?? []).filter((it) => it.published).map((it) => {
+        const rs = rows.filter((i) => i.library_item_id === it.id);
+        return {
+          title: it.title, shelf: shelf(it.audience), subject: it.subject ?? "", type: it.type ?? "", opens: rs.length,
+          readers: new Set(rs.map((i) => i.actor_id)).size, learnerOpens: rs.filter((i) => i.actor_kind === "learner").length,
+          staffOpens: rs.filter((i) => i.actor_kind !== "learner").length, hours: hours(rs), finished: rs.filter((i) => i.completed_at).length,
+        };
+      }).sort((a, b) => b.opens - a.opens || String(a.title).localeCompare(String(b.title))),
+    },
+    {
+      title: "By school",
+      columns: [{ key: "school", label: "School" }, { key: "opens", label: "Opens", type: "number" }, { key: "readers", label: "Readers", type: "number" }, { key: "hours", label: "Hours", type: "number" }],
+      rows: [...bySchool.entries()].map(([school, rs]) => ({ school, opens: rs.length, readers: new Set(rs.map((i) => i.actor_id)).size, hours: hours(rs) }))
+        .sort((a, b) => b.opens - a.opens),
+    },
+  ];
+}
+
+// ---- 9. M&E indicators
+async function reportMel(x: RCtx): Promise<{ sections: Section[]; note: string }> {
+  const cal = await melCalendar();
+  const terms = cal.periods.filter((p) => /-T\d$/.test(p.id));
+  const period = x.f.period || (terms.find((p) => p.current) ?? terms.at(-1))?.id || "";
+  const range = periodRange(period, cal.terms, cal.years);
+  const scopeRow = x.f.school ? (await admin.from("schools").select("id").eq("name", x.f.school).maybeSingle()).data : null;
+  const scope = x.f.school ? (scopeRow ? await melScope("school", scopeRow.id) : null) : x.f.county ? await melScope("county", x.f.county) : await melScope("programme", "");
+  const columns: Column[] = [
+    { key: "programme", label: "Programme" }, { key: "outcome", label: "Outcome" }, { key: "code", label: "Code" }, { key: "indicator", label: "Indicator" },
+    { key: "unit", label: "Unit" }, { key: "baseline", label: "Baseline", type: "number" }, { key: "target", label: "Target", type: "number" },
+    { key: "actual", label: "Actual", type: "number" }, { key: "achievement", label: "Achievement %", type: "percent" }, { key: "status", label: "Status" },
+    { key: "source", label: "Value" }, { key: "evidence", label: "Evidence" },
+  ];
+  if (!range || !scope) return { sections: [{ title: "Indicators", columns, rows: [] }], note: "Choose a term or school year, and a county or school in the portal." };
+  const { data: progs } = await admin.from("me_programmes").select("id, name, status");
+  const chosen = (progs ?? []).filter((p) => (x.f.programme ? p.id === x.f.programme : p.status === "active"));
+  const STATUS: Record<string, string> = { met: "Met", close: "Close", not_met: "Not met", no_data: "No data" };
+  const SOURCE: Record<string, string> = { live: "Live from the portal", verified: "Recorded, verified", recorded: "Recorded, not yet verified" };
+  const rows: Record<string, unknown>[] = [];
+  for (const p of chosen) {
+    const res = await melResults(p.id, period, scope);
+    if ("error" in res) continue;
+    for (const o of res.outcomes) {
+      for (const i of o.indicators as Record<string, any>[]) {
+        rows.push({
+          programme: p.name, outcome: `${o.code ? `${o.code} ` : ""}${o.title}`, code: i.code ?? "", indicator: i.name, unit: i.unit,
+          baseline: i.baselineValue, target: i.target?.value ?? null, actual: i.value, achievement: i.achievement?.percent ?? null,
+          status: STATUS[i.achievement?.status] ?? "", source: SOURCE[i.valueSource] ?? (i.valueSource === "none" ? "" : i.valueSource),
+          evidence: (i.recorded?.evidence ?? []).map((e: Record<string, any>) => e.title).join("; "),
+        });
+      }
+    }
+  }
+  return { sections: [{ title: "Indicators", columns, rows }], note: `${range.label} · ${scope.label}` };
+}
+
+// ---- 10. term report
+async function reportTerm(x: RCtx): Promise<{ sections: Section[]; note: string }> {
+  const cal = await melCalendar();
+  const terms = cal.periods.filter((p) => /-T\d$/.test(p.id));
+  const period = x.f.period || (terms.find((p) => p.current) ?? terms.at(-1))?.id || "";
+  const range = periodRange(period, cal.terms, cal.years);
+  if (!range) return { sections: [], note: "Choose a term." };
+  const d = buildImpact(await loadImpactInput(), { county: x.f.county, school: x.f.school, from: range.from, to: range.to });
+  const E = d.executive;
+  const kv = (measure: string, value: unknown) => ({ measure, value });
+  const summary = [
+    kv("Schools", E.schools), kv("Learners", E.learners), kv("Teachers", E.teachers),
+    kv("Active users in the term", E.activeUsers.total), kv("Work handed in (completion %)", E.completion.rate),
+    kv("Average mark on marked work %", E.averageMark), kv("Library use (hours)", E.libraryHours),
+    kv("Field visits", d.fieldOps.visits.visits), kv("Schools visited", d.fieldOps.visits.schools.visited),
+    kv("Kobo submissions counted", d.fieldOps.kobo.counted), kv("Teachers trained", d.teachers.training.teachersTrained),
+    kv("Learners improving term to term %", d.learning.progress.learners.improvedShare),
+  ];
+  return {
+    note: `${range.label} (${range.from} to ${range.to})`,
+    sections: [
+      { title: "Summary", columns: [{ key: "measure", label: "Measure" }, { key: "value", label: "Value", type: "number" }], rows: summary },
+      {
+        title: "By school",
+        columns: [
+          { key: "school", label: "School" }, { key: "county", label: "County" }, { key: "learners", label: "Learners", type: "number" },
+          { key: "teachers", label: "Teachers", type: "number" }, { key: "completion", label: "Completion %", type: "percent" },
+          { key: "average", label: "Average mark %", type: "percent" }, { key: "band", label: "Band" }, { key: "visits", label: "Field visits", type: "number" },
+          { key: "library", label: "Library minutes", type: "number" },
+        ],
+        rows: d.learning.schools.map((s: Record<string, any>) => ({
+          school: s.school, county: s.county, learners: s.learners, teachers: s.teachers, completion: s.assigned ? s.completionRate : null,
+          average: s.marked ? s.averagePercent : null, band: s.band ?? "", visits: s.visits, library: s.libraryMinutes,
+        })),
+      },
+      {
+        title: "By subject",
+        columns: [{ key: "subject", label: "Subject" }, { key: "completion", label: "Completion %", type: "percent" }, { key: "average", label: "Average mark %", type: "percent" }, { key: "marked", label: "Marked", type: "number" }],
+        rows: d.learning.subjects.map((s: Record<string, any>) => ({ subject: s.label, completion: s.completionRate, average: s.averagePercent, marked: s.marked })),
+      },
+      {
+        title: "Field visits by type",
+        columns: [{ key: "type", label: "Visit type" }, { key: "visits", label: "Visits", type: "number" }, { key: "schools", label: "Schools", type: "number" }],
+        rows: d.fieldOps.visits.byType.map((t: Record<string, any>) => ({ type: t.label, visits: t.visits, schools: t.schools })),
+      },
+    ],
+  };
+}
+
+// ---- 11. county report
+async function reportCounties(x: RCtx): Promise<{ sections: Section[]; note: string }> {
+  let from = x.f.from, to = x.f.to, note = "";
+  if (x.f.period) {
+    const cal = await melCalendar();
+    const range = periodRange(x.f.period, cal.terms, cal.years);
+    if (range) { from = range.from; to = range.to; note = range.label; }
+  }
+  const input = await loadImpactInput();
+  const counties = [...new Set([...x.schools.values()].map((s) => s.county as string))].filter((c) => !x.f.county || c === x.f.county).sort();
+  const rows = counties.map((county) => {
+    const d = buildImpact(input, { county, from, to });
+    return {
+      county, schools: d.executive.schools, reached: d.reach.summary.schoolsReached, learners: d.executive.learners, teachers: d.executive.teachers,
+      visits: d.fieldOps.visits.visits, visited: d.fieldOps.visits.schools.visited, completion: d.executive.completion.rate,
+      average: d.executive.averageMark, library: d.executive.libraryHours, trained: d.teachers.training.share, kobo: d.fieldOps.kobo.counted,
+    };
+  });
+  const sections: Section[] = [{
+    title: "Counties",
+    columns: [
+      { key: "county", label: "County" }, { key: "schools", label: "Schools", type: "number" }, { key: "reached", label: "Schools reached", type: "number" },
+      { key: "learners", label: "Learners", type: "number" }, { key: "teachers", label: "Teachers", type: "number" }, { key: "visits", label: "Field visits", type: "number" },
+      { key: "visited", label: "Schools visited", type: "number" }, { key: "completion", label: "Completion %", type: "percent" },
+      { key: "average", label: "Average mark %", type: "percent" }, { key: "library", label: "Library hours", type: "number" },
+      { key: "trained", label: "Teachers trained %", type: "percent" }, { key: "kobo", label: "Kobo counted", type: "number" },
+    ],
+    rows,
+  }];
+  if (x.f.county) {
+    const d = buildImpact(input, { county: x.f.county, from, to });
+    sections.push({
+      title: `Schools in ${x.f.county}`,
+      columns: [
+        { key: "school", label: "School" }, { key: "learners", label: "Learners", type: "number" }, { key: "teachers", label: "Teachers", type: "number" },
+        { key: "completion", label: "Completion %", type: "percent" }, { key: "average", label: "Average mark %", type: "percent" },
+        { key: "visits", label: "Field visits", type: "number" }, { key: "library", label: "Library minutes", type: "number" },
+      ],
+      rows: d.learning.schools.map((s: Record<string, any>) => ({
+        school: s.school, learners: s.learners, teachers: s.teachers, completion: s.assigned ? s.completionRate : null,
+        average: s.marked ? s.averagePercent : null, visits: s.visits, library: s.libraryMinutes,
+      })),
+    });
+  }
+  return { sections, note: note || (from || to ? `${from ?? "start"} to ${to ?? "today"}` : "All time") };
+}
+
+const REPORT_BUILDERS: Record<string, (x: RCtx) => Promise<Section[] | { sections: Section[]; note: string }>> = {
+  "learner-register": reportLearners, "teacher-register": reportTeachers, "school-register": reportSchools,
+  "assignment-report": reportAssignments, "assessment-report": reportAssessment, "field-visit-report": reportVisits,
+  "kobo-report": reportKobo, "library-usage": reportLibrary, "me-indicator-report": reportMel,
+  "term-report": reportTerm, "county-report": reportCounties,
+};
+
+/** What a person's exports are limited to, in words, for the file and the screen. */
+function scopeNote(c: any, id: string): string {
+  const all = (p: string) => actorCan(c, p as Permission);
+  if (id === "learner-register") return all("learners.view.all") ? "All schools" : all("learners.view.school") ? "Your school" : "Your classes";
+  if (id === "teacher-register") return all("users.view") || all("trainings.manage") ? "All schools" : "Your school";
+  if (id === "school-register") return all("stats.view") || all("schools.manage") ? "All schools" : "Your school";
+  if (id === "assignment-report" || id === "assessment-report") return all("assignments.view.all") ? "All schools" : all("assignments.view.school") ? "Your school" : "Your classes";
+  if (id === "field-visit-report") return all("field_reports.view.all") ? "All field visits" : "Your visits";
+  if (id === "term-report") return all("intelligence.view") ? "All schools" : "Your school";
+  return "All schools";
+}
+
+/* The reports this person can export, with what they'd cover. */
+app.get("/reports", requireStaff(), async (c) => {
+  const list = reportsFor((p) => actorCan(c, p as Permission));
+  const cal = list.some((r) => r.filters.includes("period")) ? await melCalendar() : null;
+  const { data: progs } = list.some((r) => r.filters.includes("programme")) ? await admin.from("me_programmes").select("id, name, status") : { data: [] };
+  return c.json({
+    reports: list.map((r) => ({ id: r.id, title: r.title, description: r.description, filters: r.filters, scope: scopeNote(c, r.id) })),
+    periods: cal?.periods ?? [],
+    programmes: (progs ?? []).map((p) => ({ id: p.id, name: p.name, active: p.status === "active" })),
+  });
+});
+
+/* One report's rows (?county= &school= &from= &to= &period= &programme= &status= &format=). */
+app.get("/reports/:id", requireStaff(), async (c) => {
+  const def = REPORTS.find((r) => r.id === c.req.param("id"));
+  if (!def) return c.json({ error: "Report not found" }, 404);
+  if (!def.needs.some((p) => actorCan(c, p as Permission))) return c.json({ error: NO_PERMISSION }, 403);
+  const x = await reportContext(c, def.id);
+  let built;
+  try { built = await REPORT_BUILDERS[def.id](x); } catch (e) { return c.json({ error: (e as Error).message }, 500); }
+  const sections = Array.isArray(built) ? built : built.sections;
+  const note = Array.isArray(built) ? "" : built.note;
+  const rows = rowCount(sections);
+  const format = ["xlsx", "csv", "pdf"].includes(String(c.req.query("format"))) ? String(c.req.query("format")) : "view";
+  const filters = Object.fromEntries(Object.entries(x.f).filter(([, v]) => v && v !== "__none__"));
+  await audit(c, "report.exported", "report", def.id, { format, filters, rows });
+  const place = x.f.school && x.f.school !== "__none__" ? x.f.school : x.f.county ? `${x.f.county} County` : scopeNote(c, def.id);
+  return c.json({
+    id: def.id, title: def.title, description: def.description,
+    scope: [place, note, x.f.from || x.f.to ? `${x.f.from ?? "start"} to ${x.f.to ?? "today"}` : ""].filter(Boolean).join(" · "),
+    limitedTo: scopeNote(c, def.id), filters,
+    generatedAt: new Date().toISOString(), generatedBy: x.actor.fullName, role: ROLE_LABEL[x.actor.role] ?? x.actor.role,
+    sections,
+  });
 });
 
 // ---------------------------------------------------------------- notifications

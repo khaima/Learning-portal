@@ -351,6 +351,46 @@ status, and **Run now**. The hourly run calls the API with a secret that's
 generated inside the database (Vault) and checked there; it never appears
 in code or the browser.
 
+### Reports and exports
+
+**Export reports** — on the Education Team's and school head's *Reports*
+pages, the field officer's *Reports* page and the teacher's *Results* page —
+downloads any report the person is allowed to export, as **Excel**, **CSV**
+or **PDF**:
+
+| Report | What's in it | Who can export it |
+|---|---|---|
+| Learner Register | code, grade, class, school, county, gender, enrollment status and dates | Education Team, M&E, admins (all schools) · school heads (their school) · teachers (their classes) |
+| Teacher Register | teachers and heads: staff code, school, employment type, classes, trainings | Education Team, M&E, admins · school heads (their school) |
+| School Register | each school's learners, teachers, classes, visits, Kobo submissions | Education Team, M&E, admins · school heads (their school) |
+| Assignment Report | each assignment: completion and average mark, side by side, never combined | as the Learner Register |
+| Assessment Report | results by subject and class, and every piece of marked work | as the Learner Register |
+| Field Visit Report | visits with the forms filled and still missing | Education Team, M&E, admins · field officers (their own visits) |
+| Kobo Report | each survey's status and every submission with its checks | Education Team, M&E, admins |
+| Library Usage | opens, readers, hours, by resource and by school | Education Team, M&E, admins |
+| M&E Indicator Report | baseline, target, actual, achievement, evidence | Education Team, M&E, admins |
+| Term Report | a term at a glance, overall and by school | Education Team, M&E, admins · school heads (their school) |
+| County Report | county by county; one county's schools | Education Team, M&E, admins |
+
+**Every export respects the person's permissions.** The list of reports
+comes from the server, and each report is built with the same scope rules
+as the screens: a school head's exports are their own school and a
+teacher's their own classes, whatever filter is sent; a field officer's are
+their own visits. Exports never include usernames, PINs or passwords;
+staff emails appear only for those who manage accounts. Every export is in
+the **audit log** (`report.exported`: who, which report, format, filters
+and row count).
+
+The files are written in the browser by [`export.js`](export.js), with no
+libraries to download: Excel has one sheet per part of the report with a
+frozen, filterable header, real dates and percentages, and an *About* sheet
+(what it covers, filters, who generated it and when); CSV is UTF-8 with
+spreadsheet formulas neutralised; PDF is A4 landscape with the header row
+repeated on every page and *Page n of N*. Exports need a connection (they
+come from the latest records). The catalogue is in
+[`reports.ts`](supabase/functions/api/reports.ts); the reports are built in
+`index.ts` (`GET /reports`, `GET /reports/:id`).
+
 ### Content usage tracking
 
 Every "Open to read" click on any dashboard is timed:
@@ -722,6 +762,9 @@ same data everywhere, because the database is the source of truth.
 - **Moving a learner to another class mid-year** updates their current
   enrollment rather than starting a new one, so work set earlier in the new
   class can show as missing for them.
+- **Exports need a connection.** Reports are made from the latest records,
+  so they can't be exported offline. PDFs use the built-in Helvetica font,
+  which covers English and Western European letters only.
 - **Offline covers day-to-day work, not administration.** Creating
   assignments, adding learners, managing classes, the Education Team's
   dashboards and signing in for the first time on a device all need a
@@ -758,6 +801,8 @@ used).
 | `offline.js` | What the device keeps (IndexedDB): copies per account, the queue, files, settings |
 | `sync.js` | Offline work: send or queue, sync in order, idempotency keys, conflicts, files chosen offline, downloads |
 | `notify-ui.js` | The bell: unread count, the notifications list, mark as read |
+| `reports-ui.js` | Export reports: the reports this person may export, their filters, Excel / CSV / PDF |
+| `export.js` | Writes report files in the browser: Excel (.xlsx), CSV and PDF, no libraries |
 | `sync-ui.js` | The sync status in every top bar and the Sync center (Kobo, school data, learning, content, field team devices) |
 | `sw.js` / `pwa.js` / `manifest.webmanifest` | The offline app (service worker) and home-screen install |
 | `auth.js` | Sessions, the profile, `requireRole` for each dashboard |
