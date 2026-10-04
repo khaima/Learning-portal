@@ -4,9 +4,9 @@ import { supabase, setRememberMe, getRememberMe } from "./supabase.js";
 import {
   DASHBOARD_PATH, registerStaff, signInWithPassword, signInWithGoogle,
   learnerLogin, getProfile, createProfile, setMySchool, signOut, sendPasswordResetLink,
-  getInvitation, acceptInvitation,
+  getInvitation, acceptInvitation, authSettings, changeMyPassword,
 } from "./auth.js";
-import { learnerToken } from "./api.js";
+import { learnerToken, ApiError } from "./api.js";
 import { ROLES } from "./data.js";
 
 const ROLE_LABEL = Object.fromEntries(ROLES.map((r) => [r.value, r.label]));
@@ -103,8 +103,9 @@ async function consumeOAuthRedirect() {
   }
 }
 
-/* Land here from an emailed "reset password" link (education team →
-   Users → Send reset link, see auth.js sendPasswordResetLink). Supabase
+/* Land here from an emailed "reset password" link (an administrator's
+   Users → Reset password → Send reset link, or "Forgot password?" below —
+   templates and mail sender in docs/AUTH.md). Supabase
    delivers recovery tokens as a #access_token/#refresh_token hash
    fragment (not the ?code= that Google OAuth uses — recovery links are
    commonly opened on a different device/browser than the one that
@@ -146,7 +147,7 @@ async function consumePasswordRecovery() {
     $("#rpHeading").textContent = "Link expired";
     $("#rpSub").hidden = true;
     $("#rpLinkError").textContent =
-      "This link is invalid or has expired. Ask your Education Team admin to send a new one.";
+      "This link is invalid, already used, or has expired. Use “Forgot password?” to get a new one, or ask an administrator.";
     $("#rpLinkErrorField").hidden = false;
     $("#resetPasswordForm").hidden = true;
     $("#rpBack").hidden = false;
@@ -284,6 +285,10 @@ async function route() {
     showStatus(profile);
     return;
   }
+  if (profile?.mustChangePassword) {
+    showChooseOwnPassword(profile);
+    return;
+  }
   if (profile?.needsSchool) {
     showSchoolStep(profile);
     return;
@@ -406,6 +411,8 @@ function setPwMode(signup) {
     : "Enter your email and password.";
   $("#pwSubmit").textContent = signup ? "Create account" : "Sign in";
   $("#pw_pass").setAttribute("autocomplete", signup ? "new-password" : "current-password");
+  $("#pw_pass").placeholder = signup ? "At least 8 characters" : "Your password";
+  syncGoogleButton();
   $("#pwToggleMode").textContent = signup
     ? "Already have an account? Sign in"
     : "New here? Create an account";
@@ -414,6 +421,18 @@ function setPwMode(signup) {
 }
 
 $("#pwToggleMode").addEventListener("click", () => setPwMode(!pwSignupMode));
+
+/* "Continue with Google" appears only once Supabase Auth's public settings
+   say Google is switched on — never shown and then failing. While public
+   sign-ups are closed it's for signing in only, so it isn't offered when
+   creating an account. */
+let authCfg = null;
+function syncGoogleButton() {
+  const on = !!authCfg?.external?.google && !(pwSignupMode && authCfg?.disable_signup);
+  $("#googleBtn").hidden = !on;
+  $("#googleDivider").hidden = !on;
+}
+authSettings().then((s) => { authCfg = s; syncGoogleButton(); });
 
 // ---- self-service password reset (emails a link) ----
 const forgotForm = $("#forgotForm");
@@ -676,6 +695,25 @@ $("#rpBack").addEventListener("click", async () => {
   show("role");
 });
 
+/* Signed in with a temporary password from an administrator: the only way
+   on is to choose their own — the API refuses everything else until they
+   do. The same form as a reset link. */
+function showChooseOwnPassword(profile) {
+  $("#rpEyebrow").textContent = "Temporary password";
+  $("#rpHeading").textContent = "Choose your own password";
+  const sub = $("#rpSub");
+  sub.hidden = false;
+  sub.innerHTML = `You signed in as <b id="rpEmail"></b> with a temporary password. Choose your own to carry on — the temporary one stops working once you do.`;
+  $("#rpEmail").textContent = profile.email || "your account";
+  $("#rpLinkErrorField").hidden = true;
+  $("#resetPasswordForm").hidden = false;
+  $("#rpSubmit").textContent = "Save my password";
+  $("#rpBack").textContent = "Sign out";
+  $("#rpBack").hidden = false;
+  show("resetPassword");
+  $("#rp_pass").focus();
+}
+
 $("#resetPasswordForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const err = $("#resetPasswordError");
@@ -695,14 +733,25 @@ $("#resetPasswordForm").addEventListener("submit", async (e) => {
   const btn = $("#rpSubmit");
   btn.disabled = true;
   try {
-    const { error } = await supabase.auth.updateUser({ password: p1 });
-    if (error) throw error;
-    // Already signed in as the recovered account — straight to their dashboard.
+    await changeMyPassword(p1);
+    // Let the browser's password manager keep the new one, if they asked to be remembered.
+    const email = (await supabase.auth.getSession()).data.session?.user?.email;
+    if (email && getRememberMe()) await offerToSaveCredential(email, p1);
+    // Already signed in — straight on to their dashboard.
+    show("loading");
     await route();
   } catch (e2) {
-    err.textContent = e2?.message || "Could not update the password.";
-    err.hidden = false;
     btn.disabled = false;
+    if (e2 instanceof ApiError && e2.body?.signInAgain) {
+      // A session from before the temporary password was made can't replace it.
+      $("#resetPasswordForm").hidden = true;
+      $("#rpLinkError").textContent = e2.message;
+      $("#rpLinkErrorField").hidden = false;
+      $("#rpBack").textContent = "Sign in again";
+      return;
+    }
+    err.textContent = friendlyError(e2, "Could not save the password. Check your connection and try again.");
+    err.hidden = false;
   }
 });
 

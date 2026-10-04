@@ -11,7 +11,7 @@ import {
 } from "./admin-ui.js";
 import { apiGet } from "./api.js";
 import { $, $$, esc, initials, toast, formatDuration, skeleton, errorState, friendlyError, confirmDialog } from "./util.js";
-import { requireRole, signOut, sendPasswordResetLink } from "./auth.js";
+import { requireRole, signOut } from "./auth.js";
 import {
   CONTENT_TYPES, LIBRARY_SUBJECTS, LIBRARY_AUDIENCES, FORM_AUDIENCES, QUESTION_TYPES, ROLES,
   normalizeLibraryAudience, VISIT_TYPES,
@@ -25,7 +25,7 @@ import {
   getLibraryFolders, createLibraryFolder, deleteLibraryFolder, setLibraryFolder,
   koboConfig, saveKoboConfig, koboAssets, koboAssetPreview, koboForms, attachKoboForm,
   removeKoboForm, restoreKoboForm, syncKobo, koboResults,
-  getUserDirectory, updateUser, resetUserPassword,
+  getUserDirectory, updateUser, sendUserResetLink, issueTemporaryPassword,
   approveUser, rejectUser, setUserStatus, getInvitations, inviteStaff, revokeInvitation,
   getLearners, getAcademicYears, createAcademicYear,
   watchSchools, createSchool, renameSchool, deleteSchool, createCounty, deleteCounty, wireSchoolPicker,
@@ -2485,9 +2485,7 @@ async function main() {
       if (has("users.approve") && (status === "pending" || status === "rejected")) acts.push(["approve", "Approve"]);
       if (has("users.approve") && status === "pending") acts.push(["reject", "Reject", "danger"]);
       if (has("users.edit", "users.roles.assign", "users.placement.assign")) acts.push(["edit", "Edit"]);
-      if (has("users.password.reset") && status === "active") {
-        acts.push(["resetlink", "Send reset link"], ["password", "Set new password"]);
-      }
+      if (has("users.password.reset") && status === "active") acts.push(["password", "Reset password"]);
       if (has("users.status.manage")) {
         if (status === "active") acts.push(["suspend", "Suspend"], ["deactivate", "Deactivate", "danger"]);
         if (status === "suspended") acts.push(["reactivate", "Reactivate"], ["deactivate", "Deactivate", "danger"]);
@@ -2517,7 +2515,8 @@ async function main() {
       <td>${esc(ROLE_LABEL[u.role] || u.role)}${u.grants?.length ? ` <span class="pill" title="${esc(u.grants.join(", "))}">+${u.grants.length} granted</span>` : ""}</td>
       <td>${esc(u.county || "—")}</td>
       <td>${esc(where)}</td>
-      <td>${pill ? `<span class="pill ${pill[0]}">${esc(pill[1])}</span>` : `<span class="pill ok">Active</span>`}${u.statusReason && u.status !== "active" ? `<br><span class="hint-inline">${esc(u.statusReason)}</span>` : ""}</td>
+      <td>${pill ? `<span class="pill ${pill[0]}">${esc(pill[1])}</span>` : `<span class="pill ok">Active</span>`}${u.statusReason && u.status !== "active" ? `<br><span class="hint-inline">${esc(u.statusReason)}</span>` : ""}${
+        u.mustChangePassword ? `<br><span class="hint-inline" title="${esc(u.temporaryPasswordAt ? `Made ${new Date(u.temporaryPasswordAt).toLocaleString()}` : "")}">Temporary password — not replaced yet</span>` : ""}</td>
       <td title="${esc(u.lastSignInAt ? new Date(u.lastSignInAt).toLocaleString() : "")}">${esc(lastSeen(u.lastSignInAt))}</td>
       <td>${esc(fmtDate(u.createdAt))}</td>
       <td><div class="roster-actions">${userActions(u)}</div></td>
@@ -2707,19 +2706,19 @@ async function main() {
         historyCache.delete(id);
         renderUsers();
         renderAuditPanel();
-      } else if (act === "resetlink") {
-        if (!confirm(`Email a "set a new password" link to ${row.dataset.email}?`)) return;
-        await sendPasswordResetLink(row.dataset.email);
-        toast("Reset link sent successfully.", `${row.dataset.email} can follow it to set their own new password.`, "success");
       } else if (act === "password") {
-        const password = prompt(`New password for ${row.dataset.email} — at least 8 characters`);
-        if (!password) return;
-        if (password.trim().length < 8) {
-          toast("Couldn't do that", "Password must be at least 8 characters.", "error");
-          return;
+        const choice = await passwordHelpDialog(name, row.dataset.email);
+        if (!choice) return;
+        btn.disabled = true;
+        if (choice === "link") {
+          const res = await sendUserResetLink(id);
+          toast("Reset link sent", `${res.email || row.dataset.email} can follow it to choose a new password. It works once.`, "success");
+        } else {
+          const res = await issueTemporaryPassword(id);
+          await showTemporaryPassword(name, res.email || row.dataset.email, res.temporaryPassword);
+          renderUsers();
         }
-        await resetUserPassword(id, password.trim());
-        toast("Password reset successfully.", "Tell them their new password.", "success");
+        btn.disabled = false;
         historyCache.delete(id);
         renderAuditPanel();
       }
@@ -2728,6 +2727,75 @@ async function main() {
       btn.disabled = false;
     }
   });
+
+  /* Reset someone's password. A reset link is the default: it goes to their
+     own email and they choose the new password, so nobody else ever knows
+     it. For someone who can't get email, a one-time temporary password they
+     must replace when they first sign in with it. Resolves "link",
+     "temporary" or null. */
+  function passwordHelpDialog(name, email) {
+    return modal(`
+        <div class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="pwHelpTitle">
+          <b id="pwHelpTitle">Reset ${esc(name)}'s password</b>
+          <p>A <strong>reset link</strong> goes to ${esc(email || "their email")}; they choose a new password themselves, and nobody else ever knows it.</p>
+          <p>If they can't get email, make a <strong>temporary password</strong> instead. You'll see it once, to pass on privately; the first time they sign in with it they must choose their own.</p>
+          <div class="confirm-actions">
+            <button type="button" class="btn btn-outline" data-act="cancel">Cancel</button>
+            <button type="button" class="btn btn-outline" data-act="temporary">Temporary password</button>
+            <button type="button" class="btn btn-primary" data-act="link" data-autofocus>Send reset link</button>
+          </div>
+        </div>`, { link: "link", temporary: "temporary" });
+  }
+  /* The temporary password, once. Closed only by Done (or Escape) — a stray
+     click beside it shouldn't lose it. */
+  function showTemporaryPassword(name, email, password) {
+    return modal(`
+        <div class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="tmpPwTitle">
+          <b id="tmpPwTitle">Temporary password for ${esc(name)}</b>
+          <p>Give it to them privately — in person or by phone, not in a group. They sign in with ${esc(email || "their email")} and this password, and must then choose their own. <strong>It won't be shown again.</strong></p>
+          <div class="temp-pw"><code>${esc(password)}</code><button type="button" class="btn btn-outline" data-copy>Copy</button></div>
+          <div class="confirm-actions"><button type="button" class="btn btn-primary" data-act="done" data-autofocus>Done</button></div>
+        </div>`, { done: true }, {
+      backdropCloses: false,
+      wire(card) {
+        card.querySelector("[data-copy]").addEventListener("click", async (e) => {
+          try {
+            await navigator.clipboard.writeText(password);
+            e.currentTarget.textContent = "Copied";
+          } catch {
+            // No clipboard access: select it for copying by hand.
+            getSelection()?.selectAllChildren(card.querySelector(".temp-pw code"));
+          }
+        });
+      },
+    });
+  }
+  /* A small dialog in the confirm style: resolves with results[data-act] of
+     the button pressed, or null. Removed from the page when closed. */
+  function modal(html, results, { backdropCloses = true, wire } = {}) {
+    return new Promise((resolve) => {
+      const opener = document.activeElement;
+      const overlay = document.createElement("div");
+      overlay.className = "confirm-overlay is-open";
+      overlay.innerHTML = html;
+      document.body.appendChild(overlay);
+      const done = (val) => {
+        document.removeEventListener("keydown", onKey);
+        overlay.remove();
+        opener?.focus?.();
+        resolve(val);
+      };
+      const onKey = (e) => { if (e.key === "Escape") done(null); };
+      document.addEventListener("keydown", onKey);
+      overlay.addEventListener("click", (e) => {
+        if (e.target === overlay) { if (backdropCloses) done(null); return; }
+        const act = e.target.closest("[data-act]")?.dataset.act;
+        if (act) done(results[act] ?? null);
+      });
+      wire?.(overlay.querySelector(".confirm-card"));
+      overlay.querySelector("[data-autofocus]")?.focus();
+    });
+  }
 
   /* ---- account history (audit log) ---- */
   const AUDIT_ACTION = {
@@ -2743,6 +2811,9 @@ async function main() {
     "county.changed": "changed the county",
     "email.changed": "changed the email",
     "password.reset": "set a new password",
+    "password.reset_link_sent": "sent a password reset link",
+    "password.temporary_set": "made a temporary password",
+    "password.changed": "chose a new password",
     "learner.created": "added a learner",
     "learner.deleted": "removed a learner",
     "learner.updated": "edited a learner",
@@ -2777,6 +2848,9 @@ async function main() {
       case "scope.changed": return [d.added?.length ? `added ${d.added.join(", ")}` : "", d.removed?.length ? `removed ${d.removed.join(", ")}` : ""].filter(Boolean).join("; ");
       case "scope.assigned": return `${d.county ? `${d.county} County` : ""}${d.source ? ` (${d.source})` : ""}`;
       case "kobo.connection_saved": return d.server || "";
+      case "password.reset_link_sent": return d.email ? `to ${d.email}` : "";
+      case "password.temporary_set": return "must be replaced at their next sign-in";
+      case "password.changed": return d.afterTemporary ? "replacing a temporary password" : "";
       case "report.exported": return `${e.targetId || ""} · ${d.format || ""} · ${d.rows ?? 0} rows`;
       default:
         if (e.action.startsWith("learner.") && d.fullName) return `${d.fullName}${d.username ? ` (@${d.username})` : ""}`;

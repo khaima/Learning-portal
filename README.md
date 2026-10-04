@@ -16,7 +16,8 @@ Edge Function API in front of a locked-down Postgres database. Six pages:
 
 - **`index.html`** — sign-in. Pick a role, then sign in — staff with an
   email + password, learners with a username + 4-digit PIN. New staff
-  create an account (no email verification) and a one-step form captures
+  create an account through the portal (public sign-ups are closed in
+  Supabase Auth — [`docs/AUTH.md`](docs/AUTH.md)) and a one-step form captures
   name, role and — for teachers and school heads — County → School from
   the school list (see "Schools and codes" below). Built for slow school
   connections: one light card (HPF, *Learn • Teach • Support • Measure*,
@@ -605,14 +606,19 @@ Three parts, all in the project's own dedicated Supabase project
 (`hpf-learning-portal`, ref `fwpqytrdlmxymvegvgji`) — entirely separate
 from `HPF-digital-portal-2026`:
 
-1. **Auth** — two paths, **no email is ever sent**:
-   - **Staff** (teacher / school head / field officer / education team) sign
-     in with an **email + password**, or **Continue with Google**. The API
-     creates password accounts already-confirmed, so sign-in is a plain
-     Supabase Auth check (no self-service password reset, since no email is
-     sent). Google sign-in uses Supabase's own OAuth — first time through it
-     lands in the same onboarding step as a password sign-up (role + name);
-     after that it's a one-click return.
+1. **Auth** — two paths (the full picture, and the one-time production
+   setup, in [`docs/AUTH.md`](docs/AUTH.md)):
+   - **Staff** sign in with an **email + password**. Accounts are made only
+     by the API (`POST /auth/register`, already confirmed) — public sign-ups
+     are off in Supabase Auth. **Forgot password?** emails a reset link,
+     sent by Supabase Auth through the portal's own mail sender (custom
+     SMTP: Resend or Brevo) in an HPF-branded email. **Continue with
+     Google** appears only when Google is switched on in Supabase Auth.
+   - **Locked out?** An administrator's **Reset password** sends that
+     reset link (the default), or makes a one-time **temporary password**
+     the person must replace the first time they sign in with it — until
+     then the API refuses them everything else. Both are audited; no
+     administrator ever chooses or sees someone's lasting password.
    - **Learners** use a **username + 4-digit PIN**. Their teacher creates
      the account from the teacher dashboard; the API verifies the PIN
      (scrypt-hashed, locks after 5 wrong tries) and issues its own session
@@ -695,7 +701,9 @@ audit behind it are in [`docs/RBAC.md`](docs/RBAC.md).
   Admin. Administrators don't get working-role permissions (a teacher's
   roster, filing field visits).
 - **Audit log:** account creation, approval, rejection, role/school/county
-  changes, suspension, deactivation, reactivation, password resets,
+  changes, suspension, deactivation, reactivation, password help (reset
+  links sent, temporary passwords made, passwords chosen — never the
+  password),
   invitations, learner creation, edits, class moves, archiving,
   transfers and promotions, and assignments (created, published, closed),
   hand-ins and marks go to `audit_log`,
@@ -731,10 +739,10 @@ audit behind it are in [`docs/RBAC.md`](docs/RBAC.md).
 
 ### Turning on Google sign-in
 
-The **Continue with Google** button is already wired up on the frontend —
-it fails gracefully ("Google sign-in isn't set up yet") until three
-one-time, manual steps are done in the Google and Supabase dashboards
-(no code or MCP tool does this part):
+The **Continue with Google** button is already wired up on the frontend,
+but stays hidden until Supabase Auth reports Google switched on — three
+one-time, manual steps in the Google and Supabase dashboards (no code or
+MCP tool does this part):
 
 1. **Google Cloud Console** → APIs & Services → Credentials → Create
    Credentials → OAuth client ID → Web application. Add this Authorized
@@ -746,8 +754,9 @@ one-time, manual steps are done in the Google and Supabase dashboards
    Site URL to `https://khaima.github.io/Learning-portal/` and add it
    (plus `http://localhost:*` for local dev) to Additional Redirect URLs.
 
-Once enabled, no frontend change is needed — the button starts working
-immediately for both new sign-ups and returning accounts.
+Once enabled, no frontend change is needed — the button appears by
+itself. While public sign-ups are off it signs in existing accounts only;
+new people still join through the portal.
 
 ## The content → form → feedback loop
 
@@ -783,9 +792,6 @@ same data everywhere, because the database is the source of truth.
 - **Learner PINs are 4 digits — intentionally weak.** They're
   teacher-managed and locked after 5 wrong tries; fine for coursework and
   library access, not for anything sensitive.
-- **No password reset for staff.** No email is sent, so a forgotten
-  password can only be fixed by an admin resetting it in the Supabase
-  dashboard (or a future admin screen).
 - **Results come only from assignments set in the portal.** Exams or
   tests marked on paper aren't recorded unless a teacher sets them up as an
   assignment.
@@ -813,8 +819,8 @@ python serve.py
 ```
 
 then open the printed `http://localhost:<port>`. It talks to the live
-API immediately — no Supabase dashboard setup needed (email is never
-used).
+API immediately. (Password reset emails need the one-time mail setup in
+[`docs/AUTH.md`](docs/AUTH.md).)
 
 ## File map
 
@@ -831,6 +837,9 @@ used).
 | `navigation.js` | Every role's menu: workspaces, groups, items, the permissions each needs |
 | `admin-ui.js` | Platform and Administration overviews, Permissions, Account activity, Teachers, Classes, School profiles, Assignments, Results, Field visits, Subjects, one account's access (scope, grants, history) |
 | `profile-ui.js` | My profile: who, where, what you can do, grants, change password |
+| `docs/AUTH.md` | Sign-in and passwords: reset links, temporary passwords, Google, the mail-sender setup |
+| `scripts/configure-auth.mjs` | Sets the Supabase Auth production settings (mail sender, branded email, sign-ups off) — run with your own keys |
+| `supabase/templates/recovery.html` | The HPF "Reset your password" email |
 | `docs/RBAC.md` | The access model: audit, roles, permissions, scope, menus, the five layers, migration, tests |
 | `supabase.js` | The Supabase Auth client (password + Google) and the "remember me" storage adapter |
 | `api.js` | Thin fetch wrapper over the `api` Edge Function; attaches the JWT; serves this device's copies offline |
@@ -860,10 +869,8 @@ used).
 
 ## Where this could go next
 
-- Invite-only staff sign-up + an admin screen to assign/approve roles and
-  reset passwords (right now staff sign-up is open and there's no reset).
-- Optional custom SMTP if you later want password-reset or notification
-  email — the code path is gone but easy to re-add.
+- Emailing invitations and notifications through the same mail sender
+  as password resets.
 - Recording paper-based exam scores directly, without building an
   assignment.
 - Per-row authorisation could move partly into RLS if the app ever needs

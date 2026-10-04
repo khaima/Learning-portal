@@ -958,6 +958,13 @@ body.viewer-locked{ overflow:hidden; }
 .confirm-actions .btn{ padding:.55rem 1.1rem; font-size:.84rem; }
 .btn-danger{ background:var(--danger); color:#fff; }
 .btn-danger:hover{ filter:brightness(.92); }
+/* A temporary password, shown once (console.js) */
+.temp-pw{ display:flex; gap:.6rem; align-items:center; margin:0 0 1.1rem; }
+.temp-pw code{
+  flex:1; min-width:0; padding:.6rem .8rem; border:1px solid var(--line); border-radius:var(--radius-sm);
+  background:var(--paper-sunk); color:var(--ink); font:600 1.08rem/1.3 ui-monospace,Consolas,Menlo,monospace;
+  letter-spacing:.04em; word-break:break-all; user-select:all;
+}
 @media (max-width:480px){
   .confirm-actions{ flex-direction:column-reverse; }
   .confirm-actions .btn{ width:100%; }

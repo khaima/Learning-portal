@@ -46,6 +46,8 @@ export class ApiError extends Error {
     this.status = status;
     this.body = body || {};
     this.needsOnboarding = status === 428 || !!body?.needsOnboarding;
+    // Signed in with a temporary password: choosing their own comes first.
+    this.mustChangePassword = status === 403 && !!body?.mustChangePassword;
   }
 }
 
@@ -93,7 +95,7 @@ async function request(method, path, body) {
   try {
     return await rawRequest(method, path, body);
   } catch (err) {
-    if (err instanceof ApiError && (err.status === 401 || err.needsOnboarding)) {
+    if (err instanceof ApiError && (err.status === 401 || err.needsOnboarding || err.mustChangePassword)) {
       if (err.status === 401) {
         setLearnerToken(null);
         await supabase.auth.signOut().catch(() => {});

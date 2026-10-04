@@ -35,7 +35,7 @@ import { supabase } from "./supabase.js";
 const BUCKET = "library";
 const FIVE_MIN = 5 * 60_000;
 /** Shown to the Education Team next to each device, to spot an old copy of the app. */
-export const APP_VERSION = "2026.10.04a";
+export const APP_VERSION = "2026.10.04b";
 
 /* What each kind of queued activity counts as, in the Sync center. */
 const AREA = {
@@ -288,7 +288,9 @@ export async function sync({ manual = false } = {}) {
           cut = true;
           break;
         }
-        if (err.status === 401) { it.status = "pending"; await store.putItem(it); needsSignIn = true; cut = true; break; }
+        // Signed out, or signed in with a temporary password not yet replaced:
+        // keep it, and send it once they're properly signed in.
+        if (err.status === 401 || err.mustChangePassword) { it.status = "pending"; await store.putItem(it); needsSignIn = true; cut = true; break; }
         if (it.group) blocked.add(it.group);
         if (err.status === 409 && err.body?.retryable) {
           Object.assign(it, { status: "pending", nextAt: Date.now() + 30_000 });

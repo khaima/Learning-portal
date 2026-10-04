@@ -5,7 +5,6 @@
    (GET /me, GET /me/access); it only shows, it decides nothing. */
 import { esc, initials, toast, errorState, friendlyError } from "./util.js";
 import { rawRequest } from "./api.js";
-import { supabase } from "./supabase.js";
 
 const fmtDate = (v) => (v ? new Date(v).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "");
 
@@ -72,12 +71,12 @@ export async function renderProfile(el, user) {
     const btn = form.querySelector("button");
     btn.disabled = true;
     try {
-      const { error } = await supabase.auth.updateUser({ password: pw });
-      if (error) throw error;
+      // Through the API, so the change is audited.
+      await rawRequest("POST", "/me/password", { password: pw });
       form.reset();
       toast("Password changed", "Use the new one next time you sign in.", "success");
     } catch (err) {
-      toast("Couldn't change it", err?.message || "Try again.", "error");
+      toast("Couldn't change it", friendlyError(err, "Check your connection and try again."), "error");
     } finally {
       btn.disabled = false;
     }

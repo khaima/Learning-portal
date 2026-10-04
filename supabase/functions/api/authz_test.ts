@@ -123,9 +123,19 @@ function fakeAdmin(db: Db, users: Record<string, { id: string; email: string }>)
       getUser: (jwt: string) => Promise.resolve(users[jwt]
         ? { data: { user: users[jwt] }, error: null }
         : { data: { user: null }, error: { message: "invalid" } }),
+      // A reset email "sent" through the project's mail settings; a test
+      // sets db.auth_mail_error to make the mail server refuse.
+      resetPasswordForEmail: (email: string, opts: Row) => {
+        if (db.auth_mail_error) return Promise.resolve({ data: null, error: db.auth_mail_error[0] });
+        (db.auth_emails ??= []).push({ email, redirectTo: opts?.redirectTo });
+        return Promise.resolve({ data: {}, error: null });
+      },
       admin: {
         createUser: () => Promise.resolve(ok),
-        updateUserById: () => Promise.resolve(ok),
+        updateUserById: (id: string, attrs: Row) => {
+          if (attrs?.password) (db.auth_passwords ??= []).push({ id, password: attrs.password });
+          return Promise.resolve(ok);
+        },
         listUsers: () => Promise.resolve({
           data: { users: Object.values(users).map((u) => ({ ...u, last_sign_in_at: u.id === "teacher-id" ? "2026-10-02T08:00:00.000Z" : null })) },
           error: null,
@@ -155,10 +165,12 @@ const SCHOOL = { id: "sch_1", name: "Aitong Primary", county: "Narok", code: "NR
 const SCHOOL_B = { id: "sch_2", name: "Olpusimoru Primary", county: "Narok", code: "NRK-002", seq: 2 };
 const idOf = (role: string) => `00000000-0000-0000-0000-${role.padEnd(12, "0").slice(0, 12).replace(/[^0-9a-f]/g, "a")}`;
 
+let USERS: Record<string, { id: string; email: string }> = {};
 function freshWorld() {
   const now = new Date().toISOString();
   const inAWeek = new Date(Date.now() + 7 * 864e5).toISOString();
   const users: Record<string, { id: string; email: string }> = {};
+  USERS = users;
   const profiles: Row[] = [];
   for (const role of STAFF) {
     const id = `${role}-id`;
@@ -283,7 +295,7 @@ async function call(method: string, path: string, token?: string, body?: unknown
   });
   let json: Row = {};
   try { json = await res.json(); } catch { /* empty */ }
-  return { status: res.status, json, replay: res.headers.get("idempotent-replay") === "true" };
+  return { status: res.status, json, replay: res.headers.get("idempotent-replay") === "true", cache: res.headers.get("cache-control") };
 }
 const tokenFor = (role: R) => (role === "learner" ? "hpl_learnertoken" : `tok_${role}`);
 
@@ -449,7 +461,8 @@ const ROUTES: RouteSpec[] = [
   r("POST", "/users/:id/reject", USER_ADMIN, {}, "/users/pending-id/reject"),
   r("POST", "/users/:id/status", USER_ADMIN, { action: "suspend" }, "/users/teacher2-id/status"),
   r("PATCH", "/users/:id", USER_ADMIN, { fullName: "Renamed" }, "/users/teacher2-id"),
-  r("POST", "/users/:id/reset-password", USER_ADMIN, { password: "a-new-password" }, "/users/teacher2-id/reset-password"),
+  r("POST", "/users/:id/reset-link", USER_ADMIN, {}, "/users/teacher2-id/reset-link"),
+  r("POST", "/users/:id/temporary-password", USER_ADMIN, {}, "/users/teacher2-id/temporary-password"),
   r("GET", "/audit", SA_ONLY),
   r("GET", "/kobo/config", DATA_QUALITY),
   r("PUT", "/kobo/config", SA_ONLY, {}),
@@ -490,7 +503,7 @@ const ROUTES: RouteSpec[] = [
   r("POST", "/kobo/my-surveys/:id/submitted", ["field_officer"], {}, "/kobo/my-surveys/kb_1/submitted"),
 ];
 /** Need a sign-in but no particular permission (sign-up, own profile, school list). */
-const SIGNED_IN_ONLY = ["GET /me", "POST /me", "POST /me/accept-invite", "GET /schools"];
+const SIGNED_IN_ONLY = ["GET /me", "POST /me", "POST /me/accept-invite", "GET /schools", "POST /me/password"];
 const PUBLIC = ["GET /health", "POST /auth/register", "POST /learner/login", "POST /learner/logout", "GET /invitations/:token", "POST /kobo/hook", "POST /notifications/run"];
 
 const denied = (s: number) => s === 401 || s === 403;
@@ -547,7 +560,7 @@ Deno.test("pending, suspended, rejected and deactivated accounts reach no protec
 
 Deno.test("signed-in-only routes still need a valid session", async () => {
   freshWorld();
-  for (const [m, p] of [["GET", "/me"], ["POST", "/me"], ["POST", "/me/accept-invite"], ["GET", "/schools"]]) {
+  for (const [m, p] of [["GET", "/me"], ["POST", "/me"], ["POST", "/me/accept-invite"], ["GET", "/schools"], ["POST", "/me/password"]]) {
     assertEquals((await call(m, p)).status, 401, `${m} ${p}`);
   }
 });
@@ -634,12 +647,15 @@ Deno.test("role, school and password changes are audited (never the password)", 
   const db = freshWorld();
   db.schools.push({ id: "sch_2", name: "Other Primary", county: "Narok", code: "NRK-002", seq: 2 });
   assertEquals((await call("PATCH", "/users/teacher2-id", "tok_admin", { role: "school_leader", schoolId: "sch_2" })).status, 200);
-  assertEquals((await call("POST", "/users/teacher2-id/reset-password", "tok_admin", { password: "a-new-password" })).status, 200);
+  assertEquals((await call("POST", "/users/teacher2-id/reset-link", "tok_admin", {})).status, 200);
+  const temp = await call("POST", "/users/teacher2-id/temporary-password", "tok_admin", {});
+  assertEquals(temp.status, 200);
   const byAction = (x: string) => db.audit_log.filter((a) => a.action === x && a.target_id === "teacher2-id");
+  assertEquals(byAction("password.reset_link_sent").length, 1);
+  assertEquals(byAction("password.temporary_set").length, 1);
+  assert(!JSON.stringify(db.audit_log).includes(temp.json.temporaryPassword), "the password must never be logged");
   assertEquals(byAction("role.changed")[0].details, { from: "teacher", to: "school_leader" });
   assertEquals(byAction("school.changed")[0].details.to, "sch_2");
-  assertEquals(byAction("password.reset").length, 1);
-  assert(!JSON.stringify(db.audit_log).includes("a-new-password"), "the password must never be logged");
   assertEquals(byAction("role.changed")[0].actor_id, "admin-id");
 });
 
@@ -678,13 +694,142 @@ Deno.test("invitation: the role comes from the invitation, for the invited email
 
 Deno.test("audit history is readable only with audit.view, and shows the entries", async () => {
   const db = freshWorld();
-  await call("POST", "/users/teacher2-id/reset-password", "tok_admin", { password: "a-new-password" });
+  await call("POST", "/users/teacher2-id/temporary-password", "tok_admin", {});
   const res = await call("GET", "/audit?targetId=teacher2-id", "tok_super_admin");
   assertEquals(res.status, 200);
-  assertEquals(res.json.entries[0].action, "password.reset");
+  assertEquals(res.json.entries[0].action, "password.temporary_set");
+  const security = await call("GET", "/audit?kind=security", "tok_super_admin");
+  assert(security.json.entries.some((e: Row) => e.action === "password.temporary_set"), "password actions are security events");
   assertEquals((await call("GET", "/audit", "tok_education_team")).status, 403);
   assertEquals((await call("GET", "/audit", "tok_me")).status, 403);
   assert(db.audit_log.length > 0);
+});
+
+/* ------------------------------------------------------------ 5b. passwords: reset links, temporary passwords */
+
+/** A token shaped like Supabase's, signed in at `at` (ms) — only its amr claim is read. */
+function sessionToken(userId: string, email: string, at: number) {
+  const b64 = (o: unknown) => btoa(JSON.stringify(o)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const jwt = `${b64({ alg: "HS256" })}.${b64({ sub: userId, amr: [{ method: "password", timestamp: Math.floor(at / 1000) }] })}.sig`;
+  USERS[jwt] = { id: userId, email };
+  return jwt;
+}
+
+Deno.test("a reset link is emailed by Supabase Auth to the account's own address, and audited", async () => {
+  const db = freshWorld();
+  let res = await call("POST", "/users/teacher2-id/reset-link", "tok_admin", { redirectTo: "https://khaima.github.io/Learning-portal/index.html?flow=recovery" });
+  assertEquals(res.status, 200);
+  assertEquals(db.auth_emails, [{ email: "teacher2@test.org", redirectTo: "https://khaima.github.io/Learning-portal/index.html?flow=recovery" }]);
+  const a = db.audit_log.find((x) => x.action === "password.reset_link_sent")!;
+  assertEquals([a.actor_id, a.target_id, a.details.email], ["admin-id", "teacher2-id", "teacher2@test.org"]);
+  // The link only ever leads back to the portal itself.
+  await call("POST", "/users/teacher2-id/reset-link", "tok_admin", { redirectTo: "https://evil.example/index.html" });
+  await call("POST", "/users/teacher2-id/reset-link", "tok_admin", { redirectTo: "https://learning-portal-mu-two.vercel.app/" });
+  await call("POST", "/users/teacher2-id/reset-link", "tok_admin", { redirectTo: "https://khaima.github.io/Other/index.html" });
+  assertEquals(db.auth_emails.slice(1).map((e: Row) => e.redirectTo), [
+    "https://learning-portal-mu-two.vercel.app/index.html?flow=recovery",
+    "https://learning-portal-mu-two.vercel.app/index.html?flow=recovery",
+    "https://learning-portal-mu-two.vercel.app/index.html?flow=recovery",
+  ]);
+  // Never to someone the caller can't manage, or an account that can't sign in.
+  assertEquals((await call("POST", "/users/super_admin-id/reset-link", "tok_admin", {})).status, 403);
+  assertEquals((await call("POST", "/users/admin-id/reset-link", "tok_admin", {})).status, 403, "not your own account");
+  assertEquals((await call("POST", "/users/suspended-id/reset-link", "tok_admin", {})).status, 409);
+  assertEquals((await call("POST", "/users/no-such-id/reset-link", "tok_admin", {})).status, 404);
+  assertEquals(db.auth_emails.length, 4);
+  // The mail server refusing is reported, and nothing is audited for it.
+  db.auth_mail_error = [{ status: 429, message: "email rate limit exceeded" }];
+  res = await call("POST", "/users/teacher2-id/reset-link", "tok_admin", {});
+  assertEquals(res.status, 429);
+  db.auth_mail_error = [{ status: 500, message: "Error sending recovery email" }];
+  assertEquals((await call("POST", "/users/teacher2-id/reset-link", "tok_admin", {})).status, 502);
+  assertEquals(db.audit_log.filter((x) => x.action === "password.reset_link_sent").length, 4);
+});
+
+Deno.test("the old 'set a new password' route is gone", async () => {
+  freshWorld();
+  assertEquals((await call("POST", "/users/teacher2-id/reset-password", "tok_super_admin", { password: "a-new-password" })).status, 404);
+});
+
+Deno.test("a temporary password is shown once, must be changed at next sign-in, and is never stored or logged", async () => {
+  const db = freshWorld();
+  const issued = Date.now();
+  const res = await call("POST", "/users/teacher2-id/temporary-password", "tok_admin", {}, { "Idempotency-Key": "temp-pass-key-1" });
+  assertEquals(res.status, 200);
+  const temp = res.json.temporaryPassword as string;
+  assert(/^[A-HJ-NP-Za-hj-np-z2-9]{4}(-[A-HJ-NP-Za-hj-np-z2-9]{4}){3}$/.test(temp), temp);
+  assertEquals(res.cache, "no-store");
+  assertEquals(db.auth_passwords.at(-1), { id: "teacher2-id", password: temp });
+  const prof = db.profiles.find((p) => p.id === "teacher2-id")!;
+  assertEquals(prof.must_change_password, true);
+  assert(!String(prof.temporary_password_hash).includes(temp), "only a hash is kept");
+  // Not in the audit log, and not kept for an offline-retry replay.
+  const a = db.audit_log.find((x) => x.action === "password.temporary_set")!;
+  assertEquals([a.actor_id, a.target_id], ["admin-id", "teacher2-id"]);
+  for (const table of ["audit_log", "sync_requests", "notifications"]) {
+    assert(!JSON.stringify(db[table] ?? []).includes(temp), `the temporary password leaked into ${table}`);
+  }
+  assertEquals(db.sync_requests.length, 0);
+
+  // Until it's changed, the account reaches nothing — every protected route.
+  const me = await call("GET", "/me", "tok_teacher2");
+  assertEquals(me.json.profile.mustChangePassword, true);
+  for (const spec of ROUTES) {
+    const r = await call(spec.method, spec.path, "tok_teacher2", spec.body);
+    assertEquals(r.status, 403, `${spec.method} ${spec.route}`);
+    assertEquals(r.json.mustChangePassword, true, `${spec.method} ${spec.route}`);
+  }
+  // A session left open from before can't replace it…
+  const old = await call("POST", "/me/password", "tok_teacher2", { password: "my-own-password" });
+  assertEquals([old.status, old.json.signInAgain], [401, true]);
+  // …and signing in with it, the temporary one can't be kept, nor a short one.
+  const fresh = sessionToken("teacher2-id", "teacher2@test.org", issued + 1000);
+  assertEquals((await call("POST", "/me/password", fresh, { password: temp })).status, 400);
+  assertEquals((await call("POST", "/me/password", fresh, { password: "short" })).status, 400);
+  assertEquals((await call("POST", "/me/password", fresh, { password: "x".repeat(73) })).status, 400);
+  assertEquals(db.profiles.find((p) => p.id === "teacher2-id")!.must_change_password, true);
+
+  const done = await call("POST", "/me/password", fresh, { password: "my-own-password" });
+  assertEquals(done.status, 200);
+  assertEquals(db.auth_passwords.at(-1), { id: "teacher2-id", password: "my-own-password" });
+  const after = db.profiles.find((p) => p.id === "teacher2-id")!;
+  assertEquals([after.must_change_password, after.temporary_password_hash], [false, null]);
+  assert(after.password_changed_at);
+  const changed = db.audit_log.find((x) => x.action === "password.changed")!;
+  assertEquals([changed.actor_id, changed.target_id, changed.details.afterTemporary], ["teacher2-id", "teacher2-id", true]);
+  assert(!JSON.stringify(db.audit_log).includes("my-own-password"));
+  // Back to work.
+  assertEquals((await call("GET", "/forms", fresh)).status, 200);
+  assertEquals((await call("GET", "/me", fresh)).json.profile.mustChangePassword, false);
+  // The admin's list shows it waiting, then done.
+  const list = await call("GET", "/users", "tok_admin");
+  assertEquals(list.json.users.find((u: Row) => u.id === "teacher2-id").mustChangePassword, false);
+});
+
+Deno.test("temporary passwords follow the same authority rules as other account changes", async () => {
+  const db = freshWorld();
+  assertEquals((await call("POST", "/users/super_admin-id/temporary-password", "tok_admin", {})).status, 403);
+  assertEquals((await call("POST", "/users/admin-id/temporary-password", "tok_admin", {})).status, 403, "not your own account");
+  assertEquals((await call("POST", "/users/pending-id/temporary-password", "tok_admin", {})).status, 409);
+  assertEquals((await call("POST", "/users/teacher2-id/temporary-password", "tok_education_team", {})).status, 403);
+  assertEquals(db.auth_passwords ?? [], []);
+  assert(!db.profiles.some((p) => p.must_change_password), "a refused request changes nothing");
+  // A Super Admin can for an admin.
+  assertEquals((await call("POST", "/users/admin-id/temporary-password", "tok_super_admin", {})).status, 200);
+  assertEquals((await call("GET", "/users", "tok_admin")).status, 403, "and that admin is held at the password step");
+});
+
+Deno.test("changing your own password: staff only, any account state, audited", async () => {
+  const db = freshWorld();
+  assertEquals((await call("POST", "/me/password", "hpl_learnertoken", { password: "learner-pass" })).status, 403);
+  assertEquals((await call("POST", "/me/password", "tok_teacher", { password: "a-better-password" })).status, 200);
+  const a = db.audit_log.find((x) => x.action === "password.changed")!;
+  assertEquals([a.actor_id, a.target_id, a.details.afterTemporary], ["teacher-id", "teacher-id", false]);
+  // A pending account (e.g. after "forgot password") can still choose one.
+  assertEquals((await call("POST", "/me/password", "tok_pending", { password: "pending-pass-1" })).status, 200);
+  // Signed in but no profile yet: Supabase Auth only, nothing to audit.
+  assertEquals((await call("POST", "/me/password", "tok_new", { password: "brand-new-pass" })).status, 200);
+  assertEquals(db.auth_passwords.map((p: Row) => p.id), ["teacher-id", "pending-id", "new-id"]);
 });
 
 /* ------------------------------------------------------------ 6. schools, classes and enrollments */

@@ -2,10 +2,11 @@
    HPF Digital Learning Portal — accounts and sessions.
 
    Two ways in:
-   - Staff (teacher / school head / field officer / education team) use
-     an email + password. No email is ever sent — the `api` Edge Function
-     creates the account already-confirmed, and sign-in is a plain
-     password check.
+   - Staff use an email + password. Accounts are made only by the `api`
+     Edge Function (POST /auth/register, already confirmed — public
+     sign-ups are off in Supabase Auth). The only emails are password
+     reset links, sent by Supabase Auth through the portal's own mail
+     sender (docs/AUTH.md). Google appears only when it's switched on.
    - Learners use a username + 4-digit PIN. Their teacher creates the
      account; the `api` Edge Function issues an opaque session token
      (stored as `hpf_learner_token`). No email, no Supabase Auth.
@@ -64,22 +65,22 @@ export async function signInWithPassword(email, password) {
   return { ok: true, session: data.session };
 }
 
-/** Whether Google is turned on in Supabase Auth — a public,
-    unauthenticated GoTrue endpoint. Checked before redirecting so an
-    unconfigured provider fails nicely on this page instead of sending
-    the visitor to a raw JSON error at supabase.co (signInWithOAuth
-    redirects immediately; it doesn't pre-validate). */
-async function googleProviderEnabled() {
-  try {
-    const res = await fetch(`${SUPABASE_URL}/auth/v1/settings`, {
-      headers: { apikey: SUPABASE_PUBLISHABLE_KEY },
-    });
-    if (!res.ok) return true; // fail open — let Supabase be the source of truth
-    const settings = await res.json();
-    return !!settings?.external?.google;
-  } catch {
-    return true; // a network hiccup here shouldn't block a real attempt
-  }
+/** Supabase Auth's public settings (which sign-in providers are on,
+    whether sign-ups are open) — fetched once per page, null if they
+    can't be read. Nothing secret: it's the same for every visitor. */
+let authSettingsOnce;
+export function authSettings() {
+  authSettingsOnce ??= fetch(`${SUPABASE_URL}/auth/v1/settings`, { headers: { apikey: SUPABASE_PUBLISHABLE_KEY } })
+    .then((res) => (res.ok ? res.json() : null))
+    .catch(() => null);
+  return authSettingsOnce;
+}
+
+/** Whether Google is switched on in Supabase Auth. Fails closed: if it
+    can't be confirmed, the button isn't offered (index.js), rather than
+    shown and then sending the visitor to an error page at supabase.co. */
+export async function googleProviderEnabled() {
+  return !!(await authSettings())?.external?.google;
 }
 
 /** Start a Google sign-in/sign-up. Redirects the whole page to Google.
@@ -97,9 +98,10 @@ export async function signInWithGoogle() {
   if (error) throw error;
 }
 
-/** Education-team action: email a staff member a "set a new password"
-    link — the standard Supabase Auth password-recovery flow, same
-    mechanism as a self-service "forgot password". redirectTo points at
+/** "Forgot password?" on the sign-in page: email yourself a "set a new
+    password" link — the standard Supabase Auth recovery flow. (An
+    administrator's "Send reset link" sends the same email from the server,
+    POST /users/:id/reset-link, so it's audited.) redirectTo points at
     index.html with a `flow=recovery` flag so it reuses the exact origin +
     path already allow-listed for Google sign-in (Supabase's redirect-URL
     allow list ignores the query string, so this needs no extra Supabase
@@ -109,6 +111,14 @@ export async function sendPasswordResetLink(email) {
   const redirectTo = new URL("index.html?flow=recovery", window.location.href).href;
   const { error } = await supabase.auth.resetPasswordForEmail((email || "").trim(), { redirectTo });
   if (error) throw error;
+}
+
+/** Choose your own password (after a reset link or a temporary password,
+    or from My profile). Goes through the API so a temporary password's
+    "must change" is cleared and the change is audited. */
+export async function changeMyPassword(password) {
+  await rawRequest("POST", "/me/password", { password });
+  cachedProfile = undefined;
 }
 
 /* ---- learners: username + PIN ---- */
@@ -235,14 +245,15 @@ export async function signOut() {
 /* Call at the top of every dashboard. Async: checks the real session and
    the server-side profile, and sends anyone who isn't signed in, isn't
    onboarded, isn't active yet (pending approval, suspended…), still has
-   to pick their school, or is the wrong role back to the front door
+   to pick their school or replace a temporary password, or is the wrong
+   role back to the front door
    (which shows them the right step). `role` may be one role or a list.
    This only decides which page to show — the API checks every request. */
 export async function requireRole(role) {
   const roles = Array.isArray(role) ? role : [role];
   const profile = await getProfile();
   const status = profile?.status ?? "active";
-  if (!profile || profile.needsOnboarding || profile.needsSchool || status !== "active") {
+  if (!profile || profile.needsOnboarding || profile.needsSchool || profile.mustChangePassword || status !== "active") {
     location.href = "index.html";
     return null;
   }

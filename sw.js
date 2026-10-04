@@ -15,7 +15,7 @@
    the copy here is used straight away.
    ============================================================ */
 
-const VERSION = "hpf-learning-v5";
+const VERSION = "hpf-learning-v6";
 const SHELL = [
   "./", "./index.html", "./learner.html", "./teacher.html", "./leader.html", "./field.html",
   "./platform.html", "./admin.html", "./me.html", "./education.html", "./workspace.html", "./workspace.js",

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Reset your HPF Digital Learning Portal password</title>
+</head>
+<!--
+  Supabase Auth "Reset password" email for the HPF Digital Learning Portal.
+  Installed by scripts/configure-auth.mjs (docs/AUTH.md); Supabase fills in
+  {{ .ConfirmationURL }} and {{ .Email }}. Inline styles and tables only, so
+  it reads the same in Gmail, Outlook and phone mail apps, and no images:
+  it arrives quickly on a slow connection and nothing is fetched from
+  anywhere when it's opened.
+-->
+<body style="margin:0;padding:0;background:#FAF6EF;font-family:Arial,Helvetica,sans-serif;color:#14213D;">
+  <div style="display:none;max-height:0;overflow:hidden;">Choose a new password for your HPF Digital Learning Portal account. The link works once.</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FAF6EF;">
+    <tr>
+      <td align="center" style="padding:24px 12px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#FFFFFF;border:1px solid #E4DACB;border-radius:14px;">
+          <tr>
+            <td style="background:#1E4C8A;border-radius:14px 14px 0 0;padding:18px 24px;">
+              <div style="font-size:18px;font-weight:bold;color:#FFFFFF;letter-spacing:.2px;">HPF Digital Learning Portal</div>
+              <div style="font-size:13px;color:#DCE6F3;margin-top:2px;">Human Practice Foundation</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px;">
+              <h1 style="margin:0 0 12px;font-size:20px;line-height:1.3;color:#14213D;">Reset your password</h1>
+              <p style="margin:0 0 16px;font-size:15px;line-height:1.55;color:#3D4C6B;">
+                We received a request to reset the password for <strong style="color:#14213D;">{{ .Email }}</strong>.
+                Tap the button to choose a new one.
+              </p>
+              <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 20px;">
+                <tr>
+                  <td style="background:#1E4C8A;border-radius:10px;">
+                    <a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:12px 22px;font-size:15px;font-weight:bold;color:#FFFFFF;text-decoration:none;">Choose a new password</a>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:0 0 8px;font-size:13px;line-height:1.5;color:#3D4C6B;">
+                The link works once and expires after an hour. If the button doesn't open, copy this address into your browser:
+              </p>
+              <p style="margin:0 0 20px;font-size:12px;line-height:1.5;word-break:break-all;"><a href="{{ .ConfirmationURL }}" style="color:#1E4C8A;">{{ .ConfirmationURL }}</a></p>
+              <p style="margin:0;padding:12px 14px;background:#FBE7D4;border-radius:10px;font-size:13px;line-height:1.5;color:#7A4317;">
+                Didn't ask for this? You can ignore this email — your password stays the same. HPF staff will never ask you for your password.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:14px 24px 20px;border-top:1px solid #E4DACB;font-size:12px;line-height:1.5;color:#6B7590;">
+              Sent by the HPF Digital Learning Portal because a password reset was requested for this address, by you or by a portal administrator.
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

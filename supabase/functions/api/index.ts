@@ -339,6 +339,8 @@ const mapProfile = (r: Record<string, unknown>, access?: { grants: string[]; sco
   status: r.status ?? "active",
   statusReason: r.status_reason ?? null,
   requestedRole: r.requested_role ?? null,
+  // Signed in with a temporary password: choose your own before anything else.
+  mustChangePassword: !!r.must_change_password,
   // What the signed-in person may do (their role's permissions plus any
   // grants), where (their data scope) and in which workspace — the app uses
   // this only to decide what to show; every route checks again on the server.
@@ -430,6 +432,8 @@ type Vars = {
   email: string;
   learnerId: string;
   actor: Actor;
+  /** Staff: when this session was signed in (seconds), from the verified token. */
+  signedInAt: number;
 };
 
 export const app = new Hono<{ Variables: Vars }>().basePath("/api");
@@ -688,8 +692,23 @@ app.use("*", async (c, next) => {
   c.set("actorKind", "staff");
   c.set("userId", data.user.id);
   c.set("email", data.user.email ?? "");
+  c.set("signedInAt", sessionSignedInAt(raw));
   await next();
 });
+
+/** When this session was signed in (seconds since 1970), from the `amr`
+    claim of a token Supabase Auth has just verified (getUser above). It
+    survives token refreshes, so it's the sign-in itself, not the refresh. */
+function sessionSignedInAt(jwt: string): number {
+  try {
+    const part = jwt.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const claims = JSON.parse(atob(part + "=".repeat((4 - (part.length % 4)) % 4)));
+    const times = (Array.isArray(claims.amr) ? claims.amr : []).map((a: { timestamp?: unknown }) => Number(a?.timestamp) || 0);
+    return Math.max(0, ...times);
+  } catch {
+    return 0;
+  }
+}
 
 /* ---- once only: retries from the offline queue ----
    A device that worked offline sends each queued activity with an
@@ -701,9 +720,12 @@ app.use("*", async (c, next) => {
    retried for real. */
 const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9_-]{8,80}$/;
 const IDEMPOTENCY_KEEP_MS = 30 * 864e5;
+// Replies that hold a secret are never stored for replay.
+const NEVER_REPLAYED = /\/temporary-password$/;
 app.use("*", async (c, next) => {
   const key = c.req.header("Idempotency-Key");
   if (!key || c.req.method === "GET" || c.req.method === "OPTIONS") return next();
+  if (NEVER_REPLAYED.test(new URL(c.req.url).pathname)) return next();
   if (!IDEMPOTENCY_KEY_RE.test(key)) return c.json({ error: "Invalid Idempotency-Key" }, 400);
   const actorId = String(c.get("learnerId") ?? c.get("userId") ?? "");
   const path = new URL(c.req.url).pathname;
@@ -792,6 +814,11 @@ async function resolveActor(c: any): Promise<Response | null> {
   if (status !== "active") {
     return c.json({ error: STATUS_MESSAGE[status] ?? "Your account is not active.", accountStatus: status }, 403);
   }
+  // Signed in with a temporary password: the only thing it can do is be
+  // replaced (POST /me/password, which doesn't come through here).
+  if (p.must_change_password) {
+    return c.json({ error: "Choose your own password before carrying on.", mustChangePassword: true }, 403);
+  }
   if (!STAFF_ROLES.includes(p.role)) return c.json({ error: "Your account has no valid role." }, 403);
   const { grants, scope } = await loadAccess(p);
   c.set("actor", {
@@ -872,6 +899,86 @@ app.get("/me", async (c) => {
   if (!profile) return c.json({ needsOnboarding: true, email: c.get("email") });
   const access = (profile.status ?? "active") === "active" && STAFF_ROLES.includes(profile.role) ? await loadAccess(profile) : undefined;
   return c.json({ profile: mapProfile(profile, access) });
+});
+
+/* ---- passwords ----
+   Nobody chooses or learns someone else's lasting password. An
+   administrator can help someone who can't sign in in two ways, both
+   written to the audit log:
+   - a reset link (POST /users/:id/reset-link), emailed by Supabase Auth
+     through the portal's own mail sender (docs/AUTH.md): the person
+     chooses their own password;
+   - a temporary password (POST /users/:id/temporary-password) for someone
+     who can't receive email: random, shown to the administrator once,
+     never stored, and good for one thing only — signing in to choose their
+     own here. Until they do, every other route refuses them (resolveActor). */
+const PASSWORD_MIN = 8;
+const PASSWORD_MAX = 72; // Supabase Auth's limit
+
+function passwordProblem(pw: string): string | null {
+  if (pw.length < PASSWORD_MIN) return `Use at least ${PASSWORD_MIN} characters.`;
+  if (pw.length > PASSWORD_MAX) return `Use at most ${PASSWORD_MAX} characters.`;
+  return null;
+}
+
+/* Four groups of four, from letters and digits that can't be mistaken for
+   each other when read aloud or copied by hand (no 0/O, 1/l/I). About 90
+   bits; always has a lower-case and a capital letter, a digit and a dash,
+   so it passes any password-character rule set in Supabase Auth. */
+const TEMP_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+function temporaryPassword(): string {
+  for (;;) {
+    const chars: string[] = [];
+    while (chars.length < 16) {
+      for (const byte of randomBytes(32)) {
+        // Rejection sampling: no bias towards the start of the alphabet.
+        if (byte < 256 - (256 % TEMP_ALPHABET.length) && chars.length < 16) chars.push(TEMP_ALPHABET[byte % TEMP_ALPHABET.length]);
+      }
+    }
+    const pw = [0, 4, 8, 12].map((i) => chars.slice(i, i + 4).join("")).join("-");
+    if (/[a-z]/.test(pw) && /[A-Z]/.test(pw) && /[0-9]/.test(pw)) return pw;
+  }
+}
+const isTemporaryPassword = (pw: string, stored: unknown) => {
+  const [salt, hash] = String(stored ?? "").split(":");
+  return !!salt && !!hash && pinMatches(pw, salt, hash);
+};
+
+/* Change your own password — staff only (learners have a PIN). Also how a
+   reset link and a temporary password end: the flag is cleared here and
+   nowhere else. Works for any account state, as Supabase's own "change
+   password" would; it only ever changes the caller's own password. */
+app.post("/me/password", async (c) => {
+  if (c.get("actorKind") === "learner") {
+    return c.json({ error: "Learners sign in with a PIN — ask your teacher to reset it." }, 403);
+  }
+  const b = await c.req.json().catch(() => ({}));
+  const password = String(b.password ?? "");
+  const problem = passwordProblem(password);
+  if (problem) return c.json({ error: problem }, 400);
+  const p = await loadStaffProfile(c.get("userId"));
+  if (p?.must_change_password) {
+    // Only a session signed in after the temporary password was made (with
+    // it, or with a reset link) may replace it — not one left open before.
+    const madeAt = Date.parse(p.temporary_password_at ?? "") || 0;
+    if (madeAt && (c.get("signedInAt") ?? 0) * 1000 < madeAt - 5000) {
+      return c.json({ error: "Sign in again with the temporary password you were given, then choose your own.", signInAgain: true }, 401);
+    }
+    if (isTemporaryPassword(password, p.temporary_password_hash)) {
+      return c.json({ error: "Choose a new password of your own — not the temporary one." }, 400);
+    }
+  }
+  const { error } = await admin.auth.admin.updateUserById(c.get("userId"), { password });
+  if (error) return c.json({ error: error.message || "Could not change your password" }, 400);
+  if (p) {
+    const { error: e2 } = await admin.from("profiles").update({
+      must_change_password: false, temporary_password_hash: null, password_changed_at: new Date().toISOString(),
+    }).eq("id", p.id);
+    if (e2) return c.json({ error: e2.message }, 500);
+    // Never the password.
+    await audit(c, "password.changed", "profile", p.id, { afterTemporary: !!p.must_change_password }, { id: p.id, role: p.role });
+  }
+  return c.json({ ok: true });
 });
 
 /** Name and BOM/TSC type from a sign-up form, or the error to show. */
@@ -6838,6 +6945,9 @@ const mapUserRow = (r: Record<string, unknown>) => ({
   requestedRole: r.requested_role ?? null,
   approvedAt: r.approved_at ?? null,
   invitedBy: r.invited_by ?? null,
+  mustChangePassword: !!r.must_change_password,
+  temporaryPasswordAt: r.must_change_password ? r.temporary_password_at ?? null : null,
+  passwordChangedAt: r.password_changed_at ?? null,
 });
 
 /** Loads the account named in :id and checks the caller has authority
@@ -7222,18 +7332,72 @@ app.patch("/users/:id", requirePermission("users.edit", "users.roles.assign", "u
   return c.json({ user: mapUserRow(data!) });
 });
 
-app.post("/users/:id/reset-password", requirePermission("users.password.reset"), async (c) => {
+/* Where a reset link may send someone: index.html of one of the portal's
+   own addresses (PORTAL_URLS, comma-separated; the two live sites by
+   default). Supabase Auth's redirect allow-list checks it again. */
+const PORTAL_URLS = (Deno.env.get("PORTAL_URLS") ?? "https://learning-portal-mu-two.vercel.app/,https://khaima.github.io/Learning-portal/")
+  .split(",").map((s) => s.trim()).filter(Boolean);
+function recoveryRedirect(asked: unknown): string {
+  try {
+    const u = new URL(String(asked ?? ""));
+    for (const base of PORTAL_URLS) {
+      const b = new URL(base.endsWith("/") ? base : base + "/");
+      if (u.origin === b.origin && (u.pathname === b.pathname || u.pathname === b.pathname + "index.html")) {
+        return `${b.origin}${b.pathname}index.html?flow=recovery`;
+      }
+    }
+  } catch { /* not a URL: the default below */ }
+  const b = new URL(PORTAL_URLS[0].endsWith("/") ? PORTAL_URLS[0] : PORTAL_URLS[0] + "/");
+  return `${b.origin}${b.pathname}index.html?flow=recovery`;
+}
+
+const ACTIVE_ONLY = "Only an active account can sign in. Reactivate it first.";
+
+app.post("/users/:id/reset-link", requirePermission("users.password.reset"), async (c) => {
   const target = await loadManagedAccount(c);
   if (target instanceof Response) return target;
+  if ((target.status ?? "active") !== "active") return c.json({ error: ACTIVE_ONLY }, 409);
+  if (!target.email) return c.json({ error: "This account has no email address." }, 400);
   const b = await c.req.json().catch(() => ({}));
-  const password = String(b.password ?? "");
-  if (password.length < 8) {
-    return c.json({ error: "Password must be at least 8 characters" }, 400);
+  const redirectTo = recoveryRedirect(b.redirectTo);
+  const { error } = await admin.auth.resetPasswordForEmail(String(target.email), { redirectTo });
+  if (error) {
+    const busy = error.status === 429 || /rate limit|too many|security purposes/i.test(error.message ?? "");
+    return c.json({
+      error: busy
+        ? "Too many emails have gone out just now. Wait a minute and try again."
+        : `The email couldn't be sent (${error.message || "mail server error"}). Check the portal's mail settings — docs/AUTH.md.`,
+    }, busy ? 429 : 502);
   }
+  await audit(c, "password.reset_link_sent", "profile", target.id, { email: target.email, redirectTo });
+  return c.json({ ok: true, email: target.email });
+});
+
+app.post("/users/:id/temporary-password", requirePermission("users.password.reset"), async (c) => {
+  const target = await loadManagedAccount(c);
+  if (target instanceof Response) return target;
+  if ((target.status ?? "active") !== "active") return c.json({ error: ACTIVE_ONLY }, 409);
+  const password = temporaryPassword();
+  const salt = randomBytes(16).toString("hex");
+  const before = {
+    must_change_password: !!target.must_change_password,
+    temporary_password_at: target.temporary_password_at ?? null,
+    temporary_password_hash: target.temporary_password_hash ?? null,
+  };
+  // The flag first: if setting the password then fails, it's put back.
+  const { error: e1 } = await admin.from("profiles").update({
+    must_change_password: true, temporary_password_at: new Date().toISOString(), temporary_password_hash: `${salt}:${hashPin(password, salt)}`,
+  }).eq("id", target.id);
+  if (e1) return c.json({ error: e1.message }, 500);
   const { error } = await admin.auth.admin.updateUserById(target.id, { password });
-  if (error) return c.json({ error: error.message || "Could not set the new password" }, 400);
-  await audit(c, "password.reset", "profile", target.id, { by: "administrator" }); // never the password
-  return c.json({ ok: true });
+  if (error) {
+    await admin.from("profiles").update(before).eq("id", target.id);
+    return c.json({ error: error.message || "Could not set a temporary password" }, 400);
+  }
+  // Never the password.
+  await audit(c, "password.temporary_set", "profile", target.id, { mustChangeAtSignIn: true });
+  c.header("Cache-Control", "no-store");
+  return c.json({ ok: true, email: target.email, temporaryPassword: password });
 });
 
 // ---------------------------------------------------------------- access: badges, overviews, people, scope, grants
@@ -7737,7 +7901,8 @@ app.get("/security/activity", requirePermission("audit.view"), async (c) => {
 /** Changes to who can sign in and what they can reach. */
 const SECURITY_ACTIONS = [
   "account.created", "account.approved", "account.rejected", "account.suspended", "account.deactivated", "account.reactivated",
-  "role.changed", "school.changed", "county.changed", "email.changed", "password.reset",
+  "role.changed", "school.changed", "county.changed", "email.changed",
+  "password.reset", "password.reset_link_sent", "password.temporary_set", "password.changed",
   "permission.granted", "permission.revoked", "scope.changed", "scope.assigned",
   "invitation.created", "invitation.revoked", "invitation.accepted",
   "kobo.connection_saved", "kobo.webhook_secret_created", "kobo.webhook_secret_removed", "learner.pin_reset", "learner.unlocked",

@@ -894,7 +894,7 @@ export async function getStats({ county, school, from, to, topGrades } = {}) {
 
 /* Every staff account (teacher, school leader, field officer, education
    team) — email, role, school, county. Passwords/PINs are one-way hashed
-   server-side and never come back here; see resetUserPassword(). */
+   server-side and never come back here. */
 export async function getUsers() {
   const { users } = await apiGet("/users");
   return users || [];
@@ -905,10 +905,16 @@ export async function updateUser(id, patch) {
   return user;
 }
 
-/* Sets a brand-new password for a staff account — the old one is never
-   readable, so this is the only way to "reset" it. */
-export async function resetUserPassword(id, password) {
-  return apiSend("POST", `/users/${id}/reset-password`, { password });
+/* Helping someone who can't sign in (both audited on the server):
+   - a reset link, emailed to them — they choose their own password;
+   - a temporary password, returned once to show the administrator; they
+     must replace it the first time they sign in with it. */
+export async function sendUserResetLink(id) {
+  const redirectTo = new URL("index.html?flow=recovery", window.location.href).href;
+  return apiSend("POST", `/users/${id}/reset-link`, { redirectTo });
+}
+export async function issueTemporaryPassword(id) {
+  return apiSend("POST", `/users/${id}/temporary-password`, {});
 }
 
 /* ---- account governance (administrators) ----

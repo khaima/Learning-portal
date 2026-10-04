@@ -1,1 +1,5 @@
 supabase/.temp/
+# Local secrets for scripts/configure-auth.mjs (docs/AUTH.md) — never committed.
+.env
+.env.*
+!.env.example

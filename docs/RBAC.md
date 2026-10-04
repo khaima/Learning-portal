@@ -255,7 +255,7 @@ Generated from `permissions.ts` (role permissions; explicit grants come on top):
 | Change staff roles <br>`users.roles.assign` | ✓ | ✓ |  |  |  |  |  |  |
 | Change where staff work, and their data scope <br>`users.placement.assign` | ✓ | ✓ |  |  |  |  |  |  |
 | Suspend, deactivate and reactivate accounts <br>`users.status.manage` | ✓ | ✓ |  |  |  |  |  |  |
-| Set a new password for someone <br>`users.password.reset` | ✓ | ✓ |  |  |  |  |  |  |
+| Send someone a password reset link, or a temporary password <br>`users.password.reset` | ✓ | ✓ |  |  |  |  |  |  |
 | See teachers and school heads (no account actions) <br>`teachers.view` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |
 | See learners in every school in scope <br>`learners.view.all` | ✓ | ✓ | ✓ | ✓ |  |  |  |  |
 | See learners in their own school <br>`learners.view.school` |  |  |  |  |  | ✓ |  |  |

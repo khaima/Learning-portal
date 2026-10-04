@@ -309,7 +309,7 @@ export const PERMISSION_GROUPS: { group: string; items: [Permission, string][] }
     ["users.roles.assign", "Change staff roles"],
     ["users.placement.assign", "Change where staff work, and their data scope"],
     ["users.status.manage", "Suspend, deactivate and reactivate accounts"],
-    ["users.password.reset", "Set a new password for someone"],
+    ["users.password.reset", "Send someone a password reset link, or a temporary password"],
     ["teachers.view", "See teachers and school heads (no account actions)"],
     ["learners.view.all", "See learners in every school in scope"],
     ["learners.view.school", "See learners in their own school"],
