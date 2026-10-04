@@ -43,8 +43,8 @@ export type NotifyInput = {
   koboForms: Row[];       // id, title
   koboReceived: Row[];    // raw submissions recently received: id, kobo_form_id, received_at, needs_review
   koboLastNotified: Record<string, string>; // recipient → when they were last told about Kobo submissions
-  /** may this role …? (permissions.ts can) */
-  can: (role: string, permission: string) => boolean;
+  /** may this person …? (their role's permissions plus any grants) */
+  can: (person: Row, permission: string) => boolean;
 };
 
 /** Kenya time (EAT, UTC+3, no daylight saving): "tomorrow" is a Kenyan day. */
@@ -58,6 +58,8 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 const list = (xs: string[], max = 4) => xs.length <= max ? xs.join(", ") : `${xs.slice(0, max).join(", ")} and ${xs.length - max} more`;
 
 const PAGE: Record<string, string> = { teacher: "teacher.html", school_leader: "leader.html", field_officer: "field.html", learner: "learner.html" };
+/** Each management role's own workspace (permissions.ts WORKSPACE). */
+const WORKSPACE_PAGE: Record<string, string> = { super_admin: "platform.html", admin: "admin.html", me: "me.html", education_team: "education.html" };
 const FORMS_PAGE: Record<string, string> = { teacher: "teacher.html#assignments", school_leader: "leader.html#overview", field_officer: "field.html#reports" };
 
 /** A visit's forms that weren't filled in: the visit type's forms (for its
@@ -167,7 +169,7 @@ export function buildNotifications(d: NotifyInput, now = new Date(), onlyRecipie
 
   // ---- Kobo managers: submissions received since they were last told
   const koboTitle = new Map(d.koboForms.map((f) => [f.id, f.title]));
-  for (const p of staff.filter((x) => d.can(x.role, "kobo.manage") && want(x.id))) {
+  for (const p of staff.filter((x) => d.can(x, "kobo.review") && want(x.id))) {
     const since = d.koboLastNotified[p.id] ?? new Date(now.getTime() - 864e5).toISOString();
     const fresh = d.koboReceived.filter((r) => String(r.received_at) > since);
     if (!fresh.length) continue;
@@ -179,7 +181,7 @@ export function buildNotifications(d: NotifyInput, now = new Date(), onlyRecipie
       recipientKind: "staff", recipientId: p.id, kind: "kobo_received", severity: review ? "action" : "info",
       title: `${plural(fresh.length, "Kobo submission")} received.`,
       body: [...by.entries()].map(([id, n]) => `${koboTitle.get(id) ?? "A survey"}: ${n}`).join(" · ") + (review ? ` — ${review} need${review === 1 ? "s" : ""} review.` : "."),
-      link: "education.html#kobo", data: { count: fresh.length, needsReview: review, since, until: latest },
+      link: `${WORKSPACE_PAGE[p.role] ?? "index.html"}#kobo`, data: { count: fresh.length, needsReview: review, since, until: latest },
       dedupeKey: `kobo_received:${latest}`,
     });
   }
@@ -187,12 +189,12 @@ export function buildNotifications(d: NotifyInput, now = new Date(), onlyRecipie
   // ---- approvers: accounts waiting for approval (once a day while there are any)
   const pending = d.profiles.filter((p) => p.status === "pending");
   if (pending.length) {
-    for (const p of staff.filter((x) => d.can(x.role, "users.approve") && want(x.id))) {
+    for (const p of staff.filter((x) => d.can(x, "users.approve") && want(x.id))) {
       out.push({
         recipientKind: "staff", recipientId: p.id, kind: "accounts_pending", severity: "action",
         title: `${plural(pending.length, "staff account")} awaiting approval.`,
         body: list(pending.map((x) => x.full_name || x.email || "Someone")),
-        link: "education.html#users", data: { profileIds: pending.map((x) => x.id) },
+        link: `${WORKSPACE_PAGE[p.role] ?? "index.html"}#users`, data: { profileIds: pending.map((x) => x.id) },
         dedupeKey: `accounts_pending:${today}`,
       });
     }

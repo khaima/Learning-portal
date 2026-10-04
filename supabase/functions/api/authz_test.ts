@@ -126,6 +126,10 @@ function fakeAdmin(db: Db, users: Record<string, { id: string; email: string }>)
       admin: {
         createUser: () => Promise.resolve(ok),
         updateUserById: () => Promise.resolve(ok),
+        listUsers: () => Promise.resolve({
+          data: { users: Object.values(users).map((u) => ({ ...u, last_sign_in_at: u.id === "teacher-id" ? "2026-10-02T08:00:00.000Z" : null })) },
+          error: null,
+        }),
       },
     },
     storage: {
@@ -262,6 +266,9 @@ function freshWorld() {
     sync_requests: [], device_sync_status: [],
     notifications: [], notification_events: [], notification_runs: [],
     staff_invitations: [],
+    // The field officer works in Narok (as the migration sets up from their profile county).
+    staff_scopes: [{ id: "scp_fo", profile_id: "field_officer-id", scope_type: "county", county: "Narok", school_id: null, note: "", created_at: now, created_by: null, ended_at: null, ended_by: null }],
+    permission_grants: [],
     audit_log: [],
   };
   __setAdminClientForTests(fakeAdmin(db, users));
@@ -283,13 +290,23 @@ const tokenFor = (role: R) => (role === "learner" ? "hpl_learnertoken" : `tok_${
 /* ------------------------------------------------------------ the expected access table
    Hand-written spec. `who` = the roles that must get PAST authorization. */
 
-const EDU_ADMIN: R[] = ["super_admin", "admin", "education_team"];
-const USER_ADMIN: R[] = ["super_admin", "admin"];
-const ANALYSTS: R[] = ["super_admin", "admin", "education_team", "me"];
+/* Named after responsibilities (docs/RBAC.md). Super Admin is in every
+   management group: they keep every right. */
+const SA_ONLY: R[] = ["super_admin"];
+const ADMINS: R[] = ["super_admin", "admin"];                                  // organisation, people, operations
+const ME_ROLES: R[] = ["super_admin", "me"];                                   // results framework, indicator results, M&E reports
+const CONTENT: R[] = ["super_admin", "education_team"];                        // content, training register, subjects
+const FORM_MANAGERS: R[] = ["super_admin", "admin", "education_team"];         // build and send forms
+const DATA_QUALITY: R[] = ["super_admin", "admin", "me"];                      // data quality, Kobo review and results
+const STATS: R[] = ["super_admin", "admin", "me"];
+const DASHBOARDS: R[] = ["super_admin", "me"];                                 // programme performance
+const LEARNING_DASHBOARDS: R[] = ["super_admin", "me", "education_team"];      // the learning side
+const ANALYSTS: R[] = ["super_admin", "admin", "education_team", "me"];        // read programme data within their scope
+const PLACE_VIEWERS: R[] = [...ANALYSTS, "field_officer", "school_leader"];    // schools and teachers within scope
 const LEARNER_VIEWERS: R[] = [...ANALYSTS, "school_leader", "teacher"];
 const LEARNER_MANAGERS: R[] = ["super_admin", "admin", "school_leader", "teacher"];
 const CLASS_MANAGERS: R[] = ["super_admin", "admin", "school_leader"];
-const ME_LEAD_ROLES: R[] = ["super_admin", "admin", "me"];
+const USER_ADMIN = ADMINS;
 
 type RouteSpec = { method: string; path: string; route: string; who: R[]; body?: unknown };
 const r = (method: string, route: string, who: R[], body?: unknown, path?: string): RouteSpec =>
@@ -297,17 +314,17 @@ const r = (method: string, route: string, who: R[], body?: unknown, path?: strin
 
 const ROUTES: RouteSpec[] = [
   r("PUT", "/me/school", ["teacher", "school_leader"], { schoolId: "sch_1" }),
-  r("POST", "/counties", EDU_ADMIN, { name: "Kajiado", code: "KJD" }),
-  r("DELETE", "/counties/:name", EDU_ADMIN),
-  r("POST", "/schools", EDU_ADMIN, { name: "New School", county: "Narok" }),
-  r("PATCH", "/schools/:id", EDU_ADMIN, { name: "Renamed" }),
-  r("DELETE", "/schools/:id", EDU_ADMIN),
+  r("POST", "/counties", ADMINS, { name: "Kajiado", code: "KJD" }),
+  r("DELETE", "/counties/:name", ADMINS),
+  r("POST", "/schools", ADMINS, { name: "New School", county: "Narok" }),
+  r("PATCH", "/schools/:id", ADMINS, { name: "Renamed" }),
+  r("DELETE", "/schools/:id", ADMINS),
   r("GET", "/learners", LEARNER_VIEWERS),
   r("POST", "/learners", LEARNER_MANAGERS, { fullName: "Kid Two", username: "kid.two", pin: "1234", schoolId: "sch_1" }),
   r("PATCH", "/learners/:id", LEARNER_MANAGERS, { fullName: "Kid" }, "/learners/learner-id"),
   r("DELETE", "/learners/:id", LEARNER_MANAGERS, undefined, "/learners/learner-id"),
   r("POST", "/learners/:id/status", LEARNER_MANAGERS, { status: "INACTIVE" }, "/learners/learner-id/status"),
-  r("POST", "/learners/:id/transfer", ["super_admin", "admin", "me"], { toSchoolId: "sch_2" }, "/learners/learner-id/transfer"),
+  r("POST", "/learners/:id/transfer", ADMINS, { toSchoolId: "sch_2" }, "/learners/learner-id/transfer"),
   r("GET", "/learners/:id/history", LEARNER_VIEWERS, undefined, "/learners/learner-id/history"),
   r("GET", "/learners/:id/activity", LEARNER_VIEWERS, undefined, "/learners/learner-id/activity"),
   r("GET", "/enrollments", ["super_admin", "admin", "education_team", "me", "school_leader"], undefined, "/enrollments?schoolId=sch_1"),
@@ -320,27 +337,27 @@ const ROUTES: RouteSpec[] = [
   r("DELETE", "/classes/:id/teachers/:teacherId", CLASS_MANAGERS, undefined, "/classes/cls_1/teachers/teacher-id"),
   r("POST", "/classes/:id/promote", CLASS_MANAGERS, { toClassId: "cls_1b" }, "/classes/cls_1/promote"),
   r("GET", "/library", ALL),
-  r("POST", "/library", EDU_ADMIN, { title: "T", subject: "English", type: "Reading" }),
-  r("PATCH", "/library/:id", EDU_ADMIN, { published: true }, "/library/lib_1"),
-  r("DELETE", "/library/:id", EDU_ADMIN, undefined, "/library/lib_1"),
+  r("POST", "/library", CONTENT, { title: "T", subject: "English", type: "Reading" }),
+  r("PATCH", "/library/:id", CONTENT, { published: true }, "/library/lib_1"),
+  r("DELETE", "/library/:id", CONTENT, undefined, "/library/lib_1"),
   r("GET", "/library/folders", ALL),
-  r("POST", "/library/folders", EDU_ADMIN, { name: "F" }),
-  r("DELETE", "/library/folders/:id", EDU_ADMIN),
+  r("POST", "/library/folders", CONTENT, { name: "F" }),
+  r("DELETE", "/library/folders/:id", CONTENT),
   r("POST", "/library/:id/interactions", ALL, {}, "/library/lib_1/interactions"),
   r("PATCH", "/library/interactions/:id/complete", ALL, {}, "/library/interactions/li_1/complete"),
   r("GET", "/library/interactions/mine", ALL),
   r("POST", "/library/:id/badge", ALL, {}, "/library/lib_1/badge"),
   r("GET", "/library/usage", ANALYSTS),
   r("GET", "/forms", [...ANALYSTS, "field_officer", "school_leader", "teacher"]),
-  r("POST", "/forms", EDU_ADMIN, { title: "F", audience: "teacher", questions: [{ id: "q1", prompt: "P", type: "text" }] }),
-  r("DELETE", "/forms/:id", EDU_ADMIN, undefined, "/forms/form_1"),
-  r("POST", "/forms/:id/archive", EDU_ADMIN, {}, "/forms/form_1/archive"),
-  r("POST", "/forms/:id/restore", EDU_ADMIN, {}, "/forms/form_1/restore"),
+  r("POST", "/forms", FORM_MANAGERS, { title: "F", audience: "teacher", questions: [{ id: "q1", prompt: "P", type: "text" }] }),
+  r("DELETE", "/forms/:id", FORM_MANAGERS, undefined, "/forms/form_1"),
+  r("POST", "/forms/:id/archive", FORM_MANAGERS, {}, "/forms/form_1/archive"),
+  r("POST", "/forms/:id/restore", FORM_MANAGERS, {}, "/forms/form_1/restore"),
   r("POST", "/forms/:id/response-upload", ["field_officer", "school_leader", "teacher"], { name: "a.pdf" }, "/forms/form_1/response-upload"),
   r("GET", "/responses", [...ANALYSTS, "field_officer", "school_leader", "teacher"]),
   r("POST", "/responses", ["field_officer", "school_leader", "teacher"], { formId: "form_1", answers: [{ questionId: "q1", value: "x" }] }),
   r("GET", "/subjects", [...STAFF]),
-  r("POST", "/subjects", EDU_ADMIN, { name: "Music" }),
+  r("POST", "/subjects", CONTENT, { name: "Music" }),
   r("POST", "/classes/:id/subjects", CLASS_MANAGERS, { subjectId: "english" }, "/classes/cls_1/subjects"),
   r("DELETE", "/classes/:id/subjects/:subjectId", CLASS_MANAGERS, undefined, "/classes/cls_1/subjects/mathematics"),
   r("POST", "/classes/:id/learners", LEARNER_MANAGERS, { learnerIds: ["learner-id"] }, "/classes/cls_1/learners"),
@@ -363,68 +380,68 @@ const ROUTES: RouteSpec[] = [
   r("GET", "/results", [...LEARNER_VIEWERS, "learner"]),
   r("GET", "/field-reports", [...ANALYSTS, "field_officer"]),
   r("POST", "/field-reports", ["field_officer"], { schoolId: "sch_1", visitType: "Learning", responses: [] }),
-  r("GET", "/stats", ANALYSTS),
-  r("GET", "/intelligence", ANALYSTS),
-  r("GET", "/impact", ANALYSTS),
+  r("GET", "/stats", STATS),
+  r("GET", "/intelligence", DASHBOARDS),
+  r("GET", "/impact", LEARNING_DASHBOARDS),
   r("GET", "/sync/status", ALL),
   r("GET", "/notifications", ALL),
   r("POST", "/notifications/:id/read", ALL, {}),
   r("POST", "/notifications/read-all", ALL, {}),
-  r("GET", "/notifications/log", EDU_ADMIN),
-  r("POST", "/notifications/run-now", EDU_ADMIN, {}),
-  r("PATCH", "/forms/:id", EDU_ADMIN, { dueOn: "2026-10-10" }),
+  r("GET", "/notifications/log", ADMINS),
+  r("POST", "/notifications/run-now", ADMINS, {}),
+  r("PATCH", "/forms/:id", FORM_MANAGERS, { dueOn: "2026-10-10" }),
   r("POST", "/sync/report", [...STAFF], { deviceId: "device-0001" }),
-  r("GET", "/sync/devices", EDU_ADMIN),
+  r("GET", "/sync/devices", ADMINS),
   // Reports export: each report's own permissions decide who may export it.
   r("GET", "/reports", [...STAFF]),
   r("GET", "/reports/:id", LEARNER_VIEWERS, undefined, "/reports/learner-register"),
-  r("GET", "/reports/:id", [...ANALYSTS, "school_leader"], undefined, "/reports/teacher-register"),
-  r("GET", "/reports/:id", [...ANALYSTS, "school_leader"], undefined, "/reports/school-register"),
+  r("GET", "/reports/:id", PLACE_VIEWERS, undefined, "/reports/teacher-register"),
+  r("GET", "/reports/:id", PLACE_VIEWERS, undefined, "/reports/school-register"),
   r("GET", "/reports/:id", LEARNER_VIEWERS, undefined, "/reports/assignment-report"),
   r("GET", "/reports/:id", LEARNER_VIEWERS, undefined, "/reports/assessment-report"),
   r("GET", "/reports/:id", [...ANALYSTS, "field_officer"], undefined, "/reports/field-visit-report"),
-  r("GET", "/reports/:id", ANALYSTS, undefined, "/reports/kobo-report"),
+  r("GET", "/reports/:id", DATA_QUALITY, undefined, "/reports/kobo-report"),
   r("GET", "/reports/:id", ANALYSTS, undefined, "/reports/library-usage"),
-  r("GET", "/reports/:id", ANALYSTS, undefined, "/reports/me-indicator-report"),
-  r("GET", "/reports/:id", [...ANALYSTS, "school_leader"], undefined, "/reports/term-report"),
-  r("GET", "/reports/:id", ANALYSTS, undefined, "/reports/county-report"),
-  r("GET", "/trainings", ANALYSTS),
-  r("GET", "/trainings/teachers", ANALYSTS),
-  r("GET", "/trainings/:id", ANALYSTS),
-  r("POST", "/trainings", ANALYSTS, { title: "ICT workshop", heldOn: "2026-09-10" }),
-  r("PATCH", "/trainings/:id", ANALYSTS, { title: "Renamed" }),
-  r("POST", "/data-quality/scan", ANALYSTS, {}),
-  r("GET", "/data-quality/summary", ANALYSTS),
-  r("GET", "/data-quality/issues", ANALYSTS),
-  r("GET", "/data-quality/issues/:id", ANALYSTS),
-  r("PATCH", "/data-quality/issues/:id", ANALYSTS, { status: "UNDER_REVIEW" }),
-  r("POST", "/data-quality/issues/bulk", ANALYSTS, { ids: ["x1"], status: "UNDER_REVIEW" }),
-  r("POST", "/data-quality/issues/:id/fix", ANALYSTS, { action: "set_learner_grade", grade: "Grade 4" }),
-  r("GET", "/mel/programmes", ANALYSTS),
-  r("POST", "/mel/programmes", ME_LEAD_ROLES, { name: "Teach2030" }),
-  r("PATCH", "/mel/programmes/:id", ME_LEAD_ROLES, { name: "x" }),
-  r("GET", "/mel/programmes/:id", ANALYSTS),
-  r("GET", "/mel/programmes/:id/results", ANALYSTS, undefined, "/mel/programmes/x1/results?period=2026-T3"),
-  r("POST", "/mel/outcomes", ME_LEAD_ROLES, { programmeId: "x1", title: "O" }),
-  r("PATCH", "/mel/outcomes/:id", ME_LEAD_ROLES, { title: "O" }),
-  r("POST", "/mel/indicators", ME_LEAD_ROLES, { outcomeId: "x1", name: "I", source: "manual" }),
-  r("PATCH", "/mel/indicators/:id", ME_LEAD_ROLES, { name: "I" }),
-  r("GET", "/mel/indicators/:id/breakdown", ANALYSTS, undefined, "/mel/indicators/x1/breakdown?period=2026-T3"),
-  r("GET", "/mel/indicators/:id/trend", ANALYSTS),
-  r("GET", "/mel/dashboard", ANALYSTS),
-  r("PUT", "/mel/targets", ME_LEAD_ROLES, { indicatorId: "x1", period: "2026-T3", scopeType: "programme", value: 75 }),
-  r("POST", "/mel/actuals", ANALYSTS, { indicatorId: "x1", period: "2026-T3", scopeType: "programme", value: 1 }),
-  r("GET", "/mel/actuals/:id", ANALYSTS),
-  r("POST", "/mel/actuals/:id/verify", ME_LEAD_ROLES, { decision: "verified" }),
-  r("POST", "/mel/actuals/:id/evidence", ANALYSTS, { kind: "note", title: "N" }),
-  r("POST", "/mel/actuals/:id/evidence-upload", ANALYSTS, { name: "a.pdf" }),
-  r("GET", "/mel/reports", ANALYSTS),
-  r("POST", "/mel/reports", ME_LEAD_ROLES, { programmeId: "x1", period: "2026-T3", scopeType: "programme" }),
-  r("GET", "/mel/reports/:id", ANALYSTS),
-  r("POST", "/mel/reports/:id/refresh", ME_LEAD_ROLES, {}),
-  r("POST", "/mel/reports/:id/finalize", ME_LEAD_ROLES, {}),
+  r("GET", "/reports/:id", ME_ROLES, undefined, "/reports/me-indicator-report"),
+  r("GET", "/reports/:id", ["super_admin", "admin", "me", "school_leader"], undefined, "/reports/term-report"),
+  r("GET", "/reports/:id", STATS, undefined, "/reports/county-report"),
+  r("GET", "/trainings", LEARNING_DASHBOARDS),
+  r("GET", "/trainings/teachers", CONTENT),
+  r("GET", "/trainings/:id", LEARNING_DASHBOARDS),
+  r("POST", "/trainings", CONTENT, { title: "ICT workshop", heldOn: "2026-09-10" }),
+  r("PATCH", "/trainings/:id", CONTENT, { title: "Renamed" }),
+  r("POST", "/data-quality/scan", DATA_QUALITY, {}),
+  r("GET", "/data-quality/summary", DATA_QUALITY),
+  r("GET", "/data-quality/issues", DATA_QUALITY),
+  r("GET", "/data-quality/issues/:id", DATA_QUALITY),
+  r("PATCH", "/data-quality/issues/:id", DATA_QUALITY, { status: "UNDER_REVIEW" }),
+  r("POST", "/data-quality/issues/bulk", DATA_QUALITY, { ids: ["x1"], status: "UNDER_REVIEW" }),
+  r("POST", "/data-quality/issues/:id/fix", DATA_QUALITY, { action: "set_learner_grade", grade: "Grade 4" }),
+  r("GET", "/mel/programmes", ME_ROLES),
+  r("POST", "/mel/programmes", ME_ROLES, { name: "Teach2030" }),
+  r("PATCH", "/mel/programmes/:id", ME_ROLES, { name: "x" }),
+  r("GET", "/mel/programmes/:id", ME_ROLES),
+  r("GET", "/mel/programmes/:id/results", ME_ROLES, undefined, "/mel/programmes/x1/results?period=2026-T3"),
+  r("POST", "/mel/outcomes", ME_ROLES, { programmeId: "x1", title: "O" }),
+  r("PATCH", "/mel/outcomes/:id", ME_ROLES, { title: "O" }),
+  r("POST", "/mel/indicators", ME_ROLES, { outcomeId: "x1", name: "I", source: "manual" }),
+  r("PATCH", "/mel/indicators/:id", ME_ROLES, { name: "I" }),
+  r("GET", "/mel/indicators/:id/breakdown", ME_ROLES, undefined, "/mel/indicators/x1/breakdown?period=2026-T3"),
+  r("GET", "/mel/indicators/:id/trend", ME_ROLES),
+  r("GET", "/mel/dashboard", ME_ROLES),
+  r("PUT", "/mel/targets", ME_ROLES, { indicatorId: "x1", period: "2026-T3", scopeType: "programme", value: 75 }),
+  r("POST", "/mel/actuals", ME_ROLES, { indicatorId: "x1", period: "2026-T3", scopeType: "programme", value: 1 }),
+  r("GET", "/mel/actuals/:id", ME_ROLES),
+  r("POST", "/mel/actuals/:id/verify", ME_ROLES, { decision: "verified" }),
+  r("POST", "/mel/actuals/:id/evidence", ME_ROLES, { kind: "note", title: "N" }),
+  r("POST", "/mel/actuals/:id/evidence-upload", ME_ROLES, { name: "a.pdf" }),
+  r("GET", "/mel/reports", ME_ROLES),
+  r("POST", "/mel/reports", ME_ROLES, { programmeId: "x1", period: "2026-T3", scopeType: "programme" }),
+  r("GET", "/mel/reports/:id", ME_ROLES),
+  r("POST", "/mel/reports/:id/refresh", ME_ROLES, {}),
+  r("POST", "/mel/reports/:id/finalize", ME_ROLES, {}),
   r("GET", "/school/overview", ["school_leader"]),
-  r("GET", "/users", EDU_ADMIN),
+  r("GET", "/users", ADMINS),
   r("GET", "/users/invitations", USER_ADMIN),
   r("POST", "/users/invitations", USER_ADMIN, { email: "fresh@test.org", role: "teacher", schoolId: "sch_1" }),
   r("DELETE", "/users/invitations/:id", USER_ADMIN),
@@ -433,28 +450,41 @@ const ROUTES: RouteSpec[] = [
   r("POST", "/users/:id/status", USER_ADMIN, { action: "suspend" }, "/users/teacher2-id/status"),
   r("PATCH", "/users/:id", USER_ADMIN, { fullName: "Renamed" }, "/users/teacher2-id"),
   r("POST", "/users/:id/reset-password", USER_ADMIN, { password: "a-new-password" }, "/users/teacher2-id/reset-password"),
-  r("GET", "/audit", USER_ADMIN),
-  r("GET", "/kobo/config", ANALYSTS),
-  r("PUT", "/kobo/config", EDU_ADMIN, {}),
-  r("GET", "/kobo/assets", EDU_ADMIN),
-  r("GET", "/kobo/forms", ANALYSTS),
-  r("POST", "/kobo/forms", EDU_ADMIN, {}),
-  r("GET", "/kobo/assets/:uid/preview", EDU_ADMIN),
-  r("DELETE", "/kobo/forms/:id", EDU_ADMIN, undefined, "/kobo/forms/kb_1"),
-  r("POST", "/kobo/forms/:id/restore", EDU_ADMIN, {}, "/kobo/forms/kb_1/restore"),
-  r("POST", "/kobo/sync", EDU_ADMIN, {}),
-  r("GET", "/kobo/forms/:id/results", ANALYSTS, undefined, "/kobo/forms/kb_1/results"),
-  r("GET", "/kobo/forms/:id/pipeline", ANALYSTS, undefined, "/kobo/forms/kb_1/pipeline"),
-  r("PUT", "/kobo/forms/:id/mapping", EDU_ADMIN, { school: null }, "/kobo/forms/kb_1/mapping"),
-  r("POST", "/kobo/forms/:id/reprocess", EDU_ADMIN, {}, "/kobo/forms/kb_1/reprocess"),
-  r("GET", "/kobo/records", ANALYSTS, undefined, "/kobo/records?formId=kb_1"),
-  r("GET", "/kobo/records/:id", ANALYSTS),
-  r("POST", "/kobo/records/:id/review", EDU_ADMIN, { decision: "accepted", note: "Checked by phone" }),
-  r("GET", "/kobo/school-aliases", ANALYSTS),
-  r("POST", "/kobo/school-aliases", EDU_ADMIN, { value: "Aitong Pri", schoolId: "sch_1" }),
-  r("DELETE", "/kobo/school-aliases/:key", EDU_ADMIN, undefined, "/kobo/school-aliases/aitong%20pri"),
-  r("POST", "/kobo/webhook", EDU_ADMIN, {}),
-  r("DELETE", "/kobo/webhook", EDU_ADMIN),
+  r("GET", "/audit", SA_ONLY),
+  r("GET", "/kobo/config", DATA_QUALITY),
+  r("PUT", "/kobo/config", SA_ONLY, {}),
+  r("GET", "/kobo/assets", ADMINS),
+  r("GET", "/kobo/forms", DATA_QUALITY),
+  r("POST", "/kobo/forms", ADMINS, {}),
+  r("GET", "/kobo/assets/:uid/preview", ADMINS),
+  r("DELETE", "/kobo/forms/:id", ADMINS, undefined, "/kobo/forms/kb_1"),
+  r("POST", "/kobo/forms/:id/restore", ADMINS, {}, "/kobo/forms/kb_1/restore"),
+  r("POST", "/kobo/sync", ADMINS, {}),
+  r("GET", "/kobo/forms/:id/results", DATA_QUALITY, undefined, "/kobo/forms/kb_1/results"),
+  r("GET", "/kobo/forms/:id/pipeline", DATA_QUALITY, undefined, "/kobo/forms/kb_1/pipeline"),
+  r("PUT", "/kobo/forms/:id/mapping", ADMINS, { school: null }, "/kobo/forms/kb_1/mapping"),
+  r("POST", "/kobo/forms/:id/reprocess", ADMINS, {}, "/kobo/forms/kb_1/reprocess"),
+  r("GET", "/kobo/records", DATA_QUALITY, undefined, "/kobo/records?formId=kb_1"),
+  r("GET", "/kobo/records/:id", DATA_QUALITY),
+  r("POST", "/kobo/records/:id/review", DATA_QUALITY, { decision: "accepted", note: "Checked by phone" }),
+  r("GET", "/kobo/school-aliases", DATA_QUALITY),
+  r("POST", "/kobo/school-aliases", DATA_QUALITY, { value: "Aitong Pri", schoolId: "sch_1" }),
+  r("DELETE", "/kobo/school-aliases/:key", DATA_QUALITY, undefined, "/kobo/school-aliases/aitong%20pri"),
+  r("POST", "/kobo/webhook", SA_ONLY, {}),
+  r("DELETE", "/kobo/webhook", SA_ONLY),
+  // Workspaces: badges, overviews, people, scope, grants.
+  r("GET", "/nav/badges", ALL),
+  r("GET", "/platform/overview", SA_ONLY),
+  r("GET", "/admin/overview", ADMINS),
+  r("GET", "/teachers", PLACE_VIEWERS),
+  r("GET", "/schools/:id/profile", PLACE_VIEWERS, undefined, "/schools/sch_1/profile"),
+  r("GET", "/users/:id/access", ADMINS, undefined, "/users/teacher2-id/access"),
+  r("GET", "/users/:id/history", ADMINS, undefined, "/users/teacher2-id/history"),
+  r("PUT", "/users/:id/scope", ADMINS, { counties: ["Narok"] }, "/users/field_officer-id/scope"),
+  r("POST", "/users/:id/grants", SA_ONLY, { permission: "kobo.review", reason: "Covering M&E" }, "/users/education_team-id/grants"),
+  r("POST", "/users/:id/grants/:grantId/revoke", SA_ONLY, { reason: "Done" }, "/users/education_team-id/grants/grt_x/revoke"),
+  r("GET", "/permissions", SA_ONLY),
+  r("GET", "/security/activity", SA_ONLY),
   r("GET", "/kobo/my-surveys", ["field_officer"]),
   r("POST", "/kobo/my-surveys/:id/submitted", ["field_officer"], {}, "/kobo/my-surveys/kb_1/submitted"),
 ];
@@ -756,7 +786,7 @@ Deno.test("archived learners don't appear as active, can't sign in, and are neve
   assertEquals(db.learner_sessions.filter((s) => s.learner_id === "learner-id").length, 0, "signed out everywhere");
   assertEquals((await call("POST", "/learner/login", undefined, { username: "kid.one", pin: "1234" })).status, 403);
   // Not counted as an active learner anywhere.
-  assertEquals((await call("GET", "/stats", "tok_education_team")).json.byRole.learner, 1, "only learner-b-id is active");
+  assertEquals((await call("GET", "/stats", "tok_me")).json.byRole.learner, 1, "only learner-b-id is active");
   // "Remove" archives instead of deleting.
   assertEquals((await call("DELETE", "/learners/learner-b-id", "tok_head_b")).status, 200);
   assertEquals(db.learners.find((l) => l.id === "learner-b-id")!.enrollment_status, "INACTIVE");
@@ -983,7 +1013,7 @@ Deno.test("result calculation keeps completion and achievement apart, by every d
   // The dashboards report the two measures separately too.
   const overview = await call("GET", "/school/overview", "tok_school_leader");
   assertEquals([overview.json.completion.rate, overview.json.achievement.averagePercent], [50, 75]);
-  const stats = await call("GET", `/stats?school=${encodeURIComponent(SCHOOL.name)}`, "tok_education_team");
+  const stats = await call("GET", `/stats?school=${encodeURIComponent(SCHOOL.name)}`, "tok_me");
   assertEquals(stats.json.gradeCompletion[0], { label: "Grade 4", value: 50, total: 2 });
   assertEquals(stats.json.gradeAchievement[0].value, 75);
   assertEquals(stats.json.gradePerformance, undefined, "completion is no longer reported as performance");
@@ -1061,13 +1091,13 @@ Deno.test("programme intelligence: analysts only, real numbers, filters, visit t
   assertEquals(all.json.learning.totals.schools, 2);
   assertEquals(all.json.learning.achievement.averagePercent, 75);
   assertEquals(all.json.learning.completion.assigned, 2, "one learner per school expected");
-  const a = await call("GET", `/intelligence?school=${encodeURIComponent(SCHOOL.name)}`, "tok_education_team");
+  const a = await call("GET", `/intelligence?school=${encodeURIComponent(SCHOOL.name)}`, "tok_me");
   assertEquals([a.json.learning.totals.schools, a.json.learning.completion.assigned, a.json.learning.completion.submitted], [1, 1, 1]);
   // "Teacher support" is a visit type now; made-up types are refused.
   const visit = { schoolId: "sch_1", responses: [], clientRef: "ref-ts-1" };
   assertEquals((await call("POST", "/field-reports", "tok_field_officer", { ...visit, visitType: "Teacher support" })).status, 200);
   assertEquals((await call("POST", "/field-reports", "tok_field_officer", { ...visit, clientRef: "ref-x", visitType: "Picnic" })).status, 400);
-  const after = await call("GET", "/intelligence", "tok_admin");
+  const after = await call("GET", "/intelligence", "tok_super_admin");
   assertEquals(after.json.implementation.byType.find((t: Row) => t.label === "Teacher support").visits, 1);
   assertEquals(after.json.implementation.schools.visited, 1);
 });
@@ -1128,7 +1158,7 @@ Deno.test("Kobo pipeline: sync stores raw, validates, normalizes; dashboards cou
   ];
   const restore = stubKobo(() => rows);
   try {
-    const sync = await call("POST", "/kobo/sync", "tok_education_team");
+    const sync = await call("POST", "/kobo/sync", "tok_admin");
     assertEquals(sync.status, 200, JSON.stringify(sync.json));
     const st = sync.json.forms[0];
     assertEquals([st.received, st.valid, st.invalid, st.duplicate, st.rejected], [5, 1, 2, 1, 1]);
@@ -1148,30 +1178,30 @@ Deno.test("Kobo pipeline: sync stores raw, validates, normalizes; dashboards cou
     assertEquals(res.json.questions.find((q: Row) => q.name === "tablets_used").data, [{ label: "Yes", value: 1 }, { label: "No", value: 0 }]);
 
     // What needs looking at, by rule; the school it couldn't place, with a suggestion.
-    const pipe = await call("GET", "/kobo/forms/kb_1/pipeline", "tok_education_team");
+    const pipe = await call("GET", "/kobo/forms/kb_1/pipeline", "tok_admin");
     assertEquals(pipe.json.stats.needsReview, 3);
     assertEquals(pipe.json.unknownSchools, [{ value: "Aitong Pri", count: 1, suggestion: { id: "sch_1", name: "Aitong Primary", code: "NRK-001" } }]);
     assertEquals((await call("GET", "/kobo/records?formId=kb_1&rule=type", "tok_me")).json.records.map((r: Row) => r.koboId), [5]);
 
     // Normalization: teach it the alias once; every survey is re-checked.
-    assertEquals((await call("POST", "/kobo/school-aliases", "tok_education_team", { value: "Aitong Pri", schoolId: "sch_1" })).status, 200);
+    assertEquals((await call("POST", "/kobo/school-aliases", "tok_me", { value: "Aitong Pri", schoolId: "sch_1" })).status, 200);
     assertEquals([recByKobo(db, 2).status, recByKobo(db, 2).school_id], ["valid", "sch_1"]);
 
     // A person's decision: accepted with a reason, and audited.
     const rec5 = recByKobo(db, 5);
-    assertEquals((await call("POST", `/kobo/records/${rec5.id}/review`, "tok_education_team", { decision: "accepted" })).status, 400, "a reason is required");
-    assertEquals((await call("POST", `/kobo/records/${rec5.id}/review`, "tok_education_team", { decision: "accepted", note: "Confirmed 30 with the head teacher" })).status, 200);
+    assertEquals((await call("POST", `/kobo/records/${rec5.id}/review`, "tok_me", { decision: "accepted" })).status, 400, "a reason is required");
+    assertEquals((await call("POST", `/kobo/records/${rec5.id}/review`, "tok_me", { decision: "accepted", note: "Confirmed 30 with the head teacher" })).status, 200);
     assert(db.audit_log.some((a) => a.action === "kobo.record_accepted" && a.target_id === rec5.id));
     res = await call("GET", "/kobo/forms/kb_1/results", "tok_me");
     assertEquals(res.json.submissionCount, 3);
     assertEquals((await call("GET", "/intelligence", "tok_me")).json.dataCollection.kobo.counted, 3);
     // Re-syncing leaves the decision alone.
-    await call("POST", "/kobo/sync", "tok_education_team");
+    await call("POST", "/kobo/sync", "tok_admin");
     assertEquals(recByKobo(db, 5).review, "accepted");
 
     // Deleted in Kobo → removed here too (kept, never counted).
     rows = rows.filter((r) => r._id !== 1);
-    await call("POST", "/kobo/sync", "tok_education_team");
+    await call("POST", "/kobo/sync", "tok_admin");
     assertEquals(recByKobo(db, 1).status, "removed");
     assertEquals(db.kobo_raw_submissions.length, 5, "nothing is deleted");
     assertEquals(recByKobo(db, 3).status, "valid", "with the original gone, its copy is the one that counts");
@@ -1198,12 +1228,12 @@ Deno.test("Kobo push: only with the right secret; stored and validated; repeats 
   const restore = stubKobo(() => []);
   try {
     assertEquals((await hook(kRow(1), basic("anything"))).status, 401, "no secret set yet");
-    const made = await call("POST", "/kobo/webhook", "tok_education_team");
+    const made = await call("POST", "/kobo/webhook", "tok_super_admin");
     assertEquals(made.status, 200);
     assertEquals(made.json.username, "hpf");
     const pw = made.json.password as string;
     assert(db.kobo_config[0].webhook_secret_hash && db.kobo_config[0].webhook_secret_hash !== pw, "only the hash is stored");
-    assert(!JSON.stringify((await call("GET", "/kobo/config", "tok_education_team")).json).includes(pw), "never shown again");
+    assert(!JSON.stringify((await call("GET", "/kobo/config", "tok_super_admin")).json).includes(pw), "never shown again");
 
     assertEquals((await hook(kRow(1), null)).status, 401);
     assertEquals((await hook(kRow(1), basic("wrong"))).status, 401);
@@ -1223,7 +1253,7 @@ Deno.test("Kobo push: only with the right secret; stored and validated; repeats 
     assert(db.kobo_record_issues.some((i) => i.rule === "date" && i.severity === "error"), "the push is validated like a sync");
 
     // Revoking the password stops the push.
-    await call("DELETE", "/kobo/webhook", "tok_education_team");
+    await call("DELETE", "/kobo/webhook", "tok_super_admin");
     assertEquals((await hook(kRow(3), basic(pw))).status, 401);
   } finally {
     restore();
@@ -1235,18 +1265,18 @@ Deno.test("Kobo field mapping: only the survey's own questions; saving re-checks
   connectKobo(db);
   const restore = stubKobo(() => [kRow(1, { school_code: "Nowhere Primary" })]);
   try {
-    assertEquals((await call("PUT", "/kobo/forms/kb_1/mapping", "tok_education_team", { school: "school_code" })).status, 409, "not synced yet");
-    await call("POST", "/kobo/sync", "tok_education_team");
+    assertEquals((await call("PUT", "/kobo/forms/kb_1/mapping", "tok_admin", { school: "school_code" })).status, 409, "not synced yet");
+    await call("POST", "/kobo/sync", "tok_admin");
     assertEquals(recByKobo(db, 1).status, "invalid");
-    assertEquals((await call("PUT", "/kobo/forms/kb_1/mapping", "tok_education_team", { school: "no_such_question" })).status, 400);
+    assertEquals((await call("PUT", "/kobo/forms/kb_1/mapping", "tok_admin", { school: "no_such_question" })).status, 400);
     assertEquals((await call("PUT", "/kobo/forms/kb_1/mapping", "tok_me", { school: null })).status, 403, "M&E can look, not change");
-    const saved = await call("PUT", "/kobo/forms/kb_1/mapping", "tok_education_team",
+    const saved = await call("PUT", "/kobo/forms/kb_1/mapping", "tok_admin",
       { school: null, county: null, officer: "officer_ref", date: "visit_date" });
     assertEquals(saved.status, 200, JSON.stringify(saved.json));
     assertEquals([recByKobo(db, 1).status, recByKobo(db, 1).school_id], ["valid", null], "no school question, no school check");
     assert(db.audit_log.some((a) => a.action === "kobo.mapping_changed"));
     // Excluding a valid record takes it off the dashboards.
-    await call("POST", `/kobo/records/${recByKobo(db, 1).id}/review`, "tok_education_team", { decision: "excluded", note: "Training entry" });
+    await call("POST", `/kobo/records/${recByKobo(db, 1).id}/review`, "tok_me", { decision: "excluded", note: "Training entry" });
     assertEquals((await call("GET", "/kobo/forms/kb_1/results", "tok_me")).json.submissionCount, 0);
   } finally {
     restore();
@@ -1302,20 +1332,20 @@ Deno.test("data quality: status workflow with reasons, ignore sticks, filters by
   const db = dqWorld();
   db.learners.push({ ...db.learners[1], id: "b-noclass", username: "kid.bnc", full_name: "Kid B Noclass", class_id: null, learner_code: "NRK-002-L0009" });
   db.learner_enrollments.push({ id: "enr-bnc", learner_id: "b-noclass", school_id: SCHOOL_B.id, class_id: null, status: "ACTIVE", enrollment_date: "2026-09-01" });
-  await call("POST", "/data-quality/scan", "tok_education_team");
+  await call("POST", "/data-quality/scan", "tok_me");
   const nc = dqByKey(db, "learner_without_class:learner:noclass-id");
   assertEquals((await call("PATCH", `/data-quality/issues/${nc.id}`, "tok_me", { status: "UNDER_REVIEW" })).status, 200);
   assertEquals((await call("PATCH", `/data-quality/issues/${nc.id}`, "tok_me", { status: "IGNORED" })).status, 400, "a reason is required");
   assertEquals((await call("PATCH", `/data-quality/issues/${nc.id}`, "tok_me", { status: "IGNORED", note: "Joins a class next term" })).status, 200);
   assertEquals((await call("PATCH", `/data-quality/issues/${nc.id}`, "tok_me", { status: "UNDER_REVIEW" })).status, 400, "reopen it first");
   assert(db.audit_log.some((a) => a.action === "dq.status_changed" && a.target_id === nc.id && a.details.to === "IGNORED"));
-  await call("POST", "/data-quality/scan", "tok_education_team");
+  await call("POST", "/data-quality/scan", "tok_me");
   assertEquals(nc.status, "IGNORED", "a scan never overrides a person's decision to ignore");
   // Resolving by hand while it's still there: the next scan reopens it.
   const bg = dqByKey(db, "invalid_grade:learner:badgrade-id");
   await call("PATCH", `/data-quality/issues/${bg.id}`, "tok_me", { status: "RESOLVED", note: "Told the school" });
   assertEquals([bg.status, bg.resolved_by], ["RESOLVED", "me-id"]);
-  await call("POST", "/data-quality/scan", "tok_education_team");
+  await call("POST", "/data-quality/scan", "tok_me");
   assertEquals(bg.status, "OPEN");
   // Filters.
   const list = async (qs: string) => (await call("GET", `/data-quality/issues?${qs}`, "tok_me")).json.issues.map((i: Row) => i.entity.id).sort();
@@ -1330,7 +1360,7 @@ Deno.test("data quality: status workflow with reasons, ignore sticks, filters by
   assertEquals(ignoredSummary.totals.byStatus.IGNORED, 1);
   // Bulk: several at once, each audited.
   const ids = db.dq_issues.filter((i) => i.status === "OPEN").map((i) => i.id);
-  const bulk = await call("POST", "/data-quality/issues/bulk", "tok_education_team", { ids, status: "UNDER_REVIEW" });
+  const bulk = await call("POST", "/data-quality/issues/bulk", "tok_me", { ids, status: "UNDER_REVIEW" });
   assertEquals(bulk.json.changed, ids.length);
   assertEquals(db.dq_issue_events.filter((e) => e.action === "status_changed" && e.to_status === "UNDER_REVIEW").length, ids.length + 1);
 });
@@ -1413,7 +1443,7 @@ Deno.test("M&E: framework, targets, live actuals from validated data, by county 
   assertEquals((await call("PUT", "/mel/targets", "tok_me", { indicatorId: ind.json.id, period: "2031-T9", scopeType: "programme", value: 1 })).status, 400);
   assert(db.audit_log.some((a) => a.action === "me.target_set" && a.details.to === 75));
 
-  const row = async (qs: string) => (await call("GET", `/mel/programmes/${prog}/results?period=2026-T3${qs}`, "tok_education_team")).json.outcomes[0].indicators[0];
+  const row = async (qs: string) => (await call("GET", `/mel/programmes/${prog}/results?period=2026-T3${qs}`, "tok_me")).json.outcomes[0].indicators[0];
   const all = await row("");
   assertEquals([all.value, all.live.numerator, all.live.denominator, all.valueSource], [75, 3, 4, "live"], "r1, r2, r4 of r1–r4; r5 failed checks, r6 is Term 2");
   assertEquals([all.target.value, all.achievement.status], [75, "met"]);
@@ -1433,10 +1463,10 @@ Deno.test("M&E: actuals are recorded as snapshots with evidence, verified by som
   const prog = (await call("POST", "/mel/programmes", "tok_me", { name: "Teach2030" })).json.id;
   const out = (await call("POST", "/mel/outcomes", "tok_me", { programmeId: prog, title: "ICT" })).json.id;
   const ind = (await call("POST", "/mel/indicators", "tok_me", { outcomeId: out, name: "% integrating ICT", source: "kobo", sourceConfig: { formId: "kb_1", measure: "percent_choice", question: "ict_used", choices: ["yes"] } })).json.id;
-  const rec = await call("POST", "/mel/actuals", "tok_education_team", { indicatorId: ind, period: "2026-T3", scopeType: "programme" });
+  const rec = await call("POST", "/mel/actuals", "tok_super_admin", { indicatorId: ind, period: "2026-T3", scopeType: "programme" });
   assertEquals([rec.status, rec.json.value], [200, 75]);
   const a = db.me_actuals.find((x) => x.id === rec.json.id)!;
-  assertEquals([a.numerator, a.denominator, a.status, a.recorded_by], [3, 4, "recorded", "education_team-id"]);
+  assertEquals([a.numerator, a.denominator, a.status, a.recorded_by], [3, 4, "recorded", "super_admin-id"]);
   const ev = db.me_evidence.find((e) => e.actual_id === a.id)!;
   assertEquals([ev.kind, ev.title, ev.record_count, ev.kobo_form_id], ["kobo_form", "Teacher observation form", 4, "kb_1"]);
   // The data changes later; the recorded value doesn't.
@@ -1444,7 +1474,7 @@ Deno.test("M&E: actuals are recorded as snapshots with evidence, verified by som
   const res = (await call("GET", `/mel/programmes/${prog}/results?period=2026-T3`, "tok_me")).json.outcomes[0].indicators[0];
   assertEquals([res.value, res.valueSource, res.live.value], [75, "recorded", 100]);
   // Verification: not by the recorder; a rejection needs a reason.
-  assertEquals((await call("POST", `/mel/actuals/${a.id}/verify`, "tok_education_team", { decision: "verified" })).status, 403, "the Education Team records, M&E verifies");
+  assertEquals((await call("POST", `/mel/actuals/${a.id}/verify`, "tok_education_team", { decision: "verified" })).status, 403, "the Education Team has no M&E rights");
   const own = await call("POST", "/mel/actuals", "tok_me", { indicatorId: ind, period: "2026-T3", scopeType: "school", scopeId: SCHOOL.id });
   assertEquals((await call("POST", `/mel/actuals/${own.json.id}/verify`, "tok_me", { decision: "verified" })).status, 403, "nobody verifies their own");
   assertEquals((await call("POST", `/mel/actuals/${a.id}/verify`, "tok_me", { decision: "rejected" })).status, 400);
@@ -1452,21 +1482,21 @@ Deno.test("M&E: actuals are recorded as snapshots with evidence, verified by som
   assertEquals([a.status, a.verified_by], ["verified", "me-id"]);
   assert(db.audit_log.some((x) => x.action === "me.actual_verified"));
   // Re-recording keeps the old version.
-  const again = await call("POST", "/mel/actuals", "tok_education_team", { indicatorId: ind, period: "2026-T3", scopeType: "programme" });
+  const again = await call("POST", "/mel/actuals", "tok_super_admin", { indicatorId: ind, period: "2026-T3", scopeType: "programme" });
   assertEquals(again.json.value, 100);
   assertEquals([a.superseded_by, !!a.superseded_at], [again.json.id, true]);
   const versions = (await call("GET", `/mel/actuals/${again.json.id}`, "tok_me")).json.versions;
   assertEquals(versions.map((v: Row) => [v.value, v.status, v.current]), [[100, "recorded", true], [75, "verified", false]]);
   // Evidence a person adds.
-  assertEquals((await call("POST", `/mel/actuals/${again.json.id}/evidence`, "tok_education_team", { kind: "link", title: "Photos", url: "ftp://x" })).status, 400);
-  assertEquals((await call("POST", `/mel/actuals/${again.json.id}/evidence`, "tok_education_team", { kind: "link", title: "Observation photos", url: "https://drive.example/obs" })).status, 200);
-  assertEquals((await call("POST", `/mel/actuals/${a.id}/evidence`, "tok_education_team", { kind: "note", title: "x" })).status, 409, "only on the current version");
+  assertEquals((await call("POST", `/mel/actuals/${again.json.id}/evidence`, "tok_super_admin", { kind: "link", title: "Photos", url: "ftp://x" })).status, 400);
+  assertEquals((await call("POST", `/mel/actuals/${again.json.id}/evidence`, "tok_super_admin", { kind: "link", title: "Observation photos", url: "https://drive.example/obs" })).status, 200);
+  assertEquals((await call("POST", `/mel/actuals/${a.id}/evidence`, "tok_super_admin", { kind: "note", title: "x" })).status, 409, "only on the current version");
   // Portal and manual sources.
   const comp = (await call("POST", "/mel/indicators", "tok_me", { outcomeId: out, name: "Work handed in", source: "portal", sourceConfig: { metric: "completion_rate" } })).json.id;
   assertEquals(db.me_indicators.find((x) => x.id === comp)!.unit, "percent", "the unit comes from the measure");
   const man = (await call("POST", "/mel/indicators", "tok_me", { outcomeId: out, name: "Head teachers trained", unit: "count", source: "manual" })).json.id;
-  assertEquals((await call("POST", "/mel/actuals", "tok_education_team", { indicatorId: man, period: "2026-T3", scopeType: "programme" })).status, 400, "enter the value");
-  assertEquals((await call("POST", "/mel/actuals", "tok_education_team", { indicatorId: man, period: "2026-T3", scopeType: "programme", value: 12, note: "Training register" })).status, 200);
+  assertEquals((await call("POST", "/mel/actuals", "tok_super_admin", { indicatorId: man, period: "2026-T3", scopeType: "programme" })).status, 400, "enter the value");
+  assertEquals((await call("POST", "/mel/actuals", "tok_super_admin", { indicatorId: man, period: "2026-T3", scopeType: "programme", value: 12, note: "Training register" })).status, 200);
 });
 
 Deno.test("M&E reports: generated from the results, frozen once final", async () => {
@@ -1475,11 +1505,11 @@ Deno.test("M&E reports: generated from the results, frozen once final", async ()
   const out = (await call("POST", "/mel/outcomes", "tok_me", { programmeId: prog, title: "ICT" })).json.id;
   const ind = (await call("POST", "/mel/indicators", "tok_me", { outcomeId: out, name: "% integrating ICT", source: "kobo", sourceConfig: { formId: "kb_1", measure: "percent_choice", question: "ict_used", choices: ["yes"] } })).json.id;
   await call("PUT", "/mel/targets", "tok_me", { indicatorId: ind, period: "2026-T3", scopeType: "county", scopeId: "Narok", value: 80 });
-  await call("POST", "/mel/actuals", "tok_education_team", { indicatorId: ind, period: "2026-T3", scopeType: "county", scopeId: "Narok" });
+  await call("POST", "/mel/actuals", "tok_super_admin", { indicatorId: ind, period: "2026-T3", scopeType: "county", scopeId: "Narok" });
   assertEquals((await call("POST", "/mel/reports", "tok_education_team", { programmeId: prog, period: "2026-T3", scopeType: "county", scopeId: "Narok" })).status, 403);
   const made = await call("POST", "/mel/reports", "tok_me", { programmeId: prog, period: "2026-T3", scopeType: "county", scopeId: "Narok" });
   assertEquals(made.status, 200, JSON.stringify(made.json));
-  const r = (await call("GET", `/mel/reports/${made.json.id}`, "tok_education_team")).json;
+  const r = (await call("GET", `/mel/reports/${made.json.id}`, "tok_super_admin")).json;
   assertEquals(r.report.title, "Teach2030 — 2026 Term 3 — Narok County");
   const i = r.content.outcomes[0].indicators[0];
   assertEquals([i.value, i.target.value, i.achievement.status, i.valueSource, i.recorded.evidence[0].kind], [75, 80, "close", "recorded", "kobo_form"]);
@@ -1487,7 +1517,7 @@ Deno.test("M&E reports: generated from the results, frozen once final", async ()
   assertEquals((await call("POST", `/mel/reports/${made.json.id}/refresh`, "tok_me")).status, 409, "a final report never changes");
   assertEquals((await call("POST", `/mel/reports/${made.json.id}/finalize`, "tok_me")).status, 409);
   assert(db.audit_log.some((x) => x.action === "me.report_finalized"));
-  assertEquals((await call("GET", `/mel/reports?programmeId=${prog}`, "tok_education_team")).json.reports.map((x: Row) => x.status), ["final"]);
+  assertEquals((await call("GET", `/mel/reports?programmeId=${prog}`, "tok_super_admin")).json.reports.map((x: Row) => x.status), ["final"]);
 });
 
 /* ------------------------------------------------------------ impact dashboards */
@@ -1497,9 +1527,14 @@ Deno.test("impact dashboards: analysts only, the six areas, gender kept optional
   for (const tok of ["tok_teacher", "tok_school_leader", "tok_field_officer", "hpl_learnertoken"]) {
     assertEquals((await call("GET", "/impact", tok)).status, 403, tok);
   }
-  const r = await call("GET", "/impact", "tok_education_team");
+  const r = await call("GET", "/impact", "tok_me");
   assertEquals(r.status, 200, JSON.stringify(r.json));
   for (const k of ["executive", "reach", "learning", "teachers", "fieldOps", "resources"]) assert(k in r.json, k);
+  // The Education Team gets the learning side only — never reach or field operations.
+  const learning = (await call("GET", "/impact", "tok_education_team")).json;
+  assertEquals(Object.keys(learning).filter((k) => ["executive", "reach", "learning", "teachers", "fieldOps", "resources"].includes(k)).sort(),
+    ["executive", "learning", "resources", "teachers"]);
+  assertEquals((await call("GET", "/impact", "tok_admin")).status, 403, "administration isn't programme analysis");
   assertEquals([r.json.executive.schools, r.json.executive.learners], [2, 2]);
   // Gender: optional, checked, and never shown for fewer than 5 people.
   assertEquals((await call("POST", "/learners", "tok_teacher", { fullName: "Kid Two", username: "kid.two", pin: "1234", classId: "cls_1", gender: "boy" })).status, 400);
@@ -1529,12 +1564,12 @@ Deno.test("training register: sessions and attendance, never deleted, every chan
   assertEquals(made.status, 200, JSON.stringify(made.json));
   const id = made.json.training.id;
   assertEquals(made.json.training.attendance.length, 2);
-  const picker = (await call("GET", "/trainings/teachers", "tok_me")).json.teachers.map((t: Row) => t.id);
+  const picker = (await call("GET", "/trainings/teachers", "tok_education_team")).json.teachers.map((t: Row) => t.id);
   assert(picker.includes("teacher-id") && !picker.includes("pending-id"), "active teachers only");
   let t = (await call("GET", "/impact", "tok_me")).json.teachers.training;
   assertEquals([t.sessions, t.teachersTrained], [1, 2]);
   // Taking a teacher off the list keeps the row.
-  const off = await call("PATCH", `/trainings/${id}`, "tok_me", { attendance: [{ teacherId: "teacher-b-id", attended: false }, { teacherId: "teacher2-id" }] });
+  const off = await call("PATCH", `/trainings/${id}`, "tok_education_team", { attendance: [{ teacherId: "teacher-b-id", attended: false }, { teacherId: "teacher2-id" }] });
   assertEquals(off.status, 200, JSON.stringify(off.json));
   assertEquals(db.training_attendance.length, 3);
   assertEquals(db.training_attendance.find((a) => a.teacher_id === "teacher-b-id")!.attended, false);
@@ -1562,9 +1597,9 @@ Deno.test("M&E dashboard: indicators tagged for a dashboard, target vs actual, t
   await call("POST", "/mel/indicators", "tok_me", { outcomeId: out, name: "Untagged", unit: "count", source: "manual" });
   await call("PUT", "/mel/targets", "tok_me", { indicatorId: ind, period: "2026-T3", scopeType: "programme", value: 75 });
   await call("PUT", "/mel/targets", "tok_me", { indicatorId: ind, period: "2026-T2", scopeType: "programme", value: 60 });
-  const all = (await call("GET", "/mel/dashboard?period=2026-T3", "tok_education_team")).json;
+  const all = (await call("GET", "/mel/dashboard?period=2026-T3", "tok_me")).json;
   assertEquals(all.indicators.length, 2);
-  const tagged = (await call("GET", "/mel/dashboard?period=2026-T3&theme=teacher_development", "tok_education_team")).json;
+  const tagged = (await call("GET", "/mel/dashboard?period=2026-T3&theme=teacher_development", "tok_me")).json;
   assertEquals(tagged.indicators.map((i: Row) => [i.name, i.dashboardTheme, i.target.value, i.value, i.achievement.status]),
     [["% of teachers integrating ICT", "teacher_development", 75, 75, "met"]]);
   assertEquals((await call("GET", "/mel/dashboard?theme=reach", "tok_me")).json.indicators.length, 0);
@@ -1690,7 +1725,7 @@ Deno.test("sync center: Kobo connection, last sync and each survey's error; what
   connectKobo(db);
   const restore = stubKobo(() => [kRow(1), kRow(2, { school_code: "Aitong Pri" })]);
   try {
-    assertEquals((await call("POST", "/kobo/sync", "tok_education_team")).status, 200);
+    assertEquals((await call("POST", "/kobo/sync", "tok_admin")).status, 200);
   } finally { restore(); }
   status = (await call("GET", "/sync/status", "tok_field_officer")).json;
   assert(status.kobo.connected && status.kobo.lastSyncedAt);
@@ -1708,9 +1743,9 @@ Deno.test("sync center: Kobo connection, last sync and each survey's error; what
     if (url.includes("kobo.test")) return Promise.resolve(new Response("{}", { status: 401 }));
     return real(input);
   }) as typeof fetch;
-  try { await call("POST", "/kobo/sync", "tok_education_team"); } finally { globalThis.fetch = real; }
+  try { await call("POST", "/kobo/sync", "tok_admin"); } finally { globalThis.fetch = real; }
   assertEquals(db.kobo_forms[0].last_sync_error, "KoboToolbox rejected the API token");
-  const admin = (await call("GET", "/sync/status", "tok_education_team")).json.kobo;
+  const admin = (await call("GET", "/sync/status", "tok_admin")).json.kobo;
   assertEquals([admin.failing, admin.surveys[0].error, admin.surveys[0].received], [1, "KoboToolbox rejected the API token", 2]);
   assert(!JSON.stringify(admin).includes("test-token"));
 });
@@ -1726,7 +1761,7 @@ Deno.test("sync center: learners and teachers see their own work as the server h
   assertEquals([teacher.kobo, teacher.learning.marked], [undefined, 0]);
 });
 
-Deno.test("sync center: staff devices report their sync state; the Education Team sees who needs a look", async () => {
+Deno.test("sync center: staff devices report their sync state; administrators see who needs a look", async () => {
   const db = freshWorld();
   const old = new Date(Date.now() - 3 * 864e5).toISOString();
   const report = { deviceId: "phone-0001", deviceLabel: "Android · Chrome", pending: 2, oldestPendingAt: old, lastSyncAt: old };
@@ -1737,7 +1772,7 @@ Deno.test("sync center: staff devices report their sync state; the Education Tea
   assertEquals((await call("POST", "/sync/report", "tok_field_officer", { deviceId: "x" })).status, 400);
   assertEquals((await call("POST", "/sync/report", LEARNER, report)).status, 403, "learners' shared tablets don't report");
   await call("POST", "/sync/report", "tok_teacher", { deviceId: "laptop-0001", lastSyncAt: new Date().toISOString(), lastSyncAtFuture: true });
-  const res = await call("GET", "/sync/devices", "tok_education_team");
+  const res = await call("GET", "/sync/devices", "tok_admin");
   assertEquals(res.status, 200);
   const fo = res.json.people.find((p: Row) => p.id === "field_officer-id");
   assertEquals([fo.pending, fo.devices[0].deviceLabel], [3, "Android · Chrome"]);
@@ -1765,9 +1800,9 @@ Deno.test("notifications: stored per person, never twice, read with a record of 
   const learner = (await call("GET", "/notifications", LEARNER)).json;
   assertEquals(learner.notifications.map((n: Row) => n.title), ["1 assignment is due tomorrow."]);
   // Again (and a manual run): nothing new.
-  assertEquals((await call("POST", "/notifications/run-now", "tok_education_team", {})).json.created >= 0, true);
+  assertEquals((await call("POST", "/notifications/run-now", "tok_admin", {})).json.created >= 0, true);
   const before = db.notifications.length;
-  await call("POST", "/notifications/run-now", "tok_education_team", {});
+  await call("POST", "/notifications/run-now", "tok_admin", {});
   assertEquals(db.notifications.length, before, "the same thing is never said twice");
   assertEquals(db.notification_events.filter((e) => e.notification_id === due.id).map((e) => e.action), ["created"]);
   // Reading: only your own; recorded once.
@@ -1829,13 +1864,14 @@ Deno.test("notifications: the hourly run needs the database's secret; Kobo recei
   assertEquals(ok.status, 200);
   assert((await ok.json()).created > 0);
   assertEquals(db.notification_runs.at(-1)!.trigger, "schedule");
-  const ed = db.notifications.filter((n) => n.recipient_id === "education_team-id" && n.kind === "kobo_received");
-  assertEquals(ed.map((n) => n.title), ["12 Kobo submissions received."]);
+  const me = db.notifications.filter((n) => n.recipient_id === "me-id" && n.kind === "kobo_received");
+  assertEquals(me.map((n) => [n.title, n.link]), [["12 Kobo submissions received.", "me.html#kobo"]]);
+  assertEquals(db.notifications.filter((n) => n.recipient_id === "education_team-id" && n.kind === "kobo_received").length, 0, "not the Education Team's work any more");
   await app.request("/api/notifications/run", { method: "POST", headers: { "X-Cron-Secret": CRON_SECRET } });
-  assertEquals(db.notifications.filter((n) => n.recipient_id === "education_team-id" && n.kind === "kobo_received").length, 1, "told once");
+  assertEquals(db.notifications.filter((n) => n.recipient_id === "me-id" && n.kind === "kobo_received").length, 1, "told once");
   // The log: who was told what, and whether they've read it.
-  const log = (await call("GET", "/notifications/log?kind=kobo_received&status=unread", "tok_education_team")).json;
-  assert(log.notifications.some((n: Row) => n.recipient.name === "education_team person" && !n.readAt));
+  const log = (await call("GET", "/notifications/log?kind=kobo_received&status=unread", "tok_admin")).json;
+  assert(log.notifications.some((n: Row) => n.recipient.name === "me person" && !n.readAt));
   assertEquals(log.runs[0].trigger, "schedule");
 });
 
@@ -1875,33 +1911,36 @@ const sectionRows = (json: Row, title: string) => (json.sections as Row[]).find(
 Deno.test("reports: the catalogue lists only the reports a person may export", async () => {
   reportWorld();
   const ids = async (tok: string) => ((await call("GET", "/reports", tok)).json.reports as Row[]).map((x) => x.id);
-  assertEquals((await ids("tok_education_team")).length, 11);
+  assertEquals((await ids("tok_super_admin")).length, 11, "the Super Admin keeps every right");
+  assertEquals(await ids("tok_education_team"), ["learner-register", "teacher-register", "school-register", "assignment-report",
+    "assessment-report", "field-visit-report", "library-usage"], "learning reports");
+  assertEquals((await ids("tok_admin")).includes("me-indicator-report"), false, "not the M&E results framework");
   assertEquals(await ids("tok_teacher"), ["learner-register", "assignment-report", "assessment-report"]);
-  assertEquals(await ids("tok_field_officer"), ["field-visit-report"]);
+  assertEquals(await ids("tok_field_officer"), ["teacher-register", "school-register", "field-visit-report"], "their assigned schools");
   assertEquals(await ids("tok_school_leader"), ["learner-register", "teacher-register", "school-register", "assignment-report", "assessment-report", "term-report"]);
   const head = (await call("GET", "/reports", "tok_school_leader")).json;
   assert(head.reports.every((x: Row) => x.scope === "Your school"), "a head's exports are their school");
   assertEquals((await call("GET", "/reports/no-such-report", "tok_education_team")).status, 404);
 });
 
-Deno.test("reports: every report builds for the Education Team, and every export is audited", async () => {
+Deno.test("reports: every report builds for the Super Admin, and every export is audited", async () => {
   const db = reportWorld();
   for (const id of ["learner-register", "teacher-register", "school-register", "assignment-report", "assessment-report", "field-visit-report",
     "kobo-report", "library-usage", "me-indicator-report", "term-report", "county-report"]) {
-    const res = await call("GET", `/reports/${id}?format=xlsx&period=2026-T3`, "tok_education_team");
+    const res = await call("GET", `/reports/${id}?format=xlsx&period=2026-T3`, "tok_super_admin");
     assertEquals(res.status, 200, `${id}: ${JSON.stringify(res.json)}`);
     assert(Array.isArray(res.json.sections) && res.json.sections.length > 0, id);
     for (const sec of res.json.sections as Row[]) {
       for (const row of sec.rows as Row[]) for (const col of sec.columns as Row[]) assert(col.key in row, `${id} / ${sec.title}: ${col.key}`);
     }
-    assertEquals(res.json.generatedBy, "education_team person");
+    assertEquals(res.json.generatedBy, "super_admin person");
     const entry = db.audit_log.at(-1)!;
     assertEquals([entry.action, entry.target_id, entry.details.format], ["report.exported", id, "xlsx"]);
   }
-  const mel = (await call("GET", "/reports/me-indicator-report?period=2026-T3", "tok_education_team")).json;
+  const mel = (await call("GET", "/reports/me-indicator-report?period=2026-T3", "tok_super_admin")).json;
   const ind = sectionRows(mel, "Indicators")[0];
   assertEquals([ind.indicator, ind.baseline, ind.target, ind.actual, ind.achievement, ind.status], ["Learners reading digitally", 10, 100, 80, 80, "Close"]);
-  const kobo = (await call("GET", "/reports/kobo-report", "tok_education_team")).json;
+  const kobo = (await call("GET", "/reports/kobo-report", "tok_super_admin")).json;
   assertEquals(sectionRows(kobo, "Submissions")[0].issues, "q1 is required");
   assertEquals(sectionRows(kobo, "Surveys")[0].review, 1);
 });
@@ -1912,7 +1951,7 @@ Deno.test("reports: never PINs or usernames; staff emails only for those who man
   const text = JSON.stringify(learners);
   assert(!text.includes("kid.one") && !text.includes("pin_") && !text.includes("username"), "no usernames or PINs");
   assertEquals(sectionRows(learners, "Learners").map((x) => x.name), ["Kid One", "Kid B"], "by school, then name");
-  const ed = (await call("GET", "/reports/teacher-register", "tok_education_team")).json;
+  const ed = (await call("GET", "/reports/teacher-register", "tok_admin")).json;
   assert(sectionRows(ed, "Teachers").every((x) => String(x.email).endsWith("@test.org")));
   const me = (await call("GET", "/reports/teacher-register", "tok_me")).json;
   assert(!JSON.stringify(me).includes("@test.org"), "the M&E team sees the register, not emails");
@@ -1952,4 +1991,207 @@ Deno.test("reports: a teacher's exports are their classes; a field officer's are
   assertEquals(visits.map((x) => x.school), [SCHOOL.name]);
   const all = sectionRows((await call("GET", "/reports/field-visit-report", "tok_education_team")).json, "Field visits");
   assertEquals(all.length, 2);
+});
+
+/* ------------------------------------------------------------ role-based access: workspaces, scope, grants */
+
+const SCHOOL_C = { id: "sch_3", name: "Meru Central", county: "Meru", code: "MRU-001", seq: 1 };
+
+/** The usual world plus a second county (Meru) with its own school, learner, teacher, visit and data issue. */
+function twoCounties() {
+  const db = freshWorld();
+  const now = new Date().toISOString();
+  db.counties.push({ name: "Meru", code: "MRU", created_at: now });
+  db.schools.push(SCHOOL_C);
+  db.learners.push({ id: "learner-c-id", teacher_id: "teacher-id", current_teacher_id: null, class_id: null, username: "kid.c", full_name: "Kid C", grade: "Grade 4",
+    school: SCHOOL_C.name, school_id: SCHOOL_C.id, county: "Meru", pin_hash: "x", pin_salt: "y", user_code: "MRU-001-L0001", learner_code: "MRU-001-L0001",
+    enrollment_status: "ACTIVE", academic_year_id: "2026", term_id: "2026-T3" });
+  db.profiles.push({ id: "teacher-c-id", role: "teacher", status: "active", full_name: "Teacher C", email: "teacher-c@test.org", school: SCHOOL_C.name, school_id: SCHOOL_C.id, county: "Meru" });
+  db.field_reports.push(
+    { id: "fr_n", officer_id: "field_officer-id", school: SCHOOL.name, county: "Narok", visit_type: "ICT", school_id: SCHOOL.id, created_at: now },
+    { id: "fr_m", officer_id: "field_officer-id", school: SCHOOL_C.name, county: "Meru", visit_type: "ICT", school_id: SCHOOL_C.id, created_at: now },
+  );
+  db.dq_issues.push(
+    { id: "dq_n", issue_key: "k_n", type: "missing_grade", severity: "HIGH", status: "OPEN", summary: "Narok issue", entity_type: "learner", entity_id: "learner-id", entity_label: "Kid One", related: [], school_id: SCHOOL.id, county: "Narok", first_detected_at: now, last_detected_at: now, still_present: true },
+    { id: "dq_m", issue_key: "k_m", type: "missing_grade", severity: "HIGH", status: "OPEN", summary: "Meru issue", entity_type: "learner", entity_id: "learner-c-id", entity_label: "Kid C", related: [], school_id: SCHOOL_C.id, county: "Meru", first_detected_at: now, last_detected_at: now, still_present: true },
+  );
+  return db;
+}
+const assign = (db: Db, profileId: string, rows: { county?: string; school_id?: string }[]) => {
+  for (const [i, x] of rows.entries()) {
+    db.staff_scopes.push({ id: `scp_${profileId}_${i}`, profile_id: profileId, scope_type: x.county ? "county" : "school", county: x.county ?? null,
+      school_id: x.school_id ?? null, note: "", created_at: new Date().toISOString(), created_by: "super_admin-id", ended_at: null, ended_by: null });
+  }
+};
+
+Deno.test("access: /me says which workspace, what scope and which permissions — a Super Admin keeps them all", async () => {
+  freshWorld();
+  const me = async (tok: string) => (await call("GET", "/me", tok)).json.profile;
+  const sa = await me("tok_super_admin");
+  assertEquals([sa.workspace.page, sa.workspace.title, sa.scope.global], ["platform.html", "Platform Administration", true]);
+  assertEquals(sa.workspaces, ["platform", "admin", "me", "education"], "a Super Admin can open every management workspace");
+  for (const p of ["users.roles.assign", "me.framework.manage", "library.manage", "kobo.configure", "permissions.manage", "audit.view"]) assert(sa.permissions.includes(p), p);
+  assertEquals([(await me("tok_admin")).workspace.page, (await me("tok_me")).workspace.page, (await me("tok_education_team")).workspace.page],
+    ["admin.html", "me.html", "education.html"]);
+  assertEquals((await me("tok_admin")).workspaces, ["admin"], "no other workspace");
+  const fo = await me("tok_field_officer");
+  assertEquals([fo.workspace.title, fo.scope.global, fo.scope.label], ["Field Operations", false, "Narok County"]);
+});
+
+Deno.test("access: separation of duties holds at the API, whatever the browser shows", async () => {
+  freshWorld();
+  const st = async (method: string, path: string, tok: string, body?: unknown) => (await call(method, path, tok, body)).status;
+  // Education Team: learning work, no account administration, security or integrations.
+  assertEquals(await st("GET", "/users", "tok_education_team"), 403);
+  assertEquals(await st("PUT", "/kobo/config", "tok_education_team", { apiToken: "x" }), 403);
+  assertEquals(await st("GET", "/audit", "tok_education_team"), 403);
+  assertEquals(await st("POST", "/schools", "tok_education_team", { name: "X", county: "Narok" }), 403);
+  // M&E: measures, never changes accounts or records.
+  assertEquals(await st("PATCH", "/users/teacher2-id", "tok_me", { fullName: "X" }), 403);
+  assertEquals(await st("POST", "/learners/learner-id/transfer", "tok_me", { toSchoolId: "sch_2" }), 403);
+  assertEquals(await st("POST", "/kobo/sync", "tok_me", {}), 403);
+  // Admin: not the M&E framework, not the platform.
+  assertEquals(await st("POST", "/mel/programmes", "tok_admin", { name: "X" }), 403);
+  assertEquals(await st("GET", "/platform/overview", "tok_admin"), 403);
+  assertEquals(await st("GET", "/permissions", "tok_admin"), 403);
+  assertEquals(await st("PUT", "/kobo/config", "tok_admin", { apiToken: "x" }), 403);
+  // Working roles: never another workspace's data.
+  assertEquals(await st("GET", "/admin/overview", "tok_teacher"), 403);
+  assertEquals(await st("GET", "/users", "tok_school_leader"), 403);
+  assertEquals(await st("GET", "/learners", "tok_field_officer"), 403);
+  assertEquals(await st("GET", "/assignments", LEARNER), 403);
+  // The Super Admin can do all of it.
+  for (const [m, path] of [["GET", "/users"], ["GET", "/audit"], ["GET", "/platform/overview"], ["GET", "/admin/overview"], ["GET", "/mel/programmes"], ["GET", "/permissions"]]) {
+    assertEquals(await st(m, path, "tok_super_admin"), 200, path);
+  }
+});
+
+Deno.test("scope: M&E narrowed to one county sees only that county — lists, dashboards, data quality, M&E, reports", async () => {
+  const db = twoCounties();
+  assign(db, "me-id", [{ county: "Meru" }]);
+  const get = async (path: string) => (await call("GET", path, "tok_me")).json;
+  assertEquals((await get("/me")).profile.scope.label, "Meru County");
+  assertEquals((await get("/learners")).learners.map((l: Row) => l.fullName), ["Kid C"]);
+  assertEquals((await get("/schools")).schools.map((s: Row) => s.name), ["Meru Central"]);
+  assertEquals((await get("/schools")).counties, ["Meru"]);
+  assertEquals((await get("/field-reports")).reports.map((r: Row) => r.id), ["fr_m"]);
+  assertEquals((await get("/data-quality/issues")).issues.map((i: Row) => i.summary), ["Meru issue"]);
+  assertEquals((await call("GET", "/data-quality/issues/dq_n", "tok_me")).status, 404, "another county's issue doesn't exist for them");
+  assertEquals((await call("PATCH", "/data-quality/issues/dq_n", "tok_me", { status: "UNDER_REVIEW" })).status, 404);
+  assertEquals((await get("/impact")).executive.schools, 1, "dashboards count only their county");
+  assertEquals((await get("/intelligence")).learning.totals.schools, 1);
+  assertEquals((await get("/teachers")).teachers.map((t: Row) => t.name), ["Teacher C"]);
+  assertEquals((await call("GET", `/schools/${SCHOOL.id}/profile`, "tok_me")).status, 404);
+  assertEquals((await get(`/schools/${SCHOOL_C.id}/profile`)).school.name, "Meru Central");
+  // M&E: never the whole programme or another county.
+  const prog = (await call("POST", "/mel/programmes", "tok_me", { name: "P" })).json.id;
+  assertEquals((await call("GET", `/mel/programmes/${prog}/results?period=2026-T3`, "tok_me")).status, 403, "the whole programme is wider than Meru");
+  assertEquals((await call("GET", `/mel/programmes/${prog}/results?period=2026-T3&county=Narok`, "tok_me")).status, 403);
+  assertEquals((await call("GET", `/mel/programmes/${prog}/results?period=2026-T3&county=Meru`, "tok_me")).status, 200);
+  // Exports: the same.
+  const reg = await get("/reports/learner-register");
+  assertEquals([reg.sections[0].rows.map((r: Row) => r.name), reg.limitedTo], [["Kid C"], "Meru County"]);
+  // A data-quality scan covers the whole portal: whole-portal staff only.
+  assertEquals((await call("POST", "/data-quality/scan", "tok_me", {})).status, 403);
+});
+
+Deno.test("scope: an Admin narrowed to a county manages people there, and only in school or field roles", async () => {
+  const db = twoCounties();
+  assign(db, "admin-id", [{ county: "Meru" }]);
+  const users = (await call("GET", "/users", "tok_admin")).json.users;
+  assertEquals(users.map((u: Row) => u.fullName).sort(), ["Teacher C"], "only people placed in Meru");
+  assertEquals((await call("PATCH", "/users/teacher2-id", "tok_admin", { fullName: "X" })).status, 404, "a Narok teacher isn't theirs");
+  assertEquals((await call("PATCH", "/users/teacher-c-id", "tok_admin", { fullName: "Teacher Cee" })).status, 200);
+  assertEquals((await call("POST", "/users/invitations", "tok_admin", { email: "n@test.org", role: "teacher", schoolId: SCHOOL.id })).status, 403, "not in their area");
+  assertEquals((await call("POST", "/users/invitations", "tok_admin", { email: "m@test.org", role: "teacher", schoolId: SCHOOL_C.id })).status, 200);
+  assertEquals((await call("POST", "/users/invitations", "tok_admin", { email: "e@test.org", role: "education_team" })).status, 403,
+    "a programme-wide role would see more than they do");
+  assertEquals((await call("POST", "/schools", "tok_admin", { name: "Narok New", county: "Narok" })).status, 403);
+  assertEquals((await call("POST", "/schools", "tok_admin", { name: "Meru New", county: "Meru" })).status, 200);
+  assertEquals((await call("POST", "/counties", "tok_admin", { name: "Kajiado", code: "KJD" })).status, 403, "counties are for whole-portal admins");
+  assertEquals((await call("POST", "/academic-years", "tok_admin", { id: "2027" })).status, 403, "so is the calendar");
+  assertEquals((await call("POST", "/learners/learner-id/transfer", "tok_admin", { toSchoolId: SCHOOL_C.id })).status, 404, "a Narok learner isn't theirs");
+});
+
+Deno.test("scope: a field officer works only at assigned schools", async () => {
+  const db = twoCounties();
+  db.staff_scopes.length = 0;
+  const visit = (schoolId: string, ref: string) => call("POST", "/field-reports", "tok_field_officer", { schoolId, visitType: "ICT", responses: [], clientRef: ref });
+  // Nothing assigned: no schools, no visits.
+  assertEquals((await call("GET", "/schools", "tok_field_officer")).json.schools, []);
+  assertEquals((await call("GET", "/me", "tok_field_officer")).json.profile.scope.label, "No schools assigned yet");
+  assertEquals((await visit(SCHOOL.id, "ref-a-0001")).status, 403);
+  // One school assigned.
+  assign(db, "field_officer-id", [{ school_id: SCHOOL_C.id }]);
+  assertEquals((await call("GET", "/schools", "tok_field_officer")).json.schools.map((s: Row) => s.name), ["Meru Central"]);
+  assertEquals((await visit(SCHOOL.id, "ref-b-0001")).status, 403, "not assigned");
+  assertEquals((await visit(SCHOOL_C.id, "ref-c-0001")).status, 200);
+  assertEquals((await call("GET", "/teachers", "tok_field_officer")).json.teachers.map((t: Row) => t.name), ["Teacher C"]);
+  assertEquals((await call("GET", `/schools/${SCHOOL.id}/profile`, "tok_field_officer")).status, 404);
+  assertEquals((await call("GET", `/schools/${SCHOOL_C.id}/profile`, "tok_field_officer")).json.learners, 1);
+});
+
+Deno.test("scope: assignments are set on the Users page, ended (never deleted) and audited", async () => {
+  const db = twoCounties();
+  const put = (tok: string, id: string, body: unknown) => call("PUT", `/users/${id}/scope`, tok, body);
+  assertEquals((await put("tok_admin", "teacher-id", { counties: ["Meru"] })).status, 400, "a teacher's data comes from their classes");
+  const res = await put("tok_admin", "field_officer-id", { counties: ["Meru"], schoolIds: [SCHOOL.id] });
+  assertEquals([res.status, res.json.scope.label], [200, "Meru County and Aitong Primary"]);
+  const ended = db.staff_scopes.filter((x) => x.profile_id === "field_officer-id" && x.ended_at);
+  assertEquals(ended.map((x) => [x.county, x.ended_by]), [["Narok", "admin-id"]], "the old Narok assignment is kept, ended");
+  assert(db.audit_log.some((a) => a.action === "scope.changed" && a.target_id === "field_officer-id"));
+  const access = (await call("GET", "/users/field_officer-id/access", "tok_admin")).json;
+  assertEquals([access.scope.label, access.canEditScope, access.scope.rows.length], ["Meru County and Aitong Primary", true, 3]);
+  // Narrowed admins hand out only what they hold, and never manage programme staff.
+  assign(db, "admin-id", [{ county: "Meru" }]);
+  assign(db, "me-id", [{ county: "Meru" }]);
+  assertEquals((await put("tok_admin", "me-id", { counties: ["Meru"] })).status, 404, "programme staff aren't placed in their area");
+  assertEquals((await put("tok_super_admin", "me-id", { counties: [] })).status, 200, "a Super Admin can make M&E global again");
+  assertEquals((await call("GET", "/me", "tok_me")).json.profile.scope.global, true);
+});
+
+Deno.test("grants: a Super Admin gives one person one extra permission, with a reason, and takes it back", async () => {
+  const db = freshWorld();
+  const grant = (tok: string, body: unknown, id = "education_team-id") => call("POST", `/users/${id}/grants`, tok, body);
+  assertEquals((await grant("tok_admin", { permission: "kobo.results.view", reason: "Covering" })).status, 403, "only a Super Admin grants");
+  assertEquals((await grant("tok_super_admin", { permission: "kobo.results.view" })).status, 400, "a reason is required");
+  assertEquals((await grant("tok_super_admin", { permission: "permissions.manage", reason: "No" })).status, 400, "the power to grant can't be granted");
+  assertEquals((await grant("tok_super_admin", { permission: "assignments.grade", reason: "No" })).status, 400, "a teacher's own work can't be granted");
+  assertEquals((await grant("tok_super_admin", { permission: "library.manage", reason: "Has it" })).status, 409, "their role already includes it");
+  assertEquals((await grant("tok_super_admin", { permission: "users.view", reason: "Mine" }, "super_admin-id")).status, 403, "not to yourself");
+  assertEquals((await call("GET", "/kobo/records?formId=kb_1", "tok_education_team")).status, 403);
+  const made = await grant("tok_super_admin", { permission: "kobo.results.view", reason: "Covering M&E during leave" });
+  assertEquals(made.status, 200);
+  assertEquals((await call("GET", "/kobo/records?formId=kb_1", "tok_education_team")).status, 200, "the grant takes effect");
+  assert((await call("GET", "/me", "tok_education_team")).json.profile.permissions.includes("kobo.results.view"));
+  assertEquals((await grant("tok_super_admin", { permission: "kobo.results.view", reason: "Again" })).status, 409);
+  const id = made.json.grant.id;
+  assertEquals((await call("POST", `/users/education_team-id/grants/${id}/revoke`, "tok_super_admin", {})).status, 400, "say why");
+  assertEquals((await call("POST", `/users/education_team-id/grants/${id}/revoke`, "tok_super_admin", { reason: "Back from leave" })).status, 200);
+  assertEquals((await call("GET", "/kobo/records?formId=kb_1", "tok_education_team")).status, 403, "revoked");
+  assertEquals(db.permission_grants.length, 1, "kept, marked revoked");
+  assertEquals(db.audit_log.filter((a) => a.action.startsWith("permission.")).map((a) => a.action), ["permission.granted", "permission.revoked"]);
+  const sec = (await call("GET", "/audit?kind=security", "tok_super_admin")).json.entries.map((e: Row) => e.action);
+  assert(sec.includes("permission.granted") && sec.includes("permission.revoked"));
+  const model = (await call("GET", "/permissions", "tok_super_admin")).json;
+  assertEquals(model.roles.find((x: Row) => x.role === "admin").workspace.title, "Programme Administration");
+});
+
+Deno.test("access: overviews, badges, the users list and account activity", async () => {
+  freshWorld();
+  const pf = (await call("GET", "/platform/overview", "tok_super_admin")).json;
+  assertEquals(pf.accounts.pending, 1);
+  assert(pf.checks.some((x: Row) => x.label === "More than one active Super Admin" && !x.ok), "one Super Admin is a risk");
+  assert(pf.checks.some((x: Row) => x.label === "Every field officer has assigned schools" && x.ok));
+  const ad = (await call("GET", "/admin/overview", "tok_admin")).json;
+  assertEquals([ad.organisation.schools, ad.people.learners, ad.people.pending], [2, 2, 1]);
+  assertEquals((await call("GET", "/nav/badges", "tok_admin")).json.badges.approvals, 1);
+  assertEquals((await call("GET", "/nav/badges", "tok_education_team")).json.badges.approvals, undefined, "only badges they may see");
+  const users = (await call("GET", "/users", "tok_admin")).json.users;
+  const t = users.find((u: Row) => u.id === "teacher-id");
+  assertEquals([t.lastSignInAt, t.scope.label], ["2026-10-02T08:00:00.000Z", "Aitong Primary"]);
+  assertEquals(users.find((u: Row) => u.id === "field_officer-id").scope.label, "Narok County");
+  const act = (await call("GET", "/security/activity", "tok_super_admin")).json;
+  assertEquals(act.staff[0].lastSignInAt, "2026-10-02T08:00:00.000Z", "most recent first");
+  assertEquals((await call("GET", "/users/teacher2-id/history", "tok_admin")).status, 200);
 });

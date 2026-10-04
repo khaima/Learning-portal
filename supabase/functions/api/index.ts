@@ -19,10 +19,11 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { Buffer } from "node:buffer";
 import {
-  ACCOUNT_STATUSES, can, canManageAccount, COUNTY_ROLES, grantableRoles, type Permission,
-  permissionsFor, type Role, ROLE_LABEL, SELF_REQUESTABLE_ROLES,
-  STAFF_ROLES, STATUS_TRANSITIONS, GRADES, nextGrade, type EnrollmentStatus,
+  ACCOUNT_STATUSES, can, canManageAccount, COUNTY_ROLES, effectivePermissions, GRANTABLE_PERMISSIONS, grantableRoles,
+  isPermission, type Permission, PERMISSION_GROUPS, PERMISSION_LABEL, PERMISSIONS, permissionsFor, type Role, ROLE_LABEL, ROLE_PERMISSIONS, SELF_REQUESTABLE_ROLES,
+  STAFF_ROLES, STATUS_TRANSITIONS, GRADES, nextGrade, type EnrollmentStatus, WORKSPACE,
 } from "./permissions.ts";
+import { ASSIGNABLE_ROLES, countiesInScope, inPlaceScope, matchCounty, narrowInput, type PlaceScope, placeScopeFor, type ScopeRow } from "./scope.ts";
 import {
   ASSIGNMENT_STATUSES, type AssignmentStatus, autoMark, type Band, bandFor, cleanQuestions, cleanResponse,
   groupResults, isAutoMarked, isLate, MAX_FILES_PER_ANSWER, pairsOf, percentOf, type Question,
@@ -265,12 +266,13 @@ function normalizeAudience(a: string | null | undefined): "staff" | "library" | 
 }
 /** Which shelf an item is on decides which read permission it needs;
     whoever manages the library sees every shelf. */
-function canSeeLibrary(audience: string | null | undefined, role: Role): boolean {
-  if (can(role, "library.manage")) return true;
+function canSeeLibrary(audience: string | null | undefined, who: Role | ReadonlySet<Permission>): boolean {
+  const has = (p: Permission) => (typeof who === "string" ? can(who, p) : who.has(p));
+  if (has("library.manage")) return true;
   const dest = normalizeAudience(audience);
-  if (dest === "school_leader") return can(role, "library.read.head");
-  if (dest === "staff") return can(role, "library.read.staff");
-  return can(role, "library.read.learner");
+  if (dest === "school_leader") return has("library.read.head");
+  if (dest === "staff") return has("library.read.staff");
+  return has("library.read.learner");
 }
 
 type LibFile = { name: string; path: string; size: number };
@@ -320,7 +322,7 @@ const mapFolder = (r: Record<string, unknown>, itemCount = 0) => ({
   audience: r.audience,
   itemCount,
 });
-const mapProfile = (r: Record<string, unknown>) => ({
+const mapProfile = (r: Record<string, unknown>, access?: { grants: string[]; scope: PlaceScope }) => ({
   id: r.id,
   role: r.role,
   fullName: r.full_name,
@@ -337,9 +339,15 @@ const mapProfile = (r: Record<string, unknown>) => ({
   status: r.status ?? "active",
   statusReason: r.status_reason ?? null,
   requestedRole: r.requested_role ?? null,
-  // What the signed-in person may do — the app uses this only to decide
-  // what to show; every route checks again on the server.
-  permissions: r.status === "active" || r.status == null ? [...permissionsFor(r.role as string)] : [],
+  // What the signed-in person may do (their role's permissions plus any
+  // grants), where (their data scope) and in which workspace — the app uses
+  // this only to decide what to show; every route checks again on the server.
+  permissions: r.status === "active" || r.status == null ? [...effectivePermissions(r.role as string, access?.grants ?? [])] : [],
+  grants: access?.grants ?? [],
+  scope: access ? { global: access.scope.global, label: access.scope.label } : null,
+  workspace: WORKSPACE[r.role as Role] ?? null,
+  // A Super Admin may open every management workspace; everyone else only their own.
+  workspaces: r.role === "super_admin" ? ["platform", "admin", "me", "education"] : [WORKSPACE[r.role as Role]?.id].filter(Boolean),
 });
 const mapLearnerSelf = (r: Record<string, unknown>) => ({
   id: r.id,
@@ -408,7 +416,14 @@ const mapReport = (r: Record<string, unknown>) => ({
 
 // ---------------------------------------------------------------- app
 
-type Actor = { id: string; role: Role; fullName: string; grade: string; school: string; county: string; schoolId: string | null };
+type Actor = {
+  id: string; role: Role; fullName: string; grade: string; school: string; county: string; schoolId: string | null;
+  /** The role's permissions plus this person's open grants — worked out here, never sent by the browser. */
+  permissions: Set<Permission>;
+  grants: string[];
+  /** The counties / schools this person's data is limited to (scope.ts). */
+  scope: PlaceScope;
+};
 type Vars = {
   actorKind: "staff" | "learner";
   userId: string;
@@ -764,7 +779,11 @@ async function resolveActor(c: any): Promise<Response | null> {
     const l = await loadLearner(c.get("learnerId"));
     if (!l) return c.json({ error: "Invalid session" }, 401);
     if ((l.enrollment_status ?? "ACTIVE") !== "ACTIVE") return c.json({ error: "Invalid session" }, 401);
-    c.set("actor", { id: l.id, role: "learner", fullName: l.full_name, grade: l.grade, school: l.school, county: l.county, schoolId: l.school_id ?? null });
+    c.set("actor", {
+      id: l.id, role: "learner", fullName: l.full_name, grade: l.grade, school: l.school, county: l.county, schoolId: l.school_id ?? null,
+      permissions: effectivePermissions("learner"), grants: [],
+      scope: placeScopeFor({ role: "learner", schoolId: l.school_id ?? null, school: l.school }, [], []),
+    });
     return null;
   }
   const p = await loadStaffProfile(c.get("userId"));
@@ -774,8 +793,28 @@ async function resolveActor(c: any): Promise<Response | null> {
     return c.json({ error: STATUS_MESSAGE[status] ?? "Your account is not active.", accountStatus: status }, 403);
   }
   if (!STAFF_ROLES.includes(p.role)) return c.json({ error: "Your account has no valid role." }, 403);
-  c.set("actor", { id: p.id, role: p.role, fullName: p.full_name, grade: p.grade, school: p.school, county: p.county, schoolId: p.school_id ?? null });
+  const { grants, scope } = await loadAccess(p);
+  c.set("actor", {
+    id: p.id, role: p.role, fullName: p.full_name, grade: p.grade, school: p.school, county: p.county, schoolId: p.school_id ?? null,
+    permissions: effectivePermissions(p.role, grants), grants, scope,
+  });
   return null;
+}
+
+/** A staff member's open permission grants and data scope, from the database. */
+async function loadAccess(p: Record<string, any>): Promise<{ grants: string[]; scope: PlaceScope; rows: ScopeRow[] }> {
+  const assignable = (ASSIGNABLE_ROLES as readonly string[]).includes(p.role);
+  const [g, sc] = await Promise.all([
+    admin.from("permission_grants").select("permission").eq("profile_id", p.id).is("revoked_at", null),
+    assignable
+      ? admin.from("staff_scopes").select("id, scope_type, county, school_id, ended_at, created_at").eq("profile_id", p.id).is("ended_at", null)
+      : Promise.resolve({ data: [] as ScopeRow[] }),
+  ]);
+  const rows = (sc.data ?? []) as ScopeRow[];
+  // The schools list is only needed to turn assigned counties into schools.
+  const schools = rows.length ? (await admin.from("schools").select("id, name, county")).data ?? [] : [];
+  const grants = (g.data ?? []).map((r) => String(r.permission));
+  return { grants, rows, scope: placeScopeFor({ role: p.role, schoolId: p.school_id ?? null, school: p.school }, rows, schools) };
 }
 
 const NO_PERMISSION = "You don't have permission to do that.";
@@ -801,15 +840,21 @@ function requirePermission(...perms: Permission[]) {
   return async (c: any, next: any) => {
     const refused = await resolveActor(c);
     if (refused) return refused;
-    const role = c.get("actor").role;
-    if (!perms.some((p) => can(role, p))) return c.json({ error: NO_PERMISSION }, 403);
+    const held = (c.get("actor") as Actor).permissions;
+    if (!perms.some((p) => held.has(p))) return c.json({ error: NO_PERMISSION }, 403);
     return next();
   };
 }
 
 /** For a handler that's already past a guard. */
 // deno-lint-ignore no-explicit-any
-const actorCan = (c: any, p: Permission) => can(c.get("actor")?.role, p);
+const actorCan = (c: any, p: Permission) => !!(c.get("actor") as Actor | undefined)?.permissions.has(p);
+/** The caller's data scope (needs a guard before it). */
+// deno-lint-ignore no-explicit-any
+const scopeOf = (c: any): PlaceScope => (c.get("actor") as Actor).scope;
+/** Is this school (or, for a record without one, this county) inside the caller's scope? */
+// deno-lint-ignore no-explicit-any
+const inScope = (c: any, schoolId: unknown, county?: unknown) => inPlaceScope(scopeOf(c), schoolId, county);
 
 // ---- session / onboarding ----
 
@@ -825,7 +870,8 @@ app.get("/me", async (c) => {
   }
   const profile = await loadStaffProfile(c.get("userId"));
   if (!profile) return c.json({ needsOnboarding: true, email: c.get("email") });
-  return c.json({ profile: mapProfile(profile) });
+  const access = (profile.status ?? "active") === "active" && STAFF_ROLES.includes(profile.role) ? await loadAccess(profile) : undefined;
+  return c.json({ profile: mapProfile(profile, access) });
 });
 
 /** Name and BOM/TSC type from a sign-up form, or the error to show. */
@@ -1026,25 +1072,38 @@ app.get("/schools", async (c) => {
   const schools = (data ?? [])
     .sort((a, b) => (countyOrder.get(a.county) ?? 99) - (countyOrder.get(b.county) ?? 99) || a.seq - b.seq)
     .map(mapSchool) as Record<string, unknown>[];
-  // Head counts per school only for an active account that manages schools.
+  // Field officers and narrowed administrators see only their own counties
+  // and schools. Everyone else (and anyone still signing up) gets the whole
+  // list of names and codes — no people, no records — to pick their school.
   const me = c.get("actorKind") === "staff" ? await loadStaffProfile(c.get("userId")) : null;
-  if (me && (me.status ?? "active") === "active" && can(me.role, "schools.manage")) {
+  const active = !!me && (me.status ?? "active") === "active" && STAFF_ROLES.includes(me.role);
+  const access = active ? await loadAccess(me!) : null;
+  let countyNames = counties.map((co) => co.name);
+  let visible = schools;
+  if (access && !access.scope.global && (ASSIGNABLE_ROLES as readonly string[]).includes(me!.role)) {
+    const sc = access.scope;
+    visible = schools.filter((s) => sc.schoolIds.has(String(s.id)));
+    countyNames = countiesInScope(sc, visible as { id: string; county: string }[], countyNames);
+  }
+  // Head counts per school only for an active account that manages schools.
+  if (active && effectivePermissions(me!.role, access!.grants).has("schools.manage")) {
     const [{ data: profs }, { data: learners }] = await Promise.all([
       selectAll(() => admin.from("profiles").select("school_id, role").not("school_id", "is", null).order("id")),
       selectAll(() => admin.from("learners").select("school_id").not("school_id", "is", null).eq("enrollment_status", "ACTIVE").order("id")),
     ]);
     const count = (rows: Record<string, unknown>[] | null, id: unknown, role?: string) =>
       (rows ?? []).filter((r) => r.school_id === id && (!role || r.role === role)).length;
-    for (const s of schools) {
+    for (const s of visible) {
       s.teachers = count(profs, s.id, "teacher");
       s.heads = count(profs, s.id, "school_leader");
       s.learners = count(learners, s.id);
     }
   }
   return c.json({
-    counties: counties.map((co) => co.name),
-    countyCodes: Object.fromEntries(counties.map((co) => [co.name, co.code])),
-    schools,
+    counties: countyNames,
+    countyCodes: Object.fromEntries(counties.filter((co) => countyNames.includes(co.name)).map((co) => [co.name, co.code])),
+    schools: visible,
+    scope: access ? { global: access.scope.global, label: access.scope.label } : null,
   });
 });
 
@@ -1052,7 +1111,10 @@ app.get("/schools", async (c) => {
    prefixes every school code in it) or remove one that has no schools
    and no field officers in it yet. Names and codes can't be edited, so
    no existing code ever changes. */
+const WHOLE_PORTAL_ONLY = "Only an administrator for every county can do that.";
+
 app.post("/counties", requirePermission("schools.manage"), async (c) => {
+  if (!scopeOf(c).global) return c.json({ error: WHOLE_PORTAL_ONLY }, 403);
   const b = await c.req.json().catch(() => ({}));
   const name = String(b.name ?? "").trim().replace(/\s+/g, " ");
   const code = String(b.code ?? "").trim().toUpperCase();
@@ -1069,13 +1131,16 @@ app.post("/counties", requirePermission("schools.manage"), async (c) => {
 });
 
 app.delete("/counties/:name", requirePermission("schools.manage"), async (c) => {
+  if (!scopeOf(c).global) return c.json({ error: WHOLE_PORTAL_ONLY }, 403);
   const name = decodeURIComponent(c.req.param("name"));
   if (!(await isCounty(name))) return c.json({ error: "County not found" }, 404);
-  const [{ count: schools }, { count: officers }, { count: forms }] = await Promise.all([
+  const [{ count: schools }, { count: officers }, { count: forms }, { count: assigned }] = await Promise.all([
     admin.from("schools").select("id", { count: "exact", head: true }).eq("county", name),
     admin.from("profiles").select("id", { count: "exact", head: true }).eq("role", "field_officer").eq("county", name),
     admin.from("forms").select("id", { count: "exact", head: true }).eq("county", name),
+    admin.from("staff_scopes").select("id", { count: "exact", head: true }).eq("county", name),
   ]);
+  if ((assigned ?? 0) > 0) return c.json({ error: `${name} is (or was) assigned to staff, so it's kept in their history` }, 409);
   if ((schools ?? 0) > 0) return c.json({ error: `${name} still has ${schools} school(s) — remove them first` }, 409);
   if ((officers ?? 0) > 0) {
     return c.json({ error: `${name} still has ${officers} field officer(s) — move them to another county first` }, 409);
@@ -1092,6 +1157,8 @@ app.post("/schools", requirePermission("schools.manage"), async (c) => {
   const county = String(b.county ?? "").trim();
   const { data: countyRow } = await admin.from("counties").select("code").eq("name", county).maybeSingle();
   if (!countyRow) return c.json({ error: "Choose a county" }, 400);
+  const sc = scopeOf(c);
+  if (!sc.global && !sc.counties.has(county.toLowerCase())) return c.json({ error: "You can add schools only in your own counties" }, 403);
   if (!name) return c.json({ error: "School name is required" }, 400);
   const { data: dup } = await admin.from("schools").select("id").eq("county", county).ilike("name", ilikeExact(name)).maybeSingle();
   if (dup) return c.json({ error: `${name} is already on the ${county} list` }, 409);
@@ -1115,7 +1182,7 @@ app.post("/schools", requirePermission("schools.manage"), async (c) => {
    The synced school name on its people follows the new name. */
 app.patch("/schools/:id", requirePermission("schools.manage"), async (c) => {
   const school = await loadSchool(c.req.param("id"));
-  if (!school) return c.json({ error: "School not found" }, 404);
+  if (!school || !inScope(c, school.id)) return c.json({ error: "School not found" }, 404);
   const b = await c.req.json().catch(() => ({}));
   const name = String(b.name ?? "").trim().replace(/\s+/g, " ");
   if (!name) return c.json({ error: "School name is required" }, 400);
@@ -1134,11 +1201,15 @@ app.patch("/schools/:id", requirePermission("schools.manage"), async (c) => {
 /* Only an empty school can be removed — never strand people. */
 app.delete("/schools/:id", requirePermission("schools.manage"), async (c) => {
   const school = await loadSchool(c.req.param("id"));
-  if (!school) return c.json({ error: "School not found" }, 404);
-  const [{ count: staff }, { count: learners }] = await Promise.all([
+  if (!school || !inScope(c, school.id)) return c.json({ error: "School not found" }, 404);
+  const [{ count: staff }, { count: learners }, { count: assigned }] = await Promise.all([
     admin.from("profiles").select("id", { count: "exact", head: true }).eq("school_id", school.id),
     admin.from("learners").select("id", { count: "exact", head: true }).eq("school_id", school.id),
+    admin.from("staff_scopes").select("id", { count: "exact", head: true }).eq("school_id", school.id),
   ]);
+  if ((assigned ?? 0) > 0) {
+    return c.json({ error: `${school.name} is (or was) assigned to staff, so it can't be removed — rename it instead` }, 409);
+  }
   if ((staff ?? 0) + (learners ?? 0) > 0) {
     return c.json({
       error: `${school.name} still has ${staff ?? 0} staff and ${learners ?? 0} learner(s) — move them to another school first`,
@@ -1180,7 +1251,7 @@ function cleanGender(v: unknown): string | null | false {
 }
 
 type LearnerScope =
-  | { kind: "all" }
+  | { kind: "all"; within: PlaceScope }
   | { kind: "school"; schoolId: string }
   | { kind: "teacher"; teacherId: string; schoolId: string; classIds: string[] }
   | { kind: "none" };
@@ -1195,16 +1266,16 @@ async function classesTaughtBy(teacherId: string): Promise<string[]> {
 // deno-lint-ignore no-explicit-any
 async function learnerScope(c: any): Promise<LearnerScope> {
   const a = c.get("actor") as Actor;
-  if (can(a.role, "learners.view.all") || can(a.role, "learners.manage.all")) return { kind: "all" };
-  if (can(a.role, "learners.view.school")) return a.schoolId ? { kind: "school", schoolId: a.schoolId } : { kind: "none" };
-  if (can(a.role, "learners.manage")) {
+  if (a.permissions.has("learners.view.all") || a.permissions.has("learners.manage.all")) return { kind: "all", within: a.scope };
+  if (a.permissions.has("learners.view.school")) return a.schoolId ? { kind: "school", schoolId: a.schoolId } : { kind: "none" };
+  if (a.permissions.has("learners.manage")) {
     return a.schoolId ? { kind: "teacher", teacherId: a.id, schoolId: a.schoolId, classIds: await classesTaughtBy(a.id) } : { kind: "none" };
   }
   return { kind: "none" };
 }
 
 function inLearnerScope(scope: LearnerScope, l: Record<string, unknown>): boolean {
-  if (scope.kind === "all") return true;
+  if (scope.kind === "all") return inPlaceScope(scope.within, l.school_id, l.county);
   if (scope.kind === "none") return false;
   if (l.school_id !== scope.schoolId) return false; // never another school's learner
   if (scope.kind === "school") return true;
@@ -1371,6 +1442,7 @@ app.post("/learners", requirePermission("learners.manage", "learners.manage.scho
   const schoolId = actorCan(c, "learners.manage.all") ? (b.schoolId ?? actor.schoolId) : actor.schoolId;
   const school = await loadSchool(schoolId);
   if (!school) return c.json({ error: actorCan(c, "learners.manage.all") ? "Choose a school" : "Choose your school first — reload the page to pick it" }, 409);
+  if (!inScope(c, school.id)) return c.json({ error: "Choose a school in your area" }, 403);
 
   let cls: Record<string, any> | null = null;
   if (b.classId) {
@@ -1565,10 +1637,11 @@ app.delete("/learners/:id", requirePermission("learners.manage", "learners.manag
    history all stay with the learner. */
 app.post("/learners/:id/transfer", requirePermission("learners.transfer"), async (c) => {
   const { data: learner } = await admin.from("learners").select("*").eq("id", c.req.param("id")).maybeSingle();
-  if (!learner) return c.json({ error: "Learner not found" }, 404);
+  if (!learner || !inScope(c, learner.school_id, learner.county)) return c.json({ error: "Learner not found" }, 404);
   const b = await c.req.json().catch(() => ({}));
   const to = await loadSchool(b.toSchoolId);
   if (!to) return c.json({ error: "Choose the school they're moving to" }, 400);
+  if (!inScope(c, to.id)) return c.json({ error: "Choose a school in your area" }, 403);
   if (to.id === learner.school_id) return c.json({ error: "They're already in that school — move them to another class instead." }, 400);
   let cls: Record<string, any> | null = null;
   if (b.toClassId) {
@@ -1644,6 +1717,7 @@ app.get("/enrollments", requirePermission("learners.view.school", "learners.view
   const schoolId = scope.kind === "school" ? scope.schoolId : String(c.req.query("schoolId") ?? "");
   if (scope.kind !== "all" && scope.kind !== "school") return c.json({ enrollments: [] });
   if (!schoolId) return c.json({ error: "Choose a school" }, 400);
+  if (scope.kind === "all" && !inPlaceScope(scope.within, schoolId)) return c.json({ enrollments: [] });
   const status = c.req.query("status") ?? "";
   const { data, error } = await selectAll(() => {
     let q = admin.from("learner_enrollments").select("*").eq("school_id", schoolId)
@@ -1727,6 +1801,7 @@ app.get("/academic-years", requireStaff(), async (c) => {
 /* A new academic year with its three terms (Jan–Apr, May–Aug, Sep–Dec
    unless dates are given). makeCurrent switches the whole portal to it. */
 app.post("/academic-years", requirePermission("calendar.manage"), async (c) => {
+  if (!scopeOf(c).global) return c.json({ error: WHOLE_PORTAL_ONLY }, 403);
   const b = await c.req.json().catch(() => ({}));
   const id = String(b.id ?? "").trim();
   if (!/^\d{4}$/.test(id)) return c.json({ error: "The year must be four digits, e.g. 2027" }, 400);
@@ -1759,7 +1834,7 @@ app.post("/academic-years", requirePermission("calendar.manage"), async (c) => {
     or any (administrator). */
 // deno-lint-ignore no-explicit-any
 function canManageClassesIn(c: any, schoolId: string) {
-  if (actorCan(c, "classes.manage.all")) return true;
+  if (actorCan(c, "classes.manage.all")) return inScope(c, schoolId);
   return actorCan(c, "classes.manage.school") && c.get("actor").schoolId === schoolId;
 }
 
@@ -1771,6 +1846,7 @@ app.get("/classes", requirePermission("learners.manage", "learners.view.school",
   let schoolId = String(c.req.query("schoolId") ?? "");
   if (scope.kind === "school" || scope.kind === "teacher") schoolId = scope.schoolId;
   if (scope.kind === "none") return c.json({ classes: [] });
+  if (scope.kind === "all" && schoolId && !inPlaceScope(scope.within, schoolId)) return c.json({ classes: [] });
   const { data, error } = await selectAll(() => {
     let q = admin.from("classes").select("*").order("grade").order("name").order("id");
     if (schoolId) q = q.eq("school_id", schoolId);
@@ -1779,7 +1855,7 @@ app.get("/classes", requirePermission("learners.manage", "learners.view.school",
     return q;
   });
   if (error) return c.json({ error: error.message }, 500);
-  let rows = data ?? [];
+  let rows = (data ?? []).filter((r) => scope.kind !== "all" || inPlaceScope(scope.within, r.school_id));
   // A teacher sees the classes they teach.
   if (scope.kind === "teacher" && c.req.query("mine") !== "0") rows = rows.filter((r) => scope.classIds.includes(r.id));
   const ids = rows.map((r) => r.id);
@@ -1949,7 +2025,7 @@ app.delete("/classes/:id/subjects/:subjectId", requirePermission("classes.manage
 
 /** Is this class one the caller manages learners in? */
 function classInLearnerScope(scope: LearnerScope, cls: Record<string, unknown>) {
-  if (scope.kind === "all") return true;
+  if (scope.kind === "all") return inPlaceScope(scope.within, cls.school_id);
   if (scope.kind === "school") return cls.school_id === scope.schoolId;
   if (scope.kind === "teacher") return cls.school_id === scope.schoolId && scope.classIds.includes(cls.id as string);
   return false;
@@ -2007,7 +2083,8 @@ app.delete("/classes/:id/learners/:learnerId", requirePermission("learners.manag
    grade, they're marked COMPLETED (finished school). */
 app.post("/classes/:id/promote", requirePermission("learners.manage.school", "learners.manage.all"), async (c) => {
   const from = await loadClass(c.req.param("id"));
-  const manages = from && (actorCan(c, "learners.manage.all") || (actorCan(c, "learners.manage.school") && c.get("actor").schoolId === from.school_id));
+  const manages = from && ((actorCan(c, "learners.manage.all") && inScope(c, from.school_id)) ||
+    (actorCan(c, "learners.manage.school") && c.get("actor").schoolId === from.school_id));
   if (!from || !manages) return c.json({ error: "Class not found" }, 404);
   const b = await c.req.json().catch(() => ({}));
   const next = nextGrade(from.grade);
@@ -2049,7 +2126,7 @@ app.post("/classes/:id/promote", requirePermission("learners.manage.school", "le
 // ---- content library ----
 
 app.get("/library", requireActive(), async (c) => {
-  const role = c.get("actor").role;
+  const role = c.get("actor").permissions;
   const { data, error } = await selectAll(() => admin
     .from("library_items")
     .select("*")
@@ -2059,7 +2136,7 @@ app.get("/library", requireActive(), async (c) => {
   // A draft is only visible to whoever manages the library — everyone else
   // only ever sees what's actually been published, same as the audience
   // check right next to it. Only they get download links, too.
-  const manages = can(role, "library.manage");
+  const manages = role.has("library.manage");
   const visible = (data ?? []).filter((it) =>
     canSeeLibrary(it.audience as string, role) && (manages || it.published),
   );
@@ -2210,7 +2287,7 @@ app.patch("/library/:id", requirePermission("library.manage"), async (c) => {
    contents (the FK is `on delete set null`, so items just fall back
    to "Unfiled"). */
 app.get("/library/folders", requireActive(), async (c) => {
-  const role = c.get("actor").role;
+  const role = c.get("actor").permissions;
   const [{ data: folders, error: fErr }, { data: items, error: iErr }] = await Promise.all([
     selectAll(() => admin.from("library_folders").select("*").order("name").order("id")),
     selectAll(() => admin.from("library_items").select("folder_id, audience, published").order("id")),
@@ -2221,7 +2298,7 @@ app.get("/library/folders", requireActive(), async (c) => {
   for (const it of items ?? []) {
     if (!it.folder_id) continue;
     if (!canSeeLibrary(it.audience as string, role)) continue;
-    if (!can(role, "library.manage") && !it.published) continue;
+    if (!role.has("library.manage") && !it.published) continue;
     counts.set(it.folder_id as string, (counts.get(it.folder_id as string) ?? 0) + 1);
   }
   const visible = (folders ?? []).filter((f) => canSeeLibrary(f.audience as string, role));
@@ -2303,7 +2380,7 @@ app.post("/library/:id/interactions", requireActive(), async (c) => {
   const offline = offlineReading(body.startedAt, body.completedAt);
   const { data: item } = await admin
     .from("library_items").select("id, audience").eq("id", itemId).maybeSingle();
-  if (!item || !canSeeLibrary(item.audience as string, actor.role)) {
+  if (!item || !canSeeLibrary(item.audience as string, actor.permissions)) {
     return c.json({ error: "Resource not found" }, 404);
   }
   const { data, error } = await admin
@@ -2415,7 +2492,7 @@ app.post("/library/:id/badge", requireActive(), async (c) => {
 
   const { data: item } = await admin
     .from("library_items").select("id, audience, title").eq("id", itemId).maybeSingle();
-  if (!item || !canSeeLibrary(item.audience as string, actor.role)) {
+  if (!item || !canSeeLibrary(item.audience as string, actor.permissions)) {
     return c.json({ error: "Resource not found" }, 404);
   }
 
@@ -2462,7 +2539,8 @@ app.get("/library/usage", requirePermission("library.usage.view"), async (c) => 
   const titleOf: Record<string, string> = {};
   for (const it of items) titleOf[it.id as string] = it.title as string;
 
-  const allRows = interRes.data ?? [];
+  const areaNames = await schoolNamesInScope(c);
+  const allRows = (interRes.data ?? []).filter((r) => !areaNames || areaNames.has(r.school));
   const schoolSet = new Set<string>();
   for (const r of allRows) if (r.school) schoolSet.add(r.school as string);
   const schools = [...schoolSet].sort();
@@ -2512,6 +2590,16 @@ app.get("/library/usage", requirePermission("library.usage.view"), async (c) => 
   });
 });
 
+/** Names of the schools in the caller's area, or null for everywhere
+    (reading is recorded against the reader's school name). */
+// deno-lint-ignore no-explicit-any
+async function schoolNamesInScope(c: any): Promise<Set<string> | null> {
+  const sc = scopeOf(c);
+  if (sc.global) return null;
+  const { data } = await admin.from("schools").select("id, name");
+  return new Set((data ?? []).filter((s) => sc.schoolIds.has(s.id)).map((s) => s.name as string));
+}
+
 // ---- forms & responses (staff only) ----
 
 /* Who receives a form: its role, and its county (null = every county).
@@ -2519,7 +2607,9 @@ app.get("/library/usage", requirePermission("library.usage.view"), async (c) => 
    during a visit to a school in any county, so the county check happens
    against that school when the visit is submitted, not here. */
 function formReaches(f: Record<string, unknown>, actor: Actor) {
-  if (can(actor.role, "forms.manage") || can(actor.role, "forms.responses.view")) return true;
+  if (actor.permissions.has("forms.manage") || actor.permissions.has("forms.responses.view")) {
+    return actor.scope.global || !f.county || actor.scope.areaCounties.has(String(f.county).toLowerCase());
+  }
   // An archived form keeps its responses but is no longer sent to anyone.
   if (f.archived_at) return false;
   if (f.audience !== actor.role) return false;
@@ -2546,6 +2636,7 @@ app.post("/forms", requirePermission("forms.manage"), async (c) => {
   const kind = FORM_KINDS.includes(b.kind) ? b.kind : "questions";
   const county = b.county ? String(b.county) : null;
   if (county && !(await isCounty(county))) return c.json({ error: "That county isn't on the list" }, 400);
+  if (!formChangeable(c, { county })) return c.json({ error: "Send the form to one of your own counties" }, 403);
   const visitType = b.visitType ? String(b.visitType) : null;
   if (visitType && !VISIT_TYPES.includes(visitType)) return c.json({ error: "Pick a valid visit type" }, 400);
   if (visitType && b.audience !== "field_officer") {
@@ -2600,9 +2691,16 @@ app.post("/forms", requirePermission("forms.manage"), async (c) => {
 
 /* A form's due date — set, changed or cleared (dueOn: null). Everyone the
    form reaches who hasn't answered is reminded as it comes due. */
+/** Changing a form: anyone for every county; someone narrowed, only forms sent to a county assigned to them whole. */
+// deno-lint-ignore no-explicit-any
+function formChangeable(c: any, f: Record<string, any>) {
+  const sc = scopeOf(c);
+  return sc.global || (!!f.county && sc.counties.has(String(f.county).toLowerCase()));
+}
+
 app.patch("/forms/:id", requirePermission("forms.manage"), async (c) => {
   const { data: form } = await admin.from("forms").select("*").eq("id", c.req.param("id")).maybeSingle();
-  if (!form) return c.json({ error: "Form not found" }, 404);
+  if (!form || !formChangeable(c, form)) return c.json({ error: "Form not found" }, 404);
   const b = await c.req.json().catch(() => ({}));
   if (b.dueOn === undefined) return c.json({ error: "Nothing to change" }, 400);
   const dueOn = b.dueOn ? String(b.dueOn) : null;
@@ -2619,8 +2717,8 @@ app.patch("/forms/:id", requirePermission("forms.manage"), async (c) => {
    the database refuses to delete a form that still has any. */
 app.delete("/forms/:id", requirePermission("forms.manage"), async (c) => {
   const id = c.req.param("id");
-  const { data: form } = await admin.from("forms").select("files").eq("id", id).maybeSingle();
-  if (!form) return c.json({ error: "Form not found" }, 404);
+  const { data: form } = await admin.from("forms").select("files, county").eq("id", id).maybeSingle();
+  if (!form || !formChangeable(c, form)) return c.json({ error: "Form not found" }, 404);
   const { count } = await admin.from("responses")
     .select("id", { count: "exact", head: true }).eq("form_id", id);
   if ((count ?? 0) > 0) {
@@ -2637,6 +2735,8 @@ app.delete("/forms/:id", requirePermission("forms.manage"), async (c) => {
    and all its responses and files stay, visible to the Education Team.
    Restore sends it out again. */
 app.post("/forms/:id/archive", requirePermission("forms.manage"), async (c) => {
+  const { data: f0 } = await admin.from("forms").select("county").eq("id", c.req.param("id")).maybeSingle();
+  if (f0 && !formChangeable(c, f0)) return c.json({ error: "Form not found" }, 404);
   const { data, error } = await admin.from("forms")
     .update({ archived_at: new Date().toISOString() })
     .eq("id", c.req.param("id")).select().maybeSingle();
@@ -2646,6 +2746,8 @@ app.post("/forms/:id/archive", requirePermission("forms.manage"), async (c) => {
 });
 
 app.post("/forms/:id/restore", requirePermission("forms.manage"), async (c) => {
+  const { data: f0 } = await admin.from("forms").select("county").eq("id", c.req.param("id")).maybeSingle();
+  if (f0 && !formChangeable(c, f0)) return c.json({ error: "Form not found" }, 404);
   const { data, error } = await admin.from("forms")
     .update({ archived_at: null })
     .eq("id", c.req.param("id")).select().maybeSingle();
@@ -2717,11 +2819,19 @@ app.get("/responses", requirePermission("forms.respond", "forms.manage", "forms.
       .order("id");
     // Everyone's responses only with forms.manage / forms.responses.view;
     // otherwise just the caller's own.
-    if (!can(p.role, "forms.manage") && !can(p.role, "forms.responses.view")) q = q.eq("respondent_id", p.id);
+    if (!actorCan(c, "forms.manage") && !actorCan(c, "forms.responses.view")) q = q.eq("respondent_id", p.id);
     return q;
   });
   if (error) return c.json({ error: error.message }, 500);
-  const responses = await Promise.all((data ?? []).map((r) => mapResponse(r, can(p.role, "forms.manage"))));
+  let rows = data ?? [];
+  // Someone else's response: only from a respondent inside the caller's scope.
+  if (!scopeOf(c).global) {
+    const others = [...new Set(rows.filter((r) => r.respondent_id !== p.id).map((r) => r.respondent_id as string))];
+    const people = others.length ? await selectIn("profiles", "id", others, "id, school_id, county") : [];
+    const where = new Map(people.map((x) => [x.id, x]));
+    rows = rows.filter((r) => r.respondent_id === p.id || inScope(c, where.get(r.respondent_id)?.school_id, where.get(r.respondent_id)?.county));
+  }
+  const responses = await Promise.all(rows.map((r) => mapResponse(r, actorCan(c, "forms.manage"))));
   return c.json({ responses });
 });
 
@@ -2803,7 +2913,7 @@ async function selectIn(table: string, col: string, ids: string[], cols = "*"): 
 }
 
 type AssignmentScope =
-  | { kind: "all" }
+  | { kind: "all"; within: PlaceScope }
   | { kind: "school"; schoolId: string }
   | { kind: "teacher"; teacherId: string; schoolId: string; classIds: string[] }
   | { kind: "none" };
@@ -2813,7 +2923,7 @@ type AssignmentScope =
 // deno-lint-ignore no-explicit-any
 async function assignmentScope(c: any): Promise<AssignmentScope> {
   const a = c.get("actor") as Actor;
-  if (actorCan(c, "assignments.view.all")) return { kind: "all" };
+  if (actorCan(c, "assignments.view.all")) return { kind: "all", within: a.scope };
   if (actorCan(c, "assignments.view.school")) return a.schoolId ? { kind: "school", schoolId: a.schoolId } : { kind: "none" };
   if (actorCan(c, "assignments.manage") || actorCan(c, "assignments.grade")) {
     return a.schoolId ? { kind: "teacher", teacherId: a.id, schoolId: a.schoolId, classIds: await classesTaughtBy(a.id) } : { kind: "none" };
@@ -2821,7 +2931,7 @@ async function assignmentScope(c: any): Promise<AssignmentScope> {
   return { kind: "none" };
 }
 function inAssignmentScope(s: AssignmentScope, row: Record<string, unknown>): boolean {
-  if (s.kind === "all") return true;
+  if (s.kind === "all") return inPlaceScope(s.within, row.school_id);
   if (s.kind === "none") return false;
   if (row.school_id !== s.schoolId) return false; // never another school's work
   return s.kind === "school" || s.classIds.includes(row.class_id as string);
@@ -3768,7 +3878,7 @@ async function resultLabels(by: ResultDimension, keys: string[], assignments: Re
 
 app.get("/field-reports", requirePermission("field_reports.view.own", "field_reports.view.all"), async (c) => {
   const p = c.get("actor");
-  const all = can(p.role, "field_reports.view.all");
+  const all = actorCan(c, "field_reports.view.all");
   const { data, error } = await selectAll(() => {
     let q = admin
       .from("field_reports")
@@ -3779,6 +3889,7 @@ app.get("/field-reports", requirePermission("field_reports.view.own", "field_rep
     return q;
   });
   if (error) return c.json({ error: error.message }, 500);
+  if (all && !scopeOf(c).global) data.splice(0, data.length, ...data.filter((r) => inScope(c, r.school_id, r.county)));
   // For the officer's own visits: which of the visit's forms are still to fill.
   let missing: Map<string, Record<string, any>[]> = new Map();
   if (!all && data?.length) {
@@ -3823,6 +3934,7 @@ app.post("/field-reports", requirePermission("field_reports.create"), async (c) 
   if (!school || !b.visitType) {
     return c.json({ error: "County, school and visit type are all required" }, 400);
   }
+  if (!inScope(c, school.id)) return c.json({ error: "That school isn't one of your assigned schools" }, 403);
 
   // The visit's forms: each must be a field-officer form for this visit
   // type that covers this school's county.
@@ -3959,12 +4071,12 @@ app.get("/stats", requirePermission("stats.view"), async (c) => {
   };
 
   const [profs, learnersRaw, asg, reportsRaw, forms, responses, library, schoolsReg, countiesReg] = await Promise.all([
-    selectAll(() => admin.from("profiles").select("id, role, county, school, teacher_type").order("id")),
-    selectAll(() => admin.from("learners").select("id, teacher_id, grade, school, created_at").eq("enrollment_status", "ACTIVE").order("id")),
+    selectAll(() => admin.from("profiles").select("id, role, county, school, school_id, teacher_type").order("id")),
+    selectAll(() => admin.from("learners").select("id, teacher_id, grade, school, school_id, created_at").eq("enrollment_status", "ACTIVE").order("id")),
     loadWork({}).then((w) => ({ data: w, error: null }), (e) => ({ data: null, error: { message: (e as Error).message } })),
-    selectAll(() => admin.from("field_reports").select("county, visit_type, school, created_at").order("id")),
+    selectAll(() => admin.from("field_reports").select("county, visit_type, school, school_id, created_at").order("id")),
     selectAll(() => admin.from("forms").select("id, audience").order("id")),
-    selectAll(() => admin.from("responses").select("form_id").order("id")),
+    selectAll(() => admin.from("responses").select("form_id, respondent_id").order("id")),
     selectAll(() => admin.from("library_items").select("audience, subject").order("id")),
     selectAll(() => admin.from("schools").select("id, name, county, code, seq").order("seq").order("id")),
     loadCounties().catch(() => [] as County[]),
@@ -3974,17 +4086,29 @@ app.get("/stats", requirePermission("stats.view"), async (c) => {
     .find((r) => r.error)?.error;
   if (statsErr) return c.json({ error: statsErr.message }, 500);
 
-  const allProfiles = profs.data ?? [];
-  const allLearners = learnersRaw.data ?? [];
-  const allReports = reportsRaw.data ?? [];
+  // Only the caller's area, before anything is counted.
+  const area = scopeOf(c);
+  const allProfiles = (profs.data ?? []).filter((p) => area.global ||
+    (p.school_id ? inPlaceScope(area, p.school_id) : p.role === "field_officer" && inPlaceScope(area, null, p.county)));
+  const allLearners = (learnersRaw.data ?? []).filter((l) => inPlaceScope(area, l.school_id));
+  const allReports = (reportsRaw.data ?? []).filter((r) => inPlaceScope(area, r.school_id, r.county));
+  if (!area.global) {
+    const peopleHere = new Set(allProfiles.map((p) => p.id));
+    if (responses.data) responses.data.splice(0, responses.data.length, ...responses.data.filter((r) => peopleHere.has(r.respondent_id)));
+    if (asg.data) {
+      asg.data.assignments = asg.data.assignments.filter((a) => inPlaceScope(area, a.school_id));
+      asg.data.submissions = asg.data.submissions.filter((x) => inPlaceScope(area, x.school_id));
+      asg.data.pairs = asg.data.pairs.filter((x) => inPlaceScope(area, x.a.schoolId));
+    }
+  }
 
   // The filter dropdowns list the education team's live counties and
   // schools — the same list every other picker in the portal uses — not
   // whatever text happens to be in people's profiles.
-  const counties = countiesReg.map((co) => co.name);
+  const counties = countiesInScope(area, (schoolsReg.data ?? []) as { id: string; county: string }[], countiesReg.map((co) => co.name));
   const countyOrder = new Map(counties.map((n, i) => [n, i]));
   const schoolOptions = (schoolsReg.data ?? [])
-    .filter((s) => !inCounty || s.county === county)
+    .filter((s) => (!inCounty || s.county === county) && inPlaceScope(area, s.id))
     .sort((a, b) => (countyOrder.get(a.county) ?? 99) - (countyOrder.get(b.county) ?? 99) || a.seq - b.seq)
     .map((s) => ({ name: s.name as string, code: s.code as string, county: s.county as string }));
 
@@ -4239,7 +4363,7 @@ app.get("/intelligence", requirePermission("intelligence.view"), async (c) => {
   const date = (k: string) => { const v = q(k); return v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null; };
   let input;
   try { input = await loadIntelligenceInput(); } catch (e) { return c.json({ error: (e as Error).message }, 500); }
-  return c.json(buildIntelligence(input, { county: q("county"), school: q("school"), from: date("from"), to: date("to") }));
+  return c.json(buildIntelligence(narrowInput(input, scopeOf(c)), { county: q("county"), school: q("school"), from: date("from"), to: date("to") }));
 });
 
 // ---- impact dashboards ----
@@ -4258,12 +4382,19 @@ async function loadImpactInput() {
   return { ...base, trainings: trainings.data, trainingAttendance: attendance.data };
 }
 
-app.get("/impact", requirePermission("intelligence.view"), async (c) => {
+/* The programme dashboards (intelligence.view), or only their learning side
+   — learning, teacher development, digital resources — for the Education
+   Team (learning.dashboard.view). Always within the caller's area. */
+app.get("/impact", requirePermission("intelligence.view", "learning.dashboard.view"), async (c) => {
   const q = (k: string) => String(c.req.query(k) ?? "").trim() || null;
   const date = (k: string) => { const v = q(k); return v && DATE_RE.test(v) ? v : null; };
   let input;
   try { input = await loadImpactInput(); } catch (e) { return c.json({ error: (e as Error).message }, 500); }
-  return c.json(buildImpact(input, { county: q("county"), school: q("school"), from: date("from"), to: date("to") }));
+  const d = buildImpact(narrowInput(input, scopeOf(c)), { county: q("county"), school: q("school"), from: date("from"), to: date("to") });
+  if (actorCan(c, "intelligence.view")) return c.json(d);
+  const { schoolsVisited: _v, ...executive } = d.executive;
+  return c.json({ scope: d.scope, currentTerm: d.currentTerm, generatedAt: d.generatedAt, learningOnly: true,
+    executive, learning: d.learning, teachers: d.teachers, resources: d.resources });
 });
 
 // ---- training register (Teacher development) ----
@@ -4349,10 +4480,15 @@ app.get("/trainings/teachers", requirePermission("trainings.manage"), async (c) 
     .eq("role", "teacher").order("full_name").order("id"));
   if (error) return c.json({ error: error.message }, 500);
   return c.json({
-    teachers: (data ?? []).filter((p) => (p.status ?? "active") === "active")
+    teachers: (data ?? []).filter((p) => (p.status ?? "active") === "active" && inScope(c, p.school_id))
       .map((p) => ({ id: p.id, name: p.full_name, school: p.school ?? "", schoolId: p.school_id ?? null, county: p.county ?? "" })),
   });
 });
+
+/** A session belongs to its school, else its county; one with neither is programme-wide. */
+// deno-lint-ignore no-explicit-any
+const trainingInScope = (c: any, t: Record<string, any>) =>
+  t.school_id ? inScope(c, t.school_id) : t.county ? inScope(c, null, t.county) : scopeOf(c).global;
 
 /* ?archived=1 includes archived sessions. */
 app.get("/trainings", requirePermission("intelligence.view", "trainings.manage"), async (c) => {
@@ -4367,7 +4503,7 @@ app.get("/trainings", requirePermission("intelligence.view", "trainings.manage")
   return c.json({
     canManage: actorCan(c, "trainings.manage"),
     kinds: TRAINING_KINDS,
-    trainings: (data ?? []).filter((t) => archived || !t.archived_at)
+    trainings: (data ?? []).filter((t) => (archived || !t.archived_at) && trainingInScope(c, t))
       .sort((a, b) => String(b.held_on).localeCompare(String(a.held_on)) || String(a.id).localeCompare(String(b.id))).map((t) => ({
       id: t.id, title: t.title, topic: t.topic, kind: t.kind, heldOn: t.held_on, endsOn: t.ends_on ?? null,
       county: t.county ?? null, schoolId: t.school_id ?? null, school: t.school_id ? schoolName.get(t.school_id) ?? null : null,
@@ -4379,13 +4515,14 @@ app.get("/trainings", requirePermission("intelligence.view", "trainings.manage")
 
 app.get("/trainings/:id", requirePermission("intelligence.view", "trainings.manage"), async (c) => {
   const t = await trainingDetail(c.req.param("id"));
-  return t ? c.json({ training: t }) : c.json({ error: "Session not found" }, 404);
+  return t && trainingInScope(c, { school_id: t.schoolId, county: t.county }) ? c.json({ training: t }) : c.json({ error: "Session not found" }, 404);
 });
 
 app.post("/trainings", requirePermission("trainings.manage"), async (c) => {
   const b = await c.req.json().catch(() => ({}));
   const fields = await readTraining(b, null);
   if ("error" in fields) return c.json(fields, 400);
+  if (!trainingInScope(c, fields)) return c.json({ error: OUTSIDE_AREA }, 403);
   const teachers = await teacherIdsIn(b.teacherIds);
   if ("error" in teachers) return c.json(teachers, 400);
   const id = rid("trn");
@@ -4409,10 +4546,11 @@ app.post("/trainings", requirePermission("trainings.manage"), async (c) => {
    taking one off the list (kept, as not attended). */
 app.patch("/trainings/:id", requirePermission("trainings.manage"), async (c) => {
   const { data: t } = await admin.from("trainings").select("*").eq("id", c.req.param("id")).maybeSingle();
-  if (!t) return c.json({ error: "Session not found" }, 404);
+  if (!t || !trainingInScope(c, t)) return c.json({ error: "Session not found" }, 404);
   const b = await c.req.json().catch(() => ({}));
   const fields = await readTraining(b, t);
   if ("error" in fields) return c.json(fields, 400);
+  if (!trainingInScope(c, { ...t, ...fields })) return c.json({ error: OUTSIDE_AREA }, 403);
   // Only what actually changes is written (and audited).
   for (const k of Object.keys(fields)) if (String(fields[k] ?? "") === String(t[k] ?? "")) delete fields[k];
   if (b.archived !== undefined && !!b.archived !== !!t.archived_at) fields.archived_at = b.archived ? new Date().toISOString() : null;
@@ -4590,18 +4728,22 @@ async function latestDqScan() {
 // deno-lint-ignore no-explicit-any
 async function dqFiltered(c: any) {
   const f = (k: string) => String(c.req.query(k) ?? "").trim();
-  const { data: issues, error } = await selectAll(() => admin.from("dq_issues").select("*").order("id"));
+  const { data: everyIssue, error } = await selectAll(() => admin.from("dq_issues").select("*").order("id"));
   if (error) throw new Error(error.message);
-  let schoolIds: Set<string> | null = null;
+  // Only issues inside the caller's own area, before any filter they pick.
+  const sc = scopeOf(c);
+  const issues = everyIssue.filter((i) => inPlaceScope(sc, i.school_id, i.county));
+  let schoolIds: Set<string> | null = sc.global ? null : new Set(sc.schoolIds);
   if (f("school") || f("county")) {
     const { data: schools } = await selectAll(() => admin.from("schools").select("id, name, county").order("id"));
-    schoolIds = new Set(schools.filter((s) => (!f("school") || s.name === f("school")) && (!f("county") || s.county === f("county"))).map((s) => s.id as string));
+    schoolIds = new Set(schools.filter((s) => (!f("school") || s.name === f("school")) && (!f("county") || s.county === f("county")) &&
+      inPlaceScope(sc, s.id)).map((s) => s.id as string));
   }
-  const inScope = (i: Record<string, any>) =>
+  const picked = (i: Record<string, any>) =>
     (!f("county") || i.county === f("county") || (i.school_id && schoolIds!.has(i.school_id))) &&
     (!f("school") || (i.school_id && schoolIds!.has(i.school_id)));
   const q = f("q").toLowerCase();
-  const scoped = issues.filter(inScope);
+  const scoped = issues.filter(picked);
   const filtered = scoped.filter((i) =>
     (!f("type") || i.type === f("type")) && (!f("severity") || i.severity === f("severity")) &&
     (!f("status") || i.status === f("status") || (f("status") === "active" && (i.status === "OPEN" || i.status === "UNDER_REVIEW"))) &&
@@ -4635,6 +4777,8 @@ async function schoolNameMap() {
 }
 
 app.post("/data-quality/scan", requirePermission("data_quality.view"), async (c) => {
+  // A scan re-checks every record in the portal, so it's for whole-portal staff.
+  if (!scopeOf(c).global) return c.json({ error: WHOLE_PORTAL_ONLY }, 403);
   try {
     const res = await runDqScan(c.get("actor").id, c.req.query("auto") ? "auto" : "manual");
     return c.json(res);
@@ -4884,7 +5028,7 @@ async function applyDqFix(c: any, i: Record<string, any>, b: Record<string, any>
 // deno-lint-ignore no-explicit-any
 async function dqIssueDetail(c: any, id: string) {
   const { data: i } = await admin.from("dq_issues").select("*").eq("id", id).maybeSingle();
-  if (!i) return null;
+  if (!i || !inScope(c, i.school_id, i.county)) return null;
   const { data: events } = await admin.from("dq_issue_events").select("*").eq("issue_id", id);
   const sorted = (events ?? []).sort((a: Record<string, any>, b: Record<string, any>) => String(a.created_at).localeCompare(String(b.created_at)) || Number(a.id) - Number(b.id));
   const [names, schools] = await Promise.all([
@@ -4926,7 +5070,7 @@ async function moveDqIssue(c: any, i: Record<string, any>, to: DqStatus, note: s
 
 app.patch("/data-quality/issues/:id", requirePermission("data_quality.manage"), async (c) => {
   const { data: i } = await admin.from("dq_issues").select("*").eq("id", c.req.param("id")).maybeSingle();
-  if (!i) return c.json({ error: "Issue not found" }, 404);
+  if (!i || !inScope(c, i.school_id, i.county)) return c.json({ error: "Issue not found" }, 404);
   const b = await c.req.json().catch(() => ({}));
   const to = String(b.status ?? "") as DqStatus;
   if (!DQ_STATUSES.includes(to)) return c.json({ error: "Status must be OPEN, UNDER_REVIEW, RESOLVED or IGNORED" }, 400);
@@ -4942,7 +5086,7 @@ app.post("/data-quality/issues/bulk", requirePermission("data_quality.manage"), 
   if (!ids.length) return c.json({ error: "Pick some issues" }, 400);
   if (!DQ_STATUSES.includes(to)) return c.json({ error: "Status must be OPEN, UNDER_REVIEW, RESOLVED or IGNORED" }, 400);
   const note = String(b.note ?? "").trim().slice(0, 1000);
-  const rows = await selectIn("dq_issues", "id", ids);
+  const rows = (await selectIn("dq_issues", "id", ids)).filter((i) => inScope(c, i.school_id, i.county));
   let changed = 0;
   const skipped: string[] = [];
   for (const i of rows) {
@@ -4954,7 +5098,7 @@ app.post("/data-quality/issues/bulk", requirePermission("data_quality.manage"), 
 
 app.post("/data-quality/issues/:id/fix", requirePermission("data_quality.manage"), async (c) => {
   const { data: i } = await admin.from("dq_issues").select("*").eq("id", c.req.param("id")).maybeSingle();
-  if (!i) return c.json({ error: "Issue not found" }, 404);
+  if (!i || !inScope(c, i.school_id, i.county)) return c.json({ error: "Issue not found" }, 404);
   const b = await c.req.json().catch(() => ({}));
   const offered = await dqFixesFor(c, i);
   if (!offered.some((f) => f.action === b.action)) return c.json({ error: "That correction isn't available for this issue (or to you)" }, 403);
@@ -5013,7 +5157,8 @@ async function reportContext(c: any, id: string): Promise<RCtx> {
   const f = reportFilters(c);
   const actor = c.get("actor") as Actor;
   const { data } = await selectAll(() => admin.from("schools").select("id, name, code, county").order("id"));
-  const schools = new Map((data ?? []).map((s) => [s.id as string, s]));
+  // Only schools in the caller's area exist, as far as a report is concerned.
+  const schools = new Map((data ?? []).filter((s) => inPlaceScope(actor.scope, s.id)).map((s) => [s.id as string, s]));
   // Below the all-schools level the place is always their own school, whatever was asked for.
   const limited = scopeNote(c, id);
   if (limited === "Your school" || limited === "Your classes") {
@@ -5022,6 +5167,7 @@ async function reportContext(c: any, id: string): Promise<RCtx> {
     f.county = own?.county ?? null;
   }
   const inPlace = (schoolId: unknown) => {
+    if (!inPlaceScope(actor.scope, schoolId)) return false;
     const s = schools.get(String(schoolId ?? ""));
     if (!f.county && !f.school) return true;
     return !!s && (!f.county || s.county === f.county) && (!f.school || s.name === f.school);
@@ -5222,7 +5368,7 @@ async function reportVisits(x: RCtx): Promise<Section[]> {
     selectAll(() => admin.from("profiles").select("id, full_name").eq("role", "field_officer").order("id")),
     admin.from("forms").select("id, title, kind, county, visit_type, archived_at, created_at").not("visit_type", "is", null),
   ]);
-  const place = (r: Record<string, any>) => !x.f.county && !x.f.school ? true
+  const place = (r: Record<string, any>) => !inScope(x.c, r.school_id, r.county) ? false : !x.f.county && !x.f.school ? true
     : r.school_id ? x.inPlace(r.school_id) : (!x.f.county || r.county === x.f.county) && (!x.f.school || r.school === x.f.school);
   const mine = (visits ?? []).filter((r) => place(r) && inDates(x.f, r.created_at));
   const responses = mine.length ? await selectIn("responses", "visit_id", mine.map((r) => r.id as string), "id, form_id, visit_id") : [];
@@ -5251,7 +5397,8 @@ async function reportKobo(x: RCtx): Promise<Section[]> {
     selectAll(() => admin.from("kobo_records").select("id, kobo_form_id, kobo_id, submitted_at, observed_on, school_id, school_value, county, officer_id, status, review").order("id")),
     selectAll(() => admin.from("profiles").select("id, full_name").order("id")),
   ]);
-  const recs = (records ?? []).filter((r) => r.status !== "removed" && (!x.f.county && !x.f.school ? true : x.inPlace(r.school_id)) && inDates(x.f, r.submitted_at));
+  const recs = (records ?? []).filter((r) => r.status !== "removed" && inScope(x.c, r.school_id, r.county) &&
+    (!x.f.county && !x.f.school ? true : x.inPlace(r.school_id)) && inDates(x.f, r.submitted_at));
   const issues = recs.length ? await selectIn("kobo_record_issues", "record_id", recs.map((r) => r.id as string), "record_id, severity, message") : [];
   const survey = nameMap(forms, "title");
   const officer = nameMap(officers);
@@ -5302,7 +5449,9 @@ async function reportLibrary(x: RCtx): Promise<Section[]> {
     selectAll(() => admin.from("library_interactions").select("id, library_item_id, actor_kind, actor_id, school, started_at, completed_at, duration_seconds").order("id")),
   ]);
   const placeNames = new Set([...x.schools.values()].filter((s) => x.inPlace(s.id)).map((s) => s.name));
-  const rows = (interactions ?? []).filter((i) => inDates(x.f, i.started_at) && (!x.f.county && !x.f.school ? true : placeNames.has(i.school)));
+  const area = await schoolNamesInScope(x.c);
+  const rows = (interactions ?? []).filter((i) => inDates(x.f, i.started_at) && (!area || area.has(i.school)) &&
+    (!x.f.county && !x.f.school ? true : placeNames.has(i.school)));
   const hours = (rs: Record<string, any>[]) => Math.round(rs.reduce((t, i) => t + (Number(i.duration_seconds) || 0), 0) / 360) / 10;
   const shelf = (a: unknown) => (a === "staff" ? "Teacher Resources" : a === "school_leader" ? "For School Head" : "Digital Library");
   const bySchool = new Map<string, Record<string, any>[]>();
@@ -5349,6 +5498,7 @@ async function reportMel(x: RCtx): Promise<{ sections: Section[]; note: string }
     { key: "source", label: "Value" }, { key: "evidence", label: "Evidence" },
   ];
   if (!range || !scope) return { sections: [{ title: "Indicators", columns, rows: [] }], note: "Choose a term or school year, and a county or school in the portal." };
+  if (!melScopeAllowed(x.c, scope)) return { sections: [{ title: "Indicators", columns, rows: [] }], note: OUTSIDE_AREA };
   const { data: progs } = await admin.from("me_programmes").select("id, name, status");
   const chosen = (progs ?? []).filter((p) => (x.f.programme ? p.id === x.f.programme : p.status === "active"));
   const STATUS: Record<string, string> = { met: "Met", close: "Close", not_met: "Not met", no_data: "No data" };
@@ -5378,7 +5528,7 @@ async function reportTerm(x: RCtx): Promise<{ sections: Section[]; note: string 
   const period = x.f.period || (terms.find((p) => p.current) ?? terms.at(-1))?.id || "";
   const range = periodRange(period, cal.terms, cal.years);
   if (!range) return { sections: [], note: "Choose a term." };
-  const d = buildImpact(await loadImpactInput(), { county: x.f.county, school: x.f.school, from: range.from, to: range.to });
+  const d = buildImpact(narrowInput(await loadImpactInput(), x.actor.scope), { county: x.f.county, school: x.f.school, from: range.from, to: range.to });
   const E = d.executive;
   const kv = (measure: string, value: unknown) => ({ measure, value });
   const summary = [
@@ -5428,7 +5578,7 @@ async function reportCounties(x: RCtx): Promise<{ sections: Section[]; note: str
     const range = periodRange(x.f.period, cal.terms, cal.years);
     if (range) { from = range.from; to = range.to; note = range.label; }
   }
-  const input = await loadImpactInput();
+  const input = narrowInput(await loadImpactInput(), x.actor.scope);
   const counties = [...new Set([...x.schools.values()].map((s) => s.county as string))].filter((c) => !x.f.county || c === x.f.county).sort();
   const rows = counties.map((county) => {
     const d = buildImpact(input, { county, from, to });
@@ -5476,18 +5626,18 @@ const REPORT_BUILDERS: Record<string, (x: RCtx) => Promise<Section[] | { section
 
 /** What a person's exports are limited to, in words, for the file and the screen. */
 function scopeNote(c: any, id: string): string {
-  const all = (p: string) => actorCan(c, p as Permission);
-  if (id === "learner-register") return all("learners.view.all") ? "All schools" : all("learners.view.school") ? "Your school" : "Your classes";
-  if (id === "teacher-register") return all("users.view") || all("trainings.manage") ? "All schools" : "Your school";
-  if (id === "school-register") return all("stats.view") || all("schools.manage") ? "All schools" : "Your school";
-  if (id === "assignment-report" || id === "assessment-report") return all("assignments.view.all") ? "All schools" : all("assignments.view.school") ? "Your school" : "Your classes";
-  if (id === "field-visit-report") return all("field_reports.view.all") ? "All field visits" : "Your visits";
-  if (id === "term-report") return all("intelligence.view") ? "All schools" : "Your school";
-  return "All schools";
+  const a = c.get("actor") as Actor;
+  if (id === "field-visit-report") {
+    if (!actorCan(c, "field_reports.view.all")) return "Your visits";
+    return a.scope.global ? "All field visits" : `Visits in ${a.scope.label}`;
+  }
+  if (a.role === "school_leader") return "Your school";
+  if (a.role === "teacher") return "Your classes";
+  return a.scope.global ? "All schools" : a.scope.label;
 }
 
 /* The reports this person can export, with what they'd cover. */
-app.get("/reports", requireStaff(), async (c) => {
+app.get("/reports", requirePermission("reports.export"), async (c) => {
   const list = reportsFor((p) => actorCan(c, p as Permission));
   const cal = list.some((r) => r.filters.includes("period")) ? await melCalendar() : null;
   const { data: progs } = list.some((r) => r.filters.includes("programme")) ? await admin.from("me_programmes").select("id, name, status") : { data: [] };
@@ -5499,7 +5649,7 @@ app.get("/reports", requireStaff(), async (c) => {
 });
 
 /* One report's rows (?county= &school= &from= &to= &period= &programme= &status= &format=). */
-app.get("/reports/:id", requireStaff(), async (c) => {
+app.get("/reports/:id", requirePermission("reports.export"), async (c) => {
   const def = REPORTS.find((r) => r.id === c.req.param("id"));
   if (!def) return c.json({ error: "Report not found" }, 404);
   if (!def.needs.some((p) => actorCan(c, p as Permission))) return c.json({ error: NO_PERMISSION }, 403);
@@ -5554,6 +5704,10 @@ async function runNotifications(trigger: "schedule" | "user" | "manual", onlyRec
     const failed = results.find((r) => r.error);
     if (failed) throw new Error(failed.error!.message);
     const [profiles, learners, classTeachers, classes, assignments, submissions, forms, responses, fieldReports, koboForms, raw, told] = results.map((r) => r.data);
+    // Explicit grants count for notifications too (e.g. someone granted kobo.review).
+    const { data: openGrants } = await admin.from("permission_grants").select("profile_id, permission").is("revoked_at", null);
+    const grantsOf = new Map<string, string[]>();
+    for (const g of openGrants ?? []) grantsOf.set(g.profile_id, [...(grantsOf.get(g.profile_id) ?? []), g.permission]);
     const recs = raw.length ? await selectIn("kobo_records", "raw_id", raw.map((r) => r.id as string), "raw_id, status, review") : [];
     const review = new Set(recs.filter((r) => (r.status === "invalid" || r.status === "duplicate") && !r.review).map((r) => r.raw_id));
     const koboLastNotified: Record<string, string> = {};
@@ -5564,7 +5718,7 @@ async function runNotifications(trigger: "schedule" | "user" | "manual", onlyRec
     const candidates = buildNotifications({
       profiles, learners, classTeachers, classes, assignments, submissions, forms, responses, fieldReports, koboForms,
       koboReceived: raw.map((r) => ({ ...r, needs_review: review.has(r.id) })), koboLastNotified,
-      can: (role, perm) => can(role, perm as Permission),
+      can: (person, perm) => effectivePermissions(person.role, grantsOf.get(person.id) ?? []).has(perm as Permission),
     }, now, onlyRecipient);
 
     // Only what's new: one row per person per dedupe key, ever.
@@ -5651,16 +5805,20 @@ app.get("/notifications/log", requirePermission("notifications.view.all"), async
   const q = (k: string) => String(c.req.query(k) ?? "").trim();
   const [{ data, error }, { data: people }, { data: learners }, { data: runs }] = await Promise.all([
     selectAll(() => admin.from("notifications").select("*").order("created_at", { ascending: false }).order("id")),
-    selectAll(() => admin.from("profiles").select("id, full_name, role, school, county").order("id")),
-    selectAll(() => admin.from("learners").select("id, full_name, school").order("id")),
+    selectAll(() => admin.from("profiles").select("id, full_name, role, school, school_id, county").order("id")),
+    selectAll(() => admin.from("learners").select("id, full_name, school, school_id").order("id")),
     admin.from("notification_runs").select("*").order("started_at", { ascending: false }).limit(10),
   ]);
   if (error) return c.json({ error: error.message }, 500);
   const who = new Map<string, { name: string; role: string; place: string }>();
   for (const p of people ?? []) who.set(p.id, { name: p.full_name, role: p.role, place: p.school || p.county || "" });
   for (const l of learners ?? []) who.set(l.id, { name: l.full_name, role: "learner", place: l.school || "" });
+  const placeOf = new Map<string, [unknown, unknown]>();
+  for (const p of people ?? []) placeOf.set(p.id, [p.school_id, p.role === "field_officer" ? p.county : null]);
+  for (const l of learners ?? []) placeOf.set(l.id, [l.school_id, null]);
+  const inArea = (id: string) => scopeOf(c).global || inScope(c, placeOf.get(id)?.[0], placeOf.get(id)?.[1]);
   const day = (v: unknown) => String(v ?? "").slice(0, 10);
-  const rows = (data ?? []).filter((n) =>
+  const rows = (data ?? []).filter((n) => inArea(n.recipient_id) &&
     (!q("kind") || n.kind === q("kind")) &&
     (!q("role") || who.get(n.recipient_id)?.role === q("role")) &&
     (!q("status") || (q("status") === "read" ? !!n.read_at : !n.read_at)) &&
@@ -5769,7 +5927,7 @@ app.get("/sync/status", requireActive(), async (c) => {
 
   // ---- content they can see
   const { data: items } = await selectAll(() => admin.from("library_items").select("id, audience, published, uploaded_at").order("id"));
-  const mine = (items ?? []).filter((i) => (actorCan(c, "library.manage") || i.published) && canSeeLibrary(i.audience as string, actor.role));
+  const mine = (items ?? []).filter((i) => (actorCan(c, "library.manage") || i.published) && canSeeLibrary(i.audience as string, actor.permissions));
   out.content = { items: mine.length, latestAt: mine.map((i) => i.uploaded_at).filter(Boolean).sort().at(-1) ?? null };
   return c.json(out);
 });
@@ -5816,11 +5974,11 @@ app.get("/sync/devices", requirePermission("sync.monitor"), async (c) => {
   const roleFilter = String(c.req.query("role") ?? "");
   const [{ data: reports, error }, { data: staff, error: e2 }] = await Promise.all([
     selectAll(() => admin.from("device_sync_status").select("*").order("actor_id").order("device_id")),
-    selectAll(() => admin.from("profiles").select("id, full_name, role, status, school, county").order("id")),
+    selectAll(() => admin.from("profiles").select("id, full_name, role, status, school, school_id, county").order("id")),
   ]);
   if (error || e2) return c.json({ error: (error ?? e2)!.message }, 500);
   const now = Date.now();
-  const people = (staff ?? []).filter((p) => (p.status ?? "active") === "active" &&
+  const people = (staff ?? []).filter((p) => (p.status ?? "active") === "active" && inScope(c, p.school_id, p.county) &&
     ["field_officer", "teacher", "school_leader"].includes(p.role) && (!roleFilter || p.role === roleFilter));
   const rows = people.map((p) => {
     // The device that needs a look first, then the most recently heard from.
@@ -6225,6 +6383,7 @@ app.put("/mel/targets", requirePermission("me.framework.manage"), async (c) => {
   if (!periodRange(String(b.period ?? ""), cal.terms, cal.years)) return c.json({ error: "Choose a term or school year" }, 400);
   const scope = await melScope(b.scopeType, b.scopeId);
   if (!scope) return c.json({ error: "Choose the whole programme, a county or a school" }, 400);
+  if (!melScopeAllowed(c, scope)) return c.json({ error: OUTSIDE_AREA }, 403);
   const { data: existing } = await admin.from("me_targets").select("*").eq("indicator_id", i.id).eq("period", b.period)
     .eq("scope_type", scope.type).eq("scope_id", scope.id).maybeSingle();
   if (b.value === null || b.value === "") {
@@ -6259,10 +6418,23 @@ async function melScopeFromQuery(c: any): Promise<MelScope | null> {
   return await melScope("programme", "");
 }
 
+/** For someone narrowed to an area: only a county assigned whole, or a
+    school in scope — never the whole programme. */
+// deno-lint-ignore no-explicit-any
+function melScopeAllowed(c: any, m: MelScope): boolean {
+  const sc = scopeOf(c);
+  if (sc.global) return true;
+  if (m.type === "county") return sc.counties.has(String(m.id).toLowerCase());
+  if (m.type === "school") return sc.schoolIds.has(String(m.id));
+  return false;
+}
+const OUTSIDE_AREA = "Choose a county or school in your area";
+
 /* ?period= &county= &school= (name, like the dashboard filters) */
 app.get("/mel/programmes/:id/results", requirePermission("me.view"), async (c) => {
   const scope = await melScopeFromQuery(c);
   if (!scope) return c.json({ error: "That county or school isn't in the portal" }, 400);
+  if (!melScopeAllowed(c, scope)) return c.json({ error: OUTSIDE_AREA }, 403);
   try {
     const res = await melResults(c.req.param("id"), String(c.req.query("period") ?? ""), scope);
     if ("error" in res) return c.json({ error: res.error }, res.status);
@@ -6279,6 +6451,7 @@ app.get("/mel/programmes/:id/results", requirePermission("me.view"), async (c) =
 app.get("/mel/dashboard", requirePermission("me.view"), async (c) => {
   const scope = await melScopeFromQuery(c);
   if (!scope) return c.json({ error: "That county or school isn't in the portal" }, 400);
+  if (!melScopeAllowed(c, scope)) return c.json({ error: OUTSIDE_AREA }, 403);
   const theme = String(c.req.query("theme") ?? "").trim();
   if (theme && !DASHBOARD_THEMES.includes(theme)) return c.json({ error: "Unknown dashboard" }, 400);
   const cal = await melCalendar();
@@ -6343,6 +6516,7 @@ app.get("/mel/indicators/:id/trend", requirePermission("me.view"), async (c) => 
   if (!i) return c.json({ error: "Indicator not found" }, 404);
   const scope = await melScopeFromQuery(c);
   if (!scope) return c.json({ error: "That county or school isn't in the portal" }, 400);
+  if (!melScopeAllowed(c, scope)) return c.json({ error: OUTSIDE_AREA }, 403);
   const cal = await melCalendar();
   const today = new Date().toISOString().slice(0, 10);
   const terms = cal.terms.filter((t: Record<string, any>) => String(t.starts_on) <= today).slice(-9);
@@ -6387,7 +6561,7 @@ app.get("/mel/indicators/:id/breakdown", requirePermission("me.view"), async (c)
   try { live = await melLive([i], range, scopes); } catch (e) { return c.json({ error: (e as Error).message }, 500); }
   return c.json({
     indicator: mapIndicator(i), period: { id: period, label: range.label },
-    rows: scopes.map((s) => {
+    rows: scopes.filter((s) => melScopeAllowed(c, s)).map((s) => {
       const rec = actuals.find((a) => !a.superseded_at && a.period === period && a.scope_type === s.type && (a.scope_id ?? "") === s.id);
       const lv = live.get(`${i.id}|${s.type}|${s.id}`) ?? null;
       const tgt = targetFor(targets, i.id, period, s);
@@ -6417,6 +6591,7 @@ app.post("/mel/actuals", requirePermission("me.actuals.record"), async (c) => {
   if (!range) return c.json({ error: "Choose a term or school year" }, 400);
   const scope = await melScope(b.scopeType, b.scopeId);
   if (!scope) return c.json({ error: "Choose the whole programme, a county or a school" }, 400);
+  if (!melScopeAllowed(c, scope)) return c.json({ error: OUTSIDE_AREA }, 403);
   const note = String(b.note ?? "").trim().slice(0, 2000) || null;
   let snap: Computed;
   if (i.source === "manual") {
@@ -6581,6 +6756,7 @@ app.post("/mel/reports", requirePermission("me.reports.manage"), async (c) => {
   const b = await c.req.json().catch(() => ({}));
   const scope = await melScope(b.scopeType, b.scopeId);
   if (!scope) return c.json({ error: "Choose the whole programme, a county or a school" }, 400);
+  if (!melScopeAllowed(c, scope)) return c.json({ error: OUTSIDE_AREA }, 403);
   let res;
   try { res = await melResults(String(b.programmeId ?? ""), String(b.period ?? ""), scope); } catch (e) { return c.json({ error: (e as Error).message }, 500); }
   if ("error" in res) return c.json({ error: res.error }, res.status);
@@ -6608,6 +6784,7 @@ app.post("/mel/reports/:id/refresh", requirePermission("me.reports.manage"), asy
   if (r.status === "final") return c.json({ error: "A final report can't change" }, 409);
   const scope = await melScope(r.scope_type, r.scope_id);
   if (!scope) return c.json({ error: "That county or school no longer exists" }, 409);
+  if (!melScopeAllowed(c, scope)) return c.json({ error: OUTSIDE_AREA }, 403);
   const res = await melResults(r.programme_id, r.period, scope);
   if ("error" in res) return c.json({ error: res.error }, res.status);
   const { error } = await admin.from("me_reports").update({ content: res, generated_by: c.get("actor").id, generated_at: new Date().toISOString() }).eq("id", r.id);
@@ -6665,7 +6842,7 @@ const mapUserRow = (r: Record<string, unknown>) => ({
 // deno-lint-ignore no-explicit-any
 async function loadManagedAccount(c: any): Promise<Record<string, any> | Response> {
   const { data: target } = await admin.from("profiles").select("*").eq("id", c.req.param("id")).maybeSingle();
-  if (!target) return c.json({ error: "User not found" }, 404);
+  if (!target || !inScope(c, target.school_id, target.county)) return c.json({ error: "User not found" }, 404);
   if (!canManageAccount(c.get("actor"), target)) {
     return c.json({ error: "You can't change this account — it's your own, or at or above your level." }, 403);
   }
@@ -6681,6 +6858,19 @@ async function isLastActiveSuperAdmin(target: Record<string, unknown>) {
   return (count ?? 0) <= 1;
 }
 const LAST_SUPER_ADMIN = "This is the last active Super Admin. Make someone else Super Admin first.";
+
+/* Someone narrowed to an area only places people inside it, and only in
+   roles that belong to a place — never a programme-wide role, which would
+   see more than they do. */
+const PLACE_ROLES = ["teacher", "school_leader", "field_officer"];
+// deno-lint-ignore no-explicit-any
+function placementAllowed(c: any, role: string, place: { school: School | null; county: string }): boolean {
+  const sc = scopeOf(c);
+  if (sc.global) return true;
+  if (!PLACE_ROLES.includes(role)) return false;
+  return place.school ? sc.schoolIds.has(place.school.id) : sc.counties.has(place.county.toLowerCase());
+}
+const OUTSIDE_YOUR_AREA = "You can only place people in your own area, in a school or field role.";
 
 /** Blocks or unblocks signing in at Supabase Auth itself, on top of the
     status check every API route makes. */
@@ -6708,14 +6898,25 @@ async function resolvePlacement(role: string, schoolId: unknown, county: unknown
 
 app.get("/users", requirePermission("users.view"), async (c) => {
   const actor = c.get("actor");
-  const { data, error } = await selectAll(() => admin
-    .from("profiles")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .order("id"));
+  const [{ data, error }, signIns, scopes, { data: grants }] = await Promise.all([
+    selectAll(() => admin.from("profiles").select("*").order("created_at", { ascending: false }).order("id")),
+    authUsers(),
+    scopeLabels(),
+    admin.from("permission_grants").select("profile_id, permission").is("revoked_at", null),
+  ]);
   if (error) return c.json({ error: error.message }, 500);
+  // Someone narrowed to an area sees the people placed in it.
+  const rows = (data ?? []).filter((r) => inScope(c, r.school_id, r.county));
   return c.json({
-    users: (data ?? []).map((r) => ({ ...mapUserRow(r), canManage: canManageAccount(actor, r as { id: string; role: string }) })),
+    users: rows.map((r) => {
+      const sc = scopes.get(r.id as string);
+      return {
+        ...mapUserRow(r), canManage: canManageAccount(actor, r as { id: string; role: string }),
+        lastSignInAt: signIns.get(r.id as string)?.lastSignInAt ?? null,
+        scope: sc ? { global: sc.global, label: sc.label } : null,
+        grants: (grants ?? []).filter((g) => g.profile_id === r.id).map((g) => g.permission),
+      };
+    }),
     grantableRoles: grantableRoles(actor.role).map((r) => ({ value: r, label: ROLE_LABEL[r] })),
     statuses: ACCOUNT_STATUSES,
   });
@@ -6740,7 +6941,7 @@ app.get("/users/invitations", requirePermission("users.invite"), async (c) => {
   const { data, error } = await admin.from("staff_invitations").select("*")
     .order("created_at", { ascending: false }).limit(100);
   if (error) return c.json({ error: error.message }, 500);
-  return c.json({ invitations: (data ?? []).map(mapInvitation) });
+  return c.json({ invitations: (data ?? []).filter((i) => inScope(c, i.school_id, i.county)).map(mapInvitation) });
 });
 
 app.post("/users/invitations", requirePermission("users.invite"), async (c) => {
@@ -6754,6 +6955,7 @@ app.post("/users/invitations", requirePermission("users.invite"), async (c) => {
   }
   const place = await resolvePlacement(role, b.schoolId, b.county);
   if ("error" in place) return c.json({ error: place.error }, 400);
+  if (!placementAllowed(c, role, place)) return c.json({ error: OUTSIDE_YOUR_AREA }, 403);
 
   const { data: existing } = await admin.from("profiles").select("id, status").ilike("email", ilikeExact(email)).maybeSingle();
   if (existing && existing.status !== "pending") {
@@ -6816,6 +7018,7 @@ app.post("/users/:id/approve", requirePermission("users.approve"), async (c) => 
   }
   const place = await resolvePlacement(role, b.schoolId ?? target.school_id, b.county ?? target.county);
   if ("error" in place) return c.json({ error: place.error }, 400);
+  if (!placementAllowed(c, role, place)) return c.json({ error: OUTSIDE_YOUR_AREA }, 403);
 
   const now = new Date().toISOString();
   const patch: Record<string, unknown> = {
@@ -6935,6 +7138,7 @@ app.patch("/users/:id", requirePermission("users.edit", "users.roles.assign", "u
       b.schoolId !== undefined ? b.schoolId : existing.school_id,
       b.county !== undefined ? b.county : existing.county);
     if ("error" in place) return c.json({ error: place.error }, 400);
+    if (!placementAllowed(c, nextRole, place)) return c.json({ error: OUTSIDE_YOUR_AREA }, 403);
     if (place.school) {
       if (place.school.id !== existing.school_id || nextRole !== existing.role) placeIn = place.school;
     } else {
@@ -7029,20 +7233,516 @@ app.post("/users/:id/reset-password", requirePermission("users.password.reset"),
   return c.json({ ok: true });
 });
 
+// ---------------------------------------------------------------- access: badges, overviews, people, scope, grants
+/* The menus themselves are built in the browser (navigation.js) from the
+   permissions /me returns, and only decide what to show. Every route below
+   checks the caller's permission and scope again. */
+
+/** Last sign-in for every staff account (Supabase Auth), by user id. */
+async function authUsers(): Promise<Map<string, { lastSignInAt: string | null }>> {
+  const out = new Map<string, { lastSignInAt: string | null }>();
+  try {
+    for (let page = 1; page <= 20; page++) {
+      const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 1000 });
+      const users = data?.users ?? [];
+      if (error || !users.length) break;
+      for (const u of users) out.set(u.id, { lastSignInAt: u.last_sign_in_at ?? null });
+      if (users.length < 1000) break;
+    }
+  } catch (e) {
+    console.error("could not read sign-ins:", (e as Error).message);
+  }
+  return out;
+}
+
+/** The open scope rows of every staff member, as their label. */
+async function scopeLabels(): Promise<Map<string, PlaceScope>> {
+  const [{ data: rows }, { data: schools }, { data: people }] = await Promise.all([
+    admin.from("staff_scopes").select("profile_id, scope_type, county, school_id, ended_at").is("ended_at", null),
+    admin.from("schools").select("id, name, county"),
+    selectAll(() => admin.from("profiles").select("id, role, school_id, school").order("id")),
+  ]);
+  const out = new Map<string, PlaceScope>();
+  for (const p of people ?? []) {
+    out.set(p.id, placeScopeFor({ role: p.role, schoolId: p.school_id, school: p.school },
+      (rows ?? []).filter((r) => r.profile_id === p.id), schools ?? []));
+  }
+  return out;
+}
+
+/* Counts for the sidebar badges — only the ones this person may see. */
+app.get("/nav/badges", requireActive(), async (c) => {
+  const a = c.get("actor") as Actor;
+  const out: Record<string, number> = {};
+  const jobs: Promise<void>[] = [(async () => {
+    const { count } = await admin.from("notifications").select("id", { count: "exact", head: true })
+      .eq("recipient_id", a.id).is("read_at", null);
+    out.notifications = count ?? 0;
+  })()];
+  if (a.permissions.has("users.approve")) {
+    jobs.push((async () => {
+      const { data } = await admin.from("profiles").select("id, school_id, county").eq("status", "pending");
+      out.approvals = (data ?? []).filter((p) => a.scope.global || inPlaceScope(a.scope, p.school_id, p.county)).length;
+    })());
+  }
+  if (a.permissions.has("data_quality.view")) {
+    jobs.push((async () => {
+      const { data } = await selectAll(() => admin.from("dq_issues").select("id, school_id, county, severity").eq("status", "OPEN").order("id"));
+      out.dataQuality = (data ?? []).filter((i) => i.severity === "HIGH" && inPlaceScope(a.scope, i.school_id, i.county)).length;
+    })());
+  }
+  if (a.permissions.has("kobo.review")) {
+    jobs.push((async () => {
+      const { data } = await selectAll(() => admin.from("kobo_records").select("id, school_id, county, status, review")
+        .in("status", ["invalid", "duplicate"]).order("id"));
+      out.koboReview = (data ?? []).filter((r) => !r.review && inPlaceScope(a.scope, r.school_id, r.county)).length;
+    })());
+  }
+  if (a.permissions.has("assignments.grade")) {
+    jobs.push((async () => {
+      const classIds = await classesTaughtBy(a.id);
+      const rows = classIds.length ? await selectIn("assignment_submissions", "class_id", classIds, "id, status") : [];
+      out.toMark = rows.filter((x) => x.status === "submitted").length;
+    })());
+  }
+  await Promise.all(jobs);
+  return c.json({ badges: out });
+});
+
+/* Platform overview (Super Admin): accounts, sign-ins, integrations,
+   devices, data quality, access — and a short list of health checks. */
+app.get("/platform/overview", requirePermission("platform.view"), async (c) => {
+  const now = Date.now();
+  const ago = (days: number) => new Date(now - days * 864e5).toISOString();
+  const [profs, learners, schools, counties, koboCfg, koboForms, runs, devices, dqScans, dqOpen, signIns, grants, scopes, security] = await Promise.all([
+    selectAll(() => admin.from("profiles").select("id, full_name, email, role, status, school_id, county").order("id")),
+    selectAll(() => admin.from("learners").select("id, enrollment_status, locked_until").order("id")),
+    selectAll(() => admin.from("schools").select("id, name, county").order("id")),
+    loadCounties().catch(() => [] as County[]),
+    loadKoboConfig(),
+    selectAll(() => admin.from("kobo_forms").select("id, title, active, synced_at, last_sync_error").order("id")),
+    admin.from("notification_runs").select("*").order("started_at", { ascending: false }).limit(1),
+    selectAll(() => admin.from("device_sync_status").select("*").order("actor_id").order("device_id")),
+    latestDqScan(),
+    selectAll(() => admin.from("dq_issues").select("id, severity").in("status", ["OPEN", "UNDER_REVIEW"]).order("id")),
+    authUsers(),
+    admin.from("permission_grants").select("id, profile_id, permission").is("revoked_at", null),
+    admin.from("staff_scopes").select("profile_id").is("ended_at", null),
+    admin.from("audit_log").select("*").in("action", SECURITY_ACTIONS).order("id", { ascending: false }).limit(8),
+  ]);
+  const staff = profs.data ?? [];
+  const byRole = Object.fromEntries(STAFF_ROLES.map((r) => [r, Object.fromEntries(ACCOUNT_STATUSES.map((s) => [s, 0]))]));
+  for (const p of staff) if (byRole[p.role]) byRole[p.role][p.status ?? "active"] = (byRole[p.role][p.status ?? "active"] ?? 0) + 1;
+  const active = staff.filter((p) => (p.status ?? "active") === "active");
+  const last = (p: Record<string, any>) => signIns.get(p.id)?.lastSignInAt ?? null;
+  const assigned = new Set((scopes.data ?? []).map((r) => r.profile_id));
+  const unplacedOfficers = active.filter((p) => p.role === "field_officer" && !assigned.has(p.id));
+  const headless = active.filter((p) => p.role === "school_leader" && !p.school_id);
+  const superAdmins = active.filter((p) => p.role === "super_admin").length;
+  const liveForms = (koboForms.data ?? []).filter((f) => f.active !== false);
+  const failing = liveForms.filter((f) => f.last_sync_error);
+  const lastSync = liveForms.map((f) => f.synced_at).filter(Boolean).sort().at(-1) ?? null;
+  const run = runs.data?.[0] ?? null;
+  const attention = (devices.data ?? []).filter((d) => deviceAttention(d, now));
+  const scan = dqScans[0] ?? null;
+  const open = dqOpen.data ?? [];
+  const pending = staff.filter((p) => p.status === "pending").length;
+  const check = (label: string, ok: boolean, detail: string, link = "") => ({ label, ok, detail, link });
+  return c.json({
+    accounts: {
+      byRole: STAFF_ROLES.map((r) => ({ role: r, label: ROLE_LABEL[r], ...byRole[r] })),
+      total: staff.length, active: active.length, pending,
+      signedIn7d: active.filter((p) => (last(p) ?? "") >= ago(7)).length,
+      neverSignedIn: active.filter((p) => !last(p)).length,
+    },
+    learners: {
+      total: (learners.data ?? []).length,
+      enrolled: (learners.data ?? []).filter((l) => (l.enrollment_status ?? ACTIVE) === ACTIVE).length,
+      lockedNow: (learners.data ?? []).filter((l) => l.locked_until && new Date(l.locked_until).getTime() > now).length,
+    },
+    organisation: { counties: counties.length, schools: (schools.data ?? []).length },
+    integrations: {
+      kobo: { connected: !!koboCfg, server: koboCfg?.base_url ?? null, pushConfigured: !!koboCfg?.webhook_secret_hash,
+        surveys: liveForms.length, lastSync, failing: failing.map((f) => ({ title: f.title, error: koboErrorText(f.last_sync_error) })) },
+      notifications: run ? { lastRunAt: run.started_at, trigger: run.trigger, created: run.created, error: run.error ?? null } : null,
+    },
+    devices: { reporting: new Set((devices.data ?? []).map((d) => d.actor_id)).size, needAttention: attention.length },
+    dataQuality: { score: scan?.score == null ? null : Number(scan.score), lastScanAt: scan?.started_at ?? null,
+      open: open.length, high: open.filter((i) => i.severity === "HIGH").length },
+    access: { grants: (grants.data ?? []).length, scopedStaff: assigned.size,
+      fieldOfficersWithoutSchools: unplacedOfficers.map((p) => ({ id: p.id, name: p.full_name || p.email, county: p.county || "" })) },
+    checks: [
+      check("More than one active Super Admin", superAdmins > 1,
+        superAdmins > 1 ? `${superAdmins} active` : "Only one — if that account is lost, nobody can administer the portal", "#users"),
+      check("Every field officer has assigned schools", !unplacedOfficers.length,
+        unplacedOfficers.length ? `${unplacedOfficers.length} without: ${unplacedOfficers.map((p) => p.full_name || p.email).join(", ")}` : "All assigned", "#users"),
+      check("Every school head is linked to a school", !headless.length,
+        headless.length ? `${headless.length} not linked yet (they pick it at next sign-in)` : "All linked", "#users"),
+      check("No accounts waiting for approval", !pending, pending ? `${pending} waiting` : "None waiting", "#users"),
+      check("KoboToolbox connected and syncing", !!koboCfg && !failing.length,
+        !koboCfg ? "Not connected" : failing.length ? `${failing.length} survey(s) failing to sync` : lastSync ? `Last sync ${String(lastSync).slice(0, 16).replace("T", " ")}` : "Connected, not synced yet", "#kobo"),
+      check("Hourly notifications running", !!run && now - new Date(run.started_at).getTime() < 3 * 3600e3 && !run.error,
+        run ? `Last run ${String(run.started_at).slice(0, 16).replace("T", " ")}${run.error ? " — failed" : ""}` : "Never run", "#notifications"),
+      check("Data quality scanned this week", !!scan && now - new Date(scan.started_at).getTime() < 7 * 864e5,
+        scan ? `Last scan ${String(scan.started_at).slice(0, 10)}` : "Never scanned", "#data-quality"),
+      check("No devices needing attention", !attention.length, attention.length ? `${attention.length} device(s)` : "All fine", ""),
+    ],
+    recentSecurity: await auditEntries(security.data ?? []),
+  });
+});
+
+/* Administration overview (Admin, and Super Admin): the programme's
+   organisation and operations, within the caller's area. */
+app.get("/admin/overview", requirePermission("users.view"), async (c) => {
+  const sc = scopeOf(c);
+  const here = (schoolId: unknown, county?: unknown) => inPlaceScope(sc, schoolId, county);
+  const cal = await currentCalendar();
+  const [profs, learners, schools, classes, ct, visits, forms, kobo, dq] = await Promise.all([
+    selectAll(() => admin.from("profiles").select("id, role, status, school_id, county").order("id")),
+    selectAll(() => admin.from("learners").select("id, school_id, enrollment_status, class_id").order("id")),
+    selectAll(() => admin.from("schools").select("id, name, county").order("id")),
+    selectAll(() => admin.from("classes").select("id, school_id, academic_year_id, archived_at").order("id")),
+    selectAll(() => admin.from("class_teachers").select("class_id, teacher_id, ended_at").order("class_id")),
+    selectAll(() => admin.from("field_reports").select("id, school_id, county, created_at").order("id")),
+    selectAll(() => admin.from("forms").select("id, county, archived_at").order("id")),
+    actorCan(c, "kobo.review")
+      ? selectAll(() => admin.from("kobo_records").select("id, school_id, county, status, review").in("status", ["invalid", "duplicate"]).order("id"))
+      : Promise.resolve({ data: [] as Record<string, any>[], error: null }),
+    actorCan(c, "data_quality.view")
+      ? selectAll(() => admin.from("dq_issues").select("id, school_id, county, severity").eq("status", "OPEN").order("id"))
+      : Promise.resolve({ data: [] as Record<string, any>[], error: null }),
+  ]);
+  const people = (profs.data ?? []).filter((p) => sc.global || (p.school_id ? here(p.school_id) : here(null, p.county)));
+  const active = people.filter((p) => (p.status ?? "active") === "active");
+  const mySchools = (schools.data ?? []).filter((s) => here(s.id));
+  const yearClasses = (classes.data ?? []).filter((k) => here(k.school_id) && !k.archived_at && k.academic_year_id === cal.yearId);
+  const teaching = new Set((ct.data ?? []).filter((t) => !t.ended_at).map((t) => t.teacher_id));
+  const { data: assigned } = await admin.from("staff_scopes").select("profile_id").is("ended_at", null);
+  const placed = new Set((assigned ?? []).map((r) => r.profile_id));
+  const termStart = cal.termId ? (await admin.from("terms").select("starts_on").eq("id", cal.termId).maybeSingle()).data?.starts_on ?? null : null;
+  const count = (role: string) => active.filter((p) => p.role === role).length;
+  return c.json({
+    scope: { global: sc.global, label: sc.label },
+    currentTerm: cal.termId,
+    people: {
+      teachers: count("teacher"), heads: count("school_leader"), fieldOfficers: count("field_officer"),
+      programmeStaff: sc.global ? active.filter((p) => ["admin", "me", "education_team", "super_admin"].includes(p.role)).length : null,
+      pending: people.filter((p) => p.status === "pending").length,
+      learners: (learners.data ?? []).filter((l) => here(l.school_id) && (l.enrollment_status ?? ACTIVE) === ACTIVE).length,
+      learnersWithoutClass: (learners.data ?? []).filter((l) => here(l.school_id) && (l.enrollment_status ?? ACTIVE) === ACTIVE && !l.class_id).length,
+    },
+    organisation: {
+      counties: new Set(mySchools.map((s) => s.county)).size, schools: mySchools.length, classes: yearClasses.length,
+      schoolsWithoutHead: mySchools.filter((s) => !active.some((p) => p.role === "school_leader" && p.school_id === s.id)).length,
+      teachersWithoutClasses: active.filter((p) => p.role === "teacher" && !teaching.has(p.id)).length,
+      fieldOfficersWithoutSchools: active.filter((p) => p.role === "field_officer" && !placed.has(p.id)).length,
+    },
+    operations: {
+      visitsThisTerm: (visits.data ?? []).filter((v) => here(v.school_id, v.county) && (!termStart || String(v.created_at) >= termStart)).length,
+      openForms: (forms.data ?? []).filter((f) => !f.archived_at && (sc.global || !f.county || sc.areaCounties.has(String(f.county).toLowerCase()))).length,
+      koboNeedsReview: actorCan(c, "kobo.review") ? (kobo.data ?? []).filter((r) => !r.review && here(r.school_id, r.county)).length : null,
+      dataQualityHigh: actorCan(c, "data_quality.view") ? (dq.data ?? []).filter((i) => i.severity === "HIGH" && here(i.school_id, i.county)).length : null,
+    },
+  });
+});
+
+/* Teachers and school heads as people the programme supports: where they
+   work, their classes and the training they attended — never an email or
+   an account action (that's the Users page). Within the caller's area. */
+app.get("/teachers", requirePermission("teachers.view"), async (c) => {
+  const showAll = c.req.query("status") === "all";
+  const [{ data: people, error }, { data: ct }, { data: classes }, { data: att }] = await Promise.all([
+    selectAll(() => admin.from("profiles").select("id, full_name, role, status, school, school_id, county, teacher_type, user_code")
+      .in("role", ["teacher", "school_leader"]).order("full_name").order("id")),
+    selectAll(() => admin.from("class_teachers").select("class_id, teacher_id, ended_at").order("class_id")),
+    selectAll(() => admin.from("classes").select("id, name, archived_at").order("id")),
+    selectAll(() => admin.from("training_attendance").select("teacher_id, attended").order("training_id")),
+  ]);
+  if (error) return c.json({ error: error.message }, 500);
+  const className = new Map((classes ?? []).filter((k) => !k.archived_at).map((k) => [k.id, k.name]));
+  const rows = (people ?? []).filter((p) => p.school_id && inScope(c, p.school_id) && (showAll || (p.status ?? "active") === "active"));
+  return c.json({
+    scope: scopeOf(c).label,
+    teachers: rows.map((p) => ({
+      id: p.id, name: p.full_name, role: p.role, roleLabel: ROLE_LABEL[p.role as Role] ?? p.role, status: p.status ?? "active",
+      school: p.school ?? "", schoolId: p.school_id, county: p.county ?? "", teacherType: p.teacher_type ?? null, code: p.user_code ?? null,
+      classes: (ct ?? []).filter((t) => t.teacher_id === p.id && !t.ended_at).map((t) => className.get(t.class_id)).filter(Boolean),
+      trainings: (att ?? []).filter((a) => a.teacher_id === p.id && a.attended !== false).length,
+    })),
+  });
+});
+
+/* One school's profile: head, staff and learner numbers, this year's
+   classes, recent visits and who supports it. Within the caller's area. */
+app.get("/schools/:id/profile", requirePermission("schools.profile.view"), async (c) => {
+  const school = await loadSchool(c.req.param("id"));
+  if (!school || !inScope(c, school.id)) return c.json({ error: "School not found" }, 404);
+  const cal = await currentCalendar();
+  const [{ data: staff }, { data: learners }, { data: classes }, { data: visits }, { data: kobo }, { data: support }] = await Promise.all([
+    admin.from("profiles").select("id, full_name, role, status").eq("school_id", school.id),
+    admin.from("learners").select("id, grade, class_id, enrollment_status").eq("school_id", school.id),
+    admin.from("classes").select("id, name, grade, academic_year_id, archived_at").eq("school_id", school.id),
+    admin.from("field_reports").select("id, visit_type, officer_id, created_at").eq("school_id", school.id),
+    admin.from("kobo_records").select("id, status, review").eq("school_id", school.id),
+    admin.from("staff_scopes").select("profile_id, scope_type, county, school_id").is("ended_at", null),
+  ]);
+  const activeStaff = (staff ?? []).filter((p) => (p.status ?? "active") === "active");
+  const enrolled = (learners ?? []).filter((l) => (l.enrollment_status ?? ACTIVE) === ACTIVE);
+  const yearClasses = (classes ?? []).filter((k) => !k.archived_at && k.academic_year_id === cal.yearId);
+  const supporters = (support ?? []).filter((r) => r.school_id === school.id || (r.county && String(r.county).toLowerCase() === String(school.county).toLowerCase()))
+    .map((r) => r.profile_id);
+  const officerIds = [...new Set([...supporters, ...(visits ?? []).map((v) => v.officer_id)].filter(Boolean))];
+  const officers = officerIds.length ? await selectIn("profiles", "id", officerIds, "id, full_name, role") : [];
+  const nameOf = new Map(officers.map((p) => [p.id, p.full_name]));
+  const sortedVisits = (visits ?? []).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  const byGrade = new Map<string, number>();
+  for (const l of enrolled) byGrade.set(l.grade || "(not set)", (byGrade.get(l.grade || "(not set)") ?? 0) + 1);
+  return c.json({
+    school: { id: school.id, name: school.name, code: school.code, county: school.county },
+    heads: activeStaff.filter((p) => p.role === "school_leader").map((p) => p.full_name),
+    teachers: activeStaff.filter((p) => p.role === "teacher").length,
+    learners: enrolled.length,
+    learnersByGrade: [...byGrade.entries()].map(([grade, n]) => ({ grade, learners: n })).sort((a, b) => a.grade.localeCompare(b.grade, undefined, { numeric: true })),
+    classes: yearClasses.map((k) => ({ name: k.name, grade: k.grade, learners: enrolled.filter((l) => l.class_id === k.id).length }))
+      .sort((a, b) => String(a.grade).localeCompare(String(b.grade), undefined, { numeric: true }) || a.name.localeCompare(b.name)),
+    visits: { total: sortedVisits.length, last: sortedVisits[0]?.created_at ?? null,
+      recent: sortedVisits.slice(0, 8).map((v) => ({ date: v.created_at, type: v.visit_type, officer: nameOf.get(v.officer_id) ?? null })) },
+    kobo: { submissions: (kobo ?? []).length, counted: (kobo ?? []).filter((r) => countsOnDashboards(r.status, r.review)).length },
+    supportedBy: officers.filter((p) => supporters.includes(p.id) && p.role === "field_officer").map((p) => p.full_name),
+  });
+});
+
+/* ---- one account's access: role, scope, grants ---- */
+
+const mapScopeRow = (r: Record<string, any>, schoolName: Map<string, string>, names: Map<string, string>) => ({
+  id: r.id, type: r.scope_type, county: r.county ?? null, schoolId: r.school_id ?? null,
+  school: r.school_id ? schoolName.get(r.school_id) ?? r.school_id : null, note: r.note || "",
+  createdAt: r.created_at, createdBy: r.created_by ? names.get(r.created_by) ?? null : "Set up from their profile",
+  endedAt: r.ended_at ?? null, endedBy: r.ended_by ? names.get(r.ended_by) ?? null : null,
+});
+
+app.get("/users/:id/access", requirePermission("users.view"), async (c) => {
+  const { data: target } = await admin.from("profiles").select("*").eq("id", c.req.param("id")).maybeSingle();
+  if (!target || !inScope(c, target.school_id, target.county)) return c.json({ error: "User not found" }, 404);
+  const [{ data: rows }, { data: grants }, { data: schools }] = await Promise.all([
+    admin.from("staff_scopes").select("*").eq("profile_id", target.id),
+    admin.from("permission_grants").select("*").eq("profile_id", target.id),
+    admin.from("schools").select("id, name, county"),
+  ]);
+  const names = await dqNames([...(rows ?? []).flatMap((r) => [r.created_by, r.ended_by]), ...(grants ?? []).flatMap((g) => [g.granted_by, g.revoked_by])]);
+  const schoolName = new Map((schools ?? []).map((s) => [s.id, s.name]));
+  const open = (grants ?? []).filter((g) => !g.revoked_at).map((g) => g.permission);
+  const scope = placeScopeFor({ role: target.role, schoolId: target.school_id, school: target.school }, (rows ?? []).filter((r) => !r.ended_at), schools ?? []);
+  const assignable = (ASSIGNABLE_ROLES as readonly string[]).includes(target.role);
+  const manages = canManageAccount(c.get("actor"), target as { id: string; role: string });
+  return c.json({
+    id: target.id, role: target.role, roleLabel: ROLE_LABEL[target.role as Role] ?? target.role, workspace: WORKSPACE[target.role as Role] ?? null,
+    rolePermissions: [...permissionsFor(target.role)],
+    permissions: [...effectivePermissions(target.role, open)],
+    grants: (grants ?? []).sort((a, b) => String(b.granted_at).localeCompare(String(a.granted_at))).map((g) => ({
+      id: g.id, permission: g.permission, label: PERMISSION_LABEL[g.permission] ?? g.permission, reason: g.reason,
+      grantedAt: g.granted_at, grantedBy: names.get(g.granted_by) ?? null,
+      revokedAt: g.revoked_at ?? null, revokedBy: g.revoked_by ? names.get(g.revoked_by) ?? null : null, revokeReason: g.revoke_reason ?? null,
+    })),
+    scope: {
+      assignable, global: scope.global, label: scope.label,
+      rule: target.role === "super_admin" ? "Every county and school, always."
+        : target.role === "field_officer" ? "Only the counties and schools assigned below."
+        : assignable ? "Every county and school until narrowed below."
+        : target.role === "school_leader" ? "Their own school." : "The classes they teach, in their own school.",
+      rows: (rows ?? []).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map((r) => mapScopeRow(r, schoolName, names)),
+    },
+    canEditScope: assignable && manages && actorCan(c, "users.placement.assign"),
+    canGrant: actorCan(c, "permissions.manage") && target.id !== c.get("actor").id && target.role !== "super_admin",
+    grantable: actorCan(c, "permissions.manage")
+      ? GRANTABLE_PERMISSIONS.filter((p) => !permissionsFor(target.role).includes(p) && !open.includes(p)).map((p) => ({ value: p, label: PERMISSION_LABEL[p] ?? p }))
+      : [],
+  });
+});
+
+/* Set the counties / schools an account's data is limited to. The list
+   sent replaces the open assignments: what's gone is ended (kept, with who
+   and when), what's new is added; every change is in the audit log. */
+app.put("/users/:id/scope", requirePermission("users.placement.assign"), async (c) => {
+  const target = await loadManagedAccount(c);
+  if (target instanceof Response) return target;
+  if (!(ASSIGNABLE_ROLES as readonly string[]).includes(target.role)) {
+    return c.json({ error: "This role's data comes from their school or classes, not from assignments." }, 400);
+  }
+  const b = await c.req.json().catch(() => ({}));
+  const wantCounties = [...new Set((Array.isArray(b.counties) ? b.counties : []).map((x: unknown) => String(x).trim()).filter(Boolean))] as string[];
+  const wantSchools = [...new Set((Array.isArray(b.schoolIds) ? b.schoolIds : []).map((x: unknown) => String(x).trim()).filter(Boolean))] as string[];
+  if (wantCounties.length + wantSchools.length > 200) return c.json({ error: "That's too many at once" }, 400);
+  const known = new Set((await loadCounties()).map((x) => x.name));
+  if (wantCounties.some((x) => !known.has(x))) return c.json({ error: "One of those counties isn't on the list" }, 400);
+  const schoolRows = wantSchools.length ? await selectIn("schools", "id", wantSchools, "id, name, county") : [];
+  if (schoolRows.length !== wantSchools.length) return c.json({ error: "One of those schools isn't on the list" }, 400);
+  // Someone narrowed to an area can only hand out what they hold — and can't
+  // widen a person to everything by taking all their assignments away.
+  const sc = scopeOf(c);
+  if (!sc.global) {
+    if (wantCounties.some((x) => !sc.counties.has(x.toLowerCase())) || wantSchools.some((x) => !sc.schoolIds.has(x))) {
+      return c.json({ error: "You can only assign counties and schools in your own area" }, 403);
+    }
+    if (!wantCounties.length && !wantSchools.length && target.role !== "field_officer") {
+      return c.json({ error: "Removing every assignment would let them see every county — ask a Super Admin" }, 403);
+    }
+  }
+  const { data: openRows } = await admin.from("staff_scopes").select("*").eq("profile_id", target.id).is("ended_at", null);
+  const keyOf = (r: { scope_type: string; county?: string | null; school_id?: string | null }) => `${r.scope_type}:${r.county ?? r.school_id}`;
+  const wanted = new Set([...wantCounties.map((x) => `county:${x}`), ...wantSchools.map((x) => `school:${x}`)]);
+  const toEnd = (openRows ?? []).filter((r) => !wanted.has(keyOf(r)));
+  const have = new Set((openRows ?? []).map(keyOf));
+  const toAdd = [...wanted].filter((k) => !have.has(k));
+  const actor = c.get("actor");
+  const now = new Date().toISOString();
+  for (const r of toEnd) {
+    const { error } = await admin.from("staff_scopes").update({ ended_at: now, ended_by: actor.id }).eq("id", r.id).is("ended_at", null);
+    if (error) return c.json({ error: error.message }, 400);
+  }
+  if (toAdd.length) {
+    const { error } = await admin.from("staff_scopes").insert(toAdd.map((k) => {
+      const [type, value] = [k.slice(0, k.indexOf(":")), k.slice(k.indexOf(":") + 1)];
+      return { id: rid("scp"), profile_id: target.id, scope_type: type, county: type === "county" ? value : null,
+        school_id: type === "school" ? value : null, note: "", created_at: now, created_by: actor.id };
+    }));
+    if (error) return c.json({ error: isUniqueViolation(error) ? "That assignment already exists" : error.message }, 400);
+  }
+  if (toEnd.length || toAdd.length) {
+    const label = (k: string) => k.startsWith("county:") ? `${k.slice(7)} County` : schoolRows.find((s) => s.id === k.slice(7))?.name ?? k.slice(7);
+    await audit(c, "scope.changed", "profile", target.id, {
+      added: toAdd.map(label), removed: toEnd.map((r) => (r.county ? `${r.county} County` : r.school_id)),
+    });
+  }
+  const { data: rows } = await admin.from("staff_scopes").select("*").eq("profile_id", target.id).is("ended_at", null);
+  const { data: schools } = await admin.from("schools").select("id, name, county");
+  const scope = placeScopeFor({ role: target.role }, rows ?? [], schools ?? []);
+  return c.json({ scope: { global: scope.global, label: scope.label }, added: toAdd.length, ended: toEnd.length });
+});
+
+/* ---- explicit permission grants (Super Admin) ---- */
+
+app.post("/users/:id/grants", requirePermission("permissions.manage"), async (c) => {
+  const { data: target } = await admin.from("profiles").select("id, role, full_name").eq("id", c.req.param("id")).maybeSingle();
+  if (!target) return c.json({ error: "User not found" }, 404);
+  const actor = c.get("actor");
+  if (target.id === actor.id) return c.json({ error: "You can't grant permissions to yourself" }, 403);
+  if (target.role === "super_admin") return c.json({ error: "A Super Admin already holds every permission" }, 409);
+  const b = await c.req.json().catch(() => ({}));
+  const permission = String(b.permission ?? "");
+  if (!isPermission(permission) || !GRANTABLE_PERMISSIONS.includes(permission)) return c.json({ error: "That permission can't be granted" }, 400);
+  if (permissionsFor(target.role).includes(permission)) return c.json({ error: "Their role already includes that" }, 409);
+  const reason = String(b.reason ?? "").trim();
+  if (reason.length < 3 || reason.length > 500) return c.json({ error: "Say why, for the record (3–500 characters)" }, 400);
+  const { data: open } = await admin.from("permission_grants").select("id").eq("profile_id", target.id).eq("permission", permission).is("revoked_at", null);
+  if (open?.length) return c.json({ error: "They already have that permission" }, 409);
+  const row = { id: rid("grt"), profile_id: target.id, permission, reason, granted_by: actor.id, granted_at: new Date().toISOString() };
+  const { error } = await admin.from("permission_grants").insert(row);
+  if (error) return c.json({ error: isUniqueViolation(error) ? "They already have that permission" : error.message }, 400);
+  await audit(c, "permission.granted", "profile", target.id, { permission, reason });
+  return c.json({ grant: { id: row.id, permission, label: PERMISSION_LABEL[permission], reason, grantedAt: row.granted_at } });
+});
+
+app.post("/users/:id/grants/:grantId/revoke", requirePermission("permissions.manage"), async (c) => {
+  const { data: g } = await admin.from("permission_grants").select("*").eq("id", c.req.param("grantId")).maybeSingle();
+  if (!g || g.profile_id !== c.req.param("id")) return c.json({ error: "Grant not found" }, 404);
+  if (g.revoked_at) return c.json({ error: "Already revoked" }, 409);
+  const b = await c.req.json().catch(() => ({}));
+  const reason = String(b.reason ?? "").trim().slice(0, 500);
+  if (reason.length < 3) return c.json({ error: "Say why, for the record" }, 400);
+  const { error } = await admin.from("permission_grants")
+    .update({ revoked_at: new Date().toISOString(), revoked_by: c.get("actor").id, revoke_reason: reason }).eq("id", g.id).is("revoked_at", null);
+  if (error) return c.json({ error: error.message }, 400);
+  await audit(c, "permission.revoked", "profile", g.profile_id, { permission: g.permission, reason });
+  return c.json({ ok: true });
+});
+
+/* The whole model in one place: every role's permissions (from code), what
+   can be granted, and every open grant. */
+app.get("/permissions", requirePermission("permissions.manage", "audit.view"), async (c) => {
+  const { data: grants } = await admin.from("permission_grants").select("*").is("revoked_at", null);
+  const ids = [...new Set((grants ?? []).flatMap((g) => [g.profile_id, g.granted_by]))];
+  const people = ids.length ? await selectIn("profiles", "id", ids, "id, full_name, email, role") : [];
+  const who = new Map(people.map((p) => [p.id, p]));
+  const roles = [...STAFF_ROLES, "learner"] as Role[];
+  return c.json({
+    groups: PERMISSION_GROUPS.map((g) => ({ group: g.group, items: g.items.map(([p, label]) => ({ permission: p, label })) })),
+    roles: roles.map((r) => ({ role: r, label: ROLE_LABEL[r], workspace: WORKSPACE[r], permissions: [...ROLE_PERMISSIONS[r]] })),
+    grantable: GRANTABLE_PERMISSIONS,
+    grants: (grants ?? []).map((g) => ({
+      id: g.id, profileId: g.profile_id, person: who.get(g.profile_id)?.full_name || who.get(g.profile_id)?.email || g.profile_id,
+      role: who.get(g.profile_id)?.role ?? null, permission: g.permission, label: PERMISSION_LABEL[g.permission] ?? g.permission,
+      reason: g.reason, grantedAt: g.granted_at, grantedBy: who.get(g.granted_by)?.full_name ?? null,
+    })),
+    canGrant: actorCan(c, "permissions.manage"),
+  });
+});
+
+/* One account's history, for administrators without the full audit log. */
+app.get("/users/:id/history", requirePermission("users.view"), async (c) => {
+  const { data: target } = await admin.from("profiles").select("id, school_id, county").eq("id", c.req.param("id")).maybeSingle();
+  if (!target || !inScope(c, target.school_id, target.county)) return c.json({ error: "User not found" }, 404);
+  const { data } = await admin.from("audit_log").select("*").eq("target_type", "profile").eq("target_id", target.id)
+    .order("id", { ascending: false }).limit(100);
+  return c.json({ entries: await auditEntries(data ?? []) });
+});
+
+/* Account activity (Super Admin): every staff account's last sign-in, and
+   learner sign-ins and lockouts. */
+app.get("/security/activity", requirePermission("audit.view"), async (c) => {
+  const now = Date.now();
+  const [{ data: staff }, signIns, { data: learners }, { data: sessions }] = await Promise.all([
+    selectAll(() => admin.from("profiles").select("id, full_name, email, role, status, school, county, created_at").order("id")),
+    authUsers(),
+    selectAll(() => admin.from("learners").select("id, enrollment_status, locked_until, failed_attempts").order("id")),
+    admin.from("learner_sessions").select("learner_id, created_at").gt("created_at", new Date(now - 7 * 864e5).toISOString()),
+  ]);
+  return c.json({
+    staff: (staff ?? []).map((p) => ({
+      id: p.id, name: p.full_name || p.email, email: p.email, role: p.role, roleLabel: ROLE_LABEL[p.role as Role] ?? p.role,
+      status: p.status ?? "active", place: p.school || p.county || "", createdAt: p.created_at,
+      lastSignInAt: signIns.get(p.id)?.lastSignInAt ?? null,
+    })).sort((a, b) => String(b.lastSignInAt ?? "").localeCompare(String(a.lastSignInAt ?? "")) || a.name.localeCompare(b.name)),
+    learners: {
+      enrolled: (learners ?? []).filter((l) => (l.enrollment_status ?? ACTIVE) === ACTIVE).length,
+      signedIn7d: new Set((sessions ?? []).map((s) => s.learner_id)).size,
+      lockedNow: (learners ?? []).filter((l) => l.locked_until && new Date(l.locked_until).getTime() > now).length,
+      withFailedAttempts: (learners ?? []).filter((l) => (l.failed_attempts ?? 0) > 0).length,
+    },
+  });
+});
+
 /* ---- audit history ---- */
+
+/** Changes to who can sign in and what they can reach. */
+const SECURITY_ACTIONS = [
+  "account.created", "account.approved", "account.rejected", "account.suspended", "account.deactivated", "account.reactivated",
+  "role.changed", "school.changed", "county.changed", "email.changed", "password.reset",
+  "permission.granted", "permission.revoked", "scope.changed", "scope.assigned",
+  "invitation.created", "invitation.revoked", "invitation.accepted",
+  "kobo.connection_saved", "kobo.webhook_secret_created", "kobo.webhook_secret_removed", "learner.pin_reset", "learner.unlocked",
+];
 
 app.get("/audit", requirePermission("audit.view"), async (c) => {
   const limit = Math.max(1, Math.min(200, Number(c.req.query("limit")) || 100));
   const before = Number(c.req.query("before")) || 0;
   const targetId = String(c.req.query("targetId") ?? "").trim();
   const action = String(c.req.query("action") ?? "").trim();
+  const actorId = String(c.req.query("actorId") ?? "").trim();
   let q = admin.from("audit_log").select("*").order("id", { ascending: false }).limit(limit);
   if (before) q = q.lt("id", before);
   if (targetId) q = q.eq("target_id", targetId);
+  if (actorId) q = q.eq("actor_id", actorId);
   if (action) q = q.eq("action", action);
+  else if (c.req.query("kind") === "security") q = q.in("action", SECURITY_ACTIONS);
   const { data, error } = await q;
   if (error) return c.json({ error: error.message }, 500);
   const rows = data ?? [];
+  return c.json({ entries: await auditEntries(rows), nextBefore: rows.length === limit ? rows[rows.length - 1].id : null });
+});
+
+/** Audit rows with the names of the people involved. */
+async function auditEntries(rows: Record<string, any>[]) {
   // Names for the people involved, looked up once.
   const ids = [...new Set(rows.flatMap((r) => [r.actor_id, r.target_type === "profile" ? r.target_id : null]).filter(Boolean))];
   const names: Record<string, string> = {};
@@ -7050,8 +7750,7 @@ app.get("/audit", requirePermission("audit.view"), async (c) => {
     const { data: people } = await admin.from("profiles").select("id, full_name, email").in("id", ids);
     for (const p of people ?? []) names[p.id] = p.full_name || p.email;
   }
-  return c.json({
-    entries: rows.map((r) => ({
+  return rows.map((r) => ({
       id: r.id,
       at: r.at,
       action: r.action,
@@ -7063,10 +7762,8 @@ app.get("/audit", requirePermission("audit.view"), async (c) => {
       targetId: r.target_id,
       targetName: r.target_type === "profile" && r.target_id ? names[r.target_id] ?? null : null,
       details: r.details ?? {},
-    })),
-    nextBefore: rows.length === limit ? rows[rows.length - 1].id : null,
-  });
-});
+    }));
+}
 
 // ---- KoboToolbox: education-team config + attached surveys ----
 
@@ -7086,7 +7783,7 @@ app.get("/kobo/config", requirePermission("kobo.manage", "kobo.results.view"), a
   });
 });
 
-app.put("/kobo/config", requirePermission("kobo.manage"), async (c) => {
+app.put("/kobo/config", requirePermission("kobo.configure"), async (c) => {
   const b = await c.req.json().catch(() => ({}));
   const apiToken = String(b.apiToken ?? "").trim();
   const baseUrl = String(b.baseUrl ?? "https://eu.kobotoolbox.org").trim().replace(/\/+$/, "");
@@ -7111,6 +7808,7 @@ app.put("/kobo/config", requirePermission("kobo.manage"), async (c) => {
     updated_by: c.get("actor").fullName, updated_at: new Date().toISOString(),
   });
   if (error) return c.json({ error: error.message }, 400);
+  await audit(c, "kobo.connection_saved", "kobo_config", 1, { server: baseUrl, officerField }); // never the token
   return c.json({ ok: true, officerField });
 });
 
@@ -7451,15 +8149,15 @@ app.post("/kobo/sync", requirePermission("kobo.manage"), async (c) => {
 
 /** What the pipeline made of one survey: counts, issues by rule, school
     values it couldn't match, and the field mapping. */
-async function koboPipelineSummary(form: Record<string, any>) {
+async function koboPipelineSummary(form: Record<string, any>, scope?: PlaceScope) {
   const [recs, issues, schools] = await Promise.all([
-    selectAll(() => admin.from("kobo_records").select("id, status, review, warning_count").eq("kobo_form_id", form.id).order("id")),
+    selectAll(() => admin.from("kobo_records").select("id, status, review, warning_count, school_id, county").eq("kobo_form_id", form.id).order("id")),
     selectAll(() => admin.from("kobo_record_issues").select("record_id, rule, severity, value, message").eq("kobo_form_id", form.id).order("id")),
     selectAll(() => admin.from("schools").select("id, name, code, county").order("id")),
   ]);
   const failed = [recs, issues, schools].find((r) => r.error);
   if (failed) throw new Error(failed.error!.message);
-  const live = recs.data.filter((r) => r.status !== "removed");
+  const live = recs.data.filter((r) => r.status !== "removed" && (!scope || inPlaceScope(scope, r.school_id, r.county)));
   const by = (s: string) => live.filter((r) => r.status === s).length;
   const liveIds = new Set(live.map((r) => r.id));
   const liveIssues = issues.data.filter((i) => liveIds.has(i.record_id));
@@ -7506,7 +8204,7 @@ async function loadKoboForm(id: string) {
 app.get("/kobo/forms/:id/pipeline", requirePermission("kobo.manage", "kobo.results.view"), async (c) => {
   const form = await loadKoboForm(c.req.param("id"));
   if (!form) return c.json({ error: "Survey not found" }, 404);
-  try { return c.json(await koboPipelineSummary(form)); } catch (e) { return c.json({ error: (e as Error).message }, 500); }
+  try { return c.json(await koboPipelineSummary(form, scopeOf(c))); } catch (e) { return c.json({ error: (e as Error).message }, 500); }
 });
 
 /* Which questions hold the school, county, officer and date. Saving it
@@ -7567,7 +8265,7 @@ app.get("/kobo/records", requirePermission("kobo.manage", "kobo.results.view"), 
     return q;
   });
   if (error) return c.json({ error: error.message }, 500);
-  let rows = data.filter((r) => r.status !== "removed" || f("status") === "removed");
+  let rows = data.filter((r) => (r.status !== "removed" || f("status") === "removed") && inScope(c, r.school_id, r.county));
   if (f("status") === "needs_review") rows = rows.filter((r) => (r.status === "invalid" || r.status === "duplicate") && !r.review);
   if (f("review") === "none") rows = rows.filter((r) => !r.review);
   else if (f("review")) rows = rows.filter((r) => r.review === f("review"));
@@ -7614,7 +8312,7 @@ function displayAnswer(f: Record<string, any>, v: unknown, choices: Record<strin
 
 app.get("/kobo/records/:id", requirePermission("kobo.manage", "kobo.results.view"), async (c) => {
   const { data: r } = await admin.from("kobo_records").select("*").eq("id", c.req.param("id")).maybeSingle();
-  if (!r) return c.json({ error: "Record not found" }, 404);
+  if (!r || !inScope(c, r.school_id, r.county)) return c.json({ error: "Record not found" }, 404);
   const form = await loadKoboForm(r.kobo_form_id);
   const schema = (form?.schema ?? { fields: [], choices: {} }) as KoboSchema;
   const [{ data: issues }, school, officer, reviewer, original] = await Promise.all([
@@ -7641,9 +8339,9 @@ app.get("/kobo/records/:id", requirePermission("kobo.manage", "kobo.results.view
 
 /* A person's decision on a flagged record: accept it onto the dashboards
    anyway, exclude it, or clear the decision. A reason is required. */
-app.post("/kobo/records/:id/review", requirePermission("kobo.manage"), async (c) => {
-  const { data: r } = await admin.from("kobo_records").select("id, status, review, kobo_form_id, kobo_id").eq("id", c.req.param("id")).maybeSingle();
-  if (!r) return c.json({ error: "Record not found" }, 404);
+app.post("/kobo/records/:id/review", requirePermission("kobo.review"), async (c) => {
+  const { data: r } = await admin.from("kobo_records").select("id, status, review, kobo_form_id, kobo_id, school_id, county").eq("id", c.req.param("id")).maybeSingle();
+  if (!r || !inScope(c, r.school_id, r.county)) return c.json({ error: "Record not found" }, 404);
   const b = await c.req.json().catch(() => ({}));
   const decision = String(b.decision ?? "");
   if (!["accepted", "excluded", "clear"].includes(decision)) return c.json({ error: "Decision must be accepted, excluded or clear" }, 400);
@@ -7679,13 +8377,13 @@ app.get("/kobo/school-aliases", requirePermission("kobo.manage", "kobo.results.v
   return c.json({ aliases: data.map((a) => ({ key: a.value_key, value: a.value, schoolId: a.school_id, school: s.get(a.school_id) ? `${(s.get(a.school_id) as { name: string }).name} (${(s.get(a.school_id) as { code: string }).code})` : null })) });
 });
 
-app.post("/kobo/school-aliases", requirePermission("kobo.manage"), async (c) => {
+app.post("/kobo/school-aliases", requirePermission("kobo.review"), async (c) => {
   const b = await c.req.json().catch(() => ({}));
   const value = String(b.value ?? "").trim().slice(0, 200);
   const key = nameKey(value);
   if (!key) return c.json({ error: "Which value?" }, 400);
   const school = await loadSchool(b.schoolId);
-  if (!school) return c.json({ error: "Choose a portal school" }, 400);
+  if (!school || !inScope(c, school.id)) return c.json({ error: "Choose a portal school" }, 400);
   const { data: existing } = await admin.from("kobo_school_aliases").select("value_key").eq("value_key", key).maybeSingle();
   const row = { value_key: key, value, school_id: school.id, created_by: c.get("actor").id };
   const { error } = existing
@@ -7696,7 +8394,7 @@ app.post("/kobo/school-aliases", requirePermission("kobo.manage"), async (c) => 
   try { return c.json({ ok: true, reprocessed: await reprocessAllKobo() }); } catch (e) { return c.json({ error: (e as Error).message }, 500); }
 });
 
-app.delete("/kobo/school-aliases/:key", requirePermission("kobo.manage"), async (c) => {
+app.delete("/kobo/school-aliases/:key", requirePermission("kobo.review"), async (c) => {
   const key = c.req.param("key");
   const { data } = await admin.from("kobo_school_aliases").delete().eq("value_key", key).select("value_key");
   if (!data?.length) return c.json({ error: "Alias not found" }, 404);
@@ -7706,7 +8404,7 @@ app.delete("/kobo/school-aliases/:key", requirePermission("kobo.manage"), async 
 
 /* The REST Service password for Kobo's push. Shown once; only its hash
    is stored. Creating a new one replaces the old. */
-app.post("/kobo/webhook", requirePermission("kobo.manage"), async (c) => {
+app.post("/kobo/webhook", requirePermission("kobo.configure"), async (c) => {
   if (!(await loadKoboConfig())) return c.json({ error: "Connect KoboToolbox first" }, 400);
   const secret = randomBytes(24).toString("base64url");
   const { error } = await admin.from("kobo_config")
@@ -7716,7 +8414,7 @@ app.post("/kobo/webhook", requirePermission("kobo.manage"), async (c) => {
   return c.json({ url: `${SUPABASE_URL}/functions/v1/api/kobo/hook`, username: KOBO_HOOK_USER, password: secret });
 });
 
-app.delete("/kobo/webhook", requirePermission("kobo.manage"), async (c) => {
+app.delete("/kobo/webhook", requirePermission("kobo.configure"), async (c) => {
   await admin.from("kobo_config").update({ webhook_secret_hash: null, webhook_secret_set_at: null }).eq("id", 1);
   await audit(c, "kobo.webhook_secret_removed", "kobo_config", 1, {});
   return c.json({ ok: true });
@@ -7737,6 +8435,8 @@ app.get("/kobo/forms/:id/results", requirePermission("kobo.manage", "kobo.result
   const { data: recs, error } = await selectAll(() => admin.from("kobo_records")
     .select("id, status, review, answers, officer_id, school_id, county, submitted_at").eq("kobo_form_id", form.id).order("id"));
   if (error) return c.json({ error: error.message }, 500);
+  const area = scopeOf(c);
+  if (!area.global) recs.splice(0, recs.length, ...recs.filter((r) => inPlaceScope(area, r.school_id, r.county)));
   let schoolIds: Set<string> | null = null;
   if (schoolName) {
     const { data: s } = await admin.from("schools").select("id, county").eq("name", schoolName);

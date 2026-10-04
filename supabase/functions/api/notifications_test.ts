@@ -10,9 +10,10 @@ import { buildNotifications, localDay, missingVisitForms, type NotifyInput } fro
 
 // 3 Oct 2026, 09:00 in Kenya (06:00 UTC). "Tomorrow" is Sunday 4 Oct.
 const NOW = new Date("2026-10-03T06:00:00Z");
-const can = (role: string, p: string) =>
-  (p === "kobo.manage" && ["education_team", "admin", "super_admin"].includes(role)) ||
-  (p === "users.approve" && ["admin", "super_admin"].includes(role));
+// deno-lint-ignore no-explicit-any
+const can = (person: Record<string, any>, p: string) =>
+  (p === "kobo.review" && ["me", "admin", "super_admin"].includes(person.role)) ||
+  (p === "users.approve" && ["admin", "super_admin"].includes(person.role));
 
 function world(): NotifyInput {
   return {
@@ -23,6 +24,7 @@ function world(): NotifyInput {
       { id: "h2", role: "school_leader", status: "active", county: "Laikipia", full_name: "Head Two" },
       { id: "fo", role: "field_officer", status: "active", county: "Narok", full_name: "Officer" },
       { id: "ed", role: "education_team", status: "active", full_name: "Ed" },
+      { id: "me1", role: "me", status: "active", full_name: "Em" },
       { id: "ad", role: "admin", status: "active", full_name: "Admin" },
       { id: "p1", role: "teacher", status: "pending", full_name: "New Teacher" },
       { id: "p2", role: "field_officer", status: "pending", full_name: "New Officer" },
@@ -123,17 +125,19 @@ Deno.test("field officer: 'Your ICT visit form is incomplete.' for a recent visi
   assert(mine[0].body.startsWith("Aitong Primary on Thu 1 Oct: Lab inventory."));
 });
 
-Deno.test("Kobo managers: '12 Kobo submissions received.' since they were last told", () => {
+Deno.test("Kobo reviewers: '12 Kobo submissions received.' since they were last told", () => {
   const w = world();
   let all = buildNotifications(w, NOW);
-  const [ed] = forWho(all, "ed", "kobo_received");
-  assertEquals(ed.title, "12 Kobo submissions received.", "the one from two days ago is older than a day");
-  assertEquals(ed.body, "Classroom observation: 10 · School infrastructure: 2 — 3 need review.");
-  assertEquals(forWho(all, "ad", "kobo_received").length, 1, "admins manage Kobo too");
+  const [me] = forWho(all, "me1", "kobo_received");
+  assertEquals(me.title, "12 Kobo submissions received.", "the one from two days ago is older than a day");
+  assertEquals(me.body, "Classroom observation: 10 · School infrastructure: 2 — 3 need review.");
+  assertEquals(me.link, "me.html#kobo", "to their own workspace");
+  assertEquals(forWho(all, "ad", "kobo_received")[0].link, "admin.html#kobo", "admins review Kobo too");
+  assertEquals(forWho(all, "ed", "kobo_received").length, 0, "the Education Team doesn't handle Kobo any more");
   assertEquals(forWho(all, "t1", "kobo_received").length, 0);
-  w.koboLastNotified = { ed: "2026-10-03T05:40:00Z" };
+  w.koboLastNotified = { me1: "2026-10-03T05:40:00Z" };
   all = buildNotifications(w, NOW);
-  assertEquals(forWho(all, "ed", "kobo_received")[0].title, "1 Kobo submission received.");
+  assertEquals(forWho(all, "me1", "kobo_received")[0].title, "1 Kobo submission received.");
 });
 
 Deno.test("approvers: '2 staff accounts awaiting approval.' once a day", () => {

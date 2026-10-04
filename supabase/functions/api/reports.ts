@@ -29,9 +29,9 @@ export type ReportDef = {
 export const REPORTS: ReportDef[] = [
   { id: "learner-register", title: "Learner Register", needs: ["learners.view.all", "learners.view.school", "learners.manage"], filters: ["place", "status"],
     description: "Every learner with their code, grade, class, school, county, gender (where recorded) and enrollment status." },
-  { id: "teacher-register", title: "Teacher Register", needs: ["users.view", "trainings.manage", "school.overview.view"], filters: ["place", "status"],
+  { id: "teacher-register", title: "Teacher Register", needs: ["users.view", "teachers.view", "school.overview.view"], filters: ["place", "status"],
     description: "Teachers and school heads: staff code, school, county, employment type, classes taught and training attended." },
-  { id: "school-register", title: "School Register", needs: ["stats.view", "schools.manage", "school.overview.view"], filters: ["place", "dates"],
+  { id: "school-register", title: "School Register", needs: ["stats.view", "schools.manage", "school.overview.view", "schools.profile.view"], filters: ["place", "dates"],
     description: "Every school with its code and county, learners, teachers, classes, field visits and Kobo submissions." },
   { id: "assignment-report", title: "Assignment Report", needs: ["assignments.view.all", "assignments.view.school", "assignments.manage"], filters: ["place", "period", "dates"],
     description: "Each assignment set: class, subject, due date, how many handed it in (completion) and the average mark (achievement) — never combined." },
@@ -45,9 +45,9 @@ export const REPORTS: ReportDef[] = [
     description: "How each resource is used — opens, readers, time — and use by school." },
   { id: "me-indicator-report", title: "M&E Indicator Report", needs: ["me.view"], filters: ["place", "period", "programme"],
     description: "Every indicator's baseline, target, actual, achievement and evidence for a period and place." },
-  { id: "term-report", title: "Term Report", needs: ["intelligence.view", "school.overview.view"], filters: ["place", "period"],
+  { id: "term-report", title: "Term Report", needs: ["intelligence.view", "school.overview.view", "reports.programme"], filters: ["place", "period"],
     description: "A term at a glance: reach, completion, results, field visits, digital resources and training — overall and by school." },
-  { id: "county-report", title: "County Report", needs: ["intelligence.view"], filters: ["place", "dates", "period"],
+  { id: "county-report", title: "County Report", needs: ["intelligence.view", "reports.programme"], filters: ["place", "dates", "period"],
     description: "County by county: schools, learners, teachers, visits, completion, results, library use and training." },
 ];
 
