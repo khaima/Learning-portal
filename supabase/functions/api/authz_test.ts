@@ -22,7 +22,7 @@ import { localDay } from "./notifications.ts";
 Deno.env.set("SUPABASE_URL", "http://localhost:54321");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "test-service-key");
 Deno.env.set("HPF_API_TEST", "1");
-const { app, __setAdminClientForTests } = await import("./index.ts");
+const { app, __setAdminClientForTests, __setMailerForTests } = await import("./index.ts");
 
 /* ------------------------------------------------------------ in-memory Supabase */
 
@@ -457,6 +457,7 @@ const ROUTES: RouteSpec[] = [
   r("GET", "/users/invitations", USER_ADMIN),
   r("POST", "/users/invitations", USER_ADMIN, { email: "fresh@test.org", role: "teacher", schoolId: "sch_1" }),
   r("DELETE", "/users/invitations/:id", USER_ADMIN),
+  r("POST", "/users/invitations/:id/renew", USER_ADMIN, {}, "/users/invitations/inv_none/renew"),
   r("POST", "/users/:id/approve", USER_ADMIN, {}, "/users/pending-id/approve"),
   r("POST", "/users/:id/reject", USER_ADMIN, {}, "/users/pending-id/reject"),
   r("POST", "/users/:id/status", USER_ADMIN, { action: "suspend" }, "/users/teacher2-id/status"),
@@ -691,6 +692,115 @@ Deno.test("invitation: the role comes from the invitation, for the invited email
   const actions = db.audit_log.map((a) => a.action);
   assert(actions.includes("invitation.created") && actions.includes("invitation.accepted") && actions.includes("account.created"));
 });
+
+/* Invitation email: the portal sends the same one-time link the administrator can copy. */
+const MAIL_ENV = { MAIL_PROVIDER: "resend", MAIL_API_KEY: "re_test_not_real", MAIL_FROM: "no-reply@humanpractice.org" };
+async function withMail(fn: (sent: Row[], fail: (e: string | null) => void) => Promise<void>, configured = true) {
+  const sent: Row[] = [];
+  let failure: string | null = null;
+  __setMailerForTests((m) => {
+    if (failure) return Promise.resolve({ ok: false, error: failure });
+    sent.push(m);
+    return Promise.resolve({ ok: true, id: `m${sent.length}` });
+  });
+  for (const [k, v] of Object.entries(MAIL_ENV)) configured ? Deno.env.set(k, v) : Deno.env.delete(k);
+  try {
+    await fn(sent, (e) => (failure = e));
+  } finally {
+    for (const k of Object.keys(MAIL_ENV)) Deno.env.delete(k);
+    __setMailerForTests(null);
+  }
+}
+
+Deno.test("invitation email: not set up yet — the invitation is still made, to copy", () => withMail(async (sent) => {
+  const db = freshWorld();
+  assertEquals((await call("GET", "/users/invitations", "tok_admin")).json.emailReady, false);
+  const res = await call("POST", "/users/invitations", "tok_admin", { email: "new@test.org", role: "teacher", schoolId: "sch_1", send: true });
+  assertEquals(res.status, 200);
+  assertEquals(res.json.emailed, false);
+  assert(/isn't set up/.test(res.json.emailError), res.json.emailError);
+  assert(res.json.token, "the link can still be copied");
+  assertEquals(sent.length, 0);
+  assertEquals(db.staff_invitations.length, 1);
+  assert(!db.audit_log.some((a) => a.action === "invitation.emailed"));
+}, false));
+
+Deno.test("invitation email: sent to the invited address with the same one-time link, and audited", () => withMail(async (sent) => {
+  const db = freshWorld();
+  assertEquals((await call("GET", "/users/invitations", "tok_admin")).json.emailReady, true);
+  const res = await call("POST", "/users/invitations", "tok_admin",
+    { email: "New@Test.org", role: "teacher", schoolId: "sch_1", send: true, portalUrl: "https://khaima.github.io/Learning-portal/" });
+  assertEquals([res.status, res.json.emailed], [200, true]);
+  assertEquals(res.cache, "no-store");
+  const token = res.json.token as string;
+  assertEquals(sent.length, 1);
+  const m = sent[0];
+  assertEquals([m.to, m.replyTo], ["new@test.org", "admin@test.org"]);
+  const link = `https://khaima.github.io/Learning-portal/index.html?invite=${encodeURIComponent(token)}`;
+  assert(m.html.includes(link) && m.text.includes(link), "the email carries the invitation link");
+  assert(m.text.includes("Teacher") && m.text.includes("Aitong Primary (NRK-001)") && m.text.includes("admin person"));
+  // The link in the email is the real one…
+  assertEquals((await call("GET", `/invitations/${token}`)).json.invitation.email, "new@test.org");
+  // …and it's never stored or logged.
+  for (const table of ["staff_invitations", "audit_log", "sync_requests"]) {
+    assert(!JSON.stringify(db[table]).includes(token), `the link token leaked into ${table}`);
+  }
+  const a = db.audit_log.find((x) => x.action === "invitation.emailed")!;
+  assertEquals([a.actor_id, a.target_id, a.details.email], ["admin-id", db.staff_invitations[0].id, "new@test.org"]);
+  // Without "send", nothing is emailed.
+  await call("POST", "/users/invitations", "tok_admin", { email: "copy@test.org", role: "teacher", schoolId: "sch_1" });
+  assertEquals(sent.length, 1);
+  // A link only ever points at the portal itself.
+  await call("POST", "/users/invitations", "tok_admin", { email: "x@test.org", role: "teacher", schoolId: "sch_1", send: true, portalUrl: "https://evil.example/" });
+  assert(sent[1].text.includes("https://learning-portal-mu-two.vercel.app/index.html?invite="));
+}));
+
+Deno.test("invitation email: when the mail provider refuses, the invitation stands and the link can be copied", () => withMail(async (sent, fail) => {
+  const db = freshWorld();
+  fail("the mail provider refused the API key");
+  const res = await call("POST", "/users/invitations", "tok_admin", { email: "new@test.org", role: "teacher", schoolId: "sch_1", send: true });
+  assertEquals([res.status, res.json.emailed], [200, false]);
+  assert(res.json.emailError.includes("refused the API key") && res.json.token);
+  assertEquals(db.staff_invitations.length, 1);
+  assertEquals(sent.length, 0);
+  assert(!db.audit_log.some((a) => a.action === "invitation.emailed"));
+}));
+
+Deno.test("renewing an invitation: a new link (emailed or to copy), the old one stops working", () => withMail(async (sent) => {
+  const db = freshWorld();
+  const first = await call("POST", "/users/invitations", "tok_admin", { email: "new@test.org", role: "field_officer", county: "Narok" });
+  const id = first.json.invitation.id as string;
+  const oldToken = first.json.token as string;
+  db.staff_invitations[0].expires_at = new Date(Date.now() - 864e5).toISOString(); // lapsed
+
+  const renewed = await call("POST", `/users/invitations/${id}/renew`, "tok_admin", { send: true, portalUrl: "https://learning-portal-mu-two.vercel.app/index.html" });
+  assertEquals([renewed.status, renewed.json.emailed, renewed.json.invitation.status], [200, true, "open"]);
+  const newToken = renewed.json.token as string;
+  assert(newToken && newToken !== oldToken);
+  assertEquals((await call("GET", `/invitations/${oldToken}`)).status, 404, "the old link stops working");
+  assertEquals((await call("GET", `/invitations/${newToken}`)).status, 200);
+  assert(sent[0].text.includes(`https://learning-portal-mu-two.vercel.app/index.html?invite=${encodeURIComponent(newToken)}`));
+  assert(Date.parse(renewed.json.invitation.expiresAt) > Date.now() + 13 * 864e5, "another 14 days");
+  const r = db.audit_log.find((x) => x.action === "invitation.renewed")!;
+  assertEquals([r.actor_id, r.target_id], ["admin-id", id]);
+  assert(!JSON.stringify(db.audit_log).includes(newToken));
+
+  // Renew without emailing: a link to copy.
+  const copy = await call("POST", `/users/invitations/${id}/renew`, "tok_admin", {});
+  assertEquals([copy.status, copy.json.emailed], [200, false]);
+  assertEquals(sent.length, 1);
+
+  // Not once it's used…
+  assertEquals((await call("POST", "/me/accept-invite", "tok_new", { token: copy.json.token, fullName: "New Officer" })).status, 200);
+  assertEquals((await call("POST", `/users/invitations/${id}/renew`, "tok_admin", {})).status, 409);
+  // …or revoked, or for a role above yours, or not there.
+  const other = await call("POST", "/users/invitations", "tok_admin", { email: "other@test.org", role: "teacher", schoolId: "sch_1" });
+  await call("DELETE", `/users/invitations/${other.json.invitation.id}`, "tok_admin");
+  assertEquals((await call("POST", `/users/invitations/${other.json.invitation.id}/renew`, "tok_admin", {})).status, 409);
+  const adminInvite = await call("POST", "/users/invitations", "tok_super_admin", { email: "boss@test.org", role: "admin" });
+  assertEquals((await call("POST", `/users/invitations/${adminInvite.json.invitation.id}/renew`, "tok_admin", {})).status, 403);
+  assertEquals((await call("POST", "/users/invitations/inv_none/renew", "tok_admin", {})).status, 404);
+}));
 
 Deno.test("audit history is readable only with audit.view, and shows the entries", async () => {
   const db = freshWorld();

@@ -392,11 +392,11 @@
           </div>
           <p class="kobo-note">
             Every staff sign-in, grouped by role. New accounts wait here for
-            approval; administrators can invite staff, change roles and
-            schools, and suspend, deactivate or reactivate accounts.
-            Passwords are one-way hashed and can't be viewed by anyone —
-            including this dashboard — so "Set new password" sets a brand-new
-            one instead of showing the old one.
+            approval; administrators can invite staff (by email, or a link to
+            copy), change roles and schools, and suspend, deactivate or
+            reactivate accounts. Nobody can see anyone's password — "Reset
+            password" emails a reset link, or makes a one-time temporary
+            password they must replace when they first sign in.
           </p>
 
           <!-- Invitations (users.invite) -->
@@ -409,9 +409,11 @@
                 <div class="field" id="inv_county_field"><label for="inv_county">County</label><select id="inv_county"></select></div>
                 <div class="field" id="inv_school_field"><label for="inv_school">School</label><select id="inv_school"></select></div>
               </div>
-              <p class="field-hint" style="margin-top:0">The person gets a link to create their account with exactly this role and placement. It works once and expires in 14 days. No email is sent — copy the link and send it to them yourself.</p>
+              <p class="field-hint" style="margin-top:0">They get a link to create their account with exactly this role and placement — emailed by the portal, or copy it and send it yourself (WhatsApp, SMS…). It works once and expires in 14 days.</p>
+              <p class="field-hint" id="inviteNoEmail" hidden style="margin-top:0">Email sending isn't set up for the portal yet, so copy the link and send it yourself.</p>
               <div class="edit-actions">
-                <button class="btn btn-primary" type="submit">Create invitation link</button>
+                <button class="btn btn-primary" type="submit" value="email" id="inviteSendEmail">Send invitation email</button>
+                <button class="btn btn-outline" type="submit" value="link" id="inviteCopyLink">Copy link instead</button>
                 <button class="btn btn-outline" type="button" id="inviteCancel">Cancel</button>
               </div>
             </form>

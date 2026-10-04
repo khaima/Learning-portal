@@ -687,8 +687,10 @@ audit behind it are in [`docs/RBAC.md`](docs/RBAC.md).
   granted to you; staff can change their own password there.
 
 - **Joining:** an administrator **invites** someone (Users → Invite staff),
-  choosing their role and school or county; the link works once, for that
-  email only, for 14 days, and the account is active straight away. Anyone
+  choosing their role and school or county, and either has the portal
+  **email** the invitation or **copies the link** to send another way; the
+  link works once, for that email only, for 14 days, and the account is
+  active straight away ([`docs/AUTH.md`](docs/AUTH.md)). Anyone
   can also **register** on their own and ask to be a Teacher, School Head
   or Field Officer — that account is **pending** and reaches nothing until
   an administrator approves it (and may change the role or school).
@@ -735,7 +737,7 @@ audit behind it are in [`docs/RBAC.md`](docs/RBAC.md).
   rules and the separation of duties, and
   [`navigation_test.ts`](supabase/functions/api/navigation_test.ts) that
   every role's menu matches its permissions exactly:
-  `cd supabase/functions/api && deno test --allow-env --allow-read --config deno.json authz_test.ts lms_test.ts intelligence_test.ts kobo_pipeline_test.ts data_quality_test.ts me_test.ts impact_test.ts notifications_test.ts scope_test.ts navigation_test.ts`
+  `cd supabase/functions/api && deno test --allow-env --allow-read --config deno.json authz_test.ts lms_test.ts intelligence_test.ts kobo_pipeline_test.ts data_quality_test.ts me_test.ts impact_test.ts notifications_test.ts scope_test.ts navigation_test.ts mail_test.ts`
 
 ### Turning on Google sign-in
 
@@ -787,8 +789,6 @@ same data everywhere, because the database is the source of truth.
 
 ## What it does NOT have yet
 
-- **No email is sent for invitations.** The administrator copies the
-  invitation link and sends it themselves.
 - **Learner PINs are 4 digits — intentionally weak.** They're
   teacher-managed and locked after 5 wrong tries; fine for coursework and
   library access, not for anything sensitive.
@@ -869,8 +869,8 @@ API immediately. (Password reset emails need the one-time mail setup in
 
 ## Where this could go next
 
-- Emailing invitations and notifications through the same mail sender
-  as password resets.
+- Emailing notifications through the same mail sender as invitations and
+  password resets.
 - Recording paper-based exam scores directly, without building an
   assignment.
 - Per-row authorisation could move partly into RLS if the app ever needs

@@ -43,6 +43,7 @@ import {
   type IssueType as DqIssueType, qualityScore, SEVERITIES as DQ_SEVERITIES, type Snapshot as DqSnapshot,
   STATUS_MOVES as DQ_STATUS_MOVES, STATUSES as DQ_STATUSES,
 } from "./data_quality.ts";
+import { invitationEmail, type MailMessage, mailReady, type MailResult, sendMail } from "./mail.ts";
 import {
   achievement, cleanSourceConfig, type Computed, koboInScope, koboMeasure, periodRange, PORTAL_METRICS,
   type Scope as MeScope, targetFor, UNITS as ME_UNITS,
@@ -60,6 +61,11 @@ let admin: SupabaseClient = createClient(SUPABASE_URL, SERVICE_KEY, {
 /** Tests only (authz_test.ts): swap in an in-memory stand-in. */
 export function __setAdminClientForTests(client: unknown) {
   admin = client as SupabaseClient;
+}
+/** Invitation email (mail.ts). Tests swap in a recorder. */
+let mailer: (m: MailMessage) => Promise<MailResult> = (m) => sendMail(m);
+export function __setMailerForTests(fn: ((m: MailMessage) => Promise<MailResult>) | null) {
+  mailer = fn ?? ((m) => sendMail(m));
 }
 
 const LIBRARY_BUCKET = "library";
@@ -720,8 +726,8 @@ function sessionSignedInAt(jwt: string): number {
    retried for real. */
 const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9_-]{8,80}$/;
 const IDEMPOTENCY_KEEP_MS = 30 * 864e5;
-// Replies that hold a secret are never stored for replay.
-const NEVER_REPLAYED = /\/temporary-password$/;
+// Replies that hold a secret (a temporary password, an invitation link) are never stored for replay.
+const NEVER_REPLAYED = /\/(temporary-password|users\/invitations|renew)$/;
 app.use("*", async (c, next) => {
   const key = c.req.header("Idempotency-Key");
   if (!key || c.req.method === "GET" || c.req.method === "OPTIONS") return next();
@@ -7035,7 +7041,47 @@ app.get("/users", requirePermission("users.view"), async (c) => {
   });
 });
 
-/* ---- invitations ---- */
+/* ---- invitations ----
+   An invitation is a one-time link (only its hash is kept). The
+   administrator copies it and sends it themselves, or has the portal email
+   it (mail.ts) — the same link either way. */
+
+/* The portal's own addresses (PORTAL_URLS secret, comma-separated; the two
+   live sites by default). Links the server puts in an email or a reset
+   redirect only ever point at one of these. */
+const PORTAL_URLS = (Deno.env.get("PORTAL_URLS") ?? "https://learning-portal-mu-two.vercel.app/,https://khaima.github.io/Learning-portal/")
+  .split(",").map((s) => s.trim()).filter(Boolean);
+/** The portal address the browser asked for (its folder, or its index.html), if it's one of ours; else the first. */
+function portalBase(asked: unknown): string {
+  const bases = PORTAL_URLS.map((u) => new URL(u.endsWith("/") ? u : u + "/"));
+  try {
+    const u = new URL(String(asked ?? ""));
+    const hit = bases.find((b) => u.origin === b.origin && (u.pathname === b.pathname || u.pathname === b.pathname + "index.html"));
+    if (hit) return `${hit.origin}${hit.pathname}`;
+  } catch { /* not a URL: the default below */ }
+  return `${bases[0].origin}${bases[0].pathname}`;
+}
+
+/* Email an invitation's link. The invitation stands whether or not the
+   email goes — the administrator can still copy the link. */
+// deno-lint-ignore no-explicit-any
+async function emailInvitation(c: any, inv: Record<string, any>, token: string, portalUrl: unknown): Promise<{ emailed: boolean; emailError?: string }> {
+  if (!mailReady()) {
+    return { emailed: false, emailError: "Email sending isn't set up for the portal yet — copy the link and send it yourself." };
+  }
+  const school = inv.school_id ? await loadSchool(inv.school_id) : null;
+  const place = school ? `${school.name} (${school.code})` : inv.county ? `${inv.county} County` : null;
+  const message = invitationEmail({
+    link: `${portalBase(portalUrl)}index.html?invite=${encodeURIComponent(token)}`,
+    roleLabel: ROLE_LABEL[inv.role as Role] ?? inv.role, place,
+    inviterName: (c.get("actor") as Actor)?.fullName || null, expiresAt: inv.expires_at,
+  });
+  // Replies go to the administrator who sent it.
+  const sent = await mailer({ to: inv.email, ...message, replyTo: c.get("email") || null });
+  if (!sent.ok) return { emailed: false, emailError: `The email couldn't be sent: ${sent.error}. Copy the link and send it yourself.` };
+  await audit(c, "invitation.emailed", "invitation", inv.id, { email: inv.email, role: inv.role }); // never the link
+  return { emailed: true };
+}
 
 const mapInvitation = (r: Record<string, unknown>) => ({
   id: r.id,
@@ -7054,7 +7100,11 @@ app.get("/users/invitations", requirePermission("users.invite"), async (c) => {
   const { data, error } = await admin.from("staff_invitations").select("*")
     .order("created_at", { ascending: false }).limit(100);
   if (error) return c.json({ error: error.message }, 500);
-  return c.json({ invitations: (data ?? []).filter((i) => inScope(c, i.school_id, i.county)).map(mapInvitation) });
+  return c.json({
+    invitations: (data ?? []).filter((i) => inScope(c, i.school_id, i.county)).map(mapInvitation),
+    // Whether "Send invitation email" can work (mail.ts); copying the link always does.
+    emailReady: mailReady(),
+  });
 });
 
 app.post("/users/invitations", requirePermission("users.invite"), async (c) => {
@@ -7097,14 +7147,45 @@ app.post("/users/invitations", requirePermission("users.invite"), async (c) => {
   if (error) return c.json({ error: error.message }, 400);
   await audit(c, "invitation.created", "invitation", data.id,
     { email, role, schoolId: data.school_id, county: data.county, expiresAt: data.expires_at });
+  const delivery = b.send === true ? await emailInvitation(c, data, token, b.portalUrl) : { emailed: false };
   // The token is returned once, here, to build the link — it is never stored.
-  return c.json({ invitation: mapInvitation(data), token });
+  c.header("Cache-Control", "no-store");
+  return c.json({ invitation: mapInvitation(data), token, ...delivery });
+});
+
+/* A fresh link for an invitation not yet used — to email again, or to copy
+   again. Only the link's hash is kept, so the earlier link can't be shown
+   again: it stops working now, and the new one runs 14 days from today. */
+app.post("/users/invitations/:id/renew", requirePermission("users.invite"), async (c) => {
+  const actor = c.get("actor");
+  const { data: inv } = await admin.from("staff_invitations").select("*").eq("id", c.req.param("id")).maybeSingle();
+  if (!inv || !inScope(c, inv.school_id, inv.county)) return c.json({ error: "Invitation not found" }, 404);
+  if (!grantableRoles(actor.role).includes(inv.role)) {
+    return c.json({ error: "You can't renew an invitation for that role." }, 403);
+  }
+  if (inv.accepted_at || inv.revoked_at) return c.json({ error: "That invitation is already used or revoked." }, 409);
+  const { data: existing } = await admin.from("profiles").select("id, status").ilike("email", ilikeExact(inv.email)).maybeSingle();
+  if (existing && existing.status !== "pending") {
+    return c.json({ error: "That email already has an account. Change its role on the Users page instead." }, 409);
+  }
+  const b = await c.req.json().catch(() => ({}));
+  const token = randomBytes(24).toString("base64url");
+  const { data, error } = await admin.from("staff_invitations").update({
+    token_hash: hashToken(token),
+    expires_at: new Date(Date.now() + INVITE_TTL_DAYS * 86400_000).toISOString(),
+  }).eq("id", inv.id).is("accepted_at", null).is("revoked_at", null).select().single();
+  if (error || !data) return c.json({ error: "That invitation is already used or revoked." }, 409);
+  await audit(c, "invitation.renewed", "invitation", inv.id,
+    { email: inv.email, role: inv.role, expiresAt: data.expires_at, previousExpiresAt: inv.expires_at });
+  const delivery = b.send === true ? await emailInvitation(c, data, token, b.portalUrl) : { emailed: false };
+  c.header("Cache-Control", "no-store");
+  return c.json({ invitation: mapInvitation(data), token, ...delivery });
 });
 
 app.delete("/users/invitations/:id", requirePermission("users.invite"), async (c) => {
   const actor = c.get("actor");
   const { data: inv } = await admin.from("staff_invitations").select("*").eq("id", c.req.param("id")).maybeSingle();
-  if (!inv) return c.json({ error: "Invitation not found" }, 404);
+  if (!inv || !inScope(c, inv.school_id, inv.county)) return c.json({ error: "Invitation not found" }, 404);
   if (!grantableRoles(actor.role).includes(inv.role)) {
     return c.json({ error: "You can't revoke an invitation for that role." }, 403);
   }
@@ -7333,23 +7414,9 @@ app.patch("/users/:id", requirePermission("users.edit", "users.roles.assign", "u
 });
 
 /* Where a reset link may send someone: index.html of one of the portal's
-   own addresses (PORTAL_URLS, comma-separated; the two live sites by
-   default). Supabase Auth's redirect allow-list checks it again. */
-const PORTAL_URLS = (Deno.env.get("PORTAL_URLS") ?? "https://learning-portal-mu-two.vercel.app/,https://khaima.github.io/Learning-portal/")
-  .split(",").map((s) => s.trim()).filter(Boolean);
-function recoveryRedirect(asked: unknown): string {
-  try {
-    const u = new URL(String(asked ?? ""));
-    for (const base of PORTAL_URLS) {
-      const b = new URL(base.endsWith("/") ? base : base + "/");
-      if (u.origin === b.origin && (u.pathname === b.pathname || u.pathname === b.pathname + "index.html")) {
-        return `${b.origin}${b.pathname}index.html?flow=recovery`;
-      }
-    }
-  } catch { /* not a URL: the default below */ }
-  const b = new URL(PORTAL_URLS[0].endsWith("/") ? PORTAL_URLS[0] : PORTAL_URLS[0] + "/");
-  return `${b.origin}${b.pathname}index.html?flow=recovery`;
-}
+   own addresses (portalBase, above). Supabase Auth's redirect allow-list
+   checks it again. */
+const recoveryRedirect = (asked: unknown) => `${portalBase(asked)}index.html?flow=recovery`;
 
 const ACTIVE_ONLY = "Only an active account can sign in. Reactivate it first.";
 
@@ -7904,7 +7971,7 @@ const SECURITY_ACTIONS = [
   "role.changed", "school.changed", "county.changed", "email.changed",
   "password.reset", "password.reset_link_sent", "password.temporary_set", "password.changed",
   "permission.granted", "permission.revoked", "scope.changed", "scope.assigned",
-  "invitation.created", "invitation.revoked", "invitation.accepted",
+  "invitation.created", "invitation.emailed", "invitation.renewed", "invitation.revoked", "invitation.accepted",
   "kobo.connection_saved", "kobo.webhook_secret_created", "kobo.webhook_secret_removed", "learner.pin_reset", "learner.unlocked",
 ];
 

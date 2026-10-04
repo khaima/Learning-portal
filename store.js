@@ -939,13 +939,22 @@ export async function setUserStatus(id, action, reason = "") {
   const { user } = await apiSend("POST", `/users/${id}/status`, { action, reason });
   return user;
 }
+/** { invitations, emailReady } — emailReady: the portal can email invitations. */
 export async function getInvitations() {
-  const { invitations } = await apiGet("/users/invitations");
-  return invitations || [];
+  const { invitations, emailReady } = await apiGet("/users/invitations");
+  return { invitations: invitations || [], emailReady: !!emailReady };
 }
-/** Returns { invitation, token }. The token is shown once, to build the link. */
-export async function inviteStaff({ email, role, schoolId, county }) {
-  return apiSend("POST", "/users/invitations", { email, role, schoolId, county });
+/* Invitations are a one-time link. Returns { invitation, token, emailed,
+   emailError }: the token is shown once, to build the link to copy; with
+   send, the portal also emails that same link (portalUrl says which copy
+   of the portal it should point at — the server checks it's one of ours). */
+const portalUrl = () => new URL(".", location.href).href;
+export async function inviteStaff({ email, role, schoolId, county, send = false }) {
+  return apiSend("POST", "/users/invitations", { email, role, schoolId, county, send, portalUrl: portalUrl() });
+}
+/** A fresh link for an unused invitation (the earlier one stops working), emailed or to copy. */
+export async function renewInvitation(id, { send = false } = {}) {
+  return apiSend("POST", `/users/invitations/${id}/renew`, { send, portalUrl: portalUrl() });
 }
 export async function revokeInvitation(id) {
   return apiSend("DELETE", `/users/invitations/${id}`);

@@ -1,8 +1,8 @@
-# Sign-in and passwords — production setup
+# Sign-in, invitations and passwords — production setup
 
-How people sign in to the HPF Digital Learning Portal, what an
-administrator can do when someone is locked out, and the one-time Supabase
-Auth setup (mail sender, branded email, closed sign-ups) that makes it
+How people sign in to the HPF Digital Learning Portal, how staff are
+invited, what an administrator can do when someone is locked out, and the
+one-time setup (mail sender, branded emails, closed sign-ups) that makes it
 production-ready. Supabase project: `fwpqytrdlmxymvegvgji`.
 
 ## How sign-in works
@@ -23,6 +23,38 @@ production-ready. Supabase project: `fwpqytrdlmxymvegvgji`.
   "Create an account".
 - **Password boxes** show a hint ("Your password", "At least 8
   characters"), not dots that look like a password is already filled in.
+
+## Inviting staff
+
+Users & roles → **+ Invite staff**: email, role, and the school or county.
+Every invitation is a one-time link — it creates their account with
+exactly that role and placement, for that email address only, and expires
+in 14 days. Two ways to get it to them:
+
+- **Send invitation email** — the portal emails the link from your sender
+  address, in an HPF-branded email ("You're invited…", the role and
+  school, an **Accept the invitation** button and the plain link). Replies
+  go to the administrator who sent it. The link is also shown once, so you
+  can send it another way too.
+- **Copy link instead** — copy it and send it yourself (WhatsApp, SMS,
+  your own email).
+
+If the email can't be sent (mail not set up yet, or the provider refuses),
+the invitation is still made and its link is shown to copy, with the
+reason. Until the mail secrets are set (step 4 below), only **Create link
+to copy** is offered.
+
+Only a hash of each link is kept, so a link can't be shown again later.
+For an open invitation, **Email again** or **New link** makes a fresh link
+(the earlier one stops working at once) and restarts the 14 days.
+**Revoke** stops it.
+
+Invitation emails go through the mail provider's HTTPS API from the `api`
+Edge Function ([`mail.ts`](../supabase/functions/api/mail.ts)) — they carry
+the portal's own link, so they aren't a Supabase Auth email. That's why
+the setup script also gives the function its own mail secrets. Resend uses
+the same API key as for SMTP; Brevo needs an **API key** (not the SMTP
+key); a custom SMTP server can't send invitations — copy the links.
 
 ## When someone can't sign in
 
@@ -72,8 +104,17 @@ password.
 | `password.changed` | Someone chose their own password (reset link, temporary password, or My profile) | whether it replaced a temporary password |
 | `password.reset` | (history only) the old "Set new password" | — |
 
-Account approval, role, status and invitation changes are audited as
-before (`docs/RBAC.md`).
+Invitations too:
+
+| Action | When | Details |
+|---|---|---|
+| `invitation.created` | An invitation was made | email, role, school or county, expiry |
+| `invitation.emailed` | The portal emailed it | email, role (never the link) |
+| `invitation.renewed` | **Email again** / **New link** made a fresh link | email, role, new and previous expiry |
+| `invitation.revoked` / `invitation.accepted` | Revoked, or used | email, role |
+
+Account approval, role and status changes are audited as before
+(`docs/RBAC.md`).
 
 ## One-time setup: mail sender, branded email, closed sign-ups
 
@@ -85,7 +126,8 @@ your own keys — they stay on your computer.
 
 ### 1. A mail provider, with your domain verified
 
-Either works; both have a free tier that's plenty for password resets.
+Either works; both have a free tier that's plenty for password resets
+and invitations.
 
 - **Resend** (resend.com): Domains → Add domain → `humanpractice.org` (or
   a subdomain such as `mail.humanpractice.org`) → add the DNS records it
@@ -93,7 +135,8 @@ Either works; both have a free tier that's plenty for password resets.
   Keys → Create (permission: *Sending access*, that domain only).
 - **Brevo** (brevo.com): Senders, Domains & Dedicated IPs → Domains → add
   and authenticate the domain (DKIM, DMARC). Then SMTP & API → SMTP →
-  note the **SMTP login** and create an **SMTP key**.
+  note the **SMTP login** and create an **SMTP key**; and SMTP & API →
+  API keys → create an **API key** (for invitation emails).
 
 The sender address (e.g. `no-reply@humanpractice.org`) must be on the
 verified domain, or mail is refused or lands in spam.
@@ -116,6 +159,7 @@ and fill it in:
 | `SMTP_PROVIDER` | for mail | `resend`, `brevo` or `custom` |
 | `RESEND_API_KEY` | Resend | the API key (host `smtp.resend.com`, port 465, user `resend` are filled in for you) |
 | `BREVO_SMTP_LOGIN`, `BREVO_SMTP_KEY` | Brevo | the SMTP login and key (host `smtp-relay.brevo.com`, port 587) |
+| `BREVO_API_KEY` | Brevo, for invitation emails | an API key (`xkeysib-…`) — not the SMTP key |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` | custom | any other SMTP server |
 | `SMTP_SENDER_EMAIL` | for mail | the From address, on the verified domain |
 | `SMTP_SENDER_NAME` | no | defaults to "HPF Digital Learning Portal" |
@@ -123,8 +167,8 @@ and fill it in:
 | `PORTAL_URLS` | no | the portal's addresses for the redirect allow-list; defaults to the Vercel and GitHub Pages sites |
 
 The `api` Edge Function also reads an optional `PORTAL_URLS` secret
-(same format) for where reset links may lead; the default is the two live
-sites. Set it only if the portal moves:
+(same format) for where reset and invitation links may lead; the default
+is the two live sites. Set it only if the portal moves:
 `npx supabase secrets set PORTAL_URLS=https://…/,https://…/ --project-ref fwpqytrdlmxymvegvgji`.
 
 ### 4. Run it
@@ -151,7 +195,10 @@ It sets:
 - link lifetime one hour;
 - **public sign-ups off** (`disable_signup`);
 - the portal's addresses added to the redirect allow-list (nothing is
-  removed from it).
+  removed from it);
+- the `api` Edge Function's mail secrets for invitation emails:
+  `MAIL_PROVIDER`, `MAIL_API_KEY`, `MAIL_FROM` (your sender address),
+  `MAIL_FROM_NAME`. They take effect at once — no redeploy.
 
 To close sign-ups before mail is ready:
 `node --env-file=.env scripts/configure-auth.mjs --signups-only --apply`.
@@ -167,8 +214,12 @@ sign-in page sees (sign-ups, email, Google).
    **Send reset link**. It should arrive within a minute from your sender
    address, with the HPF email; the link opens "Set a new password" on the
    portal.
-3. Audit log → Security events shows `sent a password reset link`.
-4. Revoke the access token (supabase.com/dashboard/account/tokens) and
+3. Users & roles → **+ Invite staff** → an address of yours → **Send
+   invitation email**. It should arrive with the HPF invitation; you can
+   revoke it afterwards.
+4. Audit log → Security events shows `sent a password reset link` and
+   `emailed an invitation`.
+5. Revoke the access token (supabase.com/dashboard/account/tokens) and
    delete `.env` if you no longer need it. The mail key stays only in
    Supabase.
 
@@ -177,6 +228,7 @@ sign-in page sees (sign-ups, email, Google).
 | You see | Why | Fix |
 |---|---|---|
 | "The email couldn't be sent … Check the portal's mail settings" | No custom SMTP yet (the built-in mailer refuses), or the provider rejected it | Steps 1–4; check the sender is on the verified domain. Meanwhile use **Temporary password**. |
+| "The invitation … is ready, but not emailed" | Mail secrets not set, the sender isn't on a verified domain, or the API key is wrong | Re-run the script (step 4); meanwhile copy the link |
 | "Too many emails have gone out just now" | The hourly limit, or the one-per-minute limit per address | Wait, or raise `SMTP_RATE_LIMIT_PER_HOUR` and re-run |
 | The link opens the portal's front page instead of "Set a new password" | The portal address isn't on the redirect allow-list | Re-run the script (it adds them), or Authentication → URL Configuration |
 | "This link is invalid, already used, or has expired" | Used already, older than an hour, or opened by an email scanner first | Send a new one |
@@ -194,4 +246,10 @@ sign-in page sees (sign-ups, email, Google).
   `temporary_password_hash`, `password_changed_at`).
 - Sign-in page: `index.js` (Google button, "Choose your own password"),
   `auth.js` (`authSettings`, `changeMyPassword`, `requireRole`).
-- Console: `console.js` (Reset password dialog, the one-time password).
+- Console: `console.js` (Reset password dialog, the one-time password;
+  Invite staff — email or copy, Email again / New link / Revoke).
+- Invitations: `POST /users/invitations` (`send`), `POST
+  /users/invitations/:id/renew`, [`mail.ts`](../supabase/functions/api/mail.ts)
+  (Resend / Brevo, the invitation email). Tests:
+  [`mail_test.ts`](../supabase/functions/api/mail_test.ts) and the
+  "invitation email" / "renewing an invitation" tests in `authz_test.ts`.

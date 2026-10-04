@@ -26,7 +26,7 @@ import {
   koboConfig, saveKoboConfig, koboAssets, koboAssetPreview, koboForms, attachKoboForm,
   removeKoboForm, restoreKoboForm, syncKobo, koboResults,
   getUserDirectory, updateUser, sendUserResetLink, issueTemporaryPassword,
-  approveUser, rejectUser, setUserStatus, getInvitations, inviteStaff, revokeInvitation,
+  approveUser, rejectUser, setUserStatus, getInvitations, inviteStaff, renewInvitation, revokeInvitation,
   getLearners, getAcademicYears, createAcademicYear,
   watchSchools, createSchool, renameSchool, deleteSchool, createCounty, deleteCounty, wireSchoolPicker,
 } from "./store.js";
@@ -2820,6 +2820,8 @@ async function main() {
     "learner.pin_reset": "reset a learner's PIN",
     "learner.unlocked": "unlocked a learner",
     "invitation.created": "created an invitation",
+    "invitation.emailed": "emailed an invitation",
+    "invitation.renewed": "made a new invitation link",
     "invitation.revoked": "revoked an invitation",
     "invitation.accepted": "accepted an invitation",
     "permission.granted": "granted a permission",
@@ -2842,7 +2844,7 @@ async function main() {
       case "account.created": return d.via === "invitation" ? `joined by invitation as ${roleName(d.role)}` : `asked to join as ${roleName(d.requestedRole)}`;
       case "account.approved": return `as ${roleName(d.role)}`;
       case "account.updated": return (d.fields || []).join(", ");
-      case "invitation.created": case "invitation.revoked": case "invitation.accepted":
+      case "invitation.created": case "invitation.revoked": case "invitation.accepted": case "invitation.emailed": case "invitation.renewed":
         return `${d.email || ""}${d.role ? ` as ${roleName(d.role)}` : ""}`;
       case "permission.granted": case "permission.revoked": return `${d.permission || ""}${d.reason ? ` — ${d.reason}` : ""}`;
       case "scope.changed": return [d.added?.length ? `added ${d.added.join(", ")}` : "", d.removed?.length ? `removed ${d.removed.join(", ")}` : ""].filter(Boolean).join("; ");
@@ -2903,18 +2905,56 @@ async function main() {
     $("#inv_county_field").hidden = !(inSchool || role === "field_officer");
     $("#inv_school_field").hidden = !inSchool;
   }
+  /* Whether the portal can email invitations (the server says, from its
+     mail settings); copying the link always works. */
+  let inviteEmailReady = false;
+  function syncInviteDelivery() {
+    $("#inviteSendEmail").hidden = !inviteEmailReady;
+    $("#inviteNoEmail").hidden = inviteEmailReady;
+    // Without email, copying the link is the main action.
+    $("#inviteCopyLink").className = `btn ${inviteEmailReady ? "btn-outline" : "btn-primary"}`;
+    $("#inviteCopyLink").textContent = inviteEmailReady ? "Copy link instead" : "Create link to copy";
+  }
   async function renderInvitations() {
     try {
-      const open = (await getInvitations()).filter((i) => i.status === "open");
+      const { invitations, emailReady } = await getInvitations();
+      inviteEmailReady = emailReady;
+      syncInviteDelivery();
+      const open = invitations.filter((i) => i.status === "open");
       $("#invitationsList").innerHTML = open.length
         ? `<div class="list-group"><div class="list-group-title">Open invitations<span class="count">${open.length}</span></div>${
-          open.map((i) => `<div class="task-row" data-invitation="${esc(i.id)}"><div style="flex:1;min-width:0"><b>${esc(i.email)}</b>
+          open.map((i) => `<div class="task-row" data-invitation="${esc(i.id)}" data-email="${esc(i.email)}"><div style="flex:1;min-width:0"><b>${esc(i.email)}</b>
             <span>${esc(i.roleLabel)}${i.schoolId ? ` · ${esc(schoolLabel(i.schoolId))}` : i.county ? ` · ${esc(i.county)}` : ""} · expires ${esc(new Date(i.expiresAt).toLocaleDateString())}</span></div>
-            <div class="roster-actions"><button type="button" class="danger" data-revoke="${esc(i.id)}">Revoke</button></div></div>`).join("")}</div>`
+            <div class="roster-actions">${emailReady ? `<button type="button" data-renew="email">Email again</button>` : ""}<button type="button" data-renew="link">New link</button><button type="button" class="danger" data-revoke="${esc(i.id)}">Revoke</button></div></div>`).join("")}</div>`
         : "";
     } catch (err) {
       $("#invitationsList").innerHTML = errorState(friendlyError(err), renderInvitations);
     }
+  }
+  /* What happened to an invitation just made or renewed: emailed (or why
+     not), and the link — shown once — to copy either way. */
+  function showInviteResult({ invitation, token, emailed, emailError }, { renewed = false } = {}) {
+    const link = new URL(`index.html?invite=${encodeURIComponent(token)}`, location.href).href;
+    const until = new Date(invitation.expiresAt).toLocaleDateString();
+    const who = `${esc(invitation.email)} (${esc(invitation.roleLabel)})`;
+    const head = emailed
+      ? `<b>Invitation emailed to ${who}</b>The link in it works once and expires on ${esc(until)}.${renewed ? " The earlier link no longer works." : ""} You can also copy it, to send another way:`
+      : emailError
+        ? `<b>The invitation for ${who} is ready, but not emailed</b>${esc(emailError)} It's shown only now, works once and expires on ${esc(until)}.`
+        : `<b>Invitation link for ${who}</b>Send this to them — it's shown only now, works once and expires on ${esc(until)}.${renewed ? " The earlier link no longer works." : ""}`;
+    const box = $("#inviteResult");
+    box.className = `alert ${emailError ? "alert-warn" : "alert-ok"}`;
+    box.innerHTML = `<div style="flex:1;min-width:0">${head}
+        <div style="display:flex;gap:.5rem;margin-top:.5rem;flex-wrap:wrap">
+          <input id="inviteLink" type="text" readonly value="${esc(link)}" aria-label="Invitation link" style="flex:1;min-width:12rem">
+          <button type="button" class="btn btn-outline" id="inviteCopy">Copy link</button>
+        </div></div>`;
+    box.hidden = false;
+    $("#inviteCopy").addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(link); toast("Link copied", ""); }
+      catch { $("#inviteLink").select(); }
+    });
+    box.scrollIntoView({ block: "nearest" });
   }
   if (has("users.invite")) {
     $("#invitePanel").hidden = false;
@@ -2924,6 +2964,7 @@ async function main() {
       $("#inviteToggle").setAttribute("aria-expanded", String(open));
       if (!open) return;
       $("#inviteResult").hidden = true;
+      syncInviteDelivery();
       if (!grantable.length) await renderUsers();
       $("#inv_role").innerHTML = grantable.map((r) => `<option value="${esc(r.value)}">${esc(r.label)}</option>`).join("");
       $("#inv_role").value = grantable.some((r) => r.value === "teacher") ? "teacher" : grantable[0]?.value || "";
@@ -2944,27 +2985,19 @@ async function main() {
       const county = invitePicker?.county() || "";
       if (inSchool && !school) { toast("Choose a school", "Teachers and school heads are invited into a school.", "error"); return; }
       if (role === "field_officer" && !county) { toast("Choose a county", "Field officers belong to a county.", "error"); return; }
-      const btn = e.target.querySelector("[type=submit]");
-      btn.disabled = true;
+      // Which button: email it (the default when email is set up), or a link to copy.
+      const send = inviteEmailReady && (e.submitter ? e.submitter.value === "email" : true);
+      const buttons = [...e.target.querySelectorAll("[type=submit]")];
+      buttons.forEach((b) => { b.disabled = true; });
       try {
-        const { invitation, token } = await inviteStaff({
+        const res = await inviteStaff({
           email: $("#inv_email").value.trim(), role,
           schoolId: inSchool ? school.id : undefined,
           county: role === "field_officer" ? county : undefined,
+          send,
         });
-        const link = new URL(`index.html?invite=${encodeURIComponent(token)}`, location.href).href;
-        $("#inviteResult").innerHTML = `
-          <div><b>Invitation link for ${esc(invitation.email)} (${esc(invitation.roleLabel)})</b>
-          Send this to them — it's shown only now, works once and expires on ${esc(new Date(invitation.expiresAt).toLocaleDateString())}.</div>
-          <div style="display:flex;gap:.5rem;margin-top:.5rem;flex-wrap:wrap">
-            <input id="inviteLink" type="text" readonly value="${esc(link)}" style="flex:1;min-width:12rem">
-            <button type="button" class="btn btn-outline" id="inviteCopy">Copy link</button>
-          </div>`;
-        $("#inviteResult").hidden = false;
-        $("#inviteCopy").addEventListener("click", async () => {
-          try { await navigator.clipboard.writeText(link); toast("Link copied", ""); }
-          catch { $("#inviteLink").select(); }
-        });
+        showInviteResult(res);
+        if (res.emailed) toast("Invitation emailed", res.invitation.email, "success");
         $("#inviteForm").reset();
         $("#inviteForm").hidden = true;
         $("#inviteToggle").setAttribute("aria-expanded", "false");
@@ -2973,10 +3006,32 @@ async function main() {
       } catch (err) {
         toast("Couldn't create the invitation", friendlyError(err), "error");
       } finally {
-        btn.disabled = false;
+        buttons.forEach((b) => { b.disabled = false; });
       }
     });
     $("#invitationsList").addEventListener("click", async (e) => {
+      const renew = e.target.closest("[data-renew]");
+      if (renew) {
+        const row = renew.closest("[data-invitation]");
+        const email = row.dataset.email;
+        const send = renew.dataset.renew === "email";
+        const ok = await confirmDialog(send
+          ? { title: `Email a new link to ${email}?`, body: "A fresh invitation link goes to them by email. The link sent earlier stops working. The new one expires in 14 days.", confirmLabel: "Send email" }
+          : { title: `Make a new link for ${email}?`, body: "The link sent earlier stops working. You'll copy the new one and send it yourself. It expires in 14 days.", confirmLabel: "Make new link" });
+        if (!ok) return;
+        renew.disabled = true;
+        try {
+          const res = await renewInvitation(row.dataset.invitation, { send });
+          showInviteResult(res, { renewed: true });
+          if (res.emailed) toast("Invitation emailed", email, "success");
+          renderInvitations();
+          renderAuditPanel();
+        } catch (err) {
+          renew.disabled = false;
+          toast("Couldn't renew it", friendlyError(err), "error");
+        }
+        return;
+      }
       const btn = e.target.closest("[data-revoke]");
       if (!btn) return;
       const ok = await confirmDialog({ title: "Revoke this invitation?", body: "The link stops working straight away.", confirmLabel: "Revoke", danger: true });
