@@ -1,0 +1,712 @@
+<!-- The shared sections of the four management workspaces (platform.html,
+     admin.html, me.html, education.html). Loaded by workspace.js; the menu
+     (navigation.js) decides which of these pages each person can open. -->
+  <div class="app-shell">
+    <aside class="app-side">
+      <a class="wordmark" href="index.html">
+        <span class="badge-mark">HPF</span>
+        <span class="wordmark-text"><b>Human Practice</b><span>Digital Learning Portal</span></span>
+      </a>
+      <nav class="side-nav" aria-label="Main"></nav>
+      <div class="side-user" id="sideUserBtn" tabindex="0" role="button" aria-haspopup="true" aria-expanded="false">
+        <span class="side-avatar" id="sideAvatar">?</span>
+        <div><b id="sideName">—</b><span id="sideMeta">—</span></div>
+      </div>
+      <div class="side-menu" id="sideMenu" hidden>
+        <button class="side-signout" id="signOutBtn">Sign out</button>
+      </div>
+    </aside>
+
+    <main class="app-main">
+      <div class="app-top">
+        <div>
+          <span class="pill">Workspace</span>
+          <h1 id="greeting" style="margin-top:.5rem">Habari</h1>
+          <p id="topSub"></p>
+        </div>
+        <div class="app-top-actions">
+          <button class="icon-btn" aria-label="Notifications"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 8a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg><span class="dot"></span></button>
+          <button class="btn btn-outline" id="signOutBtn2">Sign out</button>
+        </div>
+      </div>
+
+      <!-- Global filters — shown only on the pages whose data they narrow
+           (navigation.js marks those); console.js applies them. -->
+      <div class="panel filter-bar">
+        <div class="filter-bar-row">
+          <div class="field">
+            <label for="gfCounty">County</label>
+            <select id="gfCounty"><option value="">All counties</option></select>
+          </div>
+          <div class="field">
+            <label for="gfSchool">School</label>
+            <select id="gfSchool"><option value="">All schools</option></select>
+          </div>
+          <div class="field">
+            <label for="gfTerm">Term</label>
+            <select id="gfTerm"></select>
+          </div>
+          <div class="field" id="gfFromField" hidden>
+            <label for="gfFrom">From</label>
+            <input type="date" id="gfFrom">
+          </div>
+          <div class="field" id="gfToField" hidden>
+            <label for="gfTo">To</label>
+            <input type="date" id="gfTo">
+          </div>
+          <div class="field">
+            <label for="gfRole">Role</label>
+            <select id="gfRole"></select>
+          </div>
+          <button type="button" id="gfClear" class="btn btn-ghost">Clear filters</button>
+        </div>
+        <p class="hint" id="gfSummary" hidden style="margin:.6rem 0 0"></p>
+      </div>
+
+      <section class="dash-page" data-page="platform-overview" hidden>
+        <div id="pfBody"><div class="empty-state">Loading…</div></div>
+      </section>
+
+      <section class="dash-page" data-page="admin-overview" hidden>
+        <div id="aoBody"><div class="empty-state">Loading…</div></div>
+      </section>
+
+      <section class="dash-page" data-page="calendar" hidden>
+        <!-- Academic calendar (calendar.manage) -->
+        <div class="panel" id="calendarPanel">
+          <div class="panel-head"><h2>Academic year</h2></div>
+          <p class="shelf-sub" id="calendarText">Loading…</p>
+          <button type="button" class="btn btn-outline" id="startNextYear" hidden></button>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="classes" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Classes</h2></div>
+          <p class="hint" style="margin-top:0">This school year's classes in each school, their teachers and how many learners are in each. School heads create classes and assign teachers in their own school.</p>
+          <div class="filter-bar-row" style="margin-bottom:.8rem"><div class="field"><label for="clsSchool">School</label><select id="clsSchool"></select></div></div>
+          <div id="clsBody"><div class="empty-state">Loading…</div></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="subjects" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Subjects</h2></div>
+          <p class="hint" style="margin-top:0">The subjects classes take and assignments are set in. A subject can be added but not renamed or removed, so past work keeps its subject.</p>
+          <form id="subjectForm" class="school-add"><input id="subjectName" type="text" maxlength="60" placeholder="New subject, e.g. Kiswahili" aria-label="Subject name" required>
+            <button class="btn btn-primary" type="submit">Add subject</button></form>
+          <div id="subjectsBody"><div class="empty-state">Loading…</div></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="learners" hidden>
+        <!-- Learners across every school: find, see history, transfer (learners.view.all / learners.transfer) -->
+        <div class="panel" id="learnerFinderPanel">
+          <div class="panel-head"><h2>Find a learner</h2><span class="chart-meta" id="lfMeta" style="margin:0"></span></div>
+          <p class="shelf-sub">Search every school by name, username or learner code — to see where a learner has been, or move them to another school.</p>
+          <form id="learnerFinder" class="school-add">
+            <select id="lf_school" aria-label="School"><option value="">All schools</option></select>
+            <input id="lf_q" type="text" placeholder="Name, username or learner code" aria-label="Search learners">
+            <button class="btn btn-primary" type="submit">Search</button>
+          </form>
+          <label class="field-remember" style="margin:-.4rem 0 .6rem"><input type="checkbox" id="lf_archived"> <span>Include archived learners</span></label>
+          <div id="learnerFinderResults"></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="teachers" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Teachers and school heads</h2><span class="chart-meta" id="tchMeta" style="margin:0"></span></div>
+          <p class="hint" style="margin-top:0">Where they work, the classes they teach and the training they've attended — within your area. Account details and changes are on Staff accounts.</p>
+          <div class="filter-bar-row" style="margin-bottom:.8rem">
+            <div class="field"><label for="tchSearch">Search</label><input id="tchSearch" type="search" placeholder="Name, school, county…"></div>
+            <div class="field"><label for="tchRole">Who</label><select id="tchRole"><option value="">Teachers and heads</option><option value="teacher">Teachers</option><option value="school_leader">School heads</option></select></div>
+          </div>
+          <div id="tchBody"><div class="empty-state">Loading…</div></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="school-profiles" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>School profiles</h2></div>
+          <div class="filter-bar-row" style="margin-bottom:.8rem"><div class="field"><label for="spSchool">School</label><select id="spSchool"></select></div></div>
+          <div id="spBody"><div class="empty-state">Loading…</div></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="assignments" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Assignments & assessments</h2><span class="chart-meta" id="asgMeta" style="margin:0"></span></div>
+          <p class="hint" style="margin-top:0">Work set in every school in your area — tests and quizzes included. <b>Handed in</b> and <b>marks</b> are shown side by side, never combined. Teachers set and mark work; this view is read-only.</p>
+          <div class="filter-bar-row" style="margin-bottom:.8rem">
+            <div class="field"><label for="asgSchool">School</label><select id="asgSchool"></select></div>
+            <div class="field"><label for="asgStatus">Status</label><select id="asgStatus"><option value="">Open and closed</option><option value="published">Open</option><option value="closed">Closed</option></select></div>
+          </div>
+          <div id="asgBody"><div class="empty-state">Loading…</div></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="results" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Results</h2></div>
+          <p class="hint" style="margin-top:0">Two separate measures: <b>completion</b> (handing in what was set) and <b>achievement</b> (the marks on marked work). Doing everything isn't the same as doing well, so they're never combined.</p>
+          <div class="filter-bar-row" style="margin-bottom:.8rem">
+            <div class="field"><label for="resBy">Show by</label><select id="resBy"><option value="school">School</option><option value="subject">Subject</option><option value="grade">Grade</option><option value="class">Class</option><option value="term">Term</option></select></div>
+            <div class="field"><label for="resSchool">School</label><select id="resSchool"></select></div>
+          </div>
+          <div id="resBody"><div class="empty-state">Loading…</div></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="training" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Training register</h2>
+            <span class="dq-head-actions"><label class="q-choice" style="margin:0;font-size:.82rem"><input type="checkbox" id="trArchived"> Show archived</label>
+              <button type="button" class="btn btn-outline q-small" id="trNewBtn" hidden>Record a session</button></span></div>
+          <p class="hint" style="margin-top:0">Sessions and who attended. Nothing is deleted — archive a session, or take a teacher off the list (kept as not attended). Every change is in the audit log.</p>
+          <div id="trainingList"><div class="empty-state">Loading…</div></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="field-visits" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Field visits</h2><span class="chart-meta" id="fvMeta" style="margin:0"></span></div>
+          <p class="hint" style="margin-top:0">Every visit filed by field officers in your area, newest first.</p>
+          <div class="filter-bar-row" style="margin-bottom:.8rem"><div class="field"><label for="fvSearch">Search</label><input id="fvSearch" type="search" placeholder="School, officer, visit type…"></div></div>
+          <div id="fvBody"><div class="empty-state">Loading…</div></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="survey-results" hidden>
+        <div class="panel" id="surveyResultsPanel">
+          <div class="panel-head">
+            <h2>Survey results</h2>
+            <button type="button" class="btn btn-outline" id="srRefresh" hidden>Refresh</button>
+          </div>
+          <div class="field" id="srPickerField" hidden style="margin-bottom:.6rem">
+            <label for="srPicker">Survey / questionnaire</label>
+            <select id="srPicker"></select>
+          </div>
+          <p class="hint" style="margin-top:0">From the portal's own records: only submissions that pass validation (or that someone accepted) are counted. The county and school filters apply.</p>
+          <p class="chart-meta" id="srMeta"></p>
+          <div id="srBody"><div class="empty-state">Loading…</div></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="permissions" hidden>
+        <div id="permBody"><div class="empty-state">Loading…</div></div>
+      </section>
+
+      <section class="dash-page" data-page="audit" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2><span id="auditTitle">Audit log</span></h2></div>
+          <p class="hint" style="margin-top:0" id="auditHint">Every recorded change — who made it and when. This record can't be edited or deleted.</p>
+          <div id="auditList"><div class="empty-state">Loading…</div></div>
+          <button type="button" class="btn btn-outline" id="auditMore" hidden style="margin-top:.6rem">Load older</button>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="account-activity" hidden>
+        <div id="activityBody"><div class="empty-state">Loading…</div></div>
+      </section>
+
+      <section class="dash-page" data-page="overview" hidden>
+        <div class="panel-head" style="margin-bottom:.6rem"><h2 style="margin:0">Executive overview</h2><span class="chart-meta" data-imp-meta style="margin:0"></span></div>
+        <div class="stat-row exec-row" id="statRow"></div>
+        <div class="stat-row" id="statRow2"></div>
+        <div class="intel-areas" id="intelAreas"></div>
+        <div class="panel">
+          <div class="panel-head"><h2>Needs attention</h2></div>
+          <div id="attentionList"><div class="empty-state">Loading…</div></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="reach" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Reach</h2><span class="chart-meta" data-imp-meta style="margin:0"></span></div>
+          <p class="hint" style="margin-top:0">Where the programme is: schools, learners and teachers by county, grades, and gender where it has been recorded (optional, shown only as totals). Learner growth term by term.</p>
+          <div id="imp-reach"><div class="empty-state">Loading…</div></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="learning" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Learning</h2><span class="chart-meta" data-imp-meta style="margin:0"></span></div>
+          <p class="hint" style="margin-top:0">Work set and handed in (<b>completion</b>), the marks on marked work (<b>results</b>), by grade and subject, and how learners progress from term to term. Completion and results are separate measures — handing work in isn't the same as doing well.</p>
+          <div id="imp-learning"><div class="empty-state">Loading…</div></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="teacher-development" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Teacher development</h2><span class="chart-meta" data-imp-meta style="margin:0"></span></div>
+          <p class="hint" style="margin-top:0">Training (from the register below), ICT integration and other M&amp;E indicators shown here, teachers' own use of digital resources, and what teachers do in the portal.</p>
+          <div id="imp-teacher-development"><div class="empty-state">Loading…</div></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="field-operations" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Field operations</h2><span class="chart-meta" data-imp-meta style="margin:0"></span></div>
+          <p class="hint" style="margin-top:0">Field visits by type, month, county and term; schools not yet visited; completed visit forms and form response rates; Kobo submissions and their checks. The date filter applies to visit and submission dates.</p>
+          <div id="imp-field-operations"><div class="empty-state">Loading…</div></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="digital-resources" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Digital resources</h2><span class="chart-meta" data-imp-meta style="margin:0"></span></div>
+          <p class="hint" style="margin-top:0">What's on the shelves, how often it's opened and for how long, who uses it, and the most-used content.</p>
+          <div id="imp-digital-resources"><div class="empty-state">Loading…</div></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="me-dashboard" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>M&amp;E — target against actual</h2><span class="chart-meta" id="melDashMeta" style="margin:0"></span></div>
+          <p class="hint" style="margin-top:0">Every indicator in the active programmes, for the period below and the county / school picked at the top. The line on each bar is the target. Pick an indicator for its trend over time and how counties and schools compare. Record and verify actuals on <a href="#mel-results">Indicator results</a>.</p>
+          <div class="filter-bar-row" style="margin-bottom:.8rem">
+            <div class="field"><label for="melDashPeriod">Period</label><select id="melDashPeriod"></select></div>
+          </div>
+          <div id="melDash"><div class="empty-state">Loading…</div></div>
+        </div>
+        <div class="panel" id="melDashDetailPanel" hidden>
+          <div id="melDashDetail"></div>
+        </div>
+      </section>
+      <section class="dash-page" data-page="data-quality" hidden>
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Data Quality Center</h2>
+            <span class="dq-head-actions"><span class="chart-meta" id="dqMeta" style="margin:0"></span>
+              <button type="button" class="btn btn-outline q-small" id="dqScanBtn">Scan now</button></span>
+          </div>
+          <p class="hint" style="margin-top:0">Problems in the portal's records — duplicates, missing or contradictory schools, counties and grades, Kobo submissions that failed checks, orphaned links, bad dates, and work or classes left with nobody active behind them. The county, school and date filters at the top apply (date = when an issue was first found). Nothing is ever deleted, and every change is recorded in the issue's history and the audit log.</p>
+          <div id="dqTop">${'<div class="empty-state">Loading…</div>'}</div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>By check</h2></div>
+          <div id="dqTypes"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Issues</h2><span class="chart-meta" id="dqCount" style="margin:0"></span></div>
+          <div class="filter-bar-row" style="margin-bottom:.8rem">
+            <div class="field"><label for="dq_type">Issue type</label><select id="dq_type"><option value="">All types</option></select></div>
+            <div class="field"><label for="dq_severity">Severity</label>
+              <select id="dq_severity"><option value="">Any</option><option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option></select></div>
+            <div class="field"><label for="dq_status">Status</label>
+              <select id="dq_status"><option value="active">Open and under review</option><option value="OPEN">Open</option><option value="UNDER_REVIEW">Under review</option><option value="RESOLVED">Resolved</option><option value="IGNORED">Ignored</option><option value="">All</option></select></div>
+            <div class="field"><label for="dq_q">Search</label><input type="search" id="dq_q" placeholder="Name, school, code…"></div>
+          </div>
+          <div class="dq-bulk" id="dqBulk" hidden>
+            <span id="dqBulkCount"></span>
+            <input type="text" id="dqBulkNote" maxlength="1000" placeholder="Reason — required to resolve or ignore">
+            <button type="button" class="btn btn-outline q-small" data-bulk="UNDER_REVIEW">Mark under review</button>
+            <button type="button" class="btn btn-outline q-small" data-bulk="RESOLVED">Mark resolved</button>
+            <button type="button" class="btn btn-ghost q-small" data-bulk="IGNORED">Ignore</button>
+            <button type="button" class="btn btn-ghost q-small" data-bulk="clear">Clear selection</button>
+          </div>
+          <div id="dqList"></div>
+          <div id="dqPager" class="lms-actions" style="justify-content:space-between;margin-top:.6rem;font-size:.82rem"></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="mel-results" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>M&amp;E results</h2></div>
+          <p class="hint" style="margin-top:0">Programme → outcomes → indicators: each one's baseline, target, actual, achievement and evidence for a term or school year. The county and school filters at the top choose where. Open an indicator to record its actual, verify it, add evidence or see it by county and school.</p>
+          <div class="filter-bar-row" style="margin-bottom:.8rem">
+            <div class="field"><label for="melProg">Programme</label><select id="melProg"></select></div>
+            <div class="field"><label for="melPeriod">Period</label><select id="melPeriod"></select></div>
+          </div>
+          <div id="melResults"><div class="empty-state">Loading…</div></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="mel-framework" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Results framework</h2><button type="button" class="btn btn-outline q-small" id="melNewProgBtn" hidden>+ New programme</button></div>
+          <p class="hint" style="margin-top:0">Each programme's outcomes, the indicators that measure them, where each indicator's data comes from, and its targets.</p>
+          <form id="melProgForm" class="fill-form dq-fix" hidden>
+            <b>New programme</b>
+            <div class="lms-grid3" style="grid-template-columns:8rem 1fr"><div class="field" style="margin:0"><label for="mp_code">Code</label><input id="mp_code" maxlength="40" placeholder="T2030"></div>
+              <div class="field" style="margin:0"><label for="mp_name">Name</label><input id="mp_name" maxlength="200" required placeholder="Teach2030"></div></div>
+            <div class="field" style="margin:0"><label for="mp_desc">Description</label><textarea id="mp_desc" rows="2" maxlength="4000"></textarea></div>
+            <div class="lms-grid3" style="grid-template-columns:1fr 1fr"><div class="field" style="margin:0"><label for="mp_start">Starts</label><input id="mp_start" type="date"></div>
+              <div class="field" style="margin:0"><label for="mp_end">Ends</label><input id="mp_end" type="date"></div></div>
+            <div class="lms-actions"><button class="btn btn-primary q-small" type="submit">Create</button><button class="btn btn-ghost q-small" type="button" id="melProgCancel">Cancel</button></div>
+          </form>
+          <div class="field" style="max-width:22rem"><label for="melFwProg">Programme</label><select id="melFwProg"></select></div>
+          <div id="melFramework"></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="mel-reports" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>M&amp;E reports</h2></div>
+          <p class="hint" style="margin-top:0">A report freezes the results for a programme, period and place (the county / school filter at the top). A draft can be refreshed; once final it never changes.</p>
+          <form id="melRepForm" class="filter-bar-row" style="margin-bottom:1rem;align-items:flex-end" hidden>
+            <div class="field"><label for="melRepProg">Programme</label><select id="melRepProg"></select></div>
+            <div class="field"><label for="melRepPeriod">Period</label><select id="melRepPeriod"></select></div>
+            <div class="field"><label for="melRepTitle">Title <span class="hint-inline">— optional</span></label><input id="melRepTitle" maxlength="200"></div>
+            <button class="btn btn-primary" type="submit">Generate</button>
+          </form>
+          <p class="field-hint" id="melRepScope"></p>
+          <div id="melReportList"></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="schools" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>School list</h2><span class="shelf-count" id="schoolListCount"></span></div>
+          <p class="shelf-sub">Every county and school dropdown in the portal — sign-up, field visits, user editing and the filters above — uses this list, and updates live when you change it. Each school gets a code, and every teacher, school head and learner placed in it gets their own code under it (e.g. NRK-001-T01).</p>
+          <form id="addSchoolForm" class="school-add">
+            <select id="as_county" aria-label="County" required></select>
+            <input id="as_name" type="text" placeholder="School name, e.g. Aitong Primary" maxlength="80" aria-label="School name" required>
+            <button class="btn btn-primary" type="submit">Add school</button>
+          </form>
+          <details class="county-manage">
+            <summary>Manage counties</summary>
+            <form id="addCountyForm" class="school-add">
+              <input id="ac_name" type="text" placeholder="New county, e.g. Samburu" maxlength="40" aria-label="County name" required>
+              <input id="ac_code" type="text" placeholder="Code, e.g. SMB" maxlength="4" aria-label="County code (2–4 letters)" required>
+              <button class="btn btn-outline" type="submit">Add county</button>
+            </form>
+            <p class="field-hint">The code (2–4 letters) starts every school code in that county, e.g. SMB-001, and can't be changed later. A county with no schools can be removed from its section below.</p>
+          </details>
+          <div id="schoolList"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2 id="schoolsHeading">Schools</h2></div>
+          <div id="schoolsBody"><div class="empty-state">Loading…</div></div>
+        </div>
+
+
+      </section>
+
+      <section class="dash-page" data-page="users" hidden>
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Staff accounts</h2>
+            <span class="chart-meta" id="usersMeta" style="margin:0"></span>
+          </div>
+          <p class="kobo-note">
+            Every staff sign-in, grouped by role. New accounts wait here for
+            approval; administrators can invite staff, change roles and
+            schools, and suspend, deactivate or reactivate accounts.
+            Passwords are one-way hashed and can't be viewed by anyone —
+            including this dashboard — so "Set new password" sets a brand-new
+            one instead of showing the old one.
+          </p>
+
+          <!-- Invitations (users.invite) -->
+          <div id="invitePanel" hidden style="margin-bottom:1rem">
+            <button type="button" class="btn btn-primary" id="inviteToggle" aria-expanded="false" aria-controls="inviteForm">+ Invite staff</button>
+            <form id="inviteForm" hidden style="margin-top:.8rem">
+              <div class="form-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:.6rem">
+                <div class="field"><label for="inv_email">Email</label><input id="inv_email" type="email" required placeholder="name@example.org"></div>
+                <div class="field"><label for="inv_role">Role</label><select id="inv_role"></select></div>
+                <div class="field" id="inv_county_field"><label for="inv_county">County</label><select id="inv_county"></select></div>
+                <div class="field" id="inv_school_field"><label for="inv_school">School</label><select id="inv_school"></select></div>
+              </div>
+              <p class="field-hint" style="margin-top:0">The person gets a link to create their account with exactly this role and placement. It works once and expires in 14 days. No email is sent — copy the link and send it to them yourself.</p>
+              <div class="edit-actions">
+                <button class="btn btn-primary" type="submit">Create invitation link</button>
+                <button class="btn btn-outline" type="button" id="inviteCancel">Cancel</button>
+              </div>
+            </form>
+            <div id="inviteResult" hidden class="alert alert-ok" style="margin-top:.8rem"></div>
+            <div id="invitationsList" style="margin-top:.6rem"></div>
+          </div>
+
+          <div class="form-row users-filters" style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:.9rem;max-width:56rem;margin-bottom:.3rem">
+            <div class="field" style="margin-bottom:0">
+              <label for="usersSearch">Search</label>
+              <input id="usersSearch" type="text" placeholder="Name, email, county, school…">
+            </div>
+            <div class="field" style="margin-bottom:0">
+              <label for="usersRole">Role</label>
+              <select id="usersRole"><option value="">All roles</option></select>
+            </div>
+            <div class="field" style="margin-bottom:0">
+              <label for="usersStatus">Status</label>
+              <select id="usersStatus">
+                <option value="">All</option>
+                <option value="pending">Waiting for approval</option>
+                <option value="active">Active</option>
+                <option value="suspended">Suspended</option>
+                <option value="deactivated">Deactivated</option>
+                <option value="rejected">Not approved</option>
+              </select>
+            </div>
+            <div class="field" style="margin-bottom:0">
+              <label for="usersSort">Sort by</label>
+              <select id="usersSort">
+                <option value="name">Name (A–Z)</option>
+                <option value="county">County (A–Z)</option>
+                <option value="school">School (A–Z)</option>
+              </select>
+            </div>
+          </div>
+          <div id="usersList"><div class="empty-state">Loading…</div></div>
+        </div>
+
+      </section>
+
+      <section class="dash-page" data-page="content" hidden>
+        <div class="panel upload-panel">
+          <div class="upload-bar">
+            <div class="upload-bar-text">
+              <h2>Upload content</h2>
+              <p>Add a file, a folder of files, or a link. New uploads start as drafts until you publish them.</p>
+            </div>
+            <button type="button" class="btn btn-primary" id="uploadToggle" aria-expanded="false" aria-controls="uploadForm">+ New upload</button>
+          </div>
+          <form id="uploadForm" class="upload-form" hidden>
+            <div class="upload-grid">
+              <div class="field span-all">
+                <label for="up_title">Title</label>
+                <input id="up_title" type="text" placeholder="e.g. Fractions — visual walkthrough" required>
+              </div>
+              <div class="field">
+                <label for="up_subject">Subject</label>
+                <select id="up_subject" required></select>
+              </div>
+              <div class="field">
+                <label for="up_type">Type</label>
+                <select id="up_type" required></select>
+              </div>
+              <div class="field">
+                <label for="up_audience">Destination</label>
+                <select id="up_audience" required></select>
+                <p class="field-hint" id="up_audience_hint"></p>
+              </div>
+              <div class="field">
+                <label for="up_folder">Folder <span class="hint-inline">— optional</span></label>
+                <select id="up_folder"><option value="">No folder</option></select>
+                <div class="folder-inline-create" id="up_folder_new" hidden>
+                  <input id="up_folder_new_name" type="text" placeholder="New folder name" maxlength="60">
+                  <button type="button" class="btn btn-outline" id="up_folder_new_add">Add</button>
+                  <button type="button" class="btn btn-ghost" id="up_folder_new_cancel">Cancel</button>
+                </div>
+                <button type="button" class="link-btn" id="up_folder_manage_toggle" hidden>Manage folders</button>
+                <div class="folder-chip-row" id="up_folder_manage" hidden></div>
+              </div>
+              <div class="field span-all">
+                <label for="up_desc">Description <span class="hint-inline">— optional</span></label>
+                <input id="up_desc" type="text" placeholder="What is this, and who is it for?">
+              </div>
+              <div class="field span-all">
+                <div class="source-toggle" role="tablist" aria-label="Content source">
+                  <button type="button" role="tab" data-source="file" aria-selected="true">Upload a file</button>
+                  <button type="button" role="tab" data-source="link" aria-selected="false">Add a link</button>
+                </div>
+                <div id="up_file_field">
+                  <div class="upload-drop" id="uploadDrop">
+                    <input id="up_file" type="file" multiple hidden>
+                    <div class="upload-choices">
+                      <button type="button" class="btn btn-outline" id="pickFileBtn">Choose a file</button>
+                      <button type="button" class="btn btn-outline" id="pickFolderBtn">Choose a folder</button>
+                    </div>
+                    <p class="upload-hint" id="uploadHint">or drag a file here. Folders upload every file inside.</p>
+                    <ul class="upload-list" id="uploadList" hidden></ul>
+                  </div>
+                </div>
+                <div id="up_link_field" hidden>
+                  <input id="up_link" type="url" placeholder="https://youtube.com/watch?v=… or any other link" aria-label="Link to another site">
+                  <p class="upload-hint" style="text-align:left">YouTube plays right in the portal; anything else opens in a new tab.</p>
+                </div>
+              </div>
+            </div>
+            <div class="upload-actions">
+              <button type="button" class="btn btn-ghost" id="uploadCancel">Cancel</button>
+              <button class="btn btn-primary" type="submit">Add to library</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="panel lib-panel">
+          <div class="lib-head">
+            <h2>Content Library</h2>
+            <div class="lib-stats" id="libStats"></div>
+          </div>
+          <div class="lib-toolbar">
+            <input type="search" id="libSearch" placeholder="Search title, subject or description…" aria-label="Search the library">
+            <select id="libFilterDest" aria-label="Filter by destination"></select>
+            <select id="libFilterStatus" aria-label="Filter by status">
+              <option value="">All statuses</option>
+              <option value="published">Published</option>
+              <option value="draft">Drafts</option>
+            </select>
+          </div>
+          <div id="libraryList"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Content usage report</h2>
+            <span class="chart-meta" id="usageMeta" style="margin:0"></span>
+          </div>
+          <p class="kobo-note">
+            "Time spent" is measured from when someone opens a resource to
+            when they come back to the portal tab — the honest signal
+            available once a file opens in its own tab, not a literal
+            reading-time measurement. Scoped by the global School filter
+            above.
+          </p>
+          <div id="usageBody"><div class="empty-state">Loading…</div></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="forms" hidden>
+        <div class="body-grid">
+          <div>
+            <div class="panel">
+              <div class="panel-head"><h2>Create a form</h2></div>
+              <form id="formBuilder">
+                <div class="field">
+                  <label for="fb_title">Title</label>
+                  <input id="fb_title" type="text" placeholder="e.g. Term 2 curriculum feedback" required>
+                </div>
+                <div class="field">
+                  <label for="fb_desc">Description</label>
+                  <input id="fb_desc" type="text" placeholder="What is this form for?">
+                </div>
+                <div class="field">
+                  <label>Form type</label>
+                  <div class="source-toggle" role="tablist" aria-label="Form type">
+                    <button type="button" role="tab" data-fb-kind="questions" aria-selected="true">Build questions</button>
+                    <button type="button" role="tab" data-fb-kind="file" aria-selected="false">Upload a file</button>
+                    <button type="button" role="tab" data-fb-kind="link" aria-selected="false">Link</button>
+                  </div>
+                </div>
+                <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:.9rem">
+                  <div class="field">
+                    <label for="fb_audience">Send to</label>
+                    <select id="fb_audience" required></select>
+                  </div>
+                  <div class="field">
+                    <label for="fb_county">County</label>
+                    <select id="fb_county"><option value="">All counties</option></select>
+                  </div>
+                </div>
+                <div class="field" id="fb_due_field">
+                  <label for="fb_due">Due date <span class="hint-inline">— optional</span></label>
+                  <input id="fb_due" type="date">
+                  <p class="field-hint">Everyone it reaches who hasn't answered is reminded three days before, and again once it's overdue (e.g. "Term return is due.").</p>
+                </div>
+                <div class="field" id="fb_visit_field">
+                  <label for="fb_visit">Visit type</label>
+                  <select id="fb_visit"></select>
+                  <p class="field-hint">A form tied to a visit type appears inside every Field Officer visit of that type, right after they pick it, and is filled in during the visit.</p>
+                </div>
+                <div class="field" id="fb_questions_field">
+                  <label>Questions</label>
+                  <div id="questionRows"></div>
+                  <button class="btn btn-outline" type="button" id="addQuestion" style="margin-top:.3rem">+ Add question</button>
+                </div>
+                <div class="field" id="fb_file_field" hidden>
+                  <label for="fb_file">Form file</label>
+                  <input id="fb_file" type="file">
+                  <p class="field-hint">e.g. a PDF or Word form. Recipients can view or download it, fill it, and upload the filled copy back.</p>
+                </div>
+                <div class="field" id="fb_link_field" hidden>
+                  <label for="fb_link">Link to the form</label>
+                  <input id="fb_link" type="url" placeholder="https://forms.gle/… or any other form link">
+                  <p class="field-hint">Opens in a new tab; recipients confirm here once they've filled it.</p>
+                </div>
+                <div class="alert alert-info form-reach" id="fb_reach"></div>
+                <button class="btn btn-primary btn-block" type="submit" style="margin-top:.9rem">Send form</button>
+              </form>
+            </div>
+          </div>
+
+          <div>
+            <div class="panel">
+              <div class="panel-head"><h2>Your forms & feedback</h2></div>
+              <div id="formsList"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="kobo" hidden>
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Field surveys (KoboToolbox)</h2>
+            <button type="button" id="koboSyncBtn" hidden>Sync now</button>
+          </div>
+
+          <form id="koboConnectForm" hidden>
+            <p class="kobo-note">
+              Connect the KoboToolbox account that hosts your field surveys.
+              Each survey must include a <b>hidden</b> question whose data
+              column name is <code id="koboFieldEcho">officer_ref</code> — the
+              portal fills it with the field officer's ID so submissions match
+              back automatically.
+            </p>
+            <div class="field">
+              <label for="kb_url">KoboToolbox server</label>
+              <input id="kb_url" type="url" value="https://eu.kobotoolbox.org" required>
+            </div>
+            <div class="field">
+              <label for="kb_token">API token</label>
+              <input id="kb_token" type="password" placeholder="Paste your KoboToolbox API token" autocomplete="off" required>
+            </div>
+            <div class="field">
+              <label for="kb_field">Hidden question name</label>
+              <input id="kb_field" type="text" value="officer_ref" required>
+            </div>
+            <button class="btn btn-primary btn-block" type="submit">Connect</button>
+          </form>
+
+          <div id="koboManage" hidden>
+            <form id="koboAttachForm" class="field" style="margin-bottom:1rem">
+              <label for="kb_asset">Add a deployed survey</label>
+              <div style="display:flex;gap:.5rem;align-items:stretch">
+                <select id="kb_asset" style="flex:1"><option value="">Loading surveys…</option></select>
+                <button class="btn btn-outline" type="button" id="koboViewBtn" style="flex:none">View</button>
+                <button class="btn btn-outline" type="submit" style="flex:none">Attach</button>
+              </div>
+              <p class="kobo-note" style="margin-bottom:0">
+                <b>View</b> shows the actual questions right here for a look —
+                nothing is sent to field officers. <b>Attach</b> is what puts
+                it on every field officer's dashboard.
+              </p>
+              <p class="kobo-note" style="margin-bottom:0">
+                Connected to <b id="koboServerEcho">—</b> · hidden question
+                <code id="koboFieldEcho2">officer_ref</code>.
+                <button type="button" id="koboReconnect" style="background:none;border:0;color:var(--brand);font-weight:600;cursor:pointer;font-family:inherit;font-size:inherit;padding:0">Change</button>
+              </p>
+            </form>
+            <div id="koboPush"></div>
+            <div id="koboFormList"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="notifications" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Notifications</h2>
+            <span class="dq-head-actions"><span class="chart-meta" id="ntfMeta" style="margin:0"></span>
+              <button type="button" class="btn btn-outline q-small" id="ntfRunBtn">Run now</button></span></div>
+          <p class="hint" style="margin-top:0">Every notification the portal has sent — who was told what, when, and whether they've read it. They're created by rules every hour (and when someone opens their notifications): work due tomorrow, forms coming due, visits with forms missing, Kobo submissions received, accounts awaiting approval. Nothing here can be changed or deleted.</p>
+          <div class="filter-bar-row" style="margin-bottom:.8rem">
+            <div class="field"><label for="ntf_kind">Kind</label><select id="ntf_kind">
+              <option value="">All kinds</option><option value="assignments_due">Assignments due tomorrow</option><option value="to_mark">Work waiting to be marked</option>
+              <option value="work_marked">Work marked</option><option value="form_due">Forms due</option><option value="visit_incomplete">Visit forms incomplete</option>
+              <option value="kobo_received">Kobo submissions received</option><option value="accounts_pending">Accounts awaiting approval</option></select></div>
+            <div class="field"><label for="ntf_role">Sent to</label><select id="ntf_role">
+              <option value="">Everyone</option><option value="teacher">Teachers</option><option value="school_leader">School heads</option><option value="field_officer">Field officers</option>
+              <option value="education_team">Education Team</option><option value="admin">Admins</option><option value="learner">Learners</option></select></div>
+            <div class="field"><label for="ntf_status">Status</label><select id="ntf_status"><option value="">Read and unread</option><option value="unread">Unread</option><option value="read">Read</option></select></div>
+          </div>
+          <div id="ntfLog"><div class="empty-state">Loading…</div></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="reports" hidden>
+        <div class="panel export-center" id="exportCenter" data-export-center hidden></div>
+      </section>
+    </main>
+  </div>

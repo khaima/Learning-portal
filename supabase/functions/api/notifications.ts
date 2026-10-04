@@ -60,7 +60,7 @@ const list = (xs: string[], max = 4) => xs.length <= max ? xs.join(", ") : `${xs
 const PAGE: Record<string, string> = { teacher: "teacher.html", school_leader: "leader.html", field_officer: "field.html", learner: "learner.html" };
 /** Each management role's own workspace (permissions.ts WORKSPACE). */
 const WORKSPACE_PAGE: Record<string, string> = { super_admin: "platform.html", admin: "admin.html", me: "me.html", education_team: "education.html" };
-const FORMS_PAGE: Record<string, string> = { teacher: "teacher.html#assignments", school_leader: "leader.html#overview", field_officer: "field.html#reports" };
+const FORMS_PAGE: Record<string, string> = { teacher: "teacher.html#assignments", school_leader: "leader.html#overview", field_officer: "field.html#forms" };
 
 /** A visit's forms that weren't filled in: the visit type's forms (for its
     county or every county) that existed at the visit, without a response

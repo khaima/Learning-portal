@@ -1,4 +1,4 @@
-import "./nav.js";
+import { mountNavigation } from "./nav.js";
 import { $, $$, esc, initials, schoolLine, formatDuration, skeleton, emptyState, errorState, friendlyError, toast } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { normalizeLibraryAudience } from "./data.js";
@@ -39,6 +39,7 @@ async function main() {
   $("#sideName").textContent = user.fullName;
   $("#sideMeta").textContent = `Learner · ${user.learnerCode || user.userCode || user.grade || "—"}`;
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
+  mountNavigation(user); // the menu (navigation.js)
   const termLabel = user.term ? `${user.academicYear} Term ${String(user.term).replace(/^\d{4}-T/, "")}` : user.academicYear || "";
   $("#topSub").textContent = [schoolLine(user), user.className || user.grade, termLabel].filter(Boolean).join(" · ");
 

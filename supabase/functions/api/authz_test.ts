@@ -474,6 +474,7 @@ const ROUTES: RouteSpec[] = [
   r("DELETE", "/kobo/webhook", SA_ONLY),
   // Workspaces: badges, overviews, people, scope, grants.
   r("GET", "/nav/badges", ALL),
+  r("GET", "/me/access", ALL),
   r("GET", "/platform/overview", SA_ONLY),
   r("GET", "/admin/overview", ADMINS),
   r("GET", "/teachers", PLACE_VIEWERS),

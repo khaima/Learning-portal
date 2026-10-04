@@ -20,7 +20,9 @@ import { startLibraryInteraction, completeLibraryInteraction, awardLibraryBadge,
 import { openViewer, openYouTubeViewer, viewableKind, isViewerOpen, currentOpenId, showBadgeCelebration } from "./viewer.js";
 import * as sync from "./sync.js";
 import { mountSyncStatus, openSyncPanel } from "./sync-ui.js";
-import { mountBell } from "./notify-ui.js";
+import { mountBell, openNotifications } from "./notify-ui.js";
+import { ICON, menuFor, ROLE_WORKSPACE, WORKSPACES } from "./navigation.js";
+import { rawRequest } from "./api.js";
 
 // Online / offline, last sync and what's waiting — on every dashboard; the
 // Sync center opens from it (and from a "Sync center" link where there is one).
@@ -226,33 +228,173 @@ document.addEventListener("visibilitychange", () => {
     .forEach((id) => completeLibraryInteraction(id).catch(() => {}));
 });
 
-/* ---------------------------------------------------------------- paged dashboards */
+/* ---------------------------------------------------------------- the sidebar and its pages
+   Built for the signed-in person from navigation.js (their workspace, and
+   the items their permissions allow), once their profile has loaded —
+   every dashboard calls mountNavigation(user) right after requireRole().
 
-const pageLinks = $$(".side-nav .side-link[data-page]");
+   A page is shown only if it's in that person's menu: an address for any
+   other page (typed, bookmarked, or left over from another role) goes to
+   their own landing page instead. That's the screen; the API checks every
+   request again. The current page is the URL hash (#users, or
+   #users?role=teacher for a filtered view) and the highlighted link, so
+   reload / back / forward and shared links all agree. */
+const iconSvg = (name) =>
+  `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${ICON[name] ?? ICON.dashboard}</svg>`;
+const navKey = (ws) => `hpf_nav_groups:${ws}`;
+const readJson = (k, d) => { try { return JSON.parse(localStorage.getItem(k) ?? "") ?? d; } catch { return d; } };
+const writeJson = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } };
+const escText = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
-if (pageLinks.length) {
+let pageHandler = null;
+
+/** Who and where, under the page title: "School Head · Aitong Primary", "M&E · Meru County". */
+function identityLine(user) {
+  const role = ROLE_TEXT[user.role] || user.role;
+  if (user.role === "learner") return [role, user.className || user.grade, user.school].filter(Boolean).join(" · ");
+  if (user.role === "teacher" || user.role === "school_leader") return [role, user.school, user.county].filter(Boolean).join(" · ");
+  return [role, user.scope?.label || user.county].filter(Boolean).join(" · ");
+}
+const ROLE_TEXT = {
+  super_admin: "Super Admin", admin: "Admin", me: "M&E", education_team: "Education Team",
+  field_officer: "Field Officer", school_leader: "School Head", teacher: "Teacher", learner: "Learner",
+};
+
+export function mountNavigation(user, { workspace, onPage } = {}) {
+  const wsId = workspace || ROLE_WORKSPACE[user.role];
+  const ws = WORKSPACES[wsId];
+  const nav = $(".side-nav");
+  if (!ws || !nav) return null;
+  pageHandler = onPage || null;
+  const groups = menuFor(wsId, user.permissions || [], user.grants || []);
+
+  // ---- the header: which workspace this is, and who is signed in
+  const pill = $(".app-top .pill");
+  if (pill) pill.textContent = ws.title;
+  const h1 = $(".app-top h1");
+  if (h1 && !$(".top-identity")) {
+    const p = document.createElement("p");
+    p.className = "top-identity";
+    h1.after(p);
+  }
+  const who = $(".top-identity");
+  if (who) who.textContent = identityLine(user);
+  const sideMeta = $("#sideMeta");
+  if (sideMeta) sideMeta.textContent = identityLine(user);
+
+  // ---- My profile is on every dashboard
+  const main = $(".app-main");
+  if (main && !$('.dash-page[data-page="profile"]')) {
+    const sec = document.createElement("section");
+    sec.className = "dash-page";
+    sec.dataset.page = "profile";
+    sec.hidden = true;
+    main.appendChild(sec);
+  }
+
+  // ---- the menu
+  const items = groups.flatMap((g) => g.items);
+  const saved = readJson(navKey(wsId), null);
+  const many = items.length > 14;
+  nav.setAttribute("aria-label", `${ws.title} menu`);
+  nav.innerHTML = groups.map((g, gi) => {
+    const open = saved ? !saved.includes(g.label) : !many || gi === 0;
+    return `<div class="side-section${open ? " open" : ""}" data-group="${escText(g.label)}">
+      <button type="button" class="side-group-btn" aria-expanded="${open}"><span>${escText(g.label)}</span>
+        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+      <div class="side-items">${g.items.map((it) => {
+        const badge = it.badge ? `<span class="nav-badge" data-badge="${it.badge}" hidden></span>` : "";
+        const label = `<span class="side-label">${escText(it.label)}</span>`;
+        if (it.action === "sync") return `<a class="side-link" href="#" data-open-sync-center title="${escText(it.label)}">${iconSvg(it.icon)}${label}${badge}</a>`;
+        if (it.action === "notifications") return `<a class="side-link" href="#" data-open-notifications title="${escText(it.label)}">${iconSvg(it.icon)}${label}${badge}</a>`;
+        const href = it.hash || `#${it.page}`;
+        return `<a class="side-link" href="${escText(href)}" data-page="${it.page}"${it.hash ? " data-view" : ""} title="${escText(it.label)}">${iconSvg(it.icon)}${label}${badge}</a>`;
+      }).join("")}</div></div>`;
+  }).join("") + `<button type="button" class="side-rail-btn" title="Collapse the menu" aria-label="Collapse the menu">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg><span class="side-label">Collapse menu</span></button>`;
+
+  // Expand / collapse a group (remembered per workspace on this device).
+  nav.addEventListener("click", (e) => {
+    const btn = e.target.closest(".side-group-btn");
+    if (btn) {
+      const sec = btn.closest(".side-section");
+      const open = !sec.classList.contains("open");
+      sec.classList.toggle("open", open);
+      btn.setAttribute("aria-expanded", String(open));
+      writeJson(navKey(wsId), $$(".side-section:not(.open)", nav).map((s) => s.dataset.group));
+      return;
+    }
+    if (e.target.closest(".side-rail-btn")) {
+      const rail = !$(".app-shell").classList.contains("nav-rail");
+      $(".app-shell").classList.toggle("nav-rail", rail);
+      try { localStorage.setItem("hpf_nav_rail", rail ? "1" : "0"); } catch { /* ignore */ }
+      return;
+    }
+    if (e.target.closest("[data-open-notifications]")) { e.preventDefault(); openNotifications(); }
+  });
+  try { if (localStorage.getItem("hpf_nav_rail") === "1") $(".app-shell")?.classList.add("nav-rail"); } catch { /* ignore */ }
+
+  // ---- which pages this person may open
+  const allowed = new Set([...items.map((i) => i.page).filter(Boolean), "profile"]);
+  const landing = items.find((i) => i.page)?.page || "profile";
   const pages = $$(".app-main .dash-page[data-page]");
-  const validPages = new Set(pageLinks.map((l) => l.dataset.page));
-
-  function showPage(page) {
-    if (!validPages.has(page)) page = pageLinks[0].dataset.page;
+  const links = $$(".side-link[data-page]", nav);
+  const filterBar = $(".filter-bar");
+  const parse = () => {
+    let raw = decodeURIComponent((location.hash || "").slice(1));
+    const [first] = raw.split("?");
+    if (ws.aliases?.[first]) { raw = ws.aliases[first]; history.replaceState(null, "", `#${raw}`); }
+    const [page, qs] = raw.split("?");
+    return { raw, page, params: new URLSearchParams(qs || "") };
+  };
+  function show() {
+    let { raw, page, params } = parse();
+    if (!allowed.has(page)) {
+      if (page) toast("That page isn't part of your workspace", "You've been taken to your own start page.", "error");
+      history.replaceState(null, "", `#${landing}`);
+      ({ raw, page, params } = { raw: landing, page: landing, params: new URLSearchParams() });
+    }
     pages.forEach((p) => { p.hidden = p.dataset.page !== page; });
-    pageLinks.forEach((l) => l.classList.toggle("active", l.dataset.page === page));
+    const exact = links.find((l) => l.getAttribute("href") === `#${raw}`) ||
+      links.find((l) => l.dataset.page === page && !l.hasAttribute("data-view"));
+    links.forEach((l) => { l.classList.toggle("active", l === exact); l.toggleAttribute("aria-current", l === exact); });
+    const sec = exact?.closest(".side-section");
+    if (sec && !sec.classList.contains("open")) { sec.classList.add("open"); sec.querySelector(".side-group-btn")?.setAttribute("aria-expanded", "true"); }
+    const item = items.find((i) => i.page === page);
+    if (filterBar) filterBar.hidden = !item?.filters;
+    const label = exact?.querySelector(".side-label")?.textContent.trim();
+    document.title = `${page === "profile" ? "My profile" : label || item?.label || ws.title} — ${ws.title}`;
     window.scrollTo(0, 0);
+    if (page === "profile") {
+      import("./profile-ui.js").then((m) => m.renderProfile($('.dash-page[data-page="profile"]'), user)).catch(() => {});
+    }
     // Export reports: loaded the first time a page that has it is opened.
     for (const el of $$(`.dash-page[data-page="${page}"] [data-export-center]:not([data-mounted])`)) {
       el.dataset.mounted = "1";
       import("./reports-ui.js").then((m) => m.mountExportCenter(el)).catch(() => { delete el.dataset.mounted; });
     }
+    pageHandler?.(page, params);
   }
+  window.addEventListener("hashchange", show);
+  show();
 
-  pageLinks.forEach((link) => {
-    link.setAttribute("href", "#" + link.dataset.page);
-    link.setAttribute("role", "link");
-  });
+  // ---- badges: what's waiting, only the counts this person may see
+  async function badges() {
+    if (!navigator.onLine) return;
+    let b;
+    try { b = (await rawRequest("GET", "/nav/badges")).badges || {}; } catch { return; }
+    for (const el of $$("[data-badge]", nav)) {
+      const n = Number(b[el.dataset.badge] || 0);
+      el.hidden = !n;
+      el.textContent = n > 99 ? "99+" : String(n);
+    }
+  }
+  setTimeout(badges, 1500);
+  setInterval(() => { if (document.visibilityState === "visible") badges(); }, 5 * 60_000);
+  window.addEventListener("online", () => setTimeout(badges, 2000));
+  document.addEventListener("hpf-notifications-read", badges);
 
-  window.addEventListener("hashchange", () => showPage((location.hash || "").slice(1)));
-  showPage((location.hash || "").slice(1));
+  return { allowed, landing, workspace: wsId, refreshBadges: badges, canOpen: (page) => allowed.has(page) };
 }
 
 /* notification bell — stored notifications, unread count, the list (notify-ui.js) */
@@ -298,8 +440,8 @@ if (appShell && appTop && appSide) {
   backdrop.addEventListener("click", closeMenu);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
   // Picking a section closes the drawer instead of leaving it open over
-  // the page it just navigated to.
-  $$(".side-nav .side-link").forEach((link) => link.addEventListener("click", closeMenu));
+  // the page it just navigated to (the menu is built after sign-in).
+  $(".side-nav")?.addEventListener("click", (e) => { if (e.target.closest(".side-link")) closeMenu(); });
 }
 
 /* ---------------------------------------------------------------- profile / account menu

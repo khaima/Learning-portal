@@ -645,15 +645,40 @@ See [`supabase-schema.sql`](supabase-schema.sql) for the full schema and
 the lock-down. Apply it to a fresh project, deploy the `api` function,
 point `config.js` at the new project, and the app works unmodified.
 
-### Roles, permissions and staff accounts
+### Roles, workspaces and access
 
-Eight roles: **Super Admin**, **Admin**, **Education Team**, **M&E**,
-**Field Officer**, **School Head** (stored as `school_leader`), **Teacher**
-and **Learner**. Every API route asks for a named *permission* (for
-example `users.approve`, `forms.manage`, `stats.view`), never a role
-name; [`permissions.ts`](supabase/functions/api/permissions.ts) is the one
-table of which role holds which permission. The role always comes from
-the caller's own row in the database — nothing the browser sends.
+Eight roles, each with **its own workspace, menu and landing page**, its
+**permissions** and its **data scope** — enforced together in five layers
+(menu, page, API, database, scope). The full model, the matrices and the
+audit behind it are in [`docs/RBAC.md`](docs/RBAC.md).
+
+| Role | Workspace | Lands on | Data |
+|---|---|---|---|
+| Super Admin | Platform Administration (`platform.html`) — every right | Platform overview | Everything |
+| Admin | Programme Administration (`admin.html`) | Administration overview | Everything, or assigned counties / schools |
+| M&E | Monitoring & Evaluation (`me.html`) | M&E overview | Everything, or assigned counties / schools |
+| Education Team | Learning & Education (`education.html`) | Learning overview | Everything, or assigned counties / schools |
+| Field Officer | Field Operations (`field.html`) | My dashboard | Assigned counties / schools only |
+| School Head | School Management (`leader.html`) | School overview | Own school |
+| Teacher | Teaching & Learning (`teacher.html`) | My teaching | Own classes |
+| Learner | My Learning (`learner.html`) | My learning | Own work |
+
+- **Menus** come from [`navigation.js`](navigation.js) and show only what a
+  person's permissions allow; any other page address — typed, bookmarked or
+  another role's — returns them to their own start page. Groups collapse
+  (remembered), carry badges for what's waiting, and fold to an icon rail.
+- **Permissions:** every API route asks for a named permission, never a
+  role name; [`permissions.ts`](supabase/functions/api/permissions.ts) is the
+  one table of which role holds which. The role always comes from the
+  caller's own account in the database. A Super Admin can **grant** one
+  person one extra permission (with a reason) and revoke it — Users & roles
+  → View, or the Permissions page.
+- **Data scope** ([`scope.ts`](supabase/functions/api/scope.ts)) limits every
+  list, dashboard, export and change. Admins and Super Admins assign
+  counties or schools to staff on the Users page (View); field officers see
+  nothing until assigned. Assignments are ended, never deleted.
+- **My profile** (every role) shows what you can do, where, and anything
+  granted to you; staff can change their own password there.
 
 - **Joining:** an administrator **invites** someone (Users → Invite staff),
   choosing their role and school or county; the link works once, for that
@@ -674,8 +699,9 @@ the caller's own row in the database — nothing the browser sends.
   invitations, learner creation, edits, class moves, archiving,
   transfers and promotions, and assignments (created, published, closed),
   hand-ins and marks go to `audit_log`,
-  which can't be edited or deleted even by the service role. Admins see it
-  under Users → Account history, and per account.
+  which can't be edited or deleted even by the service role. The Super
+  Admin sees all of it (Audit log, Security events, Account activity);
+  Admins see each account's history in its View panel.
 - **Tests:** [`authz_test.ts`](supabase/functions/api/authz_test.ts) calls
   every protected route as every role and account state against an
   in-memory database, and fails if a route has no test. It also walks
@@ -697,7 +723,11 @@ the caller's own row in the database — nothing the browser sends.
   marks, offline hand-in times, offline reading) and notifications;
   [`notifications_test.ts`](supabase/functions/api/notifications_test.ts)
   covers every notification rule:
-  `cd supabase/functions/api && deno test --allow-env --config deno.json authz_test.ts lms_test.ts intelligence_test.ts kobo_pipeline_test.ts data_quality_test.ts me_test.ts impact_test.ts notifications_test.ts`
+  [`scope_test.ts`](supabase/functions/api/scope_test.ts) the data-scope
+  rules and the separation of duties, and
+  [`navigation_test.ts`](supabase/functions/api/navigation_test.ts) that
+  every role's menu matches its permissions exactly:
+  `cd supabase/functions/api && deno test --allow-env --allow-read --config deno.json authz_test.ts lms_test.ts intelligence_test.ts kobo_pipeline_test.ts data_quality_test.ts me_test.ts impact_test.ts notifications_test.ts scope_test.ts navigation_test.ts`
 
 ### Turning on Google sign-in
 
@@ -795,7 +825,13 @@ used).
 | `learner.html` / `learner.js` | Learner dashboard |
 | `leader.html` / `leader.js` | Head-of-institution dashboard |
 | `field.html` / `field.js` | Field Officer dashboard (county → school → visit report) |
-| `education.html` / `education.js` | Education Team dashboard (upload, form builder, results, stats) |
+| `platform.html` · `admin.html` · `me.html` · `education.html` | The four management workspaces (Super Admin, Admin, M&E, Education Team) — thin pages sharing one set of sections |
+| `workspace.html` / `workspace.js` | Those shared sections, and the loader that puts them in the page |
+| `console.js` | The management console's logic (formerly `education.js`): dashboards, schools, users, content, forms, Kobo, M&E, data quality |
+| `navigation.js` | Every role's menu: workspaces, groups, items, the permissions each needs |
+| `admin-ui.js` | Platform and Administration overviews, Permissions, Account activity, Teachers, Classes, School profiles, Assignments, Results, Field visits, Subjects, one account's access (scope, grants, history) |
+| `profile-ui.js` | My profile: who, where, what you can do, grants, change password |
+| `docs/RBAC.md` | The access model: audit, roles, permissions, scope, menus, the five layers, migration, tests |
 | `supabase.js` | The Supabase Auth client (password + Google) and the "remember me" storage adapter |
 | `api.js` | Thin fetch wrapper over the `api` Edge Function; attaches the JWT; serves this device's copies offline |
 | `offline.js` | What the device keeps (IndexedDB): copies per account, the queue, files, settings |

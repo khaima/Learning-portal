@@ -15,13 +15,14 @@
    the copy here is used straight away.
    ============================================================ */
 
-const VERSION = "hpf-learning-v4";
+const VERSION = "hpf-learning-v5";
 const SHELL = [
-  "./", "./index.html", "./learner.html", "./teacher.html", "./leader.html", "./field.html", "./education.html",
+  "./", "./index.html", "./learner.html", "./teacher.html", "./leader.html", "./field.html",
+  "./platform.html", "./admin.html", "./me.html", "./education.html", "./workspace.html", "./workspace.js",
   "./styles.css", "./manifest.webmanifest", "./assets/icon-192.png", "./assets/icon-512.png",
-  "./config.js", "./supabase.js", "./api.js", "./auth.js", "./util.js", "./data.js", "./store.js", "./nav.js", "./viewer.js",
+  "./config.js", "./supabase.js", "./api.js", "./auth.js", "./util.js", "./data.js", "./store.js", "./nav.js", "./navigation.js", "./viewer.js",
   "./offline.js", "./sync.js", "./sync-ui.js", "./notify-ui.js", "./reports-ui.js", "./export.js", "./pwa.js", "./forms.js", "./assignments-ui.js", "./learners-ui.js",
-  "./index.js", "./learner.js", "./teacher.js", "./leader.js", "./field.js", "./education.js",
+  "./index.js", "./learner.js", "./teacher.js", "./leader.js", "./field.js", "./console.js", "./admin-ui.js", "./profile-ui.js",
   "./impact-ui.js", "./training-ui.js", "./mel-ui.js", "./dq-ui.js", "./kobo-ui.js",
 ];
 // Third-party code the pages load (the sign-in library, fonts): kept as it's fetched.

@@ -20,16 +20,18 @@ import { getMeta, setMeta } from "./offline.js";
 import { ApiError, rawRequest, learnerToken, setLearnerToken } from "./api.js";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./config.js";
 import { friendlyError, confirmDialog } from "./util.js";
+import { workspacePage } from "./navigation.js";
 
+/** Where each role lands after signing in: its own workspace (navigation.js). */
 export const DASHBOARD_PATH = {
   teacher: "teacher.html",
   learner: "learner.html",
   school_leader: "leader.html",
   field_officer: "field.html",
   education_team: "education.html",
-  me: "education.html",
-  admin: "education.html",
-  super_admin: "education.html",
+  me: "me.html",
+  admin: "admin.html",
+  super_admin: "platform.html",
 };
 
 /* ---- staff: email + password ---- */
@@ -240,8 +242,14 @@ export async function requireRole(role) {
   const roles = Array.isArray(role) ? role : [role];
   const profile = await getProfile();
   const status = profile?.status ?? "active";
-  if (!profile || profile.needsOnboarding || profile.needsSchool || status !== "active" || !roles.includes(profile.role)) {
+  if (!profile || profile.needsOnboarding || profile.needsSchool || status !== "active") {
     location.href = "index.html";
+    return null;
+  }
+  // Signed in, but this isn't their workspace: their own one instead (the
+  // page address comes along, and their menu decides whether it's theirs).
+  if (!roles.includes(profile.role)) {
+    location.replace(workspacePage(profile.role) + location.hash);
     return null;
   }
   return profile;

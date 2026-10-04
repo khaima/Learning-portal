@@ -1541,3 +1541,88 @@ a.stat-tile.dq-tile-link:hover{ border-color:var(--brand); }
 .form-tag.due{ background:var(--accent-soft); color:var(--accent-fg); }
 .fc-due{ display:inline-flex; align-items:center; gap:.4rem; font-size:.8rem; color:var(--ink-soft); margin-right:.6rem; }
 .fc-due input{ border:1.5px solid var(--line); border-radius:var(--radius-sm); padding:.3rem .45rem; font:inherit; font-size:.8rem; background:var(--paper-raised); color:var(--ink); }
+
+/* ================================================================ ROLE MENUS (nav.js + navigation.js)
+   Each person's sidebar: collapsible groups (state remembered per
+   workspace), badges for what's waiting, and a collapsed icon rail on
+   wide screens. Below 860px it is the off-canvas drawer above. */
+.side-nav{ gap:.1rem; overflow-y:auto; min-height:0; }
+@media (min-width:861px){ .app-side{ max-height:100vh; position:sticky; top:0; } }
+.side-section{ display:flex; flex-direction:column; }
+.side-group-btn{
+  display:flex; align-items:center; justify-content:space-between; gap:.4rem; width:100%;
+  margin:.55rem 0 .15rem; padding:.3rem .7rem; background:none; border:0; border-radius:8px; cursor:pointer;
+  font:inherit; font-size:.66rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:rgba(255,255,255,.55);
+}
+.side-section:first-child .side-group-btn{ margin-top:0; }
+.side-group-btn:hover{ color:#fff; background:rgba(255,255,255,.05); }
+.side-group-btn:focus-visible{ outline:2px solid rgba(255,255,255,.55); outline-offset:1px; }
+.side-group-btn .chev{ width:14px; height:14px; transition:transform .15s ease; }
+.side-section:not(.open) .chev{ transform:rotate(-90deg); }
+.side-section:not(.open) .side-items{ display:none; }
+.side-items{ display:flex; flex-direction:column; gap:.1rem; }
+.side-link .side-label{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.side-link[aria-current]{ box-shadow:inset 3px 0 0 var(--accent); }
+.nav-badge{
+  min-width:1.3rem; height:1.3rem; padding:0 .35rem; border-radius:999px; background:var(--accent); color:#fff;
+  font-size:.68rem; font-weight:700; display:inline-flex; align-items:center; justify-content:center; flex:none;
+}
+.nav-badge[hidden]{ display:none; }
+.side-rail-btn{
+  display:none; align-items:center; gap:.65rem; margin-top:.6rem; padding:.45rem .7rem; border-radius:10px;
+  background:none; border:0; color:rgba(255,255,255,.55); font:inherit; font-size:.8rem; font-weight:600; cursor:pointer; text-align:left;
+}
+.side-rail-btn:hover{ color:#fff; background:rgba(255,255,255,.06); }
+@media (min-width:861px){
+  .side-rail-btn{ display:flex; }
+  .app-shell.nav-rail{ grid-template-columns:4.4rem 1fr; }
+  .nav-rail .app-side{ padding-left:.6rem; padding-right:.6rem; }
+  .nav-rail .wordmark-text, .nav-rail .side-label, .nav-rail .side-group-btn span, .nav-rail .side-group-btn .chev,
+  .nav-rail .side-user div{ display:none; }
+  .nav-rail .side-group-btn{ height:.5rem; margin:.3rem 0; padding:0; border-top:1px solid rgba(255,255,255,.12); border-radius:0; pointer-events:none; }
+  .nav-rail .side-section:not(.open) .side-items{ display:flex; }
+  .nav-rail .side-link{ justify-content:center; padding:.55rem; position:relative; }
+  .nav-rail .nav-badge{ position:absolute; top:.15rem; right:.15rem; min-width:1rem; height:1rem; font-size:.6rem; padding:0 .25rem; }
+  .nav-rail .side-rail-btn{ justify-content:center; }
+  .nav-rail .side-rail-btn .icon{ transform:rotate(180deg); }
+}
+
+/* The header: which workspace, and who is signed in. */
+.top-identity{ margin:.1rem 0 .15rem !important; font-size:.84rem !important; font-weight:600; color:var(--ink) !important; }
+.filter-bar[hidden]{ display:none; }
+
+/* Overview tiles that open a page, health checks, small headings */
+a.stat-tile.stat-link{ display:block; color:inherit; text-decoration:none; }
+a.stat-tile.stat-link:hover{ border-color:color-mix(in srgb, var(--brand) 35%, var(--line)); }
+.checks{ display:flex; flex-direction:column; gap:.45rem; }
+.check-row{ display:flex; align-items:center; gap:.7rem; padding:.55rem .7rem; border-radius:10px; border:1px solid var(--line); background:var(--paper-raised); }
+.check-row > div{ flex:1; min-width:0; }
+.check-row b{ display:block; font-size:.86rem; }
+.check-row span{ font-size:.78rem; color:var(--ink-soft); }
+.check-mark{ width:1.6rem; height:1.6rem; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-weight:800; flex:none; }
+.check-row.ok .check-mark{ background:var(--success-soft); color:var(--success); }
+.check-row.warn .check-mark{ background:var(--accent-soft); color:var(--accent-fg); }
+.mini-head{ font-size:.9rem; margin:1.1rem 0 .5rem; }
+.perm-matrix td{ text-align:center; }
+.perm-matrix td.lms-name{ text-align:left; min-width:15rem; }
+.perm-matrix .lms-group{ background:var(--paper-sunk); text-align:left; }
+.perm-yes{ color:var(--success); font-weight:800; }
+.users-table .lms-table{ min-width:62rem; }
+.users-table td{ text-align:left; vertical-align:top; white-space:normal; }
+.users-table td:last-child{ white-space:nowrap; }
+.users-table tr.user-edit td{ background:var(--paper-sunk); }
+.check-grid{ display:flex; flex-wrap:wrap; gap:.3rem 1rem; }
+.tag-list{ display:flex; flex-wrap:wrap; gap:.4rem; }
+.scope-history{ margin:.3rem 0 .6rem; font-size:.84rem; }
+.scope-history summary{ cursor:pointer; color:var(--brand-fg); font-weight:600; }
+
+/* My profile */
+.profile-head{ display:flex; align-items:center; gap:.9rem; margin-bottom:1rem; }
+.profile-avatar{ width:52px; height:52px; font-size:1.05rem; }
+.profile-facts{ display:grid; grid-template-columns:repeat(auto-fit,minmax(14rem,1fr)); gap:.6rem 1.2rem; margin:0; }
+.profile-facts dt{ font-size:.72rem; font-weight:700; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.04em; }
+.profile-facts dd{ margin:.15rem 0 0; font-size:.88rem; }
+.access-groups{ display:grid; grid-template-columns:repeat(auto-fit,minmax(15rem,1fr)); gap:1rem; }
+.access-group b{ font-size:.82rem; }
+.access-group ul{ margin:.35rem 0 0; padding-left:1.1rem; font-size:.84rem; color:var(--ink-soft); }
+.profile-password{ max-width:26rem; }

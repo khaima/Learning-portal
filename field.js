@@ -1,4 +1,5 @@
-import "./nav.js";
+import { mountNavigation } from "./nav.js";
+import { renderSchoolProfile, renderTeachers } from "./admin-ui.js";
 import { $, $$, esc, initials, skeleton, emptyState, errorState, friendlyError, toast, confirmDialog } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { VISIT_TYPES } from "./data.js";
@@ -7,7 +8,7 @@ import {
   myKoboSurveys, markKoboSubmitted, currentTermLabel,
 } from "./store.js";
 import { mountFormList, renderVisitForms, unfilledVisitForms, collectVisitResponses, FORM_KIND_LABEL } from "./forms.js";
-import { addResponse } from "./store.js";
+import { addResponse, getSchools } from "./store.js";
 import { openContentPanel, closeViewer } from "./viewer.js";
 import { waiting } from "./sync.js";
 
@@ -35,6 +36,27 @@ async function main() {
   $("#sideName").textContent = user.fullName;
   $("#sideMeta").textContent = `Field Officer · ${user.county || "—"}`;
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
+
+  // The menu (navigation.js), and the pages loaded when first opened. A field
+  // officer works only at the schools assigned to them — the server sends
+  // only those.
+  mountNavigation(user, {
+    onPage(page) {
+      if (page === "teachers") renderTeachers($("#tchBody"));
+      if (page === "school-profiles") showSchoolProfiles();
+    },
+  });
+  async function showSchoolProfiles() {
+    const sel = $("#spSchool");
+    if (!sel.options.length) {
+      let dir;
+      try { dir = await getSchools(); } catch (err) { $("#spBody").innerHTML = errorState(friendlyError(err), showSchoolProfiles); return; }
+      sel.innerHTML = dir.schools.map((s) => `<option value="${esc(s.id)}">${esc(s.name)} — ${esc(s.county)}</option>`).join("");
+      sel.addEventListener("change", () => renderSchoolProfile($("#spBody"), sel.value));
+      if (!dir.schools.length) { $("#spBody").innerHTML = emptyState("No schools assigned to you yet", "An administrator assigns your county or schools."); return; }
+    }
+    renderSchoolProfile($("#spBody"), sel.value);
+  }
   const countyLine = user.county || "No county set";
   $("#topSub").textContent = countyLine;
   currentTermLabel().then((term) => { if (term) $("#topSub").textContent = `${countyLine} · ${term}`; });
@@ -487,6 +509,16 @@ async function main() {
   function applyDirectory(data) {
     const keep = { county: countySelect.value, school: schoolSelect.value };
     directory = data;
+    // Nothing assigned yet: say so, instead of an empty school picker.
+    let note = $("#noSchoolsNote");
+    if (!note) {
+      note = document.createElement("div");
+      note.id = "noSchoolsNote";
+      note.className = "alert alert-warn";
+      note.innerHTML = `<div><b>No schools assigned to you yet</b><span>An administrator assigns the county or schools you support. Until then you can't start a visit.</span></div>`;
+      $("#visitIdle")?.prepend(note);
+    }
+    note.hidden = !!data.schools.length;
     fillCounties();
     const county = directoryLoaded ? keep.county : user.county;
     if (county && directory.counties.includes(county)) {

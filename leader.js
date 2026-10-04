@@ -1,4 +1,5 @@
-import "./nav.js";
+import { mountNavigation } from "./nav.js";
+import { renderSchoolProfile } from "./admin-ui.js";
 import { $, $$, esc, initials, schoolLine, formatDuration, skeleton, emptyState, errorState, friendlyError, toast, confirmDialog } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { normalizeLibraryAudience, GRADES, nextGrade } from "./data.js";
@@ -36,8 +37,12 @@ async function main() {
 
   $("#sideAvatar").textContent = initials(user.fullName);
   $("#sideName").textContent = user.fullName;
-  $("#sideMeta").textContent = `School Leader · ${user.userCode || user.county || "—"}`;
+  $("#sideMeta").textContent = `School Head · ${user.userCode || user.county || "—"}`;
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
+  // The menu (navigation.js). Everything here is this school's only — the server makes sure.
+  mountNavigation(user, {
+    onPage(page) { if (page === "school-profile") renderSchoolProfile($("#spBody"), user.schoolId); },
+  });
   $("#topSub").textContent = schoolLine(user);
   currentTermLabel().then((term) => { if (term) $("#topSub").textContent = `${schoolLine(user)} · ${term}`; });
 

@@ -48,7 +48,9 @@ const VIEWS = {
 
 /** The data pipeline for one survey. `schools` = the portal's school list
     (for placing unmatched names); `onChange` after anything changes. */
-export async function openKoboPipeline(formId, { canManage = false, schools = [], onChange = () => {} } = {}) {
+/* canManage: change the field mapping and re-check (kobo.manage); canReview:
+   accept or exclude flagged submissions and match school names (kobo.review). */
+export async function openKoboPipeline(formId, { canManage = false, canReview = canManage, schools = [], onChange = () => {} } = {}) {
   const panel = openContentPanel({ title: "Data pipeline", html: skeleton(5) });
   const state = { view: "review", rule: "", offset: 0 };
   let p;
@@ -96,7 +98,7 @@ export async function openKoboPipeline(formId, { canManage = false, schools = []
       ${p.unknownSchools.map((u, i) => `
         <div class="task-row" style="flex-wrap:wrap">
           <div style="flex:1;min-width:12rem"><b>“${esc(u.value)}”</b><span>${u.count} submission${u.count === 1 ? "" : "s"}${u.suggestion ? ` · looks like ${esc(u.suggestion.name)}` : ""}</span></div>
-          ${canManage ? `<select data-alias-school="${i}" style="max-width:16rem">${opts(u.suggestion?.id)}</select>
+          ${canReview ? `<select data-alias-school="${i}" style="max-width:16rem">${opts(u.suggestion?.id)}</select>
             <div class="roster-actions"><button type="button" data-alias="${i}">Save</button></div>` : ""}
         </div>`).join("")}`;
   }
@@ -157,7 +159,7 @@ export async function openKoboPipeline(formId, { canManage = false, schools = []
             <span class="hint-inline">${esc(fmt(r.submittedAt))}${r.observedOn ? ` · visit ${esc(r.observedOn)}` : ""}</span></div>
           <div class="roster-actions">
             <button type="button" data-view>View</button>
-            ${canManage && r.status !== "removed" ? `
+            ${canReview && r.status !== "removed" ? `
               ${r.review !== "accepted" && !r.counted ? `<button type="button" data-decide="accepted">Accept</button>` : ""}
               ${r.review !== "excluded" ? `<button type="button" class="danger" data-decide="excluded">Exclude</button>` : ""}
               ${r.review ? `<button type="button" data-clear>Clear decision</button>` : ""}` : ""}
@@ -232,7 +234,7 @@ export async function openKoboPipeline(formId, { canManage = false, schools = []
     const recEl = e.target.closest("[data-rec]");
     if (!recEl) return;
     const id = recEl.dataset.rec;
-    if (e.target.closest("[data-view]")) { openKoboRecord(id, () => openKoboPipeline(formId, { canManage, schools, onChange })); return; }
+    if (e.target.closest("[data-view]")) { openKoboRecord(id, () => openKoboPipeline(formId, { canManage, canReview, schools, onChange })); return; }
     if (e.target.closest("[data-clear]")) {
       try { await reviewKoboRecord(id, "clear"); onChange(); load(); } catch (err) { toast("Couldn't do that", friendlyError(err), "error"); }
       return;

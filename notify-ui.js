@@ -58,6 +58,7 @@ async function markRead(n) {
   state.unread = Math.max(0, state.unread - 1);
   renderBell();
   try { await readNotification(n.id, n.title); } catch { /* it stays unread on the server; shown read here until the next load */ }
+  document.dispatchEvent(new Event("hpf-notifications-read"));
 }
 
 function itemHtml(n) {
@@ -98,6 +99,7 @@ export function openNotifications() {
       state.unread = 0;
       renderBell(); render();
       try { await readAllNotifications(); } catch (err) { toast("Couldn't mark them all read", err?.message || "", "error"); }
+      document.dispatchEvent(new Event("hpf-notifications-read"));
       return;
     }
     if (!n) return;

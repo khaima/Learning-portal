@@ -3899,10 +3899,13 @@ app.get("/field-reports", requirePermission("field_reports.view.own", "field_rep
     ]);
     missing = new Map(data.map((r) => [r.id as string, missingVisitForms(r, forms ?? [], responses)]));
   }
+  // Everyone's visits: who filed each one.
+  const officers = all && data.length ? await selectIn("profiles", "id", [...new Set(data.map((r) => r.officer_id as string))], "id, full_name") : [];
+  const officerName = new Map(officers.map((o) => [o.id, o.full_name]));
   return c.json({
     reports: (data ?? []).map((r) => ({
       ...mapReport(r), id: r.id, schoolId: r.school_id ?? null,
-      ...(all ? {} : { missingForms: (missing.get(r.id as string) ?? []).map((f) => ({ id: f.id, title: f.title })) }),
+      ...(all ? { officer: officerName.get(r.officer_id) ?? null } : { missingForms: (missing.get(r.id as string) ?? []).map((f) => ({ id: f.id, title: f.title })) }),
     })),
   });
 });
@@ -7269,6 +7272,23 @@ async function scopeLabels(): Promise<Map<string, PlaceScope>> {
   }
   return out;
 }
+
+/* "My access" on My profile: what this person may do (in words), where
+   (their data scope) and anything granted to them on top of their role. */
+app.get("/me/access", requireActive(), async (c) => {
+  const a = c.get("actor") as Actor;
+  const { data: grants } = a.role === "learner" ? { data: [] as Record<string, any>[] }
+    : await admin.from("permission_grants").select("permission, reason, granted_at, granted_by").eq("profile_id", a.id).is("revoked_at", null);
+  const names = await dqNames((grants ?? []).map((g) => g.granted_by));
+  return c.json({
+    role: a.role, roleLabel: ROLE_LABEL[a.role] ?? a.role, workspace: WORKSPACE[a.role] ?? null,
+    scope: { global: a.scope.global, label: a.scope.label },
+    groups: PERMISSION_GROUPS.map((g) => ({ group: g.group, items: g.items.filter(([p]) => a.permissions.has(p)).map(([p, label]) => ({ permission: p, label })) }))
+      .filter((g) => g.items.length),
+    grants: (grants ?? []).map((g) => ({ permission: g.permission, label: PERMISSION_LABEL[g.permission] ?? g.permission, reason: g.reason,
+      grantedAt: g.granted_at, grantedBy: names.get(g.granted_by) ?? null })),
+  });
+});
 
 /* Counts for the sidebar badges — only the ones this person may see. */
 app.get("/nav/badges", requireActive(), async (c) => {

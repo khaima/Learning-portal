@@ -1,9 +1,20 @@
-import "./nav.js";
+/* The management console: the shared pages of the four management
+   workspaces (workspace.html), started by workspace.js. Which workspace
+   this is comes from the page (platform / admin / me / education); which
+   pages each person sees comes from their menu (navigation.js); what they
+   can do, from their permissions — checked again by the API every time. */
+import { mountNavigation } from "./nav.js";
+import { menuFor, WORKSPACES } from "./navigation.js";
+import {
+  renderPlatformOverview, renderAdminOverview, renderPermissions, renderAccountActivity, renderTeachers, renderClasses,
+  renderSchoolProfile, renderAssignments, renderResults, renderFieldVisits, renderSubjects, addSubject, openUserAccess,
+} from "./admin-ui.js";
+import { apiGet } from "./api.js";
 import { $, $$, esc, initials, toast, formatDuration, skeleton, errorState, friendlyError, confirmDialog } from "./util.js";
 import { requireRole, signOut, sendPasswordResetLink } from "./auth.js";
 import {
   CONTENT_TYPES, LIBRARY_SUBJECTS, LIBRARY_AUDIENCES, FORM_AUDIENCES, QUESTION_TYPES, ROLES,
-  normalizeLibraryAudience, VISIT_TYPES, PORTAL_ADMIN_ROLES,
+  normalizeLibraryAudience, VISIT_TYPES,
 } from "./data.js";
 import {
   getLibrary, addLibraryItem, setLibraryPublished, deleteLibraryItem, updateLibraryItem, getForms, addForm, deleteForm, archiveForm, restoreForm, getResponses, getStats, getImpact,
@@ -15,7 +26,7 @@ import {
   koboConfig, saveKoboConfig, koboAssets, koboAssetPreview, koboForms, attachKoboForm,
   removeKoboForm, restoreKoboForm, syncKobo, koboResults,
   getUserDirectory, updateUser, resetUserPassword,
-  approveUser, rejectUser, setUserStatus, getInvitations, inviteStaff, revokeInvitation, getAuditLog,
+  approveUser, rejectUser, setUserStatus, getInvitations, inviteStaff, revokeInvitation,
   getLearners, getAcademicYears, createAcademicYear,
   watchSchools, createSchool, renameSchool, deleteSchool, createCounty, deleteCounty, wireSchoolPicker,
 } from "./store.js";
@@ -44,49 +55,21 @@ const ICON = {
 const svg = (paths) => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${paths}</svg>`;
 
 async function main() {
-  const user = await requireRole(PORTAL_ADMIN_ROLES);
+  const wsId = WORKSPACES[document.body.dataset.workspace] ? document.body.dataset.workspace : "education";
+  const ws = WORKSPACES[wsId];
+  const user = await requireRole(ws.roles);
   if (!user) return;
 
   /* What this person may do, from the server (GET /me). Used only to
      decide what to show — every action is checked again by the API. */
   const perms = new Set(user.permissions || []);
   const has = (...p) => p.some((x) => perms.has(x));
-  const PAGE_NEEDS = {
-    overview: ["intelligence.view"],
-    reach: ["intelligence.view"],
-    learning: ["intelligence.view"],
-    "teacher-development": ["intelligence.view"],
-    "field-operations": ["intelligence.view"],
-    "digital-resources": ["intelligence.view"],
-    "me-dashboard": ["me.view"],
-    "data-quality": ["data_quality.view"],
-    notifications: ["notifications.view.all"],
-    "mel-results": ["me.view"],
-    "mel-framework": ["me.view"],
-    "mel-reports": ["me.view"],
-    schools: ["stats.view", "schools.manage"],
-    users: ["users.view"],
-    content: ["library.manage", "library.usage.view"],
-    forms: ["forms.manage", "forms.responses.view"],
-    kobo: ["kobo.manage", "kobo.results.view"],
-    reports: ["stats.view"],
-  };
-  for (const link of $$(".side-nav .side-link[data-page]")) {
-    const needs = PAGE_NEEDS[link.dataset.page];
-    if (needs && !has(...needs)) link.hidden = true;
-  }
-  // A group heading with nothing visible under it goes too.
-  for (const g of $$(".side-nav .side-group")) {
-    let el = g.nextElementSibling, any = false;
-    while (el && !el.classList.contains("side-group")) { if (!el.hidden) any = true; el = el.nextElementSibling; }
-    g.hidden = !any;
-  }
+  // Only the pages in this person's menu are ever shown or loaded.
+  const myPages = new Set(menuFor(wsId, user.permissions || [], user.grants || []).flatMap((g) => g.items.map((i) => i.page)).filter(Boolean));
+  const canOpen = (...pages) => pages.some((p) => myPages.has(p));
   // Old bookmarks: the four Programme Intelligence areas became the impact dashboards.
   const MOVED = { implementation: "field-operations", "data-collection": "field-operations", impact: "overview" };
   if (MOVED[(location.hash || "").slice(1)]) location.hash = `#${MOVED[location.hash.slice(1)]}`;
-  const firstVisible = $$(".side-nav .side-link[data-page]").find((l) => !l.hidden);
-  const current = $(`.side-nav .side-link[data-page="${(location.hash || "").slice(1)}"]`);
-  if (firstVisible && (!current || current.hidden)) location.hash = `#${firstVisible.dataset.page}`;
   // Read-only access (e.g. M&E): hide the editing tools the API would refuse.
   const hideUnless = (el, ...p) => { if (el && !has(...p)) el.hidden = true; };
   hideUnless($("#addSchoolForm"), "schools.manage");
@@ -96,8 +79,9 @@ async function main() {
 
   $("#sideAvatar").textContent = initials(user.fullName);
   $("#sideName").textContent = user.fullName;
-  $("#sideMeta").textContent = ROLE_LABEL[user.role] || "Education Team";
+  $("#sideMeta").textContent = ROLE_LABEL[user.role] || "";
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
+  $("#topSub").textContent = ws.question;
 
   /* ------------------------------------------------------------ global filters
      One filter bar drives every page that has real, scopeable data behind
@@ -263,11 +247,13 @@ async function main() {
      where a real date exists (new-learner intake, field visits). */
   async function renderStats() {
     dqOffset = 0;
-    renderDq();
-    renderMelResults();
-    renderMelReportScope();
+    if (canOpen("data-quality")) renderDq();
+    if (canOpen("mel-results")) renderMelResults();
+    if (canOpen("mel-reports")) renderMelReportScope();
     renderImpact();
-    renderMelDash();
+    if (canOpen("me-dashboard")) renderMelDash();
+    // Programme statistics feed the Schools page and the overview's "needs attention".
+    if (!has("stats.view") || !canOpen("schools", "overview")) return;
     $("#schoolsBody").innerHTML = skeleton(4);
     let s;
     try {
@@ -294,10 +280,12 @@ async function main() {
   let lastMelDash = null;
   const IMP_PAGES = { reach: reachHtml, learning: learningHtml, "teacher-development": teachersHtml, "field-operations": fieldOpsHtml, "digital-resources": resourcesHtml };
   async function renderImpact() {
-    if (!has("intelligence.view")) return;
+    // The programme dashboards, or (Education Team) only their learning side.
+    const pagesHere = Object.keys(IMP_PAGES).filter((p) => canOpen(p));
+    if (!pagesHere.length && !canOpen("overview")) return;
     $("#statRow").innerHTML = skeleton(4, { avatar: false });
     $("#statRow2").innerHTML = "";
-    for (const p of Object.keys(IMP_PAGES)) $(`#imp-${p}`).innerHTML = skeleton(4);
+    for (const p of pagesHere) $(`#imp-${p}`).innerHTML = skeleton(4);
     let d;
     try {
       d = await getImpact({ county: gf.county, school: gf.school, from: gf.from, to: gf.to });
@@ -306,18 +294,20 @@ async function main() {
       const msg = errorState(friendlyError(err, "Couldn't load this data."), renderImpact);
       $("#statRow").innerHTML = msg;
       $("#intelAreas").innerHTML = "";
-      for (const p of Object.keys(IMP_PAGES)) $(`#imp-${p}`).innerHTML = msg;
+      for (const p of pagesHere) $(`#imp-${p}`).innerHTML = msg;
       return;
     }
     lastImpact = d;
-    const o = executiveHtml(d);
-    $("#statRow").innerHTML = o.headline;
-    $("#statRow2").innerHTML = o.secondary + (lastDq?.score ? dqTile(lastDq) : "");
-    $("#intelAreas").innerHTML = o.areas;
-    for (const [p, html] of Object.entries(IMP_PAGES)) $(`#imp-${p}`).innerHTML = html(d);
+    if (canOpen("overview") && !d.learningOnly) {
+      const o = executiveHtml(d);
+      $("#statRow").innerHTML = o.headline;
+      $("#statRow2").innerHTML = o.secondary + (lastDq?.score ? dqTile(lastDq) : "");
+      $("#intelAreas").innerHTML = o.areas;
+    }
+    for (const p of pagesHere) $(`#imp-${p}`).innerHTML = IMP_PAGES[p](d);
     const scope = d.scope.school || (d.scope.county ? `${d.scope.county} County` : "every school");
     for (const m of $$("[data-imp-meta]")) m.textContent = `${scope} · updated ${new Date(d.generatedAt).toLocaleTimeString()}`;
-    if (d.currentTerm) $("#topSub").textContent = `Live across every account · ${d.currentTerm}`;
+    if (d.currentTerm) $("#topSub").textContent = `${ws.question} · ${d.currentTerm}`;
     fillMelSlots();
     renderAttention();
   }
@@ -386,7 +376,7 @@ async function main() {
     onChange: () => { renderTrainings(); renderImpact(); },
   });
   async function renderTrainings() {
-    if (!has("intelligence.view")) return;
+    if (!canOpen("training")) return;
     $("#trNewBtn").hidden = !has("trainings.manage");
     $("#trainingList").innerHTML = skeleton(3, { avatar: false });
     try {
@@ -735,7 +725,7 @@ async function main() {
       }
     });
   }
-  loadMel();
+  if (canOpen("mel-results", "mel-framework", "mel-reports", "me-dashboard")) loadMel();
 
   // A school name anywhere on these pages narrows everything to it.
   for (const p of Object.keys(IMP_PAGES)) {
@@ -1670,7 +1660,7 @@ async function main() {
     visit_incomplete: "Visit forms", kobo_received: "Kobo", accounts_pending: "Approvals",
   };
   async function renderNotificationLog() {
-    if (!has("notifications.view.all")) return;
+    if (!canOpen("notifications")) return;
     $("#ntfLog").innerHTML = skeleton(4, { avatar: false });
     let d;
     try {
@@ -1774,8 +1764,8 @@ async function main() {
     $("#koboFieldEcho").textContent = koboState.officerField || "officer_ref";
     renderAttention();
 
-    // Viewing only (M&E): the surveys and their data pipeline, read-only —
-    // no connection, attach, sync or push controls.
+    // Without survey management (M&E): the surveys and their data pipeline —
+    // reviewing flagged submissions, no connection, attach, sync or push.
     if (!has("kobo.manage")) {
       koboConnectForm.hidden = true;
       koboManage.hidden = !koboState.configured;
@@ -1784,7 +1774,12 @@ async function main() {
       refreshSurveyPicker();
       return;
     }
-    if (!koboState.configured) { showKoboConnect(); refreshSurveyPicker(); return; }
+    if (!koboState.configured) {
+      if (has("kobo.configure")) showKoboConnect();
+      else { koboConnectForm.hidden = true; $("#koboFormList").innerHTML = `<div class="empty-state">KoboToolbox isn't connected yet — a Super Admin connects it.</div>`; }
+      refreshSurveyPicker();
+      return;
+    }
 
     koboConnectForm.hidden = true;
     koboManage.hidden = false;
@@ -1800,7 +1795,7 @@ async function main() {
 
   /* Kobo's live push (REST Service): set up / replace / turn off. */
   function renderKoboPush() {
-    $("#koboPush").innerHTML = webhookBoxHtml(koboState, has("kobo.manage"));
+    $("#koboPush").innerHTML = webhookBoxHtml(koboState, has("kobo.configure"));
   }
   wireWebhookBox($("#koboPush"), async () => {
     try { koboState = await koboConfig(); } catch { /* keep the old state */ }
@@ -1865,7 +1860,7 @@ async function main() {
     $$("[data-kobo-pipeline]").forEach((btn) => btn.addEventListener("click", async () => {
       if (!schoolDir.schools.length) await renderSchoolList().catch(() => {});
       openKoboPipeline(btn.dataset.koboPipeline, {
-        canManage: has("kobo.manage"), schools: schoolDir.schools,
+        canManage: has("kobo.manage"), canReview: has("kobo.review"), schools: schoolDir.schools,
         onChange: () => { renderKoboForms(); loadSurveyResults(); renderImpact(); },
       });
     }));
@@ -2405,7 +2400,6 @@ async function main() {
   let allUsers = [];
   let grantable = []; // [{ value, label }] roles this administrator may give
   let editingUserId = null;
-  let historyUserId = null;
   const historyCache = new Map();
 
   const STATUS_PILL = {
@@ -2500,41 +2494,35 @@ async function main() {
         if (status === "deactivated") acts.push(["reactivate", "Reactivate"]);
       }
     }
-    if (has("audit.view")) acts.push(["history", historyUserId === u.id ? "Hide history" : "History"]);
-    return acts.map(([act, label, cls]) =>
+    return [["view", "View"], ...acts].map(([act, label, cls]) =>
       `<button type="button" data-act="${act}"${cls ? ` class="${cls}"` : ""}>${esc(label)}</button>`).join("");
   }
 
+  const lastSeen = (v) => {
+    if (!v) return "Never";
+    const days = Math.floor((Date.now() - new Date(v).getTime()) / 864e5);
+    return days <= 0 ? "Today" : days === 1 ? "Yesterday" : days < 30 ? `${days} days ago` : fmtDate(v);
+  };
+  /* One account, one row: name, email, role, county, school (or the data
+     scope of someone not placed in a school), status, last sign-in,
+     created — and what this administrator may do with it. */
   function userRow(u) {
-    if (u.id === editingUserId) return userEditRow(u);
+    if (u.id === editingUserId) return `<tr class="user-edit"><td colspan="9">${userEditRow(u)}</td></tr>`;
     const pill = STATUS_PILL[u.status];
-    const meta = [
-      pill ? `<span class="pill ${pill[0]}">${esc(pill[1])}</span>` : "",
-      u.status === "pending" && u.requestedRole ? `asked for ${esc(ROLE_LABEL[u.requestedRole] || u.requestedRole)}` : "",
-      u.userCode ? `<span class="code-chip">${esc(u.userCode)}</span>` : "",
-      esc(u.email),
-      u.county ? esc(u.county) : "",
-      u.school ? esc(u.school) : "",
-      u.teacherType ? esc(u.teacherType) : "",
-      u.statusReason && u.status !== "active" ? `Reason: ${esc(u.statusReason)}` : "",
-    ].filter(Boolean).join(" · ");
-    const history = historyUserId === u.id
-      ? `<div class="user-history" style="flex-basis:100%;margin-top:.5rem">${historyHtml(historyCache.get(u.id))}</div>`
-      : "";
-    return `
-      <div class="task-row" data-user="${esc(u.id)}" style="flex-wrap:wrap"
-           data-fullname="${esc(u.fullName || "")}" data-email="${esc(u.email || "")}"
-           data-role="${esc(u.role)}" data-county="${esc(u.county || "")}"
-           data-school="${esc(u.school || "")}" data-teachertype="${esc(u.teacherType || "")}">
-        <div style="flex:1;min-width:0">
-          <b>${esc(u.fullName || "(no name)")}</b>
-          <span>${meta}</span>
-        </div>
-        <div class="roster-actions">${userActions(u)}</div>
-        ${history}
-      </div>`;
+    const where = u.school || (u.scope && !u.scope.global ? `Assigned: ${u.scope.label}` : u.scope?.global && !["teacher", "school_leader"].includes(u.role) ? "All schools" : "—");
+    return `<tr data-user="${esc(u.id)}" data-email="${esc(u.email || "")}">
+      <td class="lms-name"><b>${esc(u.fullName || "(no name)")}</b>${u.userCode ? `<br><span class="code-chip">${esc(u.userCode)}</span>` : ""}${
+        u.status === "pending" && u.requestedRole ? `<br><span class="hint-inline">asked for ${esc(ROLE_LABEL[u.requestedRole] || u.requestedRole)}</span>` : ""}</td>
+      <td>${esc(u.email || "")}</td>
+      <td>${esc(ROLE_LABEL[u.role] || u.role)}${u.grants?.length ? ` <span class="pill" title="${esc(u.grants.join(", "))}">+${u.grants.length} granted</span>` : ""}</td>
+      <td>${esc(u.county || "—")}</td>
+      <td>${esc(where)}</td>
+      <td>${pill ? `<span class="pill ${pill[0]}">${esc(pill[1])}</span>` : `<span class="pill ok">Active</span>`}${u.statusReason && u.status !== "active" ? `<br><span class="hint-inline">${esc(u.statusReason)}</span>` : ""}</td>
+      <td title="${esc(u.lastSignInAt ? new Date(u.lastSignInAt).toLocaleString() : "")}">${esc(lastSeen(u.lastSignInAt))}</td>
+      <td>${esc(fmtDate(u.createdAt))}</td>
+      <td><div class="roster-actions">${userActions(u)}</div></td>
+    </tr>`;
   }
-
   function userMatchesSearch(u, q) {
     if (!q) return true;
     const hay = [u.fullName, u.email, u.county, u.school, u.userCode, u.teacherType, ROLE_LABEL[u.role]]
@@ -2572,11 +2560,10 @@ async function main() {
     const q = $("#usersSearch").value.trim().toLowerCase();
     const sortBy = $("#usersSort").value;
     const status = $("#usersStatus").value;
+    const role = $("#usersRole").value;
     let filtered = allUsers.filter((u) => userMatchesSearch(u, q));
     if (status) filtered = filtered.filter((u) => (u.status || "active") === status);
-    if (gf.county) filtered = filtered.filter((u) => (u.county || "") === gf.county);
-    if (gf.school) filtered = filtered.filter((u) => (u.school || "") === gf.school);
-    if (gf.role) filtered = filtered.filter((u) => u.role === gf.role);
+    if (role) filtered = filtered.filter((u) => u.role === role);
 
     const pendingCount = allUsers.filter((u) => u.status === "pending").length;
     $("#usersMeta").textContent = (filtered.length === allUsers.length
@@ -2588,14 +2575,11 @@ async function main() {
       return;
     }
 
-    const group = (title, rows) => rows.length ? `
-        <div class="list-group">
-          <div class="list-group-title">${esc(title)}<span class="count">${rows.length}</span></div>
-          ${rows.map(userRow).join("")}
-        </div>` : "";
-    const pending = sortUsers(filtered.filter((u) => u.status === "pending"), sortBy);
-    list.innerHTML = group("Waiting for approval", pending) + STAFF_ROLES.map((r) =>
-      group(r.label, sortUsers(filtered.filter((u) => u.role === r.value && u.status !== "pending"), sortBy))).join("");
+    // Waiting for approval first, then everyone else.
+    const rows = [...sortUsers(filtered.filter((u) => u.status === "pending"), sortBy), ...sortUsers(filtered.filter((u) => u.status !== "pending"), sortBy)];
+    list.innerHTML = `<div class="lms-table-wrap users-table"><table class="lms-table intel-table">
+      <thead><tr>${["Name", "Email", "Role", "County", "School / scope", "Status", "Last login", "Created", ""].map((h, i) => `<th${i === 0 ? ' class="lms-name"' : ""}>${h}</th>`).join("")}</tr></thead>
+      <tbody>${rows.map(userRow).join("")}</tbody></table></div>`;
     const editing = allUsers.find((u) => u.id === editingUserId);
     if (editing) wireUserEditor(editing);
   }
@@ -2614,9 +2598,11 @@ async function main() {
     renderUsersList();
   }
 
+  $("#usersRole").innerHTML = `<option value="">All roles</option>${STAFF_ROLES.map((r) => `<option value="${esc(r.value)}">${esc(r.label)}</option>`).join("")}`;
   $("#usersSearch").addEventListener("input", renderUsersList);
   $("#usersSort").addEventListener("change", renderUsersList);
   $("#usersStatus").addEventListener("change", renderUsersList);
+  $("#usersRole").addEventListener("change", renderUsersList);
 
   /* Status changes and approvals: what each one says before it happens. */
   const STATUS_DIALOG = {
@@ -2635,6 +2621,11 @@ async function main() {
     const act = btn.dataset.act;
 
     try {
+      if (act === "view") {
+        if (!schoolDir.counties.length) await renderSchoolList();
+        openUserAccess(u, { counties: schoolDir.counties, schools: schoolDir.schools, onChanged: renderUsers });
+        return;
+      }
       if (act === "edit") {
         if (!schoolDir.counties.length) await renderSchoolList();
         editingUserId = id;
@@ -2716,19 +2707,6 @@ async function main() {
         historyCache.delete(id);
         renderUsers();
         renderAuditPanel();
-      } else if (act === "history") {
-        historyUserId = historyUserId === id ? null : id;
-        if (historyUserId && !historyCache.has(id)) {
-          historyCache.set(id, null); // loading
-          renderUsersList();
-          try {
-            historyCache.set(id, (await getAuditLog({ targetId: id })).entries || []);
-          } catch (err) {
-            historyCache.delete(id);
-            toast("Couldn't load the history", friendlyError(err), "error");
-          }
-        }
-        renderUsersList();
       } else if (act === "resetlink") {
         if (!confirm(`Email a "set a new password" link to ${row.dataset.email}?`)) return;
         await sendPasswordResetLink(row.dataset.email);
@@ -2773,6 +2751,14 @@ async function main() {
     "invitation.created": "created an invitation",
     "invitation.revoked": "revoked an invitation",
     "invitation.accepted": "accepted an invitation",
+    "permission.granted": "granted a permission",
+    "permission.revoked": "revoked a permission",
+    "scope.changed": "changed the data scope",
+    "scope.assigned": "set the data scope",
+    "kobo.connection_saved": "connected KoboToolbox",
+    "kobo.webhook_secret_created": "set up Kobo's live push",
+    "kobo.webhook_secret_removed": "turned off Kobo's live push",
+    "report.exported": "exported a report",
   };
   const roleName = (r) => ROLE_LABEL[r] || r || "—";
   function auditDetail(e) {
@@ -2787,6 +2773,11 @@ async function main() {
       case "account.updated": return (d.fields || []).join(", ");
       case "invitation.created": case "invitation.revoked": case "invitation.accepted":
         return `${d.email || ""}${d.role ? ` as ${roleName(d.role)}` : ""}`;
+      case "permission.granted": case "permission.revoked": return `${d.permission || ""}${d.reason ? ` — ${d.reason}` : ""}`;
+      case "scope.changed": return [d.added?.length ? `added ${d.added.join(", ")}` : "", d.removed?.length ? `removed ${d.removed.join(", ")}` : ""].filter(Boolean).join("; ");
+      case "scope.assigned": return `${d.county ? `${d.county} County` : ""}${d.source ? ` (${d.source})` : ""}`;
+      case "kobo.connection_saved": return d.server || "";
+      case "report.exported": return `${e.targetId || ""} · ${d.format || ""} · ${d.rows ?? 0} rows`;
       default:
         if (e.action.startsWith("learner.") && d.fullName) return `${d.fullName}${d.username ? ` (@${d.username})` : ""}`;
         return d.reason ? `Reason: ${d.reason}` : "";
@@ -2801,30 +2792,35 @@ async function main() {
         <span class="hint-inline" style="white-space:nowrap">${esc(new Date(e.at).toLocaleString())}</span>
       </div>`;
   }
-  function historyHtml(entries) {
-    if (entries === null || entries === undefined) return skeleton(2, { avatar: false });
-    return entries.length
-      ? entries.map((e) => auditRow(e, { withTarget: false })).join("")
-      : `<div class="empty-state">No recorded changes for this account yet.</div>`;
-  }
-
+  /* The Audit log page — everything, or (Security events) only changes to
+     who can sign in and what they can reach. */
   let auditBefore = null;
-  async function renderAuditPanel({ more = false } = {}) {
-    if (!has("audit.view")) return;
-    $("#auditPanel").hidden = false;
+  let auditKind = "";
+  let auditShown = false;
+  async function renderAuditPage({ more = false, kind = auditKind } = {}) {
+    if (!canOpen("audit")) return;
+    auditShown = true;
+    auditKind = kind;
+    $("#auditTitle").textContent = kind === "security" ? "Security events" : "Audit log";
+    $("#auditHint").textContent = kind === "security"
+      ? "Sign-in and access changes: accounts approved, suspended or reactivated, roles, schools and data scope changed, permissions granted or revoked, passwords set, the Kobo connection. This record can't be edited or deleted."
+      : "Every recorded change — who made it and when. This record can't be edited or deleted.";
     if (!more) { auditBefore = null; $("#auditList").innerHTML = skeleton(3, { avatar: false }); }
     try {
-      const res = await getAuditLog({ before: more ? auditBefore : undefined });
+      const qs = new URLSearchParams(Object.entries({ before: more ? auditBefore : "", kind }).filter(([, v]) => v)).toString();
+      const res = await apiGet(`/audit${qs ? `?${qs}` : ""}`);
       const html = (res.entries || []).map((e) => auditRow(e)).join("");
       if (more) $("#auditList").insertAdjacentHTML("beforeend", html);
-      else $("#auditList").innerHTML = html || `<div class="empty-state">No account changes recorded yet.</div>`;
+      else $("#auditList").innerHTML = html || `<div class="empty-state">Nothing recorded yet.</div>`;
       auditBefore = res.nextBefore;
       $("#auditMore").hidden = !auditBefore;
     } catch (err) {
-      $("#auditList").innerHTML = errorState(friendlyError(err), () => renderAuditPanel());
+      $("#auditList").innerHTML = errorState(friendlyError(err), () => renderAuditPage());
     }
   }
-  $("#auditMore").addEventListener("click", () => renderAuditPanel({ more: true }));
+  // After an account change: refresh the log if it's been opened.
+  function renderAuditPanel() { if (auditShown) renderAuditPage(); }
+  $("#auditMore").addEventListener("click", () => renderAuditPage({ more: true }));
 
   /* ---- invitations ---- */
   function syncInviteFields() {
@@ -2924,7 +2920,6 @@ async function main() {
     });
     renderInvitations();
   }
-  renderAuditPanel();
 
   /* ------------------------------------------------------------ learners across schools
      Administrators and M&E find any learner, see every school and class
@@ -2952,8 +2947,7 @@ async function main() {
         </div>`).join("")
       : `<div class="empty-state">No learners match.</div>`;
   }
-  if (has("learners.view.all")) {
-    $("#learnerFinderPanel").hidden = false;
+  if (canOpen("learners")) {
     $("#learnerFinder").addEventListener("submit", async (e) => {
       e.preventDefault();
       const q = $("#lf_q").value.trim();
@@ -2985,8 +2979,7 @@ async function main() {
 
   /* ---- academic year ---- */
   async function renderCalendar() {
-    if (!has("calendar.manage")) return;
-    $("#calendarPanel").hidden = false;
+    if (!canOpen("calendar")) return;
     try {
       const { years, currentYear, currentTerm } = await getAcademicYears();
       const next = String(Number(currentYear || new Date().getFullYear()) + 1);
@@ -3017,12 +3010,104 @@ async function main() {
   }
   renderCalendar();
 
+  /* ------------------------------------------------------------ pages loaded when first opened */
+  const schoolOptions = (sel, { all = "" } = {}) => {
+    const keep = sel.value;
+    sel.innerHTML = (all ? `<option value="">${esc(all)}</option>` : "") + schoolDir.schools
+      .map((x) => `<option value="${esc(x.id)}">${esc(x.name)} — ${esc(x.county)}</option>`).join("");
+    if ([...sel.options].some((o) => o.value === keep)) sel.value = keep;
+  };
+  const schoolNames = () => new Map(schoolDir.schools.map((x) => [x.id, x.name]));
+  const ensureSchools = async () => { if (!schoolDir.schools.length) await renderSchoolList().catch(() => {}); };
+  const openedOnce = new Set();
+  async function onPage(page, params) {
+    const first = !openedOnce.has(page);
+    openedOnce.add(page);
+    switch (page) {
+      case "platform-overview": renderPlatformOverview($("#pfBody")); break;
+      case "admin-overview": renderAdminOverview($("#aoBody")); break;
+      case "permissions": renderPermissions($("#permBody"), { onRevoke: () => canOpen("users") && renderUsers() }); break;
+      case "account-activity": renderAccountActivity($("#activityBody")); break;
+      case "audit": renderAuditPage({ kind: params.get("kind") === "security" ? "security" : "" }); break;
+      case "users":
+        $("#usersRole").value = params.get("role") || "";
+        $("#usersStatus").value = params.get("status") || "";
+        renderUsersList();
+        break;
+      case "teachers":
+        if (first) {
+          const redraw = () => renderTeachers($("#tchBody"), { q: $("#tchSearch").value, role: $("#tchRole").value });
+          $("#tchSearch").addEventListener("input", redraw);
+          $("#tchRole").addEventListener("change", redraw);
+        }
+        renderTeachers($("#tchBody"), { q: $("#tchSearch").value, role: $("#tchRole").value }, { fresh: first });
+        break;
+      case "classes":
+        await ensureSchools();
+        schoolOptions($("#clsSchool"));
+        if (first) $("#clsSchool").addEventListener("change", () => renderClasses($("#clsBody"), $("#clsSchool").value));
+        renderClasses($("#clsBody"), $("#clsSchool").value);
+        break;
+      case "school-profiles":
+        await ensureSchools();
+        schoolOptions($("#spSchool"));
+        if (params.get("school")) $("#spSchool").value = params.get("school");
+        if (first) $("#spSchool").addEventListener("change", () => renderSchoolProfile($("#spBody"), $("#spSchool").value));
+        renderSchoolProfile($("#spBody"), $("#spSchool").value);
+        break;
+      case "assignments": {
+        await ensureSchools();
+        schoolOptions($("#asgSchool"), { all: "All schools in your area" });
+        const redraw = () => renderAssignments($("#asgBody"), { schoolId: $("#asgSchool").value, status: $("#asgStatus").value }, schoolNames());
+        if (first) { $("#asgSchool").addEventListener("change", redraw); $("#asgStatus").addEventListener("change", redraw); }
+        redraw();
+        break;
+      }
+      case "results": {
+        await ensureSchools();
+        schoolOptions($("#resSchool"), { all: "All schools in your area" });
+        const redraw = () => renderResults($("#resBody"), { by: $("#resBy").value, schoolId: $("#resSchool").value });
+        if (first) { $("#resBy").addEventListener("change", redraw); $("#resSchool").addEventListener("change", redraw); }
+        redraw();
+        break;
+      }
+      case "field-visits":
+        if (first) $("#fvSearch").addEventListener("input", () => renderFieldVisits($("#fvBody"), $("#fvSearch").value));
+        renderFieldVisits($("#fvBody"), $("#fvSearch").value, { fresh: first });
+        break;
+      case "subjects":
+        if (first) {
+          $("#subjectForm").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const name = $("#subjectName").value.trim();
+            if (!name) return;
+            try {
+              await addSubject(name);
+              $("#subjectName").value = "";
+              toast("Subject added", name, "success");
+              renderSubjects($("#subjectsBody"));
+            } catch (err) { toast("Couldn't add it", friendlyError(err), "error"); }
+          });
+        }
+        renderSubjects($("#subjectsBody"));
+        break;
+      case "learners":
+        await ensureSchools();
+        fillFinderSchools();
+        break;
+      default: break;
+    }
+  }
+
   renderStats();
-  renderLibrary();
-  renderUsage();
-  renderForms();
-  renderKobo();
-  if (has("users.view")) renderUsers();
+  if (canOpen("content")) {
+    renderLibrary();
+    if (has("library.usage.view")) renderUsage();
+  }
+  if (canOpen("forms")) renderForms();
+  if (canOpen("kobo", "survey-results")) renderKobo();
+  if (canOpen("users")) renderUsers();
+  mountNavigation(user, { workspace: wsId, onPage });
 }
 main();
 

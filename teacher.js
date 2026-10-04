@@ -1,4 +1,4 @@
-import "./nav.js";
+import { mountNavigation } from "./nav.js";
 import { $, $$, esc, initials, schoolLine, toast, formatDuration, skeleton, emptyState, errorState, friendlyError, confirmDialog } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { normalizeLibraryAudience } from "./data.js";
@@ -43,6 +43,7 @@ async function main() {
   $("#sideMeta").textContent = `Teacher · ${user.userCode || user.county || "—"}`;
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
   $("#topSub").textContent = schoolLine(user);
+  mountNavigation(user); // the menu (navigation.js)
 
   /* ------------------------------------------------------------ KPI row
      Real counts only, from the same data as the lists below: work waiting
@@ -735,7 +736,7 @@ async function main() {
   loadAssignmentList();
   renderResults();
 
-  /* Content library lives in the real database (education.js writes it).
+  /* Content library lives in the real database (console.js writes it).
      Teacher Resources go to teachers and the head of institution only —
      never the Learner dashboard; the Digital Library is the learner-facing
      shelf, which teachers and heads can see too. Home gets a short preview
