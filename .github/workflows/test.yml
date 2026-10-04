@@ -1,0 +1,50 @@
+name: Tests
+
+# Every push to any branch, and every pull request. The api Edge Function's
+# full suite runs against an in-memory stand-in for Supabase — no database,
+# no network, no secrets needed (supabase/functions/api/test_world.ts).
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    name: api Edge Function — type check and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: supabase/functions/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type check
+        run: deno task check
+      # Every *_test.ts: the role × endpoint access matrix (authz_test.ts),
+      # school walls, field officers' schools, PIN lockout and non-active
+      # accounts (isolation_test.ts), and the domain rules.
+      - name: Tests
+        run: deno task test
+
+  frontend:
+    name: Frontend modules parse
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax check
+        run: |
+          for f in *.js scripts/*.mjs; do node --check "$f" || exit 1; done

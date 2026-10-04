@@ -23,6 +23,16 @@ production-ready. Supabase project: `fwpqytrdlmxymvegvgji`.
   "Create an account".
 - **Password boxes** show a hint ("Your password", "At least 8
   characters"), not dots that look like a password is already filled in.
+- **Leaked passwords are refused.** Every password the portal sets — at
+  sign-up and whenever someone chooses their own — is checked against
+  HaveIBeenPwned's list of passwords from known data breaches
+  ([`pwned.ts`](../supabase/functions/api/pwned.ts)). Only the first 5
+  characters of the password's SHA-1 leave the server (k-anonymity), never
+  the password. If the list can't be reached, the check is skipped rather
+  than blocking anyone. Supabase Auth has the same check built in, but only
+  on the Pro plan; this project is on the Free plan, so its advisor still
+  shows "Leaked Password Protection Disabled" — the setup script turns
+  Supabase's own check on too if the plan allows it.
 
 ## Inviting staff
 

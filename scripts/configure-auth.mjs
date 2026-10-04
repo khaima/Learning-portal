@@ -12,7 +12,10 @@
      come back to the portal (added to, never removed from);
    - the api Edge Function's mail secrets (MAIL_PROVIDER, MAIL_API_KEY,
      MAIL_FROM, MAIL_FROM_NAME), so the portal can email staff invitations
-     through the same provider (Resend or Brevo — supabase/functions/api/mail.ts).
+     through the same provider (Resend or Brevo — supabase/functions/api/mail.ts);
+   - Supabase Auth's own leaked-password check, where the plan allows it
+     (Pro and above). The portal checks every password it sets anyway
+     (supabase/functions/api/pwned.ts), so on the Free plan it's skipped.
 
    Dry run by default: shows what would change, then stops. Nothing
    secret is ever printed — keys and passwords show only as "set".
@@ -117,6 +120,18 @@ async function main() {
       fail(`Supabase Management API ${method} ${path} answered ${res.status}: ${why}`);
     }
     return json ?? {};
+  }
+  /** The same, but a refusal is returned rather than stopping the script. */
+  async function managementTry(method, body, path = "config/auth") {
+    const res = await fetch(`${API}/v1/projects/${REF}/${path}`, {
+      method,
+      headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const text = await res.text();
+    let json = null;
+    try { json = JSON.parse(text); } catch { /* not JSON */ }
+    return res.ok ? { ok: true } : { ok: false, why: json?.message || json?.error || text.slice(0, 200) || res.statusText };
   }
 
   /* ---- what to set ---- */
@@ -225,6 +240,12 @@ async function main() {
     console.log(`  (not set: ${mail.skip})`);
   }
 
+  // Supabase Auth's own leaked-password check: Pro plan and above, so tried on its own.
+  console.log("\nLeaked-password check in Supabase Auth (Pro plan and above):");
+  console.log(current.password_hibp_enabled
+    ? `    ${"password_hibp_enabled".padEnd(34)} true`
+    : `  ~ ${"password_hibp_enabled".padEnd(34)} false  →  true (skipped if the plan doesn't include it)`);
+
   if (!APPLY) {
     console.log(`\n${differs} Auth setting(s) would change. Run again with --apply to make the change.`);
     return;
@@ -238,6 +259,12 @@ async function main() {
     .map(([k]) => k);
   if (problems.length) fail(`Saved, but these read back differently: ${problems.join(", ")}. Check the dashboard (Authentication → Settings).`);
   console.log("\n✓ Auth settings saved.");
+  if (!current.password_hibp_enabled) {
+    const hibp = await managementTry("PATCH", { password_hibp_enabled: true });
+    console.log(hibp.ok
+      ? "✓ Supabase Auth's leaked-password check is on."
+      : `• Supabase Auth's leaked-password check wasn't turned on (${hibp.why}) — it needs the Pro plan. The portal's own check covers every password it sets.`);
+  }
   if (mail.secrets) {
     await management("POST", mail.secrets, "secrets");
     const names = secretNames(await management("GET", undefined, "secrets"));

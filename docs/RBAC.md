@@ -426,13 +426,22 @@ one person, with a reason.
 
 ## 11. Tests
 
-`supabase/functions/api`: 312 tests.
+`supabase/functions/api`: 340 tests, run by GitHub Actions on every push
+(`.github/workflows/test.yml`; locally `deno task test`), against the
+in-memory world in `test_world.ts`.
 - `authz_test.ts` — every route, called as every role, against a hand-written
-  table of who may reach it (so a wrong permission fails); no session,
+  table of who may reach it (so a wrong permission fails). Allowed roles must
+  get a real success (2xx): a route whose work needs records gets them made
+  first, in that call's own world; everyone else gets 403. No session,
   learners and inactive accounts refused everywhere; scenario tests for
   narrowed M&E and Admin scope, field-officer assignments, assignment
   history, grants (give, revoke, refused cases), separation of duties,
   overviews, badges, the users list and account activity.
+- `isolation_test.ts` — a teacher sees only their own school's learners,
+  classes and submissions (lists, results, exports, by id); field officers
+  only their assigned schools (lists, visits, exports, profiles, new visits);
+  learner PIN lockout after 5 wrong tries, open again at 15 minutes; pending
+  and suspended accounts refused by every endpoint in the app.
 - `scope_test.ts` — the scope rules, dashboard narrowing, county matching,
   the HPF separation of duties, grant limits, every permission labelled.
 - `navigation_test.ts` — each role's menu matches its permissions exactly;

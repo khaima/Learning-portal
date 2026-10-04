@@ -44,6 +44,7 @@ import {
   STATUS_MOVES as DQ_STATUS_MOVES, STATUSES as DQ_STATUSES,
 } from "./data_quality.ts";
 import { invitationEmail, type MailMessage, mailReady, type MailResult, sendMail } from "./mail.ts";
+import { PWNED_MESSAGE, timesPwned } from "./pwned.ts";
 import {
   achievement, cleanSourceConfig, type Computed, koboInScope, koboMeasure, periodRange, PORTAL_METRICS,
   type Scope as MeScope, targetFor, UNITS as ME_UNITS,
@@ -62,6 +63,13 @@ let admin: SupabaseClient = createClient(SUPABASE_URL, SERVICE_KEY, {
 export function __setAdminClientForTests(client: unknown) {
   admin = client as SupabaseClient;
 }
+/** The leaked-password check (pwned.ts). Tests swap in a stand-in list — never the network. */
+let pwnedCheck: (password: string) => Promise<number | null> = (pw) => timesPwned(pw);
+export function __setPwnedCheckForTests(fn: (password: string) => Promise<number | null>) {
+  pwnedCheck = fn;
+}
+/** A password that appears in a known breach. An unreachable list counts as not leaked. */
+const isLeaked = async (password: string) => ((await pwnedCheck(password)) ?? 0) > 0;
 /** Invitation email (mail.ts). Tests swap in a recorder. */
 let mailer: (m: MailMessage) => Promise<MailResult> = (m) => sendMail(m);
 export function __setMailerForTests(fn: ((m: MailMessage) => Promise<MailResult>) | null) {
@@ -526,9 +534,9 @@ app.post("/auth/register", async (c) => {
   const email = String(b.email ?? "").trim().toLowerCase();
   const password = String(b.password ?? "");
   if (!EMAIL_RE.test(email)) return c.json({ error: "Enter a valid email address" }, 400);
-  if (password.length < 8) {
-    return c.json({ error: "Password must be at least 8 characters" }, 400);
-  }
+  const problem = passwordProblem(password);
+  if (problem) return c.json({ error: problem }, 400);
+  if (await isLeaked(password)) return c.json({ error: PWNED_MESSAGE }, 400);
   const { error } = await admin.auth.admin.createUser({
     email,
     password,
@@ -974,6 +982,7 @@ app.post("/me/password", async (c) => {
       return c.json({ error: "Choose a new password of your own — not the temporary one." }, 400);
     }
   }
+  if (await isLeaked(password)) return c.json({ error: PWNED_MESSAGE }, 400);
   const { error } = await admin.auth.admin.updateUserById(c.get("userId"), { password });
   if (error) return c.json({ error: error.message || "Could not change your password" }, 400);
   if (p) {
@@ -1176,6 +1185,13 @@ const ilikeExact = (s: string) => s.replace(/[\\%_]/g, "\\$&");
    profile exists); only the education team adds, renames or removes.
    The education team also gets head counts per school. */
 app.get("/schools", async (c) => {
+  // A pending, suspended, rejected or deactivated account is refused here
+  // as everywhere else (someone still signing up has no account yet).
+  const me = c.get("actorKind") === "staff" ? await loadStaffProfile(c.get("userId")) : null;
+  const status = me ? me.status ?? "active" : "active";
+  if (status !== "active") {
+    return c.json({ error: STATUS_MESSAGE[status] ?? "Your account is not active.", accountStatus: status }, 403);
+  }
   const [{ data, error }, counties] = await Promise.all([
     selectAll(() => admin.from("schools").select("*").order("seq").order("id")),
     loadCounties().catch(() => null),
@@ -1188,8 +1204,7 @@ app.get("/schools", async (c) => {
   // Field officers and narrowed administrators see only their own counties
   // and schools. Everyone else (and anyone still signing up) gets the whole
   // list of names and codes — no people, no records — to pick their school.
-  const me = c.get("actorKind") === "staff" ? await loadStaffProfile(c.get("userId")) : null;
-  const active = !!me && (me.status ?? "active") === "active" && STAFF_ROLES.includes(me.role);
+  const active = !!me && STAFF_ROLES.includes(me.role);
   const access = active ? await loadAccess(me!) : null;
   let countyNames = counties.map((co) => co.name);
   let visible = schools;
@@ -4002,7 +4017,9 @@ app.get("/field-reports", requirePermission("field_reports.view.own", "field_rep
     return q;
   });
   if (error) return c.json({ error: error.message }, 500);
-  if (all && !scopeOf(c).global) data.splice(0, data.length, ...data.filter((r) => inScope(c, r.school_id, r.county)));
+  // Within the caller's scope — for a field officer, their own visits at the
+  // schools they're assigned now (as in the visit export).
+  if (!scopeOf(c).global) data.splice(0, data.length, ...data.filter((r) => inScope(c, r.school_id, r.county)));
   // For the officer's own visits: which of the visit's forms are still to fill.
   let missing: Map<string, Record<string, any>[]> = new Map();
   if (!all && data?.length) {

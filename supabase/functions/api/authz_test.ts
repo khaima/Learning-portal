@@ -19,285 +19,9 @@
 import { assert, assertEquals } from "jsr:@std/assert@1";
 import { localDay } from "./notifications.ts";
 
-Deno.env.set("SUPABASE_URL", "http://localhost:54321");
-Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "test-service-key");
-Deno.env.set("HPF_API_TEST", "1");
-const { app, __setAdminClientForTests, __setMailerForTests } = await import("./index.ts");
-
-/* ------------------------------------------------------------ in-memory Supabase */
-
-// deno-lint-ignore no-explicit-any
-type Row = Record<string, any>;
-type Db = Record<string, Row[]>;
-
-function fakeAdmin(db: Db, users: Record<string, { id: string; email: string }>) {
-  let seq = 1;
-  const from = (table: string) => {
-    db[table] ??= [];
-    const filters: ((r: Row) => boolean)[] = [];
-    let op: "select" | "insert" | "update" | "upsert" | "delete" = "select";
-    let payload: Row | Row[] | null = null;
-    let one: "single" | "maybe" | null = null;
-    let head = false;
-    let limit: number | null = null;
-    let range: [number, number] | null = null;
-    let conflict = "id";
-    let ignoreDup = false;
-    // Embedded-resource filters ("learners.teacher_id") aren't modelled.
-    const f = (k: string, test: (v: unknown) => boolean) => { if (!k.includes(".")) filters.push((r) => test(r[k])); return api; };
-    const run = () => {
-      const rows = db[table];
-      const match = (r: Row) => filters.every((t) => t(r));
-      let out: Row[] = [];
-      if (op === "upsert") {
-        const keys = conflict.split(",").map((k) => k.trim());
-        const list = (Array.isArray(payload) ? payload : [payload]) as Row[];
-        out = [];
-        for (const p of list) {
-          const hit = keys.every((k) => p[k] !== undefined) ? rows.find((r) => keys.every((k) => r[k] === p[k])) : undefined;
-          if (hit) { if (!ignoreDup) Object.assign(hit, p); out.push(hit); continue; }
-          const row = { id: p.id ?? `${table}_${seq++}`, created_at: new Date().toISOString(), ...p };
-          rows.push(row);
-          out.push(row);
-        }
-      } else if (op === "insert") {
-        const list = (Array.isArray(payload) ? payload : [payload]) as Row[];
-        out = list.map((p) => {
-          const row = { id: p.id ?? `${table}_${seq++}`, created_at: new Date().toISOString(), ...p };
-          if (table === "audit_log") row.id = seq++;
-          rows.push(row);
-          return row;
-        });
-      } else if (op === "update") {
-        out = rows.filter(match);
-        for (const r of out) Object.assign(r, payload);
-      } else if (op === "delete") {
-        out = rows.filter(match);
-        db[table] = rows.filter((r) => !match(r));
-      } else {
-        out = rows.filter(match);
-      }
-      if (range) out = out.slice(range[0], range[1] + 1);
-      if (limit != null) out = out.slice(0, limit);
-      const copy = out.map((r) => ({ ...r }));
-      if (head) return { data: null, count: copy.length, error: null };
-      if (one) {
-        if (one === "single" && copy.length !== 1) return { data: null, error: { message: "not exactly one row", code: "PGRST116" } };
-        return { data: copy[0] ?? null, error: null };
-      }
-      return { data: copy, error: null, count: copy.length };
-    };
-    // deno-lint-ignore no-explicit-any
-    const api: any = {
-      // deno-lint-ignore no-explicit-any
-      select(_c?: string, opts?: any) { if (opts?.head) head = true; return api; },
-      insert(p: Row) { op = "insert"; payload = p; return api; },
-      // deno-lint-ignore no-explicit-any
-      upsert(p: Row, o?: any) { op = "upsert"; payload = p; conflict = o?.onConflict ?? "id"; ignoreDup = !!o?.ignoreDuplicates; return api; },
-      update(p: Row) { op = "update"; payload = p; return api; },
-      delete() { op = "delete"; return api; },
-      eq: (k: string, v: unknown) => f(k, (x) => x === v),
-      neq: (k: string, v: unknown) => f(k, (x) => x !== v),
-      is: (k: string, v: unknown) => f(k, (x) => (v === null ? x == null : x === v)),
-      in: (k: string, vs: unknown[]) => f(k, (x) => vs.includes(x)),
-      ilike: (k: string, v: string) => f(k, (x) => String(x ?? "").toLowerCase() === v.replace(/\\(.)/g, "$1").toLowerCase()),
-      lt: (k: string, v: number) => f(k, (x) => (x as number) < v),
-      gt: (k: string, v: number) => f(k, (x) => (x as number) > v),
-      not: () => api, like: () => api, order: () => api,
-      limit(n: number) { limit = n; return api; },
-      range(a: number, b: number) { range = [a, b]; return api; },
-      single() { one = "single"; return api; },
-      maybeSingle() { one = "maybe"; return api; },
-      then(res: (v: unknown) => unknown, rej: (e: unknown) => unknown) { return Promise.resolve().then(run).then(res, rej); },
-    };
-    return api;
-  };
-  const ok = { data: { user: { id: "new-user" } }, error: null };
-  return {
-    from,
-    // The database functions the API calls: only the cron secret check.
-    rpc: (name: string, args: Row) => Promise.resolve(name === "notify_cron_secret_ok"
-      ? { data: args.candidate === CRON_SECRET, error: null }
-      : { data: null, error: { message: `no function ${name}` } }),
-    auth: {
-      getUser: (jwt: string) => Promise.resolve(users[jwt]
-        ? { data: { user: users[jwt] }, error: null }
-        : { data: { user: null }, error: { message: "invalid" } }),
-      // A reset email "sent" through the project's mail settings; a test
-      // sets db.auth_mail_error to make the mail server refuse.
-      resetPasswordForEmail: (email: string, opts: Row) => {
-        if (db.auth_mail_error) return Promise.resolve({ data: null, error: db.auth_mail_error[0] });
-        (db.auth_emails ??= []).push({ email, redirectTo: opts?.redirectTo });
-        return Promise.resolve({ data: {}, error: null });
-      },
-      admin: {
-        createUser: () => Promise.resolve(ok),
-        updateUserById: (id: string, attrs: Row) => {
-          if (attrs?.password) (db.auth_passwords ??= []).push({ id, password: attrs.password });
-          return Promise.resolve(ok);
-        },
-        listUsers: () => Promise.resolve({
-          data: { users: Object.values(users).map((u) => ({ ...u, last_sign_in_at: u.id === "teacher-id" ? "2026-10-02T08:00:00.000Z" : null })) },
-          error: null,
-        }),
-      },
-    },
-    storage: {
-      from: () => ({
-        createSignedUrl: () => Promise.resolve({ data: { signedUrl: "https://signed" }, error: null }),
-        createSignedUploadUrl: () => Promise.resolve({ data: { token: "t", signedUrl: "https://up" }, error: null }),
-        remove: () => Promise.resolve({ data: [], error: null }),
-      }),
-    },
-  };
-}
-
-/* ------------------------------------------------------------ fixtures */
-
-const STAFF = ["super_admin", "admin", "education_team", "me", "field_officer", "school_leader", "teacher"] as const;
-const ROLES = [...STAFF, "learner"] as const;
-type R = (typeof ROLES)[number];
-const ALL: R[] = [...ROLES];
-const NON_ACTIVE = ["pending", "suspended", "rejected", "deactivated"] as const;
-
-const CRON_SECRET = "c".repeat(64);
-const SCHOOL = { id: "sch_1", name: "Aitong Primary", county: "Narok", code: "NRK-001", seq: 1 };
-const SCHOOL_B = { id: "sch_2", name: "Olpusimoru Primary", county: "Narok", code: "NRK-002", seq: 2 };
-const idOf = (role: string) => `00000000-0000-0000-0000-${role.padEnd(12, "0").slice(0, 12).replace(/[^0-9a-f]/g, "a")}`;
-
-let USERS: Record<string, { id: string; email: string }> = {};
-function freshWorld() {
-  const now = new Date().toISOString();
-  const inAWeek = new Date(Date.now() + 7 * 864e5).toISOString();
-  const users: Record<string, { id: string; email: string }> = {};
-  USERS = users;
-  const profiles: Row[] = [];
-  for (const role of STAFF) {
-    const id = `${role}-id`;
-    users[`tok_${role}`] = { id, email: `${role}@test.org` };
-    profiles.push({
-      id, role, status: "active", full_name: `${role} person`, email: `${role}@test.org`,
-      school: ["teacher", "school_leader"].includes(role) ? SCHOOL.name : "",
-      school_id: ["teacher", "school_leader"].includes(role) ? SCHOOL.id : null,
-      county: role === "field_officer" ? "Narok" : "", user_code: null, created_at: now,
-    });
-  }
-  // A second teacher, for an admin to manage, plus one account per non-active state.
-  users["tok_teacher2"] = { id: "teacher2-id", email: "teacher2@test.org" };
-  profiles.push({ id: "teacher2-id", role: "teacher", status: "active", full_name: "Second Teacher", email: "teacher2@test.org", school: SCHOOL.name, school_id: SCHOOL.id, county: "Narok" });
-  for (const st of NON_ACTIVE) {
-    users[`tok_${st}`] = { id: `${st}-id`, email: `${st}@test.org` };
-    profiles.push({ id: `${st}-id`, role: "teacher", requested_role: "teacher", status: st, full_name: `${st} person`, email: `${st}@test.org`, school: SCHOOL.name, school_id: SCHOOL.id, county: "Narok" });
-  }
-  users["tok_new"] = { id: "new-id", email: "new@test.org" }; // signed in, no profile yet
-  // A second school with its own head and teacher.
-  users["tok_head_b"] = { id: "head-b-id", email: "head-b@test.org" };
-  users["tok_teacher_b"] = { id: "teacher-b-id", email: "teacher-b@test.org" };
-  profiles.push(
-    { id: "head-b-id", role: "school_leader", status: "active", full_name: "Head B", email: "head-b@test.org", school: SCHOOL_B.name, school_id: SCHOOL_B.id, county: "Narok" },
-    { id: "teacher-b-id", role: "teacher", status: "active", full_name: "Teacher B", email: "teacher-b@test.org", school: SCHOOL_B.name, school_id: SCHOOL_B.id, county: "Narok" },
-  );
-  const db: Db = {
-    profiles,
-    schools: [SCHOOL, SCHOOL_B],
-    academic_years: [{ id: "2026", label: "2026", starts_on: "2026-01-01", ends_on: "2026-12-31", is_current: true }],
-    terms: [
-      { id: "2026-T1", academic_year_id: "2026", term_no: 1, starts_on: "2026-01-01", ends_on: "2026-04-30" },
-      { id: "2026-T2", academic_year_id: "2026", term_no: 2, starts_on: "2026-05-01", ends_on: "2026-08-31" },
-      { id: "2026-T3", academic_year_id: "2026", term_no: 3, starts_on: "2026-09-01", ends_on: "2026-12-31" },
-    ],
-    classes: [
-      { id: "cls_1", school_id: SCHOOL.id, academic_year_id: "2026", grade: "Grade 4", name: "Grade 4 East", archived_at: null },
-      { id: "cls_1b", school_id: SCHOOL.id, academic_year_id: "2026", grade: "Grade 5", name: "Grade 5 East", archived_at: null },
-      { id: "cls_2", school_id: SCHOOL_B.id, academic_year_id: "2026", grade: "Grade 4", name: "Grade 4 B", archived_at: null },
-    ],
-    class_teachers: [
-      { id: "ct_1", class_id: "cls_1", teacher_id: "teacher-id", role: "class_teacher", ended_at: null },
-      { id: "ct_2", class_id: "cls_2", teacher_id: "teacher-b-id", role: "class_teacher", ended_at: null },
-    ],
-    learner_enrollments: [
-      { id: "enr_1", learner_id: "learner-id", school_id: SCHOOL.id, class_id: "cls_1", academic_year_id: "2026", term_id: "2026-T3", grade: "Grade 4", status: "ACTIVE", enrollment_date: "2026-09-01" },
-      { id: "enr_b", learner_id: "learner-b-id", school_id: SCHOOL_B.id, class_id: "cls_2", academic_year_id: "2026", term_id: "2026-T3", grade: "Grade 4", status: "ACTIVE", enrollment_date: "2026-09-01" },
-    ],
-    counties: [{ name: "Narok", code: "NRK", created_at: now }],
-    school_code_counters: [],
-    learners: [
-      { id: "learner-id", teacher_id: "teacher-id", current_teacher_id: "teacher-id", class_id: "cls_1", username: "kid.one", full_name: "Kid One", grade: "Grade 4", school: SCHOOL.name, school_id: SCHOOL.id, county: "Narok", pin_hash: "x", pin_salt: "y", user_code: "NRK-001-L0001", learner_code: "NRK-001-L0001", enrollment_status: "ACTIVE", academic_year_id: "2026", term_id: "2026-T3" },
-      // In the OTHER school — and, to prove the school wall holds, still
-      // carrying teacher-id as the teacher who first added them.
-      { id: "learner-b-id", teacher_id: "teacher-id", current_teacher_id: "teacher-b-id", class_id: "cls_2", username: "kid.b", full_name: "Kid B", grade: "Grade 4", school: SCHOOL_B.name, school_id: SCHOOL_B.id, county: "Narok", pin_hash: "x", pin_salt: "y", user_code: "NRK-002-L0001", learner_code: "NRK-002-L0001", enrollment_status: "ACTIVE", academic_year_id: "2026", term_id: "2026-T3" },
-    ],
-    learner_sessions: [{ token: "learnertoken", learner_id: "learner-id", created_at: now, expires_at: new Date(Date.now() + 3600e3).toISOString() }],
-    subjects: [
-      { id: "mathematics", name: "Mathematics", sort_order: 1, archived_at: null },
-      { id: "english", name: "English", sort_order: 2, archived_at: null },
-    ],
-    class_subjects: [{ id: "cs_1", class_id: "cls_1", subject_id: "mathematics", removed_at: null }],
-    grade_bands: [
-      { code: "EE", label: "Exceeding Expectations", min_percent: 80, sort_order: 1 },
-      { code: "ME", label: "Meeting Expectations", min_percent: 50, sort_order: 2 },
-      { code: "AE", label: "Approaching Expectations", min_percent: 30, sort_order: 3 },
-      { code: "BE", label: "Below Expectations", min_percent: 0, sort_order: 4 },
-    ],
-    // A published quiz in each school: one auto-marked and one teacher-marked
-    // question in school A, a true/false in school B.
-    assignments: [
-      { id: "asg_1", school_id: SCHOOL.id, class_id: "cls_1", subject_id: "mathematics", grade: "Grade 4", academic_year_id: "2026", term_id: "2026-T3",
-        title: "Fractions quiz", description: "", instructions: "", resource_id: null, starts_at: null, due_at: inAWeek, estimated_minutes: 20,
-        status: "published", max_marks: 4, created_by: "teacher-id", created_at: "2026-09-10T08:00:00.000Z", published_at: "2026-09-10T08:00:00.000Z" },
-      { id: "asg_b", school_id: SCHOOL_B.id, class_id: "cls_2", subject_id: "english", grade: "Grade 4", academic_year_id: "2026", term_id: "2026-T3",
-        title: "Reading check", description: "", instructions: "", resource_id: null, starts_at: null, due_at: inAWeek, estimated_minutes: 10,
-        status: "published", max_marks: 1, created_by: "teacher-b-id", created_at: "2026-09-10T08:00:00.000Z", published_at: "2026-09-10T08:00:00.000Z" },
-    ],
-    assignment_questions: [
-      { id: "q_mc", assignment_id: "asg_1", position: 1, type: "multiple_choice", prompt: "1/2 + 1/4 = ?", options: ["3/4", "2/6"], answer_key: 0, max_marks: 2 },
-      { id: "q_tm", assignment_id: "asg_1", position: 2, type: "teacher_marked", prompt: "Explain how you worked it out.", options: [], answer_key: null, max_marks: 2 },
-      { id: "q_b", assignment_id: "asg_b", position: 1, type: "true_false", prompt: "The story is set in Narok.", options: ["True", "False"], answer_key: true, max_marks: 1 },
-    ],
-    assignment_submissions: [],
-    submission_answers: [],
-    library_items: [{ id: "lib_1", title: "Book", subject: "English", type: "Reading", audience: "library", published: true, files: [] }],
-    library_folders: [{ id: "fld_1", name: "Folder", audience: "library" }],
-    library_interactions: [{ id: "li_1", library_item_id: "lib_1", actor_id: "learner-id", started_at: now, completed_at: null }],
-    library_badges: [],
-    forms: [{ id: "form_1", title: "Survey", audience: "teacher", kind: "questions", questions: [{ id: "q1", prompt: "How?", type: "text" }], files: [] }],
-    responses: [],
-    field_reports: [],
-    kobo_config: [],
-    kobo_forms: [{ id: "kb_1", asset_uid: "aAbCdEfGh123", title: "Kobo", active: true }],
-    kobo_submissions: [],
-    kobo_raw_submissions: [],
-    kobo_records: [],
-    kobo_record_issues: [],
-    kobo_school_aliases: [],
-    dq_issues: [],
-    dq_issue_events: [],
-    dq_scans: [],
-    me_programmes: [], me_outcomes: [], me_indicators: [], me_targets: [], me_actuals: [], me_evidence: [], me_reports: [],
-    trainings: [], training_attendance: [],
-    sync_requests: [], device_sync_status: [],
-    notifications: [], notification_events: [], notification_runs: [],
-    staff_invitations: [],
-    // The field officer works in Narok (as the migration sets up from their profile county).
-    staff_scopes: [{ id: "scp_fo", profile_id: "field_officer-id", scope_type: "county", county: "Narok", school_id: null, note: "", created_at: now, created_by: null, ended_at: null, ended_by: null }],
-    permission_grants: [],
-    audit_log: [],
-  };
-  __setAdminClientForTests(fakeAdmin(db, users));
-  return db;
-}
-
-async function call(method: string, path: string, token?: string, body?: unknown, extra: Record<string, string> = {}) {
-  const headers: Record<string, string> = { "content-type": "application/json", ...extra };
-  if (token) headers.authorization = `Bearer ${token}`;
-  const res = await app.request(`/api${path}`, {
-    method, headers, body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  let json: Row = {};
-  try { json = await res.json(); } catch { /* empty */ }
-  return { status: res.status, json, replay: res.headers.get("idempotent-replay") === "true", cache: res.headers.get("cache-control") };
-}
-const tokenFor = (role: R) => (role === "learner" ? "hpl_learnertoken" : `tok_${role}`);
+import {
+  Row, Db, fakeAdmin, STAFF, ROLES, R, ALL, NON_ACTIVE, CRON_SECRET, SCHOOL, SCHOOL_B, idOf, USERS, freshWorld, call, tokenFor, SCHOOL_C, twoCounties, assign, app, __setAdminClientForTests, __setMailerForTests, __setPwnedCheckForTests, LEAKED_PASSWORDS,
+} from "./test_world.ts";
 
 /* ------------------------------------------------------------ the expected access table
    Hand-written spec. `who` = the roles that must get PAST authorization. */
@@ -320,17 +44,81 @@ const LEARNER_MANAGERS: R[] = ["super_admin", "admin", "school_leader", "teacher
 const CLASS_MANAGERS: R[] = ["super_admin", "admin", "school_leader"];
 const USER_ADMIN = ADMINS;
 
-type RouteSpec = { method: string; path: string; route: string; who: R[]; body?: unknown };
-const r = (method: string, route: string, who: R[], body?: unknown, path?: string): RouteSpec =>
-  ({ method, route, path: path ?? route.replace(":id", "x1").replace(":name", "Nowhere").replace(":uid", "aAbCdEfGh123"), who, body });
+/* Every allowed role must get a real success (2xx), not just get past the
+   guard — so a route whose work needs records (an M&E programme, a started
+   assignment, a connected Kobo…) has a `setup` that makes them in that
+   call's fresh world, usually through the API itself. It runs for EVERY
+   role, so the refusals are also checked against real records. Its ids
+   fill `{name}` placeholders in the path, and a body can be a function of
+   them. `refused` lists the rare allowed-role cases where a finer rule than
+   the route's permission legitimately says no, with the status expected. */
+type Ids = Record<string, string>;
+type Setup = (db: Db, role: R) => Promise<Ids | void> | Ids | void;
+type RouteSpec = {
+  method: string; path: string; route: string; who: R[];
+  body?: unknown | ((ids: Ids) => unknown); setup?: Setup; refused?: Partial<Record<R, number>>;
+};
+const r = (method: string, route: string, who: R[], body?: unknown, path?: string, more: Pick<RouteSpec, "setup" | "refused"> = {}): RouteSpec =>
+  ({ method, route, path: path ?? route.replace(":id", "x1").replace(":name", "Nowhere").replace(":uid", "aAbCdEfGh123"), who, body, ...more });
+/** Placeholders not made by a setup become "x1" (an id that doesn't exist). */
+const withDefaults = (ids: Ids): Ids => new Proxy(ids, { get: (t, k) => (typeof k === "string" ? t[k] ?? "x1" : undefined) });
+const pathFor = (spec: RouteSpec, ids: Ids = {}) => spec.path.replace(/\{(\w+)\}/g, (_, k) => withDefaults(ids)[k]);
+const bodyFor = (spec: RouteSpec, ids: Ids = {}) => (typeof spec.body === "function" ? (spec.body as (i: Ids) => unknown)(withDefaults(ids)) : spec.body);
+/** Cleanups a setup registers (e.g. the Kobo stand-in), run after the call. */
+let afterCall: (() => void)[] = [];
+const idOfRole = (role: R) => (role === "learner" ? "learner-id" : `${role}-id`);
+const SA = "tok_super_admin";
+async function made(method: string, path: string, body: unknown, token = SA): Promise<Row> {
+  const res = await call(method, path, token, body);
+  if (res.status < 200 || res.status > 299) throw new Error(`setup ${method} ${path} → ${res.status} ${JSON.stringify(res.json)}`);
+  return res.json;
+}
+/* Setups shared by several routes. */
+async function koboConnected(db: Db) {
+  connectKobo(db);
+  afterCall.push(stubKobo(() => [kRow(1)]));
+}
+async function koboSynced(db: Db): Promise<Ids> {
+  await koboConnected(db);
+  await made("POST", "/kobo/sync", {});
+  return { record: db.kobo_records[0].id };
+}
+async function meFramework(): Promise<Ids> {
+  const programme = (await made("POST", "/mel/programmes", { name: "Teach2030" })).id;
+  const outcome = (await made("POST", "/mel/outcomes", { programmeId: programme, title: "Teachers use ICT" })).id;
+  const indicator = (await made("POST", "/mel/indicators", { outcomeId: outcome, name: "Head teachers trained", unit: "count", source: "manual" })).id;
+  return { programme, outcome, indicator };
+}
+/** An actual recorded by a second M&E officer, so both M&E and the Super Admin may verify it. */
+async function meActual(db: Db): Promise<Ids> {
+  const ids = await meFramework();
+  USERS["tok_me2"] = { id: "me2-id", email: "me2@test.org" };
+  db.profiles.push({ id: "me2-id", role: "me", status: "active", full_name: "Second M&E", email: "me2@test.org", school: "", school_id: null, county: "" });
+  const actual = (await made("POST", "/mel/actuals", { indicatorId: ids.indicator, period: "2026-T3", scopeType: "programme", value: 12 }, "tok_me2")).id;
+  return { ...ids, actual };
+}
+async function meReport(): Promise<Ids> {
+  const ids = await meFramework();
+  const report = (await made("POST", "/mel/reports", { programmeId: ids.programme, period: "2026-T3", scopeType: "programme" })).id;
+  return { ...ids, report };
+}
+/** A learner's started (and optionally handed-in) attempt at asg_1. */
+async function startedWork(submit = false): Promise<Ids> {
+  const started = await made("POST", "/learner/assignments/asg_1/start", {}, "hpl_learnertoken");
+  if (submit) await made("POST", "/learner/assignments/asg_1/submit", {}, "hpl_learnertoken");
+  return { submission: started.submission?.id ?? started.id };
+}
 
 const ROUTES: RouteSpec[] = [
-  r("PUT", "/me/school", ["teacher", "school_leader"], { schoolId: "sch_1" }),
+  // Only someone whose account predates school codes still picks a school.
+  r("PUT", "/me/school", ["teacher", "school_leader"], { schoolId: "sch_1" }, undefined, {
+    setup: (db, role) => { const p = db.profiles.find((x) => x.id === idOfRole(role)); if (p) p.school_id = null; },
+  }),
   r("POST", "/counties", ADMINS, { name: "Kajiado", code: "KJD" }),
-  r("DELETE", "/counties/:name", ADMINS),
+  r("DELETE", "/counties/:name", ADMINS, undefined, "/counties/Kajiado", { setup: async () => { await made("POST", "/counties", { name: "Kajiado", code: "KJD" }); } }),
   r("POST", "/schools", ADMINS, { name: "New School", county: "Narok" }),
-  r("PATCH", "/schools/:id", ADMINS, { name: "Renamed" }),
-  r("DELETE", "/schools/:id", ADMINS),
+  r("PATCH", "/schools/:id", ADMINS, { name: "Renamed" }, "/schools/sch_1"),
+  r("DELETE", "/schools/:id", ADMINS, undefined, "/schools/{school}", { setup: async () => ({ school: (await made("POST", "/schools", { name: "Spare School", county: "Narok" })).school?.id }) }),
   r("GET", "/learners", LEARNER_VIEWERS),
   r("POST", "/learners", LEARNER_MANAGERS, { fullName: "Kid Two", username: "kid.two", pin: "1234", schoolId: "sch_1" }),
   r("PATCH", "/learners/:id", LEARNER_MANAGERS, { fullName: "Kid" }, "/learners/learner-id"),
@@ -355,19 +143,26 @@ const ROUTES: RouteSpec[] = [
   r("GET", "/library/folders", ALL),
   r("POST", "/library/folders", CONTENT, { name: "F" }),
   r("DELETE", "/library/folders/:id", CONTENT),
-  r("POST", "/library/:id/interactions", ALL, {}, "/library/lib_1/interactions"),
-  r("PATCH", "/library/interactions/:id/complete", ALL, {}, "/library/interactions/li_1/complete"),
+  // On the staff shelf, which every staff role reads; learners read the library
+  // shelf. Field officers read no shelf at all, so to them it doesn't exist.
+  r("POST", "/library/:id/interactions", ALL, {}, "/library/lib_1/interactions", {
+    setup: (db, role) => { if (role !== "learner") db.library_items[0].audience = "staff"; }, refused: { field_officer: 404 },
+  }),
+  r("PATCH", "/library/interactions/:id/complete", ALL, {}, "/library/interactions/li_1/complete", { setup: (db, role) => { db.library_interactions[0].actor_id = idOfRole(role); } }),
   r("GET", "/library/interactions/mine", ALL),
-  r("POST", "/library/:id/badge", ALL, {}, "/library/lib_1/badge"),
+  r("POST", "/library/:id/badge", ALL, {}, "/library/lib_1/badge", {
+    setup: (db, role) => { if (role !== "learner") db.library_items[0].audience = "staff"; }, refused: { field_officer: 404 },
+  }),
   r("GET", "/library/usage", ANALYSTS),
   r("GET", "/forms", [...ANALYSTS, "field_officer", "school_leader", "teacher"]),
   r("POST", "/forms", FORM_MANAGERS, { title: "F", audience: "teacher", questions: [{ id: "q1", prompt: "P", type: "text" }] }),
   r("DELETE", "/forms/:id", FORM_MANAGERS, undefined, "/forms/form_1"),
   r("POST", "/forms/:id/archive", FORM_MANAGERS, {}, "/forms/form_1/archive"),
   r("POST", "/forms/:id/restore", FORM_MANAGERS, {}, "/forms/form_1/restore"),
-  r("POST", "/forms/:id/response-upload", ["field_officer", "school_leader", "teacher"], { name: "a.pdf" }, "/forms/form_1/response-upload"),
+  // A file-upload form sent to the caller's own role.
+  r("POST", "/forms/:id/response-upload", ["field_officer", "school_leader", "teacher"], { name: "a.pdf" }, "/forms/form_1/response-upload", { setup: (db, role) => { Object.assign(db.forms[0], { audience: role, kind: "file" }); } }),
   r("GET", "/responses", [...ANALYSTS, "field_officer", "school_leader", "teacher"]),
-  r("POST", "/responses", ["field_officer", "school_leader", "teacher"], { formId: "form_1", answers: [{ questionId: "q1", value: "x" }] }),
+  r("POST", "/responses", ["field_officer", "school_leader", "teacher"], { formId: "form_1", answers: [{ questionId: "q1", value: "x" }] }, undefined, { setup: (db, role) => { db.forms[0].audience = role; } }),
   r("GET", "/subjects", [...STAFF]),
   r("POST", "/subjects", CONTENT, { name: "Music" }),
   r("POST", "/classes/:id/subjects", CLASS_MANAGERS, { subjectId: "english" }, "/classes/cls_1/subjects"),
@@ -379,16 +174,24 @@ const ROUTES: RouteSpec[] = [
   r("GET", "/assignments/:id", LEARNER_VIEWERS, undefined, "/assignments/asg_1"),
   r("PATCH", "/assignments/:id", ["teacher"], { title: "Renamed" }, "/assignments/asg_1"),
   r("POST", "/assignments/:id/status", ["teacher"], { status: "closed" }, "/assignments/asg_1/status"),
-  r("DELETE", "/assignments/:id", ["teacher"], undefined, "/assignments/asg_1"),
+  // Only a draft can be deleted.
+  r("DELETE", "/assignments/:id", ["teacher"], undefined, "/assignments/{draft}", {
+    setup: async () => ({ draft: (await made("POST", "/assignments", { classId: "cls_1", subjectId: "mathematics", title: "Draft" }, "tok_teacher")).assignment.id }),
+  }),
   r("GET", "/submissions", LEARNER_VIEWERS),
-  r("GET", "/submissions/:id", LEARNER_VIEWERS),
-  r("POST", "/submissions/:id/mark", ["teacher"], { answers: [] }),
+  r("GET", "/submissions/:id", LEARNER_VIEWERS, undefined, "/submissions/{submission}", { setup: () => startedWork(true) }),
+  r("POST", "/submissions/:id/mark", ["teacher"], { answers: [{ questionId: "q_tm", marks: 2 }] }, "/submissions/{submission}/mark", { setup: () => startedWork(true) }),
   r("GET", "/learner/assignments", ["learner"]),
   r("GET", "/learner/assignments/:id", ["learner"], undefined, "/learner/assignments/asg_1"),
   r("POST", "/learner/assignments/:id/start", ["learner"], {}, "/learner/assignments/asg_1/start"),
-  r("PUT", "/learner/assignments/:id/answers", ["learner"], { answers: [] }, "/learner/assignments/asg_1/answers"),
-  r("POST", "/learner/assignments/:id/upload", ["learner"], { questionId: "q_mc", name: "a.pdf" }, "/learner/assignments/asg_1/upload"),
-  r("POST", "/learner/assignments/:id/submit", ["learner"], {}, "/learner/assignments/asg_1/submit"),
+  r("PUT", "/learner/assignments/:id/answers", ["learner"], { answers: [] }, "/learner/assignments/asg_1/answers", { setup: () => startedWork() }),
+  r("POST", "/learner/assignments/:id/upload", ["learner"], { questionId: "q_up", name: "a.pdf" }, "/learner/assignments/asg_1/upload", {
+    setup: (db) => {
+      db.assignment_questions.push({ id: "q_up", assignment_id: "asg_1", position: 3, type: "file_upload", prompt: "Upload your working", options: [], answer_key: null, max_marks: 2 });
+      return startedWork();
+    },
+  }),
+  r("POST", "/learner/assignments/:id/submit", ["learner"], {}, "/learner/assignments/asg_1/submit", { setup: () => startedWork() }),
   r("GET", "/results", [...LEARNER_VIEWERS, "learner"]),
   r("GET", "/field-reports", [...ANALYSTS, "field_officer"]),
   r("POST", "/field-reports", ["field_officer"], { schoolId: "sch_1", visitType: "Learning", responses: [] }),
@@ -397,11 +200,13 @@ const ROUTES: RouteSpec[] = [
   r("GET", "/impact", LEARNING_DASHBOARDS),
   r("GET", "/sync/status", ALL),
   r("GET", "/notifications", ALL),
-  r("POST", "/notifications/:id/read", ALL, {}),
+  r("POST", "/notifications/:id/read", ALL, {}, "/notifications/ntf_1/read", {
+    setup: (db, role) => { db.notifications.push({ id: "ntf_1", recipient_id: idOfRole(role), recipient_kind: role === "learner" ? "learner" : "staff", kind: "form_due", title: "A form is due", body: "", link: null, dedupe_key: "k1", created_at: new Date().toISOString(), read_at: null }); },
+  }),
   r("POST", "/notifications/read-all", ALL, {}),
   r("GET", "/notifications/log", ADMINS),
   r("POST", "/notifications/run-now", ADMINS, {}),
-  r("PATCH", "/forms/:id", FORM_MANAGERS, { dueOn: "2026-10-10" }),
+  r("PATCH", "/forms/:id", FORM_MANAGERS, { dueOn: "2026-10-10" }, "/forms/form_1"),
   r("POST", "/sync/report", [...STAFF], { deviceId: "device-0001" }),
   r("GET", "/sync/devices", ADMINS),
   // Reports export: each report's own permissions decide who may export it.
@@ -419,45 +224,46 @@ const ROUTES: RouteSpec[] = [
   r("GET", "/reports/:id", STATS, undefined, "/reports/county-report"),
   r("GET", "/trainings", LEARNING_DASHBOARDS),
   r("GET", "/trainings/teachers", CONTENT),
-  r("GET", "/trainings/:id", LEARNING_DASHBOARDS),
+  r("GET", "/trainings/:id", LEARNING_DASHBOARDS, undefined, "/trainings/{training}", { setup: async () => ({ training: (await made("POST", "/trainings", { title: "ICT workshop", heldOn: "2026-09-10" })).training.id }) }),
   r("POST", "/trainings", CONTENT, { title: "ICT workshop", heldOn: "2026-09-10" }),
-  r("PATCH", "/trainings/:id", CONTENT, { title: "Renamed" }),
+  r("PATCH", "/trainings/:id", CONTENT, { title: "Renamed" }, "/trainings/{training}", { setup: async () => ({ training: (await made("POST", "/trainings", { title: "ICT workshop", heldOn: "2026-09-10" })).training.id }) }),
   r("POST", "/data-quality/scan", DATA_QUALITY, {}),
   r("GET", "/data-quality/summary", DATA_QUALITY),
   r("GET", "/data-quality/issues", DATA_QUALITY),
-  r("GET", "/data-quality/issues/:id", DATA_QUALITY),
-  r("PATCH", "/data-quality/issues/:id", DATA_QUALITY, { status: "UNDER_REVIEW" }),
-  r("POST", "/data-quality/issues/bulk", DATA_QUALITY, { ids: ["x1"], status: "UNDER_REVIEW" }),
-  r("POST", "/data-quality/issues/:id/fix", DATA_QUALITY, { action: "set_learner_grade", grade: "Grade 4" }),
+  r("GET", "/data-quality/issues/:id", DATA_QUALITY, undefined, "/data-quality/issues/{issue}", { setup: async (db) => { db.learners[0].grade = "Grade 99"; await made("POST", "/data-quality/scan", {}); return { issue: db.dq_issues.find((i) => i.type === "invalid_grade")!.id }; } }),
+  r("PATCH", "/data-quality/issues/:id", DATA_QUALITY, { status: "UNDER_REVIEW" }, "/data-quality/issues/{issue}", { setup: async (db) => { db.learners[0].grade = "Grade 99"; await made("POST", "/data-quality/scan", {}); return { issue: db.dq_issues.find((i) => i.type === "invalid_grade")!.id }; } }),
+  r("POST", "/data-quality/issues/bulk", DATA_QUALITY, (ids: Ids) => ({ ids: [ids.issue], status: "UNDER_REVIEW" }), undefined, { setup: async (db) => { db.learners[0].grade = "Grade 99"; await made("POST", "/data-quality/scan", {}); return { issue: db.dq_issues.find((i) => i.type === "invalid_grade")!.id }; } }),
+  // Correcting the learner itself needs learners.manage.all, which M&E doesn't have.
+  r("POST", "/data-quality/issues/:id/fix", DATA_QUALITY, { action: "set_learner_grade", grade: "Grade 4" }, "/data-quality/issues/{issue}/fix", { setup: async (db) => { db.learners[0].grade = "Grade 99"; await made("POST", "/data-quality/scan", {}); return { issue: db.dq_issues.find((i) => i.type === "invalid_grade")!.id }; }, refused: { me: 403 } }),
   r("GET", "/mel/programmes", ME_ROLES),
   r("POST", "/mel/programmes", ME_ROLES, { name: "Teach2030" }),
-  r("PATCH", "/mel/programmes/:id", ME_ROLES, { name: "x" }),
-  r("GET", "/mel/programmes/:id", ME_ROLES),
-  r("GET", "/mel/programmes/:id/results", ME_ROLES, undefined, "/mel/programmes/x1/results?period=2026-T3"),
-  r("POST", "/mel/outcomes", ME_ROLES, { programmeId: "x1", title: "O" }),
-  r("PATCH", "/mel/outcomes/:id", ME_ROLES, { title: "O" }),
-  r("POST", "/mel/indicators", ME_ROLES, { outcomeId: "x1", name: "I", source: "manual" }),
-  r("PATCH", "/mel/indicators/:id", ME_ROLES, { name: "I" }),
-  r("GET", "/mel/indicators/:id/breakdown", ME_ROLES, undefined, "/mel/indicators/x1/breakdown?period=2026-T3"),
-  r("GET", "/mel/indicators/:id/trend", ME_ROLES),
+  r("PATCH", "/mel/programmes/:id", ME_ROLES, { name: "x" }, "/mel/programmes/{programme}", { setup: meFramework }),
+  r("GET", "/mel/programmes/:id", ME_ROLES, undefined, "/mel/programmes/{programme}", { setup: meFramework }),
+  r("GET", "/mel/programmes/:id/results", ME_ROLES, undefined, "/mel/programmes/{programme}/results?period=2026-T3", { setup: meFramework }),
+  r("POST", "/mel/outcomes", ME_ROLES, (ids: Ids) => ({ programmeId: ids.programme, title: "O" }), undefined, { setup: meFramework }),
+  r("PATCH", "/mel/outcomes/:id", ME_ROLES, { title: "O" }, "/mel/outcomes/{outcome}", { setup: meFramework }),
+  r("POST", "/mel/indicators", ME_ROLES, (ids: Ids) => ({ outcomeId: ids.outcome, name: "I", unit: "count", source: "manual" }), undefined, { setup: meFramework }),
+  r("PATCH", "/mel/indicators/:id", ME_ROLES, { name: "I" }, "/mel/indicators/{indicator}", { setup: meFramework }),
+  r("GET", "/mel/indicators/:id/breakdown", ME_ROLES, undefined, "/mel/indicators/{indicator}/breakdown?period=2026-T3", { setup: meFramework }),
+  r("GET", "/mel/indicators/:id/trend", ME_ROLES, undefined, "/mel/indicators/{indicator}/trend", { setup: meFramework }),
   r("GET", "/mel/dashboard", ME_ROLES),
-  r("PUT", "/mel/targets", ME_ROLES, { indicatorId: "x1", period: "2026-T3", scopeType: "programme", value: 75 }),
-  r("POST", "/mel/actuals", ME_ROLES, { indicatorId: "x1", period: "2026-T3", scopeType: "programme", value: 1 }),
-  r("GET", "/mel/actuals/:id", ME_ROLES),
-  r("POST", "/mel/actuals/:id/verify", ME_ROLES, { decision: "verified" }),
-  r("POST", "/mel/actuals/:id/evidence", ME_ROLES, { kind: "note", title: "N" }),
-  r("POST", "/mel/actuals/:id/evidence-upload", ME_ROLES, { name: "a.pdf" }),
+  r("PUT", "/mel/targets", ME_ROLES, (ids: Ids) => ({ indicatorId: ids.indicator, period: "2026-T3", scopeType: "programme", value: 75 }), undefined, { setup: meFramework }),
+  r("POST", "/mel/actuals", ME_ROLES, (ids: Ids) => ({ indicatorId: ids.indicator, period: "2026-T3", scopeType: "programme", value: 1 }), undefined, { setup: meFramework }),
+  r("GET", "/mel/actuals/:id", ME_ROLES, undefined, "/mel/actuals/{actual}", { setup: meActual }),
+  r("POST", "/mel/actuals/:id/verify", ME_ROLES, { decision: "verified", note: "Checked the register" }, "/mel/actuals/{actual}/verify", { setup: meActual }),
+  r("POST", "/mel/actuals/:id/evidence", ME_ROLES, { kind: "note", title: "N" }, "/mel/actuals/{actual}/evidence", { setup: meActual }),
+  r("POST", "/mel/actuals/:id/evidence-upload", ME_ROLES, { name: "a.pdf" }, "/mel/actuals/{actual}/evidence-upload", { setup: meActual }),
   r("GET", "/mel/reports", ME_ROLES),
-  r("POST", "/mel/reports", ME_ROLES, { programmeId: "x1", period: "2026-T3", scopeType: "programme" }),
-  r("GET", "/mel/reports/:id", ME_ROLES),
-  r("POST", "/mel/reports/:id/refresh", ME_ROLES, {}),
-  r("POST", "/mel/reports/:id/finalize", ME_ROLES, {}),
+  r("POST", "/mel/reports", ME_ROLES, (ids: Ids) => ({ programmeId: ids.programme, period: "2026-T3", scopeType: "programme" }), undefined, { setup: meFramework }),
+  r("GET", "/mel/reports/:id", ME_ROLES, undefined, "/mel/reports/{report}", { setup: meReport }),
+  r("POST", "/mel/reports/:id/refresh", ME_ROLES, {}, "/mel/reports/{report}/refresh", { setup: meReport }),
+  r("POST", "/mel/reports/:id/finalize", ME_ROLES, {}, "/mel/reports/{report}/finalize", { setup: meReport }),
   r("GET", "/school/overview", ["school_leader"]),
   r("GET", "/users", ADMINS),
   r("GET", "/users/invitations", USER_ADMIN),
   r("POST", "/users/invitations", USER_ADMIN, { email: "fresh@test.org", role: "teacher", schoolId: "sch_1" }),
-  r("DELETE", "/users/invitations/:id", USER_ADMIN),
-  r("POST", "/users/invitations/:id/renew", USER_ADMIN, {}, "/users/invitations/inv_none/renew"),
+  r("DELETE", "/users/invitations/:id", USER_ADMIN, undefined, "/users/invitations/{invitation}", { setup: async () => ({ invitation: (await made("POST", "/users/invitations", { email: "fresh@test.org", role: "teacher", schoolId: "sch_1" })).invitation.id }) }),
+  r("POST", "/users/invitations/:id/renew", USER_ADMIN, {}, "/users/invitations/{invitation}/renew", { setup: async () => ({ invitation: (await made("POST", "/users/invitations", { email: "fresh@test.org", role: "teacher", schoolId: "sch_1" })).invitation.id }) }),
   r("POST", "/users/:id/approve", USER_ADMIN, {}, "/users/pending-id/approve"),
   r("POST", "/users/:id/reject", USER_ADMIN, {}, "/users/pending-id/reject"),
   r("POST", "/users/:id/status", USER_ADMIN, { action: "suspend" }, "/users/teacher2-id/status"),
@@ -466,25 +272,27 @@ const ROUTES: RouteSpec[] = [
   r("POST", "/users/:id/temporary-password", USER_ADMIN, {}, "/users/teacher2-id/temporary-password"),
   r("GET", "/audit", SA_ONLY),
   r("GET", "/kobo/config", DATA_QUALITY),
-  r("PUT", "/kobo/config", SA_ONLY, {}),
-  r("GET", "/kobo/assets", ADMINS),
+  r("PUT", "/kobo/config", SA_ONLY, { apiToken: "test-token", baseUrl: "https://kobo.test" }, undefined, { setup: () => { afterCall.push(stubKobo(() => [])); } }),
+  r("GET", "/kobo/assets", ADMINS, undefined, undefined, { setup: koboConnected }),
   r("GET", "/kobo/forms", DATA_QUALITY),
-  r("POST", "/kobo/forms", ADMINS, {}),
-  r("GET", "/kobo/assets/:uid/preview", ADMINS),
+  r("POST", "/kobo/forms", ADMINS, { assetUid: "aNewSurvey77" }, undefined, { setup: koboConnected }),
+  r("GET", "/kobo/assets/:uid/preview", ADMINS, undefined, undefined, {
+    setup: (db) => { connectKobo(db); afterCall.push(stubKobo(() => [], { ...KOBO_ASSET, deployment__links: { url: "https://ee.kobo.test/x/aAbC" } })); },
+  }),
   r("DELETE", "/kobo/forms/:id", ADMINS, undefined, "/kobo/forms/kb_1"),
   r("POST", "/kobo/forms/:id/restore", ADMINS, {}, "/kobo/forms/kb_1/restore"),
-  r("POST", "/kobo/sync", ADMINS, {}),
+  r("POST", "/kobo/sync", ADMINS, {}, undefined, { setup: koboConnected }),
   r("GET", "/kobo/forms/:id/results", DATA_QUALITY, undefined, "/kobo/forms/kb_1/results"),
   r("GET", "/kobo/forms/:id/pipeline", DATA_QUALITY, undefined, "/kobo/forms/kb_1/pipeline"),
-  r("PUT", "/kobo/forms/:id/mapping", ADMINS, { school: null }, "/kobo/forms/kb_1/mapping"),
-  r("POST", "/kobo/forms/:id/reprocess", ADMINS, {}, "/kobo/forms/kb_1/reprocess"),
+  r("PUT", "/kobo/forms/:id/mapping", ADMINS, { school: null }, "/kobo/forms/kb_1/mapping", { setup: koboSynced }),
+  r("POST", "/kobo/forms/:id/reprocess", ADMINS, {}, "/kobo/forms/kb_1/reprocess", { setup: koboSynced }),
   r("GET", "/kobo/records", DATA_QUALITY, undefined, "/kobo/records?formId=kb_1"),
-  r("GET", "/kobo/records/:id", DATA_QUALITY),
-  r("POST", "/kobo/records/:id/review", DATA_QUALITY, { decision: "accepted", note: "Checked by phone" }),
+  r("GET", "/kobo/records/:id", DATA_QUALITY, undefined, "/kobo/records/{record}", { setup: koboSynced }),
+  r("POST", "/kobo/records/:id/review", DATA_QUALITY, { decision: "accepted", note: "Checked by phone" }, "/kobo/records/{record}/review", { setup: koboSynced }),
   r("GET", "/kobo/school-aliases", DATA_QUALITY),
   r("POST", "/kobo/school-aliases", DATA_QUALITY, { value: "Aitong Pri", schoolId: "sch_1" }),
-  r("DELETE", "/kobo/school-aliases/:key", DATA_QUALITY, undefined, "/kobo/school-aliases/aitong%20pri"),
-  r("POST", "/kobo/webhook", SA_ONLY, {}),
+  r("DELETE", "/kobo/school-aliases/:key", DATA_QUALITY, undefined, "/kobo/school-aliases/aitong%20pri", { setup: async () => { await made("POST", "/kobo/school-aliases", { value: "Aitong Pri", schoolId: "sch_1" }); } }),
+  r("POST", "/kobo/webhook", SA_ONLY, {}, undefined, { setup: (db) => connectKobo(db) }),
   r("DELETE", "/kobo/webhook", SA_ONLY),
   // Workspaces: badges, overviews, people, scope, grants.
   r("GET", "/nav/badges", ALL),
@@ -497,7 +305,9 @@ const ROUTES: RouteSpec[] = [
   r("GET", "/users/:id/history", ADMINS, undefined, "/users/teacher2-id/history"),
   r("PUT", "/users/:id/scope", ADMINS, { counties: ["Narok"] }, "/users/field_officer-id/scope"),
   r("POST", "/users/:id/grants", SA_ONLY, { permission: "kobo.review", reason: "Covering M&E" }, "/users/education_team-id/grants"),
-  r("POST", "/users/:id/grants/:grantId/revoke", SA_ONLY, { reason: "Done" }, "/users/education_team-id/grants/grt_x/revoke"),
+  r("POST", "/users/:id/grants/:grantId/revoke", SA_ONLY, { reason: "Done" }, "/users/education_team-id/grants/{grant}/revoke", {
+    setup: async () => ({ grant: (await made("POST", "/users/education_team-id/grants", { permission: "kobo.review", reason: "Covering M&E" })).grant?.id }),
+  }),
   r("GET", "/permissions", SA_ONLY),
   r("GET", "/security/activity", SA_ONLY),
   r("GET", "/kobo/my-surveys", ["field_officer"]),
@@ -524,14 +334,19 @@ Deno.test("every route in the app has an authorization test", () => {
 /* ------------------------------------------------------------ 2. role x route */
 
 for (const spec of ROUTES) {
-  Deno.test(`${spec.method} ${spec.route} — only ${spec.who.join(", ")}`, async () => {
+  Deno.test(`${spec.method} ${spec.path} — ${spec.who.join(", ")} succeed; everyone else is refused`, async () => {
     for (const role of ROLES) {
-      freshWorld();
-      const { status, json } = await call(spec.method, spec.path, tokenFor(role), spec.body);
-      if (spec.who.includes(role)) {
-        assert(!denied(status), `${role} should be allowed but got ${status} ${JSON.stringify(json)}`);
-      } else {
-        assertEquals(status, 403, `${role} should be refused but got ${status} ${JSON.stringify(json)}`);
+      const db = freshWorld();
+      afterCall = [];
+      try {
+        const ids = (await spec.setup?.(db, role)) ?? {};
+        const { status, json } = await call(spec.method, pathFor(spec, ids), tokenFor(role), bodyFor(spec, ids));
+        const what = `${role} on ${spec.method} ${pathFor(spec, ids)}: ${status} ${JSON.stringify(json).slice(0, 200)}`;
+        if (!spec.who.includes(role)) assertEquals(status, 403, `should be refused — ${what}`);
+        else if (spec.refused?.[role]) assertEquals(status, spec.refused[role], `a finer rule should refuse — ${what}`);
+        else assert(status >= 200 && status < 300, `should succeed — ${what}`);
+      } finally {
+        afterCall.forEach((f) => f());
       }
     }
   });
@@ -542,9 +357,9 @@ for (const spec of ROUTES) {
 Deno.test("no session and invalid tokens are refused on every protected route", async () => {
   for (const spec of ROUTES) {
     freshWorld();
-    assertEquals((await call(spec.method, spec.path, undefined, spec.body)).status, 401, `${spec.method} ${spec.route} without a token`);
-    assertEquals((await call(spec.method, spec.path, "tok_forged", spec.body)).status, 401, `${spec.method} ${spec.route} with a forged token`);
-    assertEquals((await call(spec.method, spec.path, "hpl_forged", spec.body)).status, 401, `${spec.method} ${spec.route} with a forged learner token`);
+    assertEquals((await call(spec.method, pathFor(spec), undefined, bodyFor(spec))).status, 401, `${spec.method} ${spec.route} without a token`);
+    assertEquals((await call(spec.method, pathFor(spec), "tok_forged", bodyFor(spec))).status, 401, `${spec.method} ${spec.route} with a forged token`);
+    assertEquals((await call(spec.method, pathFor(spec), "hpl_forged", bodyFor(spec))).status, 401, `${spec.method} ${spec.route} with a forged learner token`);
   }
 });
 
@@ -552,7 +367,7 @@ Deno.test("pending, suspended, rejected and deactivated accounts reach no protec
   for (const st of NON_ACTIVE) {
     for (const spec of ROUTES) {
       freshWorld();
-      const { status, json } = await call(spec.method, spec.path, `tok_${st}`, spec.body);
+      const { status, json } = await call(spec.method, pathFor(spec), `tok_${st}`, bodyFor(spec));
       assertEquals(status, 403, `${st} account on ${spec.method} ${spec.route}`);
       assertEquals(json.accountStatus, st);
     }
@@ -885,7 +700,7 @@ Deno.test("a temporary password is shown once, must be changed at next sign-in, 
   const me = await call("GET", "/me", "tok_teacher2");
   assertEquals(me.json.profile.mustChangePassword, true);
   for (const spec of ROUTES) {
-    const r = await call(spec.method, spec.path, "tok_teacher2", spec.body);
+    const r = await call(spec.method, pathFor(spec), "tok_teacher2", bodyFor(spec));
     assertEquals(r.status, 403, `${spec.method} ${spec.route}`);
     assertEquals(r.json.mustChangePassword, true, `${spec.method} ${spec.route}`);
   }
@@ -927,6 +742,26 @@ Deno.test("temporary passwords follow the same authority rules as other account 
   // A Super Admin can for an admin.
   assertEquals((await call("POST", "/users/admin-id/temporary-password", "tok_super_admin", {})).status, 200);
   assertEquals((await call("GET", "/users", "tok_admin")).status, 403, "and that admin is held at the password step");
+});
+
+Deno.test("a password known from a data breach is refused at sign-up and when changing it", async () => {
+  const db = freshWorld();
+  const reg = await call("POST", "/auth/register", undefined, { email: "fresh@test.org", password: "password123" });
+  assertEquals(reg.status, 400);
+  assert(/data breach/.test(reg.json.error));
+  assertEquals((await call("POST", "/auth/register", undefined, { email: "fresh@test.org", password: "a-long-unusual-phrase" })).status, 200);
+  const change = await call("POST", "/me/password", "tok_teacher", { password: "qwertyuiop" });
+  assertEquals(change.status, 400);
+  assertEquals(db.auth_passwords ?? [], [], "nothing was changed");
+  assert(!db.audit_log.some((a) => a.action === "password.changed"));
+  assertEquals((await call("POST", "/me/password", "tok_teacher", { password: "a-long-unusual-phrase" })).status, 200);
+  // If the breach list can't be reached, people can still choose a password.
+  __setPwnedCheckForTests(() => Promise.resolve(null));
+  try {
+    assertEquals((await call("POST", "/me/password", "tok_admin", { password: "password123" })).status, 200);
+  } finally {
+    __setPwnedCheckForTests((pw: string) => Promise.resolve(LEAKED_PASSWORDS.has(pw) ? 1_000_000 : 0));
+  }
 });
 
 Deno.test("changing your own password: staff only, any account state, audited", async () => {
@@ -1381,12 +1216,12 @@ const kRow = (id: number, over: Row = {}): Row => ({
   ...over,
 });
 /** Plays KoboToolbox: the asset (questions) and its submissions. */
-function stubKobo(rows: () => Row[]) {
+function stubKobo(rows: () => Row[], asset: Row = KOBO_ASSET) {
   const real = globalThis.fetch;
   globalThis.fetch = ((input: string | URL | Request) => {
     const url = String(input instanceof Request ? input.url : input);
     if (url.includes("/data/")) return Promise.resolve(new Response(JSON.stringify({ count: rows().length, next: null, results: rows() })));
-    if (url.includes("/api/v2/assets/")) return Promise.resolve(new Response(JSON.stringify(KOBO_ASSET)));
+    if (url.includes("/api/v2/assets/")) return Promise.resolve(new Response(JSON.stringify(asset)));
     return real(input);
   }) as typeof fetch;
   return () => { globalThis.fetch = real; };
@@ -2251,34 +2086,6 @@ Deno.test("reports: a teacher's exports are their classes; a field officer's are
 
 /* ------------------------------------------------------------ role-based access: workspaces, scope, grants */
 
-const SCHOOL_C = { id: "sch_3", name: "Meru Central", county: "Meru", code: "MRU-001", seq: 1 };
-
-/** The usual world plus a second county (Meru) with its own school, learner, teacher, visit and data issue. */
-function twoCounties() {
-  const db = freshWorld();
-  const now = new Date().toISOString();
-  db.counties.push({ name: "Meru", code: "MRU", created_at: now });
-  db.schools.push(SCHOOL_C);
-  db.learners.push({ id: "learner-c-id", teacher_id: "teacher-id", current_teacher_id: null, class_id: null, username: "kid.c", full_name: "Kid C", grade: "Grade 4",
-    school: SCHOOL_C.name, school_id: SCHOOL_C.id, county: "Meru", pin_hash: "x", pin_salt: "y", user_code: "MRU-001-L0001", learner_code: "MRU-001-L0001",
-    enrollment_status: "ACTIVE", academic_year_id: "2026", term_id: "2026-T3" });
-  db.profiles.push({ id: "teacher-c-id", role: "teacher", status: "active", full_name: "Teacher C", email: "teacher-c@test.org", school: SCHOOL_C.name, school_id: SCHOOL_C.id, county: "Meru" });
-  db.field_reports.push(
-    { id: "fr_n", officer_id: "field_officer-id", school: SCHOOL.name, county: "Narok", visit_type: "ICT", school_id: SCHOOL.id, created_at: now },
-    { id: "fr_m", officer_id: "field_officer-id", school: SCHOOL_C.name, county: "Meru", visit_type: "ICT", school_id: SCHOOL_C.id, created_at: now },
-  );
-  db.dq_issues.push(
-    { id: "dq_n", issue_key: "k_n", type: "missing_grade", severity: "HIGH", status: "OPEN", summary: "Narok issue", entity_type: "learner", entity_id: "learner-id", entity_label: "Kid One", related: [], school_id: SCHOOL.id, county: "Narok", first_detected_at: now, last_detected_at: now, still_present: true },
-    { id: "dq_m", issue_key: "k_m", type: "missing_grade", severity: "HIGH", status: "OPEN", summary: "Meru issue", entity_type: "learner", entity_id: "learner-c-id", entity_label: "Kid C", related: [], school_id: SCHOOL_C.id, county: "Meru", first_detected_at: now, last_detected_at: now, still_present: true },
-  );
-  return db;
-}
-const assign = (db: Db, profileId: string, rows: { county?: string; school_id?: string }[]) => {
-  for (const [i, x] of rows.entries()) {
-    db.staff_scopes.push({ id: `scp_${profileId}_${i}`, profile_id: profileId, scope_type: x.county ? "county" : "school", county: x.county ?? null,
-      school_id: x.school_id ?? null, note: "", created_at: new Date().toISOString(), created_by: "super_admin-id", ended_at: null, ended_by: null });
-  }
-};
 
 Deno.test("access: /me says which workspace, what scope and which permissions — a Super Admin keeps them all", async () => {
   freshWorld();

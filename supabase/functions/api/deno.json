@@ -3,5 +3,9 @@
     "hono": "npm:hono@4",
     "hono/cors": "npm:hono@4/cors",
     "@supabase/supabase-js": "npm:@supabase/supabase-js@2"
+  },
+  "tasks": {
+    "test": "deno test --allow-env --allow-read",
+    "check": "deno check index.ts"
   }
 }

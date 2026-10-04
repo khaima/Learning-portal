@@ -712,9 +712,25 @@ audit behind it are in [`docs/RBAC.md`](docs/RBAC.md).
   which can't be edited or deleted even by the service role. The Super
   Admin sees all of it (Audit log, Security events, Account activity);
   Admins see each account's history in its View panel.
-- **Tests:** [`authz_test.ts`](supabase/functions/api/authz_test.ts) calls
-  every protected route as every role and account state against an
-  in-memory database, and fails if a route has no test. It also walks
+- **Tests** — run on every push and pull request by GitHub Actions
+  ([`.github/workflows/test.yml`](.github/workflows/test.yml)): a type check
+  and every `*_test.ts`, against an in-memory stand-in for Supabase
+  ([`test_world.ts`](supabase/functions/api/test_world.ts): an account for
+  every role, plus pending, suspended, rejected and deactivated ones; two
+  schools; a second county) — no database, network or secrets. Locally:
+  `cd supabase/functions/api && deno task test`.
+  [`authz_test.ts`](supabase/functions/api/authz_test.ts) calls every
+  endpoint as every role: the roles allowed must get a real success (2xx,
+  with the records each endpoint needs made first), everyone else 403, no
+  session 401 — and it fails if an endpoint has no entry.
+  [`isolation_test.ts`](supabase/functions/api/isolation_test.ts) proves a
+  teacher sees only their own school's learners, classes and submissions
+  (lists, results, exports and by-id), field officers only their assigned
+  schools, the learner PIN lockout (5 wrong tries, open again after 15
+  minutes), and that pending and suspended accounts are refused by every
+  endpoint in the app. [`pwned_test.ts`](supabase/functions/api/pwned_test.ts)
+  covers the leaked-password check and [`mail_test.ts`](supabase/functions/api/mail_test.ts)
+  the invitation mailer. `authz_test.ts` also walks
   through the school/class walls, learner enrollment, and the whole
   assignment cycle (visibility, hand-in, late work, marking, results).
   [`lms_test.ts`](supabase/functions/api/lms_test.ts) unit-tests the marking
@@ -736,8 +752,7 @@ audit behind it are in [`docs/RBAC.md`](docs/RBAC.md).
   [`scope_test.ts`](supabase/functions/api/scope_test.ts) the data-scope
   rules and the separation of duties, and
   [`navigation_test.ts`](supabase/functions/api/navigation_test.ts) that
-  every role's menu matches its permissions exactly:
-  `cd supabase/functions/api && deno test --allow-env --allow-read --config deno.json authz_test.ts lms_test.ts intelligence_test.ts kobo_pipeline_test.ts data_quality_test.ts me_test.ts impact_test.ts notifications_test.ts scope_test.ts navigation_test.ts mail_test.ts`
+  every role's menu matches its permissions exactly.
 
 ### Turning on Google sign-in
 
