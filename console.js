@@ -4,11 +4,9 @@
    pages each person sees comes from their menu (navigation.js); what they
    can do, from their permissions — checked again by the API every time. */
 import { mountNavigation } from "./nav.js";
+// Staff dashboards always need Supabase Auth: fetched with the page, not after it.
+import "./supabase-auth.js";
 import { menuFor, WORKSPACES } from "./navigation.js";
-import {
-  renderPlatformOverview, renderAdminOverview, renderPermissions, renderAccountActivity, renderTeachers, renderClasses,
-  renderSchoolProfile, renderAssignments, renderResults, renderFieldVisits, renderSubjects, addSubject, openUserAccess,
-} from "./admin-ui.js";
 import { apiGet } from "./api.js";
 import { $, $$, esc, initials, toast, formatDuration, skeleton, errorState, friendlyError, confirmDialog } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
@@ -32,15 +30,22 @@ import {
 } from "./store.js";
 import { openIframeViewer, openContentPanel } from "./viewer.js";
 import { formTagsHtml } from "./forms.js";
-import { statusPill, openHistoryPanel, openTransferDialog } from "./learners-ui.js";
-import {
-  executiveHtml, execMelArea, reachHtml, learningHtml, teachersHtml, trainingListHtml, fieldOpsHtml, resourcesHtml,
-  themeIndicatorsHtml, melDashHtml, melIndicatorHtml,
-} from "./impact-ui.js";
-import { openTrainingPanel } from "./training-ui.js";
-import { openKoboPipeline, webhookBoxHtml, wireWebhookBox } from "./kobo-ui.js";
-import { dqTopHtml, dqTypesHtml, dqListHtml, openDqIssue } from "./dq-ui.js";
-import { resultsHtml, openIndicatorPanel, frameworkHtml, wireFramework, reportHtml, reportCsv } from "./mel-ui.js";
+
+/* The console's feature modules — the dashboards, M&E, data quality,
+   Kobo, the training register, the administration pages and the learner
+   tools — load the first time a page needs them. The build gives each its
+   own file, so each person downloads only what their menu reaches. */
+const once = (load) => {
+  let loading = null;
+  return () => (loading ??= load().catch((err) => { loading = null; throw err; })); // offline: try again next time
+};
+const adminUi = once(() => import("./admin-ui.js"));
+const impactUi = once(() => import("./impact-ui.js"));
+const trainingUi = once(() => import("./training-ui.js"));
+const koboUi = once(() => import("./kobo-ui.js"));
+const dqUi = once(() => import("./dq-ui.js"));
+const melUi = once(() => import("./mel-ui.js"));
+const learnersUi = once(() => import("./learners-ui.js"));
 
 const AUDIENCE_LABEL = Object.fromEntries(FORM_AUDIENCES.map((a) => [a.value, a.label]));
 const STAFF_ROLES = ROLES.filter((r) => r.value !== "learner");
@@ -278,7 +283,7 @@ async function main() {
      /mel/dashboard. */
   let lastImpact = null;
   let lastMelDash = null;
-  const IMP_PAGES = { reach: reachHtml, learning: learningHtml, "teacher-development": teachersHtml, "field-operations": fieldOpsHtml, "digital-resources": resourcesHtml };
+  const IMP_PAGES = { reach: "reachHtml", learning: "learningHtml", "teacher-development": "teachersHtml", "field-operations": "fieldOpsHtml", "digital-resources": "resourcesHtml" };
   async function renderImpact() {
     // The programme dashboards, or (Education Team) only their learning side.
     const pagesHere = Object.keys(IMP_PAGES).filter((p) => canOpen(p));
@@ -286,9 +291,9 @@ async function main() {
     $("#statRow").innerHTML = skeleton(4, { avatar: false });
     $("#statRow2").innerHTML = "";
     for (const p of pagesHere) $(`#imp-${p}`).innerHTML = skeleton(4);
-    let d;
+    let d, imp;
     try {
-      d = await getImpact({ county: gf.county, school: gf.school, from: gf.from, to: gf.to });
+      [d, imp] = await Promise.all([getImpact({ county: gf.county, school: gf.school, from: gf.from, to: gf.to }), impactUi()]);
     } catch (err) {
       console.error("could not load the impact dashboards:", err);
       const msg = errorState(friendlyError(err, "Couldn't load this data."), renderImpact);
@@ -299,12 +304,12 @@ async function main() {
     }
     lastImpact = d;
     if (canOpen("overview") && !d.learningOnly) {
-      const o = executiveHtml(d);
+      const o = imp.executiveHtml(d);
       $("#statRow").innerHTML = o.headline;
       $("#statRow2").innerHTML = o.secondary + (lastDq?.score ? dqTile(lastDq) : "");
       $("#intelAreas").innerHTML = o.areas;
     }
-    for (const p of pagesHere) $(`#imp-${p}`).innerHTML = IMP_PAGES[p](d);
+    for (const p of pagesHere) $(`#imp-${p}`).innerHTML = imp[IMP_PAGES[p]](d);
     const scope = d.scope.school || (d.scope.county ? `${d.scope.county} County` : "every school");
     for (const m of $$("[data-imp-meta]")) m.textContent = `${scope} · updated ${new Date(d.generatedAt).toLocaleTimeString()}`;
     if (d.currentTerm) $("#topSub").textContent = `${ws.question} · ${d.currentTerm}`;
@@ -319,8 +324,9 @@ async function main() {
   async function renderMelDash() {
     if (!has("me.view")) return;
     $("#melDash").innerHTML = skeleton(4, { avatar: false });
+    let imp;
     try {
-      lastMelDash = await melDashboard({ period: $("#melDashPeriod").value, county: gf.county, school: gf.school });
+      [lastMelDash, imp] = await Promise.all([melDashboard({ period: $("#melDashPeriod").value, county: gf.county, school: gf.school }), impactUi()]);
     } catch (err) {
       $("#melDash").innerHTML = errorState(friendlyError(err), renderMelDash);
       return;
@@ -331,16 +337,18 @@ async function main() {
     }
     if (d.period) $("#melDashPeriod").value = d.period.id;
     $("#melDashMeta").textContent = d.period ? `${d.period.label} · ${d.scope.label}` : "";
-    $("#melDash").innerHTML = melDashHtml(d, { canManage: has("me.framework.manage") });
+    $("#melDash").innerHTML = imp.melDashHtml(d, { canManage: has("me.framework.manage") });
     fillMelSlots();
     if (melDashPick && d.indicators.some((i) => i.id === melDashPick)) openMelDashIndicator(melDashPick, { scroll: false });
     else { melDashPick = null; $("#melDashDetailPanel").hidden = true; }
   }
-  function fillMelSlots() {
+  async function fillMelSlots() {
     if (!lastMelDash) return;
-    for (const slot of $$("[data-mel-theme]")) slot.innerHTML = themeIndicatorsHtml(lastMelDash, slot.dataset.melTheme, { canManage: has("me.framework.manage") });
+    const imp = await impactUi().catch(() => null);
+    if (!imp) return;
+    for (const slot of $$("[data-mel-theme]")) slot.innerHTML = imp.themeIndicatorsHtml(lastMelDash, slot.dataset.melTheme, { canManage: has("me.framework.manage") });
     const area = $("[data-exec-mel]");
-    if (area) area.innerHTML = execMelArea(lastMelDash);
+    if (area) area.innerHTML = imp.execMelArea(lastMelDash);
   }
   async function openMelDashIndicator(id, { scroll = true } = {}) {
     const ind = lastMelDash?.indicators.find((i) => i.id === id);
@@ -348,14 +356,16 @@ async function main() {
     melDashPick = id;
     const box = $("#melDashDetail");
     $("#melDashDetailPanel").hidden = false;
-    box.innerHTML = melIndicatorHtml(ind, null, null);
+    const imp = await impactUi().catch(() => null);
+    if (!imp) { box.innerHTML = errorState("Couldn't load this — check your connection.", () => openMelDashIndicator(id)); return; }
+    box.innerHTML = imp.melIndicatorHtml(ind, null, null);
     if (scroll) $("#melDashDetailPanel").scrollIntoView({ behavior: "smooth", block: "start" });
     try {
       const [trend, breakdown] = await Promise.all([
         melTrend(id, { county: gf.county, school: gf.school }),
         lastMelDash.period ? melBreakdown(id, lastMelDash.period.id) : null,
       ]);
-      if (melDashPick === id) box.innerHTML = melIndicatorHtml(ind, trend, breakdown);
+      if (melDashPick === id) box.innerHTML = imp.melIndicatorHtml(ind, trend, breakdown);
     } catch (err) {
       box.innerHTML = errorState(friendlyError(err), () => openMelDashIndicator(id));
     }
@@ -380,17 +390,19 @@ async function main() {
     $("#trNewBtn").hidden = !has("trainings.manage");
     $("#trainingList").innerHTML = skeleton(3, { avatar: false });
     try {
-      const { trainings } = await getTrainings({ archived: $("#trArchived").checked });
-      $("#trainingList").innerHTML = trainingListHtml(trainings, { canManage: has("trainings.manage"), archived: $("#trArchived").checked });
+      const [{ trainings }, imp] = await Promise.all([getTrainings({ archived: $("#trArchived").checked }), impactUi()]);
+      $("#trainingList").innerHTML = imp.trainingListHtml(trainings, { canManage: has("trainings.manage"), archived: $("#trArchived").checked });
     } catch (err) {
       $("#trainingList").innerHTML = errorState(friendlyError(err), renderTrainings);
     }
   }
   $("#trArchived").addEventListener("change", renderTrainings);
-  $("#trNewBtn").addEventListener("click", () => openTrainingPanel(null, trainingCtx()));
+  const openTraining = (id) => trainingUi().then((m) => m.openTrainingPanel(id, trainingCtx()))
+    .catch((err) => toast("Couldn't open it", friendlyError(err, "Check your connection and try again."), "error"));
+  $("#trNewBtn").addEventListener("click", () => openTraining(null));
   $("#trainingList").addEventListener("click", (e) => {
     const row = e.target.closest("[data-training]");
-    if (row) openTrainingPanel(row.dataset.training, trainingCtx());
+    if (row) openTraining(row.dataset.training);
   });
   renderTrainings();
 
@@ -421,22 +433,24 @@ async function main() {
   async function renderDq({ scan = false } = {}) {
     if (!has("data_quality.view")) return;
     $("#dqTop").innerHTML = skeleton(3, { avatar: false });
-    let s;
+    let s, dq;
     try {
+      const loading = dqUi(); // the page's code downloads while the data is fetched
       if (scan) await dqScan();
       s = await dqSummary(dqFilters());
       if (!scan && s.stale) {
         await dqScan({ auto: true });
         s = await dqSummary(dqFilters());
       }
+      dq = await loading;
     } catch (err) {
       $("#dqTop").innerHTML = errorState(friendlyError(err), () => renderDq());
       return;
     }
     lastDq = s;
     $("#dqMeta").textContent = s.lastScan ? `last scan ${new Date(s.lastScan.at).toLocaleString()}` : "not scanned yet";
-    $("#dqTop").innerHTML = dqTopHtml(s);
-    $("#dqTypes").innerHTML = dqTypesHtml(s);
+    $("#dqTop").innerHTML = dq.dqTopHtml(s);
+    $("#dqTypes").innerHTML = dq.dqTypesHtml(s);
     if (lastImpact && s.score && !$("#statRow2 .dq-tile-link")) $("#statRow2").insertAdjacentHTML("beforeend", dqTile(s));
     renderAttention();
     renderDqList();
@@ -444,16 +458,16 @@ async function main() {
 
   async function renderDqList() {
     $("#dqList").innerHTML = skeleton(4);
-    let res;
+    let res, dq;
     try {
-      res = await dqIssues({ ...dqFilters(true), limit: DQ_PAGE, offset: dqOffset });
+      [res, dq] = await Promise.all([dqIssues({ ...dqFilters(true), limit: DQ_PAGE, offset: dqOffset }), dqUi()]);
     } catch (err) {
       $("#dqList").innerHTML = errorState(friendlyError(err), renderDqList);
       return;
     }
     const canManage = has("data_quality.manage");
     $("#dqCount").textContent = `${res.total} issue${res.total === 1 ? "" : "s"}`;
-    $("#dqList").innerHTML = dqListHtml(res.issues, dqSelected, canManage);
+    $("#dqList").innerHTML = dq.dqListHtml(res.issues, dqSelected, canManage);
     $("#dqPager").innerHTML = res.total > DQ_PAGE ? `
       <span>${dqOffset + 1}–${Math.min(res.total, dqOffset + DQ_PAGE)} of ${res.total}</span>
       <span><button type="button" class="btn btn-outline q-small" data-dq-page="-1" ${dqOffset ? "" : "disabled"}>← Previous</button>
@@ -506,7 +520,9 @@ async function main() {
   });
   $("#dqList").addEventListener("click", (e) => {
     if (!e.target.closest("[data-dq-open]")) return;
-    openDqIssue(e.target.closest("[data-dq-issue]").dataset.dqIssue, { onChange: dqRefresh });
+    const id = e.target.closest("[data-dq-issue]").dataset.dqIssue;
+    dqUi().then((m) => m.openDqIssue(id, { onChange: dqRefresh }))
+      .catch((err) => toast("Couldn't open it", friendlyError(err, "Check your connection and try again."), "error"));
   });
   $("#dqPager").addEventListener("click", (e) => {
     const b = e.target.closest("[data-dq-page]");
@@ -572,8 +588,9 @@ async function main() {
     }
     $("#melResults").innerHTML = skeleton(4, { avatar: false });
     try {
-      mel.res = await melResults(id, { period: $("#melPeriod").value, county: gf.county, school: gf.school });
-      $("#melResults").innerHTML = resultsHtml(mel.res);
+      const [res, m] = await Promise.all([melResults(id, { period: $("#melPeriod").value, county: gf.county, school: gf.school }), melUi()]);
+      mel.res = res;
+      $("#melResults").innerHTML = m.resultsHtml(mel.res);
     } catch (err) {
       $("#melResults").innerHTML = errorState(friendlyError(err), renderMelResults);
     }
@@ -585,12 +602,13 @@ async function main() {
     if (!tr || !mel.res) return;
     const row = mel.res.outcomes.flatMap((o) => o.indicators).find((i) => i.id === tr.dataset.melInd);
     if (!row) return;
-    openIndicatorPanel(row, mel.res, {
+    melUi().then((m) => m.openIndicatorPanel(row, mel.res, {
       can: { record: has("me.actuals.record"), verify: has("me.actuals.verify"), userId: user.id },
       onChange: renderMelResults,
-    });
+    })).catch((err) => toast("Couldn't open it", friendlyError(err, "Check your connection and try again."), "error"));
   });
 
+  let fwWired = false;
   async function renderMelFramework() {
     const id = $("#melFwProg").value;
     if (!id) {
@@ -599,8 +617,14 @@ async function main() {
     }
     $("#melFramework").innerHTML = skeleton(4, { avatar: false });
     try {
-      mel.fw = await melProgramme(id);
-      $("#melFramework").innerHTML = frameworkHtml(mel.fw, has("me.framework.manage"));
+      const [fw, m] = await Promise.all([melProgramme(id), melUi()]);
+      mel.fw = fw;
+      // The framework editor's clicks are wired the first time it's shown.
+      if (!fwWired) {
+        fwWired = true;
+        m.wireFramework($("#melFramework"), () => mel.fw, async () => { const next = await renderMelFramework(); renderMelResults(); return next; });
+      }
+      $("#melFramework").innerHTML = m.frameworkHtml(mel.fw, has("me.framework.manage"));
       return mel.fw;
     } catch (err) {
       $("#melFramework").innerHTML = errorState(friendlyError(err), renderMelFramework);
@@ -608,7 +632,6 @@ async function main() {
     }
   }
   $("#melFwProg").addEventListener("change", renderMelFramework);
-  wireFramework($("#melFramework"), () => mel.fw, async () => { const fw = await renderMelFramework(); renderMelResults(); return fw; });
   $("#melNewProgBtn").addEventListener("click", () => { $("#melProgForm").hidden = false; $("#mp_name").focus(); });
   $("#melProgCancel").addEventListener("click", () => { $("#melProgForm").hidden = true; });
   $("#melProgForm").addEventListener("submit", async (e) => {
@@ -677,8 +700,8 @@ async function main() {
   });
   async function openMelReport(id) {
     const panel = openContentPanel({ title: "M&E report", html: skeleton(5) });
-    let d;
-    try { d = await melReport(id); } catch (err) { panel.innerHTML = errorState(friendlyError(err)); return; }
+    let d, m;
+    try { [d, m] = await Promise.all([melReport(id), melUi()]); } catch (err) { panel.innerHTML = errorState(friendlyError(err)); return; }
     const r = d.report;
     const canManage = has("me.reports.manage");
     panel.innerHTML = `
@@ -689,17 +712,18 @@ async function main() {
           <input type="text" data-final-note maxlength="2000" placeholder="Note for the final version (optional)" style="flex:1 1 12rem">
           <button type="button" class="btn btn-primary q-small" data-finalize>Mark final</button>` : ""}
       </div>
-      ${reportHtml(r, d.content)}`;
+      ${m.reportHtml(r, d.content)}`;
     panel.addEventListener("click", async (e) => {
       try {
         if (e.target.closest("[data-print]")) {
           const w = window.open("", "_blank");
           if (!w) { toast("Allow pop-ups to print", "", "error"); return; }
           // No inline style or script (the CSP allows neither): the look is
-          // body.print-page in styles.css, and printing starts from here.
+          // body.print-page in app.css, and printing starts from here.
+          const sheets = $$('link[rel="stylesheet"]').map((l) => `<link rel="stylesheet" href="${esc(l.href)}">`).join("");
           w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(r.title)}</title>
-            <link rel="stylesheet" href="${new URL("styles.css", location.href)}"></head>
-            <body class="print-page">${reportHtml(r, d.content)}</body></html>`);
+            ${sheets}</head>
+            <body class="print-page">${m.reportHtml(r, d.content)}</body></html>`);
           w.document.close();
           const printWhenReady = () => (w.closed ? null
             : w.document.readyState === "complete" ? setTimeout(() => w.print(), 300) : setTimeout(printWhenReady, 100));
@@ -707,7 +731,7 @@ async function main() {
         }
         if (e.target.closest("[data-csv]")) {
           const a = document.createElement("a");
-          a.href = URL.createObjectURL(new Blob([reportCsv(r, d.content)], { type: "text/csv;charset=utf-8" }));
+          a.href = URL.createObjectURL(new Blob([m.reportCsv(r, d.content)], { type: "text/csv;charset=utf-8" }));
           a.download = `${r.title.replace(/[^\w.-]+/g, "_")}.csv`;
           a.click();
           setTimeout(() => URL.revokeObjectURL(a.href), 5000);
@@ -1798,13 +1822,19 @@ async function main() {
   }
 
   /* Kobo's live push (REST Service): set up / replace / turn off. */
-  function renderKoboPush() {
-    $("#koboPush").innerHTML = webhookBoxHtml(koboState, has("kobo.configure"));
+  let pushWired = false;
+  async function renderKoboPush() {
+    const k = await koboUi().catch(() => null);
+    if (!k) return;
+    if (!pushWired) { // its buttons are wired the first time it's shown
+      pushWired = true;
+      k.wireWebhookBox($("#koboPush"), async () => {
+        try { koboState = await koboConfig(); } catch { /* keep the old state */ }
+        renderKoboPush();
+      });
+    }
+    $("#koboPush").innerHTML = k.webhookBoxHtml(koboState, has("kobo.configure"));
   }
-  wireWebhookBox($("#koboPush"), async () => {
-    try { koboState = await koboConfig(); } catch { /* keep the old state */ }
-    renderKoboPush();
-  });
 
   async function renderKoboAssets() {
     koboAssetSel.innerHTML = `<option value="">Loading surveys…</option>`;
@@ -1863,7 +1893,9 @@ async function main() {
 
     $$("[data-kobo-pipeline]").forEach((btn) => btn.addEventListener("click", async () => {
       if (!schoolDir.schools.length) await renderSchoolList().catch(() => {});
-      openKoboPipeline(btn.dataset.koboPipeline, {
+      const k = await koboUi().catch((err) => { toast("Couldn't open it", friendlyError(err, "Check your connection and try again."), "error"); });
+      if (!k) return;
+      k.openKoboPipeline(btn.dataset.koboPipeline, {
         canManage: has("kobo.manage"), canReview: has("kobo.review"), schools: schoolDir.schools,
         onChange: () => { renderKoboForms(); loadSurveyResults(); renderImpact(); },
       });
@@ -2626,7 +2658,7 @@ async function main() {
     try {
       if (act === "view") {
         if (!schoolDir.counties.length) await renderSchoolList();
-        openUserAccess(u, { counties: schoolDir.counties, schools: schoolDir.schools, onChanged: renderUsers });
+        (await adminUi()).openUserAccess(u, { counties: schoolDir.counties, schools: schoolDir.schools, onChanged: renderUsers });
         return;
       }
       if (act === "edit") {
@@ -3059,6 +3091,7 @@ async function main() {
      they've been in, and (with learners.transfer) move them to another
      school. Classes and day-to-day rosters belong to each school head. */
   let finderResults = [];
+  let LU = null; // learners-ui.js, once loaded
   function fillFinderSchools() {
     const keep = $("#lf_school").value;
     $("#lf_school").innerHTML = `<option value="">All schools</option>${
@@ -3072,7 +3105,7 @@ async function main() {
       ? finderResults.map((l) => `
         <div class="task-row" data-learner="${esc(l.id)}" style="flex-wrap:wrap">
           <div style="flex:1;min-width:12rem"><b>${esc(l.fullName)}</b>
-            <span>${statusPill(l.status)} <span class="code-chip">${esc(l.learnerCode || l.userCode || "")}</span> ${esc(l.school || "")}${l.className ? ` · ${esc(l.className)}` : l.grade ? ` · ${esc(l.grade)}` : ""}</span></div>
+            <span>${LU.statusPill(l.status)} <span class="code-chip">${esc(l.learnerCode || l.userCode || "")}</span> ${esc(l.school || "")}${l.className ? ` · ${esc(l.className)}` : l.grade ? ` · ${esc(l.grade)}` : ""}</span></div>
           <div class="roster-actions">
             <button type="button" data-lf-history="${esc(l.id)}">History</button>
             ${canTransfer ? `<button type="button" data-lf-transfer="${esc(l.id)}">Transfer</button>` : ""}
@@ -3088,7 +3121,7 @@ async function main() {
       if (!q && !schoolId) { toast("Search for someone", "Type a name or code, or pick a school.", "error"); return; }
       $("#learnerFinderResults").innerHTML = skeleton(3);
       try {
-        finderResults = await getLearners({ q, schoolId, status: $("#lf_archived").checked ? "all" : "active" });
+        [finderResults, LU] = await Promise.all([getLearners({ q, schoolId, status: $("#lf_archived").checked ? "all" : "active" }), learnersUi()]);
         renderFinder();
       } catch (err) {
         $("#learnerFinderResults").innerHTML = errorState(friendlyError(err));
@@ -3096,12 +3129,12 @@ async function main() {
     });
     $("#learnerFinderResults").addEventListener("click", async (e) => {
       const h = e.target.closest("[data-lf-history]");
-      if (h) { const l = finderResults.find((x) => x.id === h.dataset.lfHistory); openHistoryPanel(l.id, l.fullName); return; }
+      if (h) { const l = finderResults.find((x) => x.id === h.dataset.lfHistory); LU.openHistoryPanel(l.id, l.fullName); return; }
       const t = e.target.closest("[data-lf-transfer]");
       if (!t) return;
       const l = finderResults.find((x) => x.id === t.dataset.lfTransfer);
       if (!schoolDir.schools.length) await renderSchoolList();
-      const updated = await openTransferDialog(l, schoolDir.schools);
+      const updated = await LU.openTransferDialog(l, schoolDir.schools);
       if (updated) {
         finderResults = finderResults.map((x) => (x.id === updated.id ? updated : x));
         renderFinder();
@@ -3153,14 +3186,22 @@ async function main() {
   const schoolNames = () => new Map(schoolDir.schools.map((x) => [x.id, x.name]));
   const ensureSchools = async () => { if (!schoolDir.schools.length) await renderSchoolList().catch(() => {}); };
   const openedOnce = new Set();
+  // Pages built by admin-ui.js, which loads the first time one of them opens.
+  const ADMIN_UI_PAGES = new Set(["platform-overview", "admin-overview", "permissions", "account-activity", "teachers", "classes",
+    "school-profiles", "assignments", "results", "field-visits", "subjects"]);
   async function onPage(page, params) {
+    let A = null;
+    if (ADMIN_UI_PAGES.has(page)) {
+      A = await adminUi().catch(() => null);
+      if (!A) { toast("Couldn't open this page", "Check your connection and try again.", "error"); return; }
+    }
     const first = !openedOnce.has(page);
     openedOnce.add(page);
     switch (page) {
-      case "platform-overview": renderPlatformOverview($("#pfBody")); break;
-      case "admin-overview": renderAdminOverview($("#aoBody")); break;
-      case "permissions": renderPermissions($("#permBody"), { onRevoke: () => canOpen("users") && renderUsers() }); break;
-      case "account-activity": renderAccountActivity($("#activityBody")); break;
+      case "platform-overview": A.renderPlatformOverview($("#pfBody")); break;
+      case "admin-overview": A.renderAdminOverview($("#aoBody")); break;
+      case "permissions": A.renderPermissions($("#permBody"), { onRevoke: () => canOpen("users") && renderUsers() }); break;
+      case "account-activity": A.renderAccountActivity($("#activityBody")); break;
       case "audit": renderAuditPage({ kind: params.get("kind") === "security" ? "security" : "" }); break;
       case "users":
         $("#usersRole").value = params.get("role") || "";
@@ -3169,29 +3210,29 @@ async function main() {
         break;
       case "teachers":
         if (first) {
-          const redraw = () => renderTeachers($("#tchBody"), { q: $("#tchSearch").value, role: $("#tchRole").value });
+          const redraw = () => A.renderTeachers($("#tchBody"), { q: $("#tchSearch").value, role: $("#tchRole").value });
           $("#tchSearch").addEventListener("input", redraw);
           $("#tchRole").addEventListener("change", redraw);
         }
-        renderTeachers($("#tchBody"), { q: $("#tchSearch").value, role: $("#tchRole").value }, { fresh: first });
+        A.renderTeachers($("#tchBody"), { q: $("#tchSearch").value, role: $("#tchRole").value }, { fresh: first });
         break;
       case "classes":
         await ensureSchools();
         schoolOptions($("#clsSchool"));
-        if (first) $("#clsSchool").addEventListener("change", () => renderClasses($("#clsBody"), $("#clsSchool").value));
-        renderClasses($("#clsBody"), $("#clsSchool").value);
+        if (first) $("#clsSchool").addEventListener("change", () => A.renderClasses($("#clsBody"), $("#clsSchool").value));
+        A.renderClasses($("#clsBody"), $("#clsSchool").value);
         break;
       case "school-profiles":
         await ensureSchools();
         schoolOptions($("#spSchool"));
         if (params.get("school")) $("#spSchool").value = params.get("school");
-        if (first) $("#spSchool").addEventListener("change", () => renderSchoolProfile($("#spBody"), $("#spSchool").value));
-        renderSchoolProfile($("#spBody"), $("#spSchool").value);
+        if (first) $("#spSchool").addEventListener("change", () => A.renderSchoolProfile($("#spBody"), $("#spSchool").value));
+        A.renderSchoolProfile($("#spBody"), $("#spSchool").value);
         break;
       case "assignments": {
         await ensureSchools();
         schoolOptions($("#asgSchool"), { all: "All schools in your area" });
-        const redraw = () => renderAssignments($("#asgBody"), { schoolId: $("#asgSchool").value, status: $("#asgStatus").value }, schoolNames());
+        const redraw = () => A.renderAssignments($("#asgBody"), { schoolId: $("#asgSchool").value, status: $("#asgStatus").value }, schoolNames());
         if (first) { $("#asgSchool").addEventListener("change", redraw); $("#asgStatus").addEventListener("change", redraw); }
         redraw();
         break;
@@ -3199,14 +3240,14 @@ async function main() {
       case "results": {
         await ensureSchools();
         schoolOptions($("#resSchool"), { all: "All schools in your area" });
-        const redraw = () => renderResults($("#resBody"), { by: $("#resBy").value, schoolId: $("#resSchool").value });
+        const redraw = () => A.renderResults($("#resBody"), { by: $("#resBy").value, schoolId: $("#resSchool").value });
         if (first) { $("#resBy").addEventListener("change", redraw); $("#resSchool").addEventListener("change", redraw); }
         redraw();
         break;
       }
       case "field-visits":
-        if (first) $("#fvSearch").addEventListener("input", () => renderFieldVisits($("#fvBody"), $("#fvSearch").value));
-        renderFieldVisits($("#fvBody"), $("#fvSearch").value, { fresh: first });
+        if (first) $("#fvSearch").addEventListener("input", () => A.renderFieldVisits($("#fvBody"), $("#fvSearch").value));
+        A.renderFieldVisits($("#fvBody"), $("#fvSearch").value, { fresh: first });
         break;
       case "subjects":
         if (first) {
@@ -3215,14 +3256,14 @@ async function main() {
             const name = $("#subjectName").value.trim();
             if (!name) return;
             try {
-              await addSubject(name);
+              await A.addSubject(name);
               $("#subjectName").value = "";
               toast("Subject added", name, "success");
-              renderSubjects($("#subjectsBody"));
+              A.renderSubjects($("#subjectsBody"));
             } catch (err) { toast("Couldn't add it", friendlyError(err), "error"); }
           });
         }
-        renderSubjects($("#subjectsBody"));
+        A.renderSubjects($("#subjectsBody"));
         break;
       case "learners":
         await ensureSchools();

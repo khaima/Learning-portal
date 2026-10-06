@@ -241,12 +241,15 @@ sync** time and how many activities are **waiting to sync** — and opens
 the **Offline & sync** panel: what's waiting, anything that needs a
 decision, **Sync now**, and the resources saved on the device.
 
-- **The app itself** works offline: a service worker (`sw.js`) keeps the
-  pages, scripts and styles on the device, network-first (a new deploy
-  shows up on the next online load; on a slow connection the device's copy
-  is used after 4 seconds). It never stores data — signed-in replies stay
-  out of shared browser caches. The portal can also be installed to a
-  phone's home screen (`manifest.webmanifest`).
+- **The app itself** works offline: a service worker (written by the build
+  from [`sw-template.js`](sw-template.js) — see [The build](#the-build))
+  keeps the pages, the stylesheets, the sign-in page's code and every
+  script this device has used, and opens them from the device even on a
+  slow line. A new version downloads in the background and announces
+  itself — **"Update available — Reload"** — instead of swapping code under
+  someone mid-lesson. It never stores data — signed-in replies stay out of
+  shared browser caches. The portal can also be installed to a phone's
+  home screen (`manifest.webmanifest`).
 - **Downloaded content** (IndexedDB, `offline.js`), kept per account:
   what the server sent for the pages people work in — assignments, the
   library list, class lists, work to mark, forms, schools. At every sync a
@@ -759,8 +762,10 @@ audit behind it are in [`docs/RBAC.md`](docs/RBAC.md).
 [`vercel.json`](vercel.json) sends these with every page and file on Vercel:
 
 - **Content-Security-Policy** — scripts only from the portal itself (no
-  inline script, no `eval`, no CDN: supabase-js is pinned in
-  [`vendor/`](vendor/README.md)); data and sign-in only to the portal and
+  `eval`, no CDN: the Supabase sign-in and file-storage libraries are pinned
+  in `package.json` and bundled by the build; the only inline scripts are the
+  sign-in page's first-moments script and the 404 page's, each allowed by its
+  exact hash); data and sign-in only to the portal and
   the Supabase project; fonts only from Google Fonts; no plugins; never
   framed by another site (`frame-ancestors 'none'`). Three outside sites may
   appear *inside* the portal's file viewer, because teachers use them —
@@ -775,15 +780,67 @@ audit behind it are in [`docs/RBAC.md`](docs/RBAC.md).
   that turns off camera, microphone, location, payment, USB and the rest
   (fullscreen, autoplay and picture-in-picture only for the portal and the
   embedded YouTube/Office viewers).
-- **Search engines:** [`robots.txt`](robots.txt) lets the sign-in page be
+- **Caching:** the built code and stylesheets (`/static/…`, every name
+  carrying a hash of its content) are kept for a year and never re-checked;
+  the service worker (`/sw.js`) is re-checked on every visit, so a deploy
+  reaches devices on their next visit.
+- **Search engines:** [`robots.txt`](public/robots.txt) lets the sign-in page be
   found and keeps every workspace out; those pages also say `noindex` (a meta
   tag, and an `X-Robots-Tag` header on Vercel), which is what covers the
-  GitHub Pages copy. Unknown addresses get [`404.html`](404.html).
+  GitHub Pages copy. Unknown addresses get [`404.html`](public/404.html).
 
-[`scripts/check-csp.mjs`](scripts/check-csp.mjs) runs in CI and fails if a
-page gains inline code the policy would block, loads a script or stylesheet
-from a host it doesn't allow, or imports code from a URL. GitHub Pages can't
-send headers, so there the pages run without them.
+[`scripts/check-csp.mjs`](scripts/check-csp.mjs) runs in CI on the built
+site and fails if a page gains inline code the policy would block (or an
+inline script whose hash isn't in the policy), loads a script or stylesheet
+from a host it doesn't allow, imports code from a URL, or if the service
+worker lists a file the build didn't produce. GitHub Pages can't send
+headers, so there the pages run without them.
+
+### The build
+
+The portal is still plain HTML pages and JavaScript modules — no
+framework. [Vite](https://vite.dev) ([`vite.config.js`](vite.config.js))
+only bundles, minifies and fingerprints them into `dist/`, which is what
+Vercel and GitHub Pages serve:
+
+- **One entry per page** — sign-in, learner, teacher, school head, field
+  officer, and the four management workspaces (which share
+  `workspace.js`).
+- **Each role downloads only what it uses.** The management console's
+  feature modules (administration, impact dashboards, M&E, data quality,
+  Kobo, training, learner dialogs), the assignment screens, exports and the
+  Supabase sign-in library are separate files fetched the first time
+  they're needed. Learners and the sign-in page never download the sign-in
+  library unless a staff member picks their role.
+- **Content-hashed names** (`static/console-COGfuUhY.js`): a changed file
+  gets a new name, so browsers keep the old ones for a year without ever
+  using a stale copy. `public/` (the 404 page, `robots.txt`, the app manifest,
+  icons and images) is copied as it is.
+- **The service worker is generated**, not hand-written:
+  [`scripts/build-sw.mjs`](scripts/build-sw.mjs) fills
+  [`sw-template.js`](sw-template.js) with the build's file lists and a
+  version that's a hash of every output file (and of the worker itself), so
+  it changes exactly when something a browser downloads changes. Every device
+  keeps the pages, stylesheets and the sign-in page's code; the other
+  scripts are kept once that device has used them (a learner's phone never
+  stores the M&E dashboards). On an update, files that didn't change are
+  copied from the old version rather than downloaded again.
+- **Updates wait for the person:** a new version installs in the background
+  and the page shows **"Update available — Reload"** (`pwa.js`). Nothing is
+  swapped mid-session; *Later* keeps the current version until the next
+  visit.
+
+Sizes (minified; [`scripts/bundle-report.mjs`](scripts/bundle-report.mjs)
+prints the table, and CI fails if the sign-in page goes over 150 KB):
+
+| Page | JavaScript up front, before → after |
+|---|---|
+| Sign-in | 330 KB → 57 KB (20 KB compressed) |
+| Learner | 483 KB → 150 KB |
+| Teacher | 526 KB → 276 KB |
+| School head | 548 KB → 273 KB |
+| Field officer | 533 KB → 229 KB |
+| Management workspaces | 784 KB → 354 KB to open (with the sign-in library); each feature's module when its page is opened |
 
 ### Turning on Google sign-in
 
@@ -858,21 +915,38 @@ same data everywhere, because the database is the source of truth.
 **Live:** <https://khaima.github.io/Learning-portal/> — deployed from
 `main` via GitHub Pages ([`.github/workflows/pages.yml`](.github/workflows/pages.yml)).
 
-Run it locally:
+Run it locally (Node 22.12 or newer):
 
-```
-python serve.py
+```bash
+npm install
 ```
 
-then open the printed `http://localhost:<port>`. It talks to the live
-API immediately. (Password reset emails need the one-time mail setup in
-[`docs/AUTH.md`](docs/AUTH.md).)
+```bash
+npm run dev
+```
+
+opens the pages straight from the source at `http://localhost:5174`, with
+changes showing as you save (no service worker in this mode). To try the
+real thing — minified, fingerprinted, with the service worker and the
+Vercel security headers — build it and serve `dist/`:
+
+```bash
+npm run build
+```
+
+```bash
+npm run serve
+```
+
+Either way it talks to the live API immediately. (Password reset emails need
+the one-time mail setup in [`docs/AUTH.md`](docs/AUTH.md).) Before pushing,
+`npm run lint` and `npm run check` (after a build) run the same checks as CI.
 
 ## File map
 
 | File | Purpose |
 |---|---|
-| `index.html` / `index.js` | Sign-in: role → staff password / learner PIN → onboarding |
+| `index.html` / `index.js` | Sign-in: role → staff password / learner PIN → onboarding (the page's first moments — role tiles, fonts, "taking longer than usual" — are a small inline script the CSP allows by its hash) |
 | `teacher.html` / `teacher.js` | Teacher dashboard |
 | `learner.html` / `learner.js` | Learner dashboard |
 | `leader.html` / `leader.js` | Head-of-institution dashboard |
@@ -887,12 +961,16 @@ API immediately. (Password reset emails need the one-time mail setup in
 | `scripts/configure-auth.mjs` | Sets the Supabase Auth production settings (mail sender, branded email, sign-ups off) — run with your own keys |
 | `supabase/templates/recovery.html` | The HPF "Reset your password" email |
 | `docs/RBAC.md` | The access model: audit, roles, permissions, scope, menus, the five layers, migration, tests |
-| `supabase.js` | The Supabase Auth client (password + Google) and the "remember me" storage adapter |
-| `vendor/` | Third-party code served from the portal: supabase-js 2.117.2, pinned ([`vendor/README.md`](vendor/README.md)) |
-| `vercel.json` | Security headers for every route (CSP, frame, referrer, permissions, HSTS), long caching for `vendor/`, `noindex` for the workspaces |
-| `boot.js` | The sign-in page's first moments (role tiles, fonts, "taking longer than usual") — a file, not inline code |
-| `404.html` / `robots.txt` | The page for unknown addresses; what search engines may index (the sign-in page only) |
-| `scripts/check-csp.mjs` | CI check that the pages and the CSP agree |
+| `supabase.js` | Loads the Supabase sign-in and storage clients only when needed; the "remember me" storage adapter |
+| `supabase-auth.js` / `supabase-storage.js` | The Supabase Auth client (password + Google) and the Storage client (file uploads), from `@supabase/auth-js` and `@supabase/storage-js` 2.117.2, pinned |
+| `package.json` / `vite.config.js` | The build: one entry per page, code-splitting, content-hashed names into `dist/` |
+| `sw-template.js` / `scripts/build-sw.mjs` | The service worker, and the step that writes `dist/sw.js` from it with the build's file lists and version |
+| `scripts/build-info.mjs` / `scripts/bundle-report.mjs` | What each built page loads; the size report and the sign-in page's 150 KB budget (CI) |
+| `scripts/serve-dist.mjs` | Serves `dist/` locally as Vercel would: its headers, compression, the 404 page (`npm run serve`) |
+| `eslint.config.js` | Lint (CI): catches names that aren't defined anywhere |
+| `vercel.json` | The build settings, and security headers for every route (CSP, frame, referrer, permissions, HSTS), year-long caching for `static/`, `noindex` for the workspaces |
+| `public/` | Copied into the build as it is: `404.html` (the page for unknown addresses), `robots.txt` (the sign-in page only may be indexed), the app manifest, icons and images |
+| `scripts/check-csp.mjs` | CI check that the built pages, the service worker and the CSP agree |
 | `api.js` | Thin fetch wrapper over the `api` Edge Function; attaches the JWT; serves this device's copies offline |
 | `offline.js` | What the device keeps (IndexedDB): copies per account, the queue, files, settings |
 | `sync.js` | Offline work: send or queue, sync in order, idempotency keys, conflicts, files chosen offline, downloads |
@@ -900,21 +978,22 @@ API immediately. (Password reset emails need the one-time mail setup in
 | `reports-ui.js` | Export reports: the reports this person may export, their filters, Excel / CSV / PDF |
 | `export.js` | Writes report files in the browser: Excel (.xlsx), CSV and PDF, no libraries |
 | `sync-ui.js` | The sync status in every top bar and the Sync center (Kobo, school data, learning, content, field team devices) |
-| `sw.js` / `pwa.js` / `manifest.webmanifest` | The offline app (service worker) and home-screen install |
+| `pwa.js` | Registers the service worker; the "Update available — Reload" notice; home-screen install |
 | `auth.js` | Sessions, the profile, `requireRole` for each dashboard |
 | `store.js` | Every data call — library, forms, responses, assignments, reports, stats |
 | `config.js` | Supabase URL, publishable key, API base URL |
 | `data.js` | Static UI constants (roles, subjects, question types) |
 | `util.js` | Tiny shared DOM / escaping / toast helpers |
 | `mel-ui.js` | M&E: results, the indicator panel (record / verify / evidence), framework editor, reports |
+| `mel-format.js` | How indicator values and red/amber/green status read — shared by M&E and the impact dashboards |
 | `dq-ui.js` | The Data Quality Center: score, checks, issues, history, corrections |
 | `kobo-ui.js` | The Kobo data pipeline panel (checks, mapping, school aliases, review queue) and the live-push setup |
 | `impact-ui.js` | The impact dashboards: executive overview, reach, learning, teacher development, field operations, digital resources, M&E |
 | `training-ui.js` | The training register: record a session, mark who attended, archive |
 | `assignments-ui.js` | Assignment builder, marking, results table, and the learner's assignment screen |
 | `learners-ui.js` | Shared learner dialogs: archive, history, transfer |
-| `styles.css` | The whole design system (light + dark, one file) |
-| `serve.py` | Local static server (honours `$PORT`) |
+| `base.css` / `app.css` | The design system (light + dark): what the sign-in page needs, and the dashboards' rest |
+| `serve.py` | Plain local server for the build in `dist/` (honours `$PORT`) |
 | `supabase/functions/api/` | The backend API (Deno + Hono) |
 | `supabase-schema.sql` | Full schema + the database lock-down |
 

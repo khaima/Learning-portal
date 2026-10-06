@@ -3,3 +3,7 @@ supabase/.temp/
 .env
 .env.*
 !.env.example
+
+# The build (npm run build) and its tools.
+node_modules/
+dist/

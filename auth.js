@@ -15,7 +15,7 @@
    are reached only through the `api` Edge Function.
    ============================================================ */
 
-import { supabase, storedStaffUserId } from "./supabase.js";
+import { getAuth, rememberableStorage, SESSION_KEY, storedStaffUserId } from "./supabase.js";
 import { setOwner, unsentCount, forgetThisDevice, isNetworkError } from "./sync.js";
 import { getMeta, setMeta } from "./offline.js";
 import { ApiError, rawRequest, learnerToken, setLearnerToken } from "./api.js";
@@ -52,7 +52,9 @@ export async function registerStaff(email, password) {
 
 /** Sign in with an email + password. */
 export async function signInWithPassword(email, password) {
-  const { data, error } = await supabase.auth.signInWithPassword({
+  const auth = await getAuth().catch(() => null);
+  if (!auth) return { error: "Couldn't reach the portal — check your connection and try again." };
+  const { data, error } = await auth.signInWithPassword({
     email: (email || "").trim(),
     password: password || "",
   });
@@ -91,7 +93,7 @@ export async function signInWithGoogle() {
   if (!(await googleProviderEnabled())) {
     throw new Error("Google sign-in isn't set up yet — use email and password instead.");
   }
-  const { error } = await supabase.auth.signInWithOAuth({
+  const { error } = await (await getAuth()).signInWithOAuth({
     provider: "google",
     options: { redirectTo: window.location.origin + window.location.pathname },
   });
@@ -109,7 +111,7 @@ export async function signInWithGoogle() {
     the "set a new password" step instead of routing to a dashboard. */
 export async function sendPasswordResetLink(email) {
   const redirectTo = new URL("index.html?flow=recovery", window.location.href).href;
-  const { error } = await supabase.auth.resetPasswordForEmail((email || "").trim(), { redirectTo });
+  const { error } = await (await getAuth()).resetPasswordForEmail((email || "").trim(), { redirectTo });
   if (error) throw error;
 }
 
@@ -176,7 +178,12 @@ const unreachable = (err) => isNetworkError(err) || (err instanceof ApiError && 
 export async function getProfile({ force } = {}) {
   if (cachedProfile !== undefined && !force) return cachedProfile;
   if (!learnerToken()) {
-    const { data, error } = await supabase.auth.getSession();
+    // Nobody signed in on this device: no need to load the sign-in library.
+    if (!storedStaffUserId()) return (cachedProfile = null);
+    const auth = await getAuth().catch(() => null);
+    // Offline and the library isn't on the device yet: this device's copy of the profile.
+    if (!auth) return (cachedProfile = await profileOnThisDevice());
+    const { data, error } = await auth.getSession();
     if (!data.session) {
       // Offline with an expired token: it can't be refreshed now, but it's still this person's session.
       if (storedStaffUserId() && (!navigator.onLine || isNetworkError(error))) return (cachedProfile = await profileOnThisDevice());
@@ -238,7 +245,11 @@ export async function signOut() {
     setLearnerToken(null);
     return true;
   }
-  await supabase.auth.signOut().catch(() => {});
+  if (storedStaffUserId()) {
+    const auth = await getAuth().catch(() => null);
+    if (auth) await auth.signOut().catch(() => {});
+    else rememberableStorage.removeItem(SESSION_KEY); // offline, library not on the device: forget the session here anyway
+  }
   return true;
 }
 

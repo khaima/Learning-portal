@@ -12,7 +12,7 @@
    ============================================================ */
 
 import { API_BASE } from "./config.js";
-import { supabase, accessToken, rememberableStorage } from "./supabase.js";
+import { getAuth, accessToken, rememberableStorage, storedStaffUserId } from "./supabase.js";
 import { currentOwner, isDirty, isNetworkError, noteNetwork } from "./sync.js";
 import { getCached, putCached } from "./offline.js";
 
@@ -98,7 +98,7 @@ async function request(method, path, body) {
     if (err instanceof ApiError && (err.status === 401 || err.needsOnboarding || err.mustChangePassword)) {
       if (err.status === 401) {
         setLearnerToken(null);
-        await supabase.auth.signOut().catch(() => {});
+        if (storedStaffUserId()) await getAuth().then((a) => a.signOut()).catch(() => {});
       }
       if (!location.pathname.endsWith("index.html") && location.pathname !== "/") {
         location.href = "index.html";

@@ -1,5 +1,6 @@
 import { mountNavigation } from "./nav.js";
-import { renderSchoolProfile, renderTeachers } from "./admin-ui.js";
+// Staff dashboards always need Supabase Auth: fetched with the page, not after it.
+import "./supabase-auth.js";
 import { $, $$, esc, initials, skeleton, emptyState, errorState, friendlyError, toast, confirmDialog } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { VISIT_TYPES } from "./data.js";
@@ -11,6 +12,9 @@ import { mountFormList, renderVisitForms, unfilledVisitForms, collectVisitRespon
 import { addResponse, getSchools } from "./store.js";
 import { openContentPanel, closeViewer } from "./viewer.js";
 import { waiting } from "./sync.js";
+// The school profile and teachers pages (admin-ui.js) load when first opened.
+const adminUi = () => import("./admin-ui.js");
+const pageFailed = (el) => (err) => { el.innerHTML = errorState(friendlyError(err, "Couldn't load this page — check your connection.")); };
 
 const ICON = {
   schools: '<path d="M4 21V8l8-5 8 5v13"/><path d="M9 21v-6h6v6"/>',
@@ -42,7 +46,7 @@ async function main() {
   // only those.
   mountNavigation(user, {
     onPage(page) {
-      if (page === "teachers") renderTeachers($("#tchBody"));
+      if (page === "teachers") adminUi().then((m) => m.renderTeachers($("#tchBody"))).catch(pageFailed($("#tchBody")));
       if (page === "school-profiles") showSchoolProfiles();
     },
   });
@@ -52,10 +56,10 @@ async function main() {
       let dir;
       try { dir = await getSchools(); } catch (err) { $("#spBody").innerHTML = errorState(friendlyError(err), showSchoolProfiles); return; }
       sel.innerHTML = dir.schools.map((s) => `<option value="${esc(s.id)}">${esc(s.name)} — ${esc(s.county)}</option>`).join("");
-      sel.addEventListener("change", () => renderSchoolProfile($("#spBody"), sel.value));
+      sel.addEventListener("change", () => adminUi().then((m) => m.renderSchoolProfile($("#spBody"), sel.value)).catch(pageFailed($("#spBody"))));
       if (!dir.schools.length) { $("#spBody").innerHTML = emptyState("No schools assigned to you yet", "An administrator assigns your county or schools."); return; }
     }
-    renderSchoolProfile($("#spBody"), sel.value);
+    adminUi().then((m) => m.renderSchoolProfile($("#spBody"), sel.value)).catch(pageFailed($("#spBody")));
   }
   const countyLine = user.county || "No county set";
   $("#topSub").textContent = countyLine;

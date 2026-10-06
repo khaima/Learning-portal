@@ -18,11 +18,9 @@ import {
   melBreakdown, recordMelActual, verifyMelActual, melActual, addMelEvidence, uploadMelEvidence,
   createMelOutcome, updateMelOutcome, createMelIndicator, updateMelIndicator, setMelTarget,
 } from "./store.js";
+import { fmtValue, ragPill, STATUS } from "./mel-format.js";
+export { fmtValue, ragPill };
 
-const STATUS = {
-  met: { label: "Met", cls: "ok" }, close: { label: "Close", cls: "warm" },
-  not_met: { label: "Not met", cls: "danger" }, no_data: { label: "No data", cls: "" },
-};
 /** Impact dashboards an indicator can also appear on. */
 const DASHBOARD_THEMES = {
   reach: "Reach", learning: "Learning", teacher_development: "Teacher development",
@@ -32,12 +30,6 @@ const SOURCE_LABEL = { verified: "Verified", recorded: "Recorded", live: "Live",
 const fmtDay = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—");
 
 /** A value in its unit. */
-export function fmtValue(v, unit) {
-  if (v == null || v === "") return "—";
-  const n = Math.round(Number(v) * 10) / 10;
-  return unit === "percent" ? `${n}%` : String(n);
-}
-export const ragPill = (a) => `<span class="pill ${STATUS[a.status].cls}">${STATUS[a.status].label}${a.percent != null ? ` · ${Math.round(a.percent)}%` : ""}</span>`;
 function sourcePill(row) {
   const s = row.valueSource;
   const cls = s === "verified" ? "ok" : s === "recorded" ? "warm" : "";

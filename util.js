@@ -89,7 +89,7 @@ export function toast(title, body = "", kind = "info") {
    Shared state kit — one vocabulary for "what's happening with this
    data" so every dashboard list looks and behaves the same way while
    it loads, comes back empty, fails, or is being written to. See
-   styles.css's "state kit" block for the CSS these render into.
+   app.css's "state kit" block for the CSS these render into.
    ============================================================ */
 
 /* Loading skeleton: shaped like the rows about to replace it (a name +

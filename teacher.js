@@ -1,4 +1,6 @@
 import { mountNavigation } from "./nav.js";
+// Staff dashboards always need Supabase Auth: fetched with the page, not after it.
+import "./supabase-auth.js";
 import { $, $$, esc, initials, schoolLine, toast, formatDuration, skeleton, emptyState, errorState, friendlyError, confirmDialog } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { normalizeLibraryAudience } from "./data.js";

@@ -401,13 +401,13 @@ export function mountNavigation(user, { workspace, onPage } = {}) {
 mountBell();
 
 /* ---------------------------------------------------------------- mobile nav drawer
-   Below 860px the sidebar (.app-side, styles.css) goes off-canvas rather
+   Below 860px the sidebar (.app-side, app.css) goes off-canvas rather
    than just disappearing — this is the one place that's wired, so every
    dashboard's mobile menu is the same implementation, not five copies.
    Built here instead of in each HTML file: .app-top's own layout
    (title block, then .app-top-actions, space-between) is untouched —
    the button is inserted as a sibling in front of the title block, and
-   stays display:none above 860px (styles.css), so nothing shifts on
+   stays display:none above 860px (app.css), so nothing shifts on
    desktop. */
 const appShell = $(".app-shell");
 const appTop = $(".app-top");

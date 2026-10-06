@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=Work+Sans:wght@400;600;700&display=swap" media="print" data-font>
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=Work+Sans:wght@400;600;700&display=swap"></noscript>
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./base.css">
   <link rel="icon" href="./assets/icon-192.png">
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./assets/icon-192.png">
@@ -303,9 +303,44 @@
     </footer>
   </main>
 
-  <!-- The first moments (role tiles, fonts, "taking longer than usual"):
-       a file, not inline code, so the CSP allows the portal's own scripts only. -->
-  <script src="./boot.js"></script>
+  <!-- The first moments — role tiles, fonts, "taking longer than usual" —
+       run inline so they don't wait for a download on a slow connection.
+       The CSP (vercel.json) allows exactly this script by its SHA-256, and
+       scripts/check-csp.mjs checks the hash; it never changes with a build. -->
+  <script>(function () {
+  /* The fonts load without holding up the page (media="print" until they
+     arrive, then for every medium); the page shows in system fonts first. */
+  var font = document.querySelector("link[data-font]");
+  if (font) {
+    if (font.sheet) font.media = "all";
+    else font.addEventListener("load", function () { font.media = "all"; });
+  }
+
+  /* Show the role tiles at once — unless there's a session or a sign-in
+     link to check first. */
+  try {
+    var stored = function (st) {
+      for (var i = 0; i < st.length; i++) {
+        var k = st.key(i);
+        if (k === "hpf_learner_token" || /^sb-.+-auth-token$/.test(k)) return true;
+      }
+      return false;
+    };
+    if (!/[?&](code|flow|invite|error)=/.test(location.search) && !stored(localStorage) && !stored(sessionStorage)) {
+      document.getElementById("stepLoading").hidden = true;
+      document.getElementById("stepRole").hidden = false;
+      document.querySelector(".gate-card").setAttribute("data-step", "role");
+    }
+  } catch (e) { /* storage blocked: wait for index.js */ }
+
+  /* On a slow connection the page's code can take a while; if it hasn't
+     started after 12 seconds, say so, with a way to try again. */
+  var retry = document.getElementById("gateRetry");
+  if (retry) retry.addEventListener("click", function () { location.reload(); });
+  setTimeout(function () {
+    if (!window.__hpfReady) document.getElementById("gateSlow").hidden = false;
+  }, 12000);
+})();</script>
   <script type="module" src="./index.js"></script>
 </body>
 </html>

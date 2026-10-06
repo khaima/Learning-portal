@@ -13,7 +13,7 @@
    ============================================================ */
 
 import { esc, groupByFolder } from "./util.js";
-import { supabase } from "./supabase.js";
+import { getStorage } from "./supabase.js";
 import { apiGet, apiSend, keepOffline, offlineCopy, OfflineError } from "./api.js";
 import { youTubeEmbedUrl, viewableKind } from "./viewer.js";
 import * as sync from "./sync.js";
@@ -133,7 +133,7 @@ export async function uploadLibraryFiles(item, fileList, onProgress) {
   let done = 0;
   for (let i = 0; i < list.length; i++) {
     const up = uploads[i];
-    const { error } = await supabase.storage
+    const { error } = await (await getStorage())
       .from(LIBRARY_BUCKET)
       .uploadToSignedUrl(up.path, up.token, list[i], {
         contentType: list[i].type || undefined,
@@ -375,7 +375,7 @@ export async function addForm(form) {
     dueOn: form.dueOn || null,
   });
   if (file && uploads?.[0]) {
-    const { error } = await supabase.storage.from(LIBRARY_BUCKET)
+    const { error } = await (await getStorage()).from(LIBRARY_BUCKET)
       .uploadToSignedUrl(uploads[0].path, uploads[0].token, file, { contentType: file.type || undefined });
     if (error) {
       await apiSend("DELETE", `/forms/${saved.id}`).catch(() => {});
@@ -412,7 +412,7 @@ async function uploadOrKeep(file, uploadPath, uploadBody) {
   if (sync.isOnline()) {
     try {
       const { upload } = await apiSend("POST", uploadPath, uploadBody);
-      const { error } = await supabase.storage.from(LIBRARY_BUCKET)
+      const { error } = await (await getStorage()).from(LIBRARY_BUCKET)
         .uploadToSignedUrl(upload.path, upload.token, file, { contentType: file.type || undefined });
       if (error) throw error;
       return { name: file.name, path: upload.path, size: file.size };
@@ -819,7 +819,7 @@ export const addMelEvidence = (id, body) => apiSend("POST", `/mel/actuals/${id}/
 /** Uploads a file as evidence for an actual; returns the evidence id. */
 export async function uploadMelEvidence(actualId, file, title) {
   const { upload } = await apiSend("POST", `/mel/actuals/${actualId}/evidence-upload`, { name: file.name, size: file.size });
-  const { error } = await supabase.storage.from(LIBRARY_BUCKET)
+  const { error } = await (await getStorage()).from(LIBRARY_BUCKET)
     .uploadToSignedUrl(upload.path, upload.token, file, { contentType: file.type || undefined });
   if (error) throw error;
   return addMelEvidence(actualId, { kind: "file", title: title || file.name, file: { name: file.name, path: upload.path, size: file.size } });

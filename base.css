@@ -1,0 +1,347 @@
+/* ============================================================
+   HPF Digital Learning Portal — base.css: what every page needs.
+   The design tokens (light + dark), shared bits, buttons, fields,
+   toasts, the confirm dialog and the update notice, and the whole
+   sign-in page. The sign-in page loads only this file; every
+   dashboard loads it and then app.css (the rest of the design
+   system). Kept in this order, so the cascade is the same as when
+   they were one file.
+   ============================================================ */
+
+/* ============================================================
+   HPF Digital Learning Portal — shared design system.
+   Static, no build step, vanilla CSS custom properties.
+   Palette/type evolve Human Practice Foundation's existing blue
+   identity (see README.md) paired with a warm terracotta accent.
+
+   One system, six pages (index/teacher/learner/leader/field/
+   education) — every page links this one file and nav.js; nothing
+   below is page-specific unless its comment says so. Extend an
+   existing class before inventing a new one.
+
+   ---- type scale ----
+   Baloo 2 (display/headings) + Work Sans (everything else, incl. all
+   UI chrome). Sizes step down with how much a reader scans vs. reads:
+     1.5rem   .app-top h1 / .login-inner h2   page title
+     1.15rem  .hero-progress h2               hero/callout heading
+     1.05rem  .panel-head h2                  section heading
+     .92rem   .form-card h3                   card sub-heading
+     .86-.9rem  body copy inside cards/rows
+     .74-.8rem  meta/caption text (timestamps, counts, hints)
+
+   ---- component index ----
+   Layout    .app-shell .app-side .app-main .app-top .body-grid
+   Nav       .side-nav .side-link .menu-btn .side-backdrop (mobile)
+   Cards     .panel .stat-tile .learn-card .form-card .chart-card
+   Rows      .task-row .class-row .result-row .kobo-row (a "table" —
+             see note above .task-row — is deliberately a row-list,
+             not an HTML <table>, so it reflows on a phone instead of
+             needing horizontal scroll)
+   Buttons   .btn .btn-primary .btn-outline .btn-ghost .btn-google
+   Forms     .field .field-error .fill-form .panel-search (row-list filter)
+   Status    .pill (.warm/.ok/.danger) .alert (.info/.warm/.danger/.ok)
+   Feedback  .empty-state (.is-error) .toast (.success) .badge-toast
+   States    .skeleton-row .state-error/.state-retry .offline-banner .btn.is-saving
+             — see util.js: skeleton()/emptyState()/errorState()/friendlyError()
+   Charts    .chart-stats .bar-chart .donut .chart-legend
+   ============================================================ */
+
+:root{
+  --ink:#14213D; --ink-soft:#3D4C6B;
+  --paper:#FAF6EF; --paper-raised:#FFFFFF; --paper-sunk:#F1EAE0;
+  --line:#E4DACB;
+  --brand:#1E4C8A; --brand-soft:#E7EEF7; --brand-fg:#16386A;
+  --accent-soft:#FBE7D4; --accent-fg:#B05F22;
+  --success:#3E9C6E; --success-soft:#E1F3EA;
+  --danger:#D64545; --danger-soft:#FBE4E2;
+  --focus:#1E4C8A;
+  --chart-1:#1E4C8A; --chart-2:#D97A34; --chart-3:#3E9C6E;
+  --chart-4:#8A5CB0; --chart-5:#C6534E; --chart-6:#2E8FA8;
+  /* Fixed brand-identity tokens: the logo mark, hero/sidebar panels and
+     solid buttons keep one brand look regardless of theme (the same
+     reason a real logo never recolors itself) — never redefined below. */
+  --panel:#1E4C8A; --panel-deep:#0F2C52;
+  --accent:#D97A34; --accent-hover:#B05F22;
+  --shadow: 0 1px 2px rgba(20,33,61,.06), 0 8px 24px -12px rgba(20,33,61,.18);
+  --radius-lg:20px; --radius-md:14px; --radius-sm:9px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ink:#F1EDE4; --ink-soft:#B9C2D6;
+    --paper:#0E1730; --paper-raised:#152142; --paper-sunk:#0A1226;
+    --line:#293659;
+    --brand:#8FB4E3; --brand-soft:#1C2C4E; --brand-fg:#B7D0EF;
+    --accent-soft:#3A2A19; --accent-fg:#F0B27E;
+    --success:#5FC28C; --success-soft:#123527;
+    --danger:#F0797A; --danger-soft:#3B1C1E;
+    --focus:#8FB4E3;
+    --chart-1:#8FB4E3; --chart-2:#F0B27E; --chart-3:#5FC28C;
+    --chart-4:#BFA0DC; --chart-5:#F0797A; --chart-6:#79C6D8;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --ink:#F1EDE4; --ink-soft:#B9C2D6;
+  --paper:#0E1730; --paper-raised:#152142; --paper-sunk:#0A1226;
+  --line:#293659;
+  --brand:#8FB4E3; --brand-soft:#1C2C4E; --brand-fg:#B7D0EF;
+  --accent-soft:#3A2A19; --accent-fg:#F0B27E;
+  --success:#5FC28C; --success-soft:#123527;
+  --danger:#F0797A; --danger-soft:#3B1C1E;
+  --focus:#8FB4E3;
+  --chart-1:#8FB4E3; --chart-2:#F0B27E; --chart-3:#5FC28C;
+  --chart-4:#BFA0DC; --chart-5:#F0797A; --chart-6:#79C6D8;
+  color-scheme: dark;
+}
+
+*{ box-sizing:border-box; }
+html,body{ height:100%; }
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Work Sans",ui-sans-serif,system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3,.display{ font-family:"Baloo 2","Work Sans",sans-serif; font-weight:700; text-wrap:balance; margin:0; }
+img,svg{ max-width:100%; }
+button,input,select,textarea{ font-family:inherit; }
+a{ color:inherit; }
+:focus-visible{ outline:2px solid var(--focus); outline-offset:2px; border-radius:6px; }
+@media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+[hidden]{ display:none !important; }
+
+/* ---------------- shared bits ---------------- */
+.badge-mark{
+  width:38px; height:38px; border-radius:11px; background:var(--panel); color:#fff;
+  display:flex; align-items:center; justify-content:center; font-family:"Baloo 2",sans-serif;
+  font-weight:800; font-size:1rem; letter-spacing:-.02em; flex:none;
+}
+.wordmark{ display:flex; align-items:center; gap:.6rem; text-decoration:none; }
+.wordmark-text{ line-height:1.15; }
+.wordmark-text b{ display:block; font-family:"Baloo 2",sans-serif; font-weight:700; font-size:1.02rem; color:var(--ink); }
+.wordmark-text span{ display:block; font-size:.72rem; color:var(--ink-soft); }
+.pill{
+  display:inline-flex; align-items:center; gap:.35rem; padding:.28rem .7rem; border-radius:999px;
+  font-size:.76rem; font-weight:600; background:var(--brand-soft); color:var(--brand-fg);
+}
+.pill.warm{ background:var(--accent-soft); color:var(--accent-fg); }
+.pill.ok{ background:var(--success-soft); color:var(--success); }
+.pill.danger{ background:var(--danger-soft); color:var(--danger); }
+.icon{ width:1em; height:1em; display:inline-block; vertical-align:-.14em; }
+.btn{
+  border:0; border-radius:999px; font-weight:700; font-size:.92rem; cursor:pointer; font-family:inherit;
+  padding:.72rem 1.3rem; display:inline-flex; align-items:center; justify-content:center; gap:.4rem;
+}
+.btn-block{ width:100%; }
+.btn-primary{ background:var(--accent); color:#fff; }
+.btn-primary:hover{ background:var(--accent-hover); }
+.btn-outline{ background:var(--paper-raised); color:var(--ink); border:1.5px solid var(--line); }
+.btn-ghost{ background:transparent; color:var(--brand); }
+/* Field Officer dashboard: the one primary action on the page, sized for
+   a thumb on a tablet rather than a mouse on a desktop. */
+.visit-cta{ font-size:1.05rem; padding:1.1rem 1.3rem; }
+.demo-banner{
+  background:var(--accent-soft); color:var(--accent-fg); text-align:center; font-size:.8rem;
+  font-weight:600; padding:.5rem 1rem;
+}
+.toast-host{ position:fixed; bottom:1.2rem; right:1.2rem; z-index:200; display:flex; flex-direction:column; gap:.5rem; }
+.toast{
+  background:var(--ink); color:var(--paper); padding:.7rem 1rem; border-radius:var(--radius-sm);
+  font-size:.85rem; box-shadow:var(--shadow); max-width:20rem;
+}
+.toast.error{ background:var(--danger); }
+.toast.success{ background:var(--success); }
+
+/* ================================================================ LANDING / SIGN-IN
+   One light card — brand, then whichever step is showing. No photos and
+   nothing to download beyond this file and the page's code, for schools on
+   slow connections. A band of brand colour behind the top of the card is
+   the only decoration (pure CSS). */
+.gate{
+  min-height:100vh; min-height:100dvh; display:flex; flex-direction:column; align-items:center;
+  padding:clamp(1.5rem,6vh,4rem) 16px 1.5rem;
+  background:linear-gradient(180deg, var(--panel) 0, var(--panel-deep) 15rem, var(--paper) 15rem);
+}
+.gate-card{
+  width:100%; max-width:34rem; background:var(--paper-raised); border-radius:var(--radius-lg);
+  box-shadow:0 24px 60px -28px rgba(6,16,38,.45), var(--shadow); overflow:hidden;
+}
+.gate-brand{ text-align:center; padding:2rem 1.5rem 1.2rem; border-bottom:1px solid var(--line); }
+.gate-mark{
+  display:inline-flex; align-items:center; justify-content:center; width:64px; height:64px; border-radius:18px;
+  background:var(--panel); color:#fff; font-family:"Baloo 2",sans-serif; font-weight:800; font-size:1.45rem;
+  letter-spacing:-.02em; margin-bottom:.7rem;
+}
+.gate-brand h1{ font-size:1.65rem; line-height:1.15; margin:0 0 .35rem; }
+.gate-tagline{ margin:0; font-size:.9rem; font-weight:600; color:var(--ink-soft); letter-spacing:.02em; }
+.gate-tagline span{ color:var(--accent); margin:0 .2rem; }
+/* After step 1 the brand steps back: a small mark beside the name. */
+.gate-card:not([data-step="role"]):not([data-step="loading"]) .gate-brand{
+  display:flex; align-items:center; justify-content:center; gap:.6rem; padding:1rem 1.5rem;
+}
+.gate-card:not([data-step="role"]):not([data-step="loading"]) .gate-mark{ width:38px; height:38px; border-radius:11px; font-size:.95rem; margin:0; }
+.gate-card:not([data-step="role"]):not([data-step="loading"]) .gate-brand h1{ font-size:1.1rem; margin:0; }
+.gate-card:not([data-step="role"]):not([data-step="loading"]) .gate-tagline{ display:none; }
+
+.login-card{ padding:1.5rem 1.6rem 1.7rem; }
+.login-inner{ width:100%; }
+.gate-wait{ text-align:center; margin:1rem 0; }
+.gate-prompt{ text-align:center; font-size:.8rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-soft); margin:0 0 .9rem; }
+
+/* Five big tiles: three across, then two (the sketch's layout); two
+   across on a phone, Education Team full width. */
+.gate-roles{ display:grid; grid-template-columns:repeat(6,1fr); gap:.7rem; }
+.gate-role{ grid-column:span 2; }
+.gate-role:nth-child(n+4){ grid-column:span 3; }
+.gate-role{
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.55rem; min-height:6.4rem;
+  padding:.9rem .5rem; border:1.5px solid var(--line); border-radius:var(--radius-md); background:var(--paper-raised);
+  color:var(--ink); text-decoration:none; text-align:center; -webkit-tap-highlight-color:transparent;
+  transition:border-color .15s, box-shadow .15s, transform .15s;
+}
+.gate-role b{ font-size:.95rem; font-weight:700; line-height:1.2; }
+.gate-role-icon{
+  width:42px; height:42px; border-radius:12px; display:flex; align-items:center; justify-content:center;
+  background:var(--brand-soft); color:var(--brand-fg);
+}
+.gate-role-icon .icon{ width:22px; height:22px; }
+.gate-role:hover{ border-color:var(--brand); box-shadow:0 0 0 3px var(--brand-soft); }
+.gate-role:active{ transform:scale(.98); }
+.gate-role:focus-visible{ outline:3px solid var(--focus); outline-offset:2px; }
+@media (max-width:480px){
+  .gate-roles{ grid-template-columns:1fr 1fr; gap:.6rem; }
+  .gate-role, .gate-role:nth-child(n+4){ grid-column:span 1; }
+  .gate-role:last-child{ grid-column:1 / -1; }
+  .gate-role{ min-height:5.8rem; }
+  .gate-brand{ padding:1.6rem 1.2rem 1rem; }
+  .gate-brand h1{ font-size:1.45rem; }
+  .login-card{ padding:1.2rem 1.1rem 1.4rem; }
+}
+
+.gate-help-btn{
+  display:block; margin:1.2rem auto 0; background:none; border:0; padding:.4rem .6rem; cursor:pointer;
+  font:inherit; font-size:.9rem; font-weight:600; color:var(--brand-fg); text-decoration:underline; text-underline-offset:3px;
+}
+.gate-help{ margin-top:.8rem; padding:.9rem 1rem; border-radius:var(--radius-md); background:var(--paper-sunk); font-size:.86rem; line-height:1.5; }
+.gate-help p{ margin:0 0 .55rem; }
+.gate-help p:last-child{ margin:0; }
+.gate-slow{ margin-top:1rem; padding:.9rem 1rem; border-radius:var(--radius-md); background:var(--accent-soft); color:var(--accent-fg); font-size:.86rem; text-align:center; }
+.gate-slow p{ margin:0 0 .6rem; }
+.gate-foot{ margin-top:1.4rem; font-size:.8rem; }
+.gate-foot a{ color:var(--ink-soft); }
+.login-eyebrow{ font-size:.78rem; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--accent-fg); margin-bottom:.4rem; }
+.login-inner h2{ font-size:1.5rem; margin-bottom:.35rem; }
+.login-sub{ color:var(--ink-soft); font-size:.92rem; margin:0 0 1.4rem; }
+
+.role-grid{ display:grid; grid-template-columns:1fr 1fr; gap:.6rem; margin-bottom:1.4rem; }
+.role-card{
+  text-align:left; border:1.5px solid var(--line); background:var(--paper-raised); border-radius:var(--radius-md);
+  padding:.85rem .9rem; cursor:pointer; display:flex; flex-direction:column; gap:.5rem; position:relative;
+}
+.role-card .r-icon{
+  width:34px; height:34px; border-radius:10px; display:flex; align-items:center; justify-content:center;
+  background:var(--brand-soft); color:var(--brand-fg);
+}
+.role-card b{ font-size:.87rem; font-weight:700; }
+.role-card p{ margin:0; font-size:.74rem; color:var(--ink-soft); line-height:1.35; }
+.role-card[aria-pressed="true"]{ border-color:var(--brand); box-shadow:0 0 0 3px var(--brand-soft); }
+.role-card[aria-pressed="true"] .r-icon{ background:var(--panel); color:#fff; }
+.role-check{
+  position:absolute; top:.7rem; right:.7rem; width:16px; height:16px; border-radius:50%;
+  border:1.5px solid var(--line); background:var(--paper-raised);
+}
+.role-card[aria-pressed="true"] .role-check{ border-color:var(--panel); background:var(--panel); }
+.role-card[aria-pressed="true"] .role-check::after{
+  content:""; display:block; width:6px; height:6px; margin:4px auto; border-radius:50%; background:#fff;
+}
+
+.field{ margin-bottom:.9rem; }
+.field label{ display:block; font-size:.78rem; font-weight:600; margin-bottom:.32rem; color:var(--ink); }
+.field input,.field select{
+  width:100%; border:1.5px solid var(--line); background:var(--paper-raised); color:var(--ink);
+  border-radius:var(--radius-sm); padding:.62rem .75rem; font-size:.92rem; font-family:inherit;
+}
+.field input:focus,.field select:focus{ border-color:var(--brand); }
+/* A search box above a row-list (.task-row etc.) instead of a paged
+   table — filters client-side as you type, so a long roster or queue
+   stays usable on a phone without horizontal scroll. */
+/* Global filter bar (Education Team dashboard): one persistent row of
+   scope controls above every page, plus the "Showing data for…" summary
+   that appears once a filter is actually active. */
+.filter-bar{ margin-bottom:1.1rem; }
+.filter-bar-row{ display:flex; flex-wrap:wrap; gap:.8rem; align-items:flex-end; }
+.filter-bar-row .field{ margin-bottom:0; flex:1 1 9rem; min-width:8rem; }
+.filter-bar-row .btn{ padding:.5rem 1rem; font-size:.82rem; }
+.panel-search{ margin-bottom:.8rem; }
+.panel-search input{
+  width:100%; border:1.5px solid var(--line); background:var(--paper-raised); color:var(--ink);
+  border-radius:var(--radius-sm); padding:.5rem .75rem; font-size:.86rem; font-family:inherit;
+}
+.panel-search input:focus{ border-color:var(--brand); }
+.field .field-error{ color:var(--danger); font-size:.78rem; margin-top:.3rem; }
+.login-foot{ display:flex; justify-content:space-between; margin-top:.8rem; font-size:.8rem; }
+.login-foot button{ background:none; border:0; color:var(--ink-soft); cursor:pointer; font-size:.8rem; text-decoration:underline; text-underline-offset:2px; }
+.link-btn{
+  background:none; border:0; padding:0; color:var(--brand); font-weight:600;
+  font-size:.8rem; cursor:pointer; font-family:inherit;
+  text-decoration:underline; text-underline-offset:2px;
+}
+.login-demo{ margin-top:1.4rem; padding:.85rem 1rem; border-radius:var(--radius-sm); background:var(--brand-soft); font-size:.8rem; color:var(--brand-fg); line-height:1.5; }
+.login-demo b{ display:block; font-family:"Baloo 2",sans-serif; margin-bottom:.2rem; }
+.login-demo button{ background:none; border:0; padding:0; color:inherit; text-decoration:underline; cursor:pointer; font:inherit; font-weight:700; }
+
+/* ---- remember-me checkbox ---- */
+.field-remember{ display:flex; align-items:center; gap:.5rem; margin:-.1rem 0 1rem; }
+.field-remember input{ width:16px; height:16px; accent-color:var(--brand); flex:none; cursor:pointer; }
+.field-remember label{ font-size:.82rem; color:var(--ink-soft); cursor:pointer; }
+
+/* ---- Google sign-in ---- */
+.btn-google{
+  background:var(--paper-raised); color:var(--ink); border:1.5px solid var(--line); gap:.6rem;
+}
+.btn-google:hover{ border-color:var(--brand); background:var(--brand-soft); }
+.btn-google svg{ width:18px; height:18px; flex:none; }
+.login-divider{
+  display:flex; align-items:center; gap:.7rem; margin:1.1rem 0; color:var(--ink-soft); font-size:.76rem;
+}
+.login-divider::before,.login-divider::after{ content:""; flex:1; height:1px; background:var(--line); }
+
+
+/* ---- in-app confirm dialog (util.js confirmDialog()) — replaces
+   window.confirm() for destructive actions (delete content, delete a
+   folder). Same overlay treatment as the viewer, smaller card, higher
+   z-index so it can sit above anything else already open. */
+.confirm-overlay{
+  display:none; position:fixed; inset:0; z-index:600;
+  background:rgba(10,16,32,.78); padding:1.2rem; align-items:center; justify-content:center;
+}
+.confirm-overlay.is-open{ display:flex; }
+.confirm-card{
+  width:100%; max-width:26rem; background:var(--paper-raised); border-radius:var(--radius-lg);
+  box-shadow:var(--shadow); padding:1.3rem 1.4rem; animation:viewer-pop .18s ease-out;
+}
+.confirm-card b{ display:block; font-family:"Baloo 2",sans-serif; font-size:1.02rem; color:var(--ink); margin-bottom:.4rem; }
+.confirm-card p{ margin:0 0 1.1rem; font-size:.86rem; color:var(--ink-soft); line-height:1.5; }
+.confirm-actions{ display:flex; gap:.6rem; justify-content:flex-end; flex-wrap:wrap; }
+.confirm-actions .btn{ padding:.55rem 1.1rem; font-size:.84rem; }
+.btn-danger{ background:var(--danger); color:#fff; }
+.btn-danger:hover{ filter:brightness(.92); }
+@media (max-width:480px){
+  .confirm-actions{ flex-direction:column-reverse; }
+  .confirm-actions .btn{ width:100%; }
+}
+
+@keyframes viewer-pop{ from{ opacity:0; transform:scale(.97); } to{ opacity:1; transform:scale(1); } }
+
+/* ---- "Update available — reload" (pwa.js): a new version of the
+   portal is on this device and starts when the person chooses. ---- */
+.update-notice{
+  position:fixed; left:50%; bottom:1rem; transform:translateX(-50%); z-index:700;
+  display:flex; align-items:center; gap:.9rem; max-width:calc(100% - 2rem);
+  background:var(--ink); color:var(--paper); padding:.7rem .8rem .7rem 1.1rem;
+  border-radius:var(--radius-md); box-shadow:var(--shadow); font-size:.88rem;
+}
+.update-notice .btn{ padding:.45rem .95rem; font-size:.84rem; white-space:nowrap; }
+.update-notice .update-later{ background:none; border:0; color:inherit; opacity:.75; cursor:pointer; font:inherit; padding:.3rem; }
+.update-notice .update-later:hover{ opacity:1; }
+@media print{ .update-notice{ display:none; } }

@@ -1,6 +1,6 @@
 import "./pwa.js";
 import { $, $$, friendlyError, toast } from "./util.js";
-import { supabase, setRememberMe, getRememberMe } from "./supabase.js";
+import { getAuth, setRememberMe, getRememberMe, storedStaffUserId } from "./supabase.js";
 import {
   DASHBOARD_PATH, registerStaff, signInWithPassword, signInWithGoogle,
   learnerLogin, getProfile, createProfile, setMySchool, signOut, sendPasswordResetLink,
@@ -74,6 +74,13 @@ const steps = {
 function show(name) {
   for (const [k, el] of Object.entries(steps)) el.hidden = k !== name;
   $(".gate-card").dataset.step = name; // the brand header shrinks after step 1
+  // A staff sign-in is coming: fetch the sign-in library while they type,
+  // and find out whether to offer Google (its button is on this step only,
+  // so the first load of the page doesn't wait on another server).
+  if (name === "password") {
+    getAuth().catch(() => {});
+    authSettings().then((s) => { authCfg = s; syncGoogleButton(); });
+  }
 }
 
 function pendingRole() {
@@ -97,7 +104,7 @@ async function consumeOAuthRedirect() {
   if (code || params.has("error")) history.replaceState({}, "", location.pathname);
   if (!code) return;
   try {
-    await supabase.auth.exchangeCodeForSession(code);
+    await (await getAuth()).exchangeCodeForSession(code);
   } catch (err) {
     console.warn("Google sign-in failed:", err?.message);
   }
@@ -127,14 +134,14 @@ async function consumePasswordRecovery() {
     const accessToken = hash.get("access_token");
     const refreshToken = hash.get("refresh_token");
     if (accessToken && refreshToken) {
-      const { data, error } = await supabase.auth.setSession({
+      const { data, error } = await (await getAuth()).setSession({
         access_token: accessToken,
         refresh_token: refreshToken,
       });
       if (error) throw error;
       session = data.session;
     } else if (code) {
-      const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+      const { data, error } = await (await getAuth()).exchangeCodeForSession(code);
       if (error) throw error;
       session = data.session;
     } else {
@@ -267,7 +274,10 @@ async function route() {
   const hasLearner = !!learnerToken();
   const invite = hasLearner ? "" : pendingInvite();
   if (!hasLearner) {
-    const { data } = await supabase.auth.getSession();
+    // No staff session on this device: the role tiles, without loading the sign-in library.
+    const data = storedStaffUserId()
+      ? await getAuth().then((a) => a.getSession()).then((r) => r.data).catch(() => ({}))
+      : {};
     if (!data.session) {
       if (invite) await showInviteSignup(invite); else showRoles();
       return;
@@ -423,16 +433,16 @@ function setPwMode(signup) {
 $("#pwToggleMode").addEventListener("click", () => setPwMode(!pwSignupMode));
 
 /* "Continue with Google" appears only once Supabase Auth's public settings
-   say Google is switched on — never shown and then failing. While public
-   sign-ups are closed it's for signing in only, so it isn't offered when
-   creating an account. */
+   say Google is switched on — never shown and then failing (they're read
+   when the password step opens, in show()). While public sign-ups are
+   closed it's for signing in only, so it isn't offered when creating an
+   account. */
 let authCfg = null;
 function syncGoogleButton() {
   const on = !!authCfg?.external?.google && !(pwSignupMode && authCfg?.disable_signup);
   $("#googleBtn").hidden = !on;
   $("#googleDivider").hidden = !on;
 }
-authSettings().then((s) => { authCfg = s; syncGoogleButton(); });
 
 // ---- self-service password reset (emails a link) ----
 const forgotForm = $("#forgotForm");
@@ -735,7 +745,7 @@ $("#resetPasswordForm").addEventListener("submit", async (e) => {
   try {
     await changeMyPassword(p1);
     // Let the browser's password manager keep the new one, if they asked to be remembered.
-    const email = (await supabase.auth.getSession()).data.session?.user?.email;
+    const email = (await (await getAuth()).getSession()).data.session?.user?.email;
     if (email && getRememberMe()) await offerToSaveCredential(email, p1);
     // Already signed in — straight on to their dashboard.
     show("loading");

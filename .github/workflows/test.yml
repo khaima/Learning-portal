@@ -37,19 +37,28 @@ jobs:
         run: deno task test
 
   frontend:
-    name: Frontend — modules parse, CSP agrees
+    name: Frontend — build, CSP agrees, sign-in page within budget
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Syntax check
-        run: |
-          for f in *.js scripts/*.mjs; do node --check "$f" || exit 1; done
-      # The CSP in vercel.json and the pages agree: no inline code it would
-      # block, no script or stylesheet from a host it doesn't allow, no code
-      # imported from a URL, and the service worker's files all exist.
+          cache: npm
+      - run: npm ci
+      # Every name in the pages' code is defined (no type checker here).
+      - name: Lint
+        run: npm run lint
+      # Bundles, minifies and fingerprints every page; writes the service worker.
+      - name: Build
+        run: npm run build
+      # The CSP in vercel.json and the built pages agree: no inline code it
+      # would block, no script or stylesheet from a host it doesn't allow,
+      # no code imported from a URL, and the service worker's files exist.
       - name: Content-Security-Policy check
         run: node scripts/check-csp.mjs
+      # What each page downloads; fails if the sign-in page's JavaScript
+      # (minified, before compression) goes over 150 KB.
+      - name: Bundle sizes
+        run: node scripts/bundle-report.mjs --budget=150

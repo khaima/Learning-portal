@@ -1,5 +1,6 @@
 import { mountNavigation } from "./nav.js";
-import { renderSchoolProfile } from "./admin-ui.js";
+// Staff dashboards always need Supabase Auth: fetched with the page, not after it.
+import "./supabase-auth.js";
 import { $, $$, esc, initials, schoolLine, formatDuration, skeleton, emptyState, errorState, friendlyError, toast, confirmDialog } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { normalizeLibraryAudience, GRADES, nextGrade } from "./data.js";
@@ -13,6 +14,9 @@ import { resultsTableHtml, openAssignmentDetail, assignmentStatusPill, fmtWhen }
 import { openContentPanel, closeViewer } from "./viewer.js";
 import { statusPill, openArchiveDialog, openHistoryPanel } from "./learners-ui.js";
 import { mountFormList } from "./forms.js";
+// The school profile and teachers pages (admin-ui.js) load when first opened.
+const adminUi = () => import("./admin-ui.js");
+const pageFailed = (el) => (err) => { el.innerHTML = errorState(friendlyError(err, "Couldn't load this page — check your connection.")); };
 
 const ICON = {
   learners: '<path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/>',
@@ -41,7 +45,9 @@ async function main() {
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
   // The menu (navigation.js). Everything here is this school's only — the server makes sure.
   mountNavigation(user, {
-    onPage(page) { if (page === "school-profile") renderSchoolProfile($("#spBody"), user.schoolId); },
+    onPage(page) {
+      if (page === "school-profile") adminUi().then((m) => m.renderSchoolProfile($("#spBody"), user.schoolId)).catch(pageFailed($("#spBody")));
+    },
   });
   $("#topSub").textContent = schoolLine(user);
   currentTermLabel().then((term) => { if (term) $("#topSub").textContent = `${schoolLine(user)} · ${term}`; });

@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Local static server for the HPF Digital Learning Portal.
+"""Local static server for the HPF Digital Learning Portal's BUILD.
 
-Serves the plain multi-page site for local development. Reads the PORT
-environment variable when set (falling back to 5174), so tooling that
-assigns its own port works without editing this file.
+Serves dist/ — run `npm run build` first (the pages import npm packages,
+so the sources need the build). For working on the code, `npm run dev`
+(Vite, with instant reload) is the better choice; for the build exactly as
+Vercel serves it (CSP and other headers, compression), `npm run serve`.
+Reads the PORT environment variable when set (falling back to 5174), so
+tooling that assigns its own port works without editing this file.
 
 Usage:
     python serve.py          # $PORT, or 5174
@@ -16,11 +19,13 @@ import os
 import socketserver
 import sys
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist")
 DEFAULT_PORT = 5174
 
 
 def main():
+    if not os.path.isfile(os.path.join(ROOT, "index.html")):
+        sys.exit("No build in dist/ — run `npm run build` first.")
     port = int(os.environ.get("PORT") or DEFAULT_PORT)
     if len(sys.argv) > 1:
         try:

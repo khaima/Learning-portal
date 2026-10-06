@@ -1,0 +1,25 @@
+{
+  "name": "hpf-digital-learning-portal",
+  "private": true,
+  "type": "module",
+  "description": "HPF Digital Learning Portal — the web app (the API is in supabase/functions/api).",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && node scripts/build-sw.mjs",
+    "check": "node scripts/check-csp.mjs",
+    "serve": "node scripts/serve-dist.mjs",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@supabase/auth-js": "2.117.2",
+    "@supabase/storage-js": "2.117.2"
+  },
+  "devDependencies": {
+    "eslint": "10.12.0",
+    "globals": "17.13.0",
+    "vite": "8.3.3"
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}

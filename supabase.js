@@ -1,9 +1,13 @@
 /* ============================================================
-   HPF Digital Learning Portal — Supabase Auth client.
-
-   Used for staff sign-in (email + password, or Google) and the session
-   it returns. All data goes through the `api` Edge Function (see
+   HPF Digital Learning Portal — Supabase Auth (staff sign-in) and the
+   session it returns. All data goes through the `api` Edge Function (see
    api.js) — the browser has no direct database access.
+
+   This file is small and loads with every page. The Supabase libraries
+   themselves (supabase-auth.js, supabase-storage.js) load the first time
+   they're needed: a learner never downloads them, and the sign-in page
+   doesn't until someone picks a staff role (index.js) or a staff session
+   is already on the device.
 
    "Remember me": a plain, always-on localStorage flag (`hpf_remember_me`)
    that says where the ACTUAL session token should live — localStorage
@@ -15,9 +19,7 @@
    behave the same way.
    ============================================================ */
 
-// Served from the portal itself, pinned (vendor/README.md) — no CDN at run time.
-import { createClient } from "./vendor/supabase-js-2.117.2.js";
-import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./config.js";
+import { SUPABASE_URL } from "./config.js";
 
 const REMEMBER_KEY = "hpf_remember_me";
 
@@ -43,19 +45,14 @@ export const rememberableStorage = {
   },
 };
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: false,
-    storage: rememberableStorage,
-  },
-});
+/** Where Supabase Auth keeps the session — the same key supabase-js used,
+    so a session from before the build change carries on. */
+export const SESSION_KEY = `sb-${new URL(SUPABASE_URL).hostname.split(".")[0]}-auth-token`;
 
 /** The staff account this browser holds a session for — read straight from
     storage, so it works offline even after the access token has expired
-    (it can't be refreshed without a connection, but it's still theirs). */
-const SESSION_KEY = `sb-${new URL(SUPABASE_URL).hostname.split(".")[0]}-auth-token`;
+    (it can't be refreshed without a connection, but it's still theirs),
+    and without loading the sign-in library. */
 export function storedStaffUserId() {
   try {
     const raw = rememberableStorage.getItem(SESSION_KEY);
@@ -70,8 +67,25 @@ export function storedStaffUserId() {
   }
 }
 
+/** Supabase Auth (an @supabase/auth-js AuthClient), loaded on first use. */
+let authLoading = null;
+export function getAuth() {
+  authLoading ??= import("./supabase-auth.js").then((m) => m.auth);
+  authLoading.catch(() => { authLoading = null; }); // offline: try again next time
+  return authLoading;
+}
+
+/** Supabase Storage, for uploading to a signed upload URL; loaded on first use. */
+let storageLoading = null;
+export function getStorage() {
+  storageLoading ??= import("./supabase-storage.js").then((m) => m.storage);
+  storageLoading.catch(() => { storageLoading = null; });
+  return storageLoading;
+}
+
 /** The current access token, or null. Attached as a Bearer by api.js. */
 export async function accessToken() {
-  const { data } = await supabase.auth.getSession();
+  if (!storedStaffUserId()) return null; // nobody signed in here: no need to load anything
+  const { data } = await (await getAuth()).getSession();
   return data.session?.access_token ?? null;
 }

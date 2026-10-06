@@ -15,7 +15,7 @@
 
    It's a full-page reading view with its own Back button (the browser's
    Back works too), and the content is fitted to the screen — see
-   styles.css. nav.js also
+   app.css. nav.js also
    uses currentOpenId()/isViewerOpen() here to award a reading badge (see
    showBadgeCelebration()) once a session has stayed open a while. */
 

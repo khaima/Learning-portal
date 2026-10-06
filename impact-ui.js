@@ -14,7 +14,7 @@
    ============================================================ */
 
 import { esc, formatDuration } from "./util.js";
-import { fmtValue, ragPill } from "./mel-ui.js";
+import { fmtValue, ragPill } from "./mel-format.js";
 
 const pct = (v) => (v == null ? "—" : `${Math.round(v)}%`);
 const num = (v) => (v == null ? "—" : Number(v).toLocaleString());

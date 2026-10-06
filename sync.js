@@ -30,7 +30,7 @@
 
 import * as store from "./offline.js";
 import { rawRequest } from "./api.js";
-import { supabase } from "./supabase.js";
+import { getStorage } from "./supabase.js";
 
 const BUCKET = "library";
 const FIVE_MIN = 5 * 60_000;
@@ -230,7 +230,7 @@ async function resolveUploads(body, resolved) {
     const rec = await store.getBlob(key);
     if (!rec) throw Object.assign(new Error("A file chosen offline is no longer on this device — choose it again."), { status: 410 });
     const { upload } = await rawRequest("POST", rec.uploadPath, rec.uploadBody);
-    const { error } = await supabase.storage.from(BUCKET).uploadToSignedUrl(upload.path, upload.token, rec.blob, { contentType: rec.type || undefined });
+    const { error } = await (await getStorage()).from(BUCKET).uploadToSignedUrl(upload.path, upload.token, rec.blob, { contentType: rec.type || undefined });
     if (error) throw isNetworkError(error) ? Object.assign(new Error(error.message), { offline: true }) : error;
     resolved.set(key, { name: rec.name, path: upload.path, size: rec.size });
   }
