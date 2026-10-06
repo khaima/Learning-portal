@@ -37,7 +37,7 @@ jobs:
         run: deno task test
 
   frontend:
-    name: Frontend modules parse
+    name: Frontend — modules parse, CSP agrees
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -48,3 +48,8 @@ jobs:
       - name: Syntax check
         run: |
           for f in *.js scripts/*.mjs; do node --check "$f" || exit 1; done
+      # The CSP in vercel.json and the pages agree: no inline code it would
+      # block, no script or stylesheet from a host it doesn't allow, no code
+      # imported from a URL, and the service worker's files all exist.
+      - name: Content-Security-Policy check
+        run: node scripts/check-csp.mjs

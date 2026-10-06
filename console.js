@@ -695,11 +695,15 @@ async function main() {
         if (e.target.closest("[data-print]")) {
           const w = window.open("", "_blank");
           if (!w) { toast("Allow pop-ups to print", "", "error"); return; }
+          // No inline style or script (the CSP allows neither): the look is
+          // body.print-page in styles.css, and printing starts from here.
           w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(r.title)}</title>
-            <link rel="stylesheet" href="${new URL("styles.css", location.href)}">
-            <style>body{background:#fff;padding:1.5rem;color:#14213D} .mel-report{max-width:none} .lms-table-wrap{overflow:visible}</style></head>
-            <body>${reportHtml(r, d.content)}<script>addEventListener("load",()=>setTimeout(()=>print(),300))<\/script></body></html>`);
+            <link rel="stylesheet" href="${new URL("styles.css", location.href)}"></head>
+            <body class="print-page">${reportHtml(r, d.content)}</body></html>`);
           w.document.close();
+          const printWhenReady = () => (w.closed ? null
+            : w.document.readyState === "complete" ? setTimeout(() => w.print(), 300) : setTimeout(printWhenReady, 100));
+          printWhenReady();
         }
         if (e.target.closest("[data-csv]")) {
           const a = document.createElement("a");

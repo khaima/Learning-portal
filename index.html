@@ -9,7 +9,7 @@
   <!-- Kept light for slow school connections: no photos, and the fonts
        load without holding up the page (it shows in system fonts first). -->
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=Work+Sans:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=Work+Sans:wght@400;600;700&display=swap" media="print" data-font>
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=Work+Sans:wght@400;600;700&display=swap"></noscript>
   <link rel="stylesheet" href="./styles.css">
   <link rel="icon" href="./assets/icon-192.png">
@@ -291,7 +291,7 @@
 
         <div class="gate-slow" id="gateSlow" hidden>
           <p>The portal is taking longer than usual to load — the connection may be slow.</p>
-          <button type="button" class="btn btn-outline" onclick="location.reload()">Try again</button>
+          <button type="button" class="btn btn-outline" id="gateRetry">Try again</button>
         </div>
 
         </div>
@@ -303,30 +303,9 @@
     </footer>
   </main>
 
-  <script>
-    /* Show the role tiles at once — unless there's a session or a sign-in
-       link to check first. On a slow connection the page's code can take
-       a while; if it hasn't started after 12 seconds, say so. */
-    (function () {
-      try {
-        var stored = function (st) {
-          for (var i = 0; i < st.length; i++) {
-            var k = st.key(i);
-            if (k === "hpf_learner_token" || /^sb-.+-auth-token$/.test(k)) return true;
-          }
-          return false;
-        };
-        if (!/[?&](code|flow|invite|error)=/.test(location.search) && !stored(localStorage) && !stored(sessionStorage)) {
-          document.getElementById("stepLoading").hidden = true;
-          document.getElementById("stepRole").hidden = false;
-          document.querySelector(".gate-card").setAttribute("data-step", "role");
-        }
-      } catch (e) { /* storage blocked: wait for index.js */ }
-      setTimeout(function () {
-        if (!window.__hpfReady) document.getElementById("gateSlow").hidden = false;
-      }, 12000);
-    })();
-  </script>
+  <!-- The first moments (role tiles, fonts, "taking longer than usual"):
+       a file, not inline code, so the CSP allows the portal's own scripts only. -->
+  <script src="./boot.js"></script>
   <script type="module" src="./index.js"></script>
 </body>
 </html>

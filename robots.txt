@@ -1,0 +1,14 @@
+# HPF Digital Learning Portal
+#
+# The sign-in page (/ and /index.html) may appear in search results, so people
+# can find the portal. Everything behind it — every workspace and dashboard —
+# is for signed-in staff and learners only, and isn't crawled or indexed.
+# Those pages also carry "noindex" (a meta tag, and an X-Robots-Tag header on
+# Vercel), which covers the GitHub Pages copy too: a robots.txt only counts at
+# the root of a site, and that copy lives under /Learning-portal/.
+User-agent: *
+Allow: /$
+Allow: /index.html
+Allow: /styles.css
+Allow: /assets/
+Disallow: /

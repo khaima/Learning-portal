@@ -754,6 +754,37 @@ audit behind it are in [`docs/RBAC.md`](docs/RBAC.md).
   [`navigation_test.ts`](supabase/functions/api/navigation_test.ts) that
   every role's menu matches its permissions exactly.
 
+### Security headers, code from the portal only
+
+[`vercel.json`](vercel.json) sends these with every page and file on Vercel:
+
+- **Content-Security-Policy** — scripts only from the portal itself (no
+  inline script, no `eval`, no CDN: supabase-js is pinned in
+  [`vendor/`](vendor/README.md)); data and sign-in only to the portal and
+  the Supabase project; fonts only from Google Fonts; no plugins; never
+  framed by another site (`frame-ancestors 'none'`). Three outside sites may
+  appear *inside* the portal's file viewer, because teachers use them —
+  `view.officeapps.live.com` (Word/PowerPoint previews), `www.youtube.com`
+  (videos) and `*.kobotoolbox.org` (survey previews) — as frames only; they
+  can't run anything in the portal's pages. Inline `style="…"` attributes are
+  allowed (the pages use them for layout); inline `<style>` blocks aren't,
+  except the 404 page's, by its hash.
+- **X-Frame-Options** `DENY`, **Referrer-Policy**
+  `strict-origin-when-cross-origin`, **Strict-Transport-Security** (two
+  years), **X-Content-Type-Options** `nosniff`, and a **Permissions-Policy**
+  that turns off camera, microphone, location, payment, USB and the rest
+  (fullscreen, autoplay and picture-in-picture only for the portal and the
+  embedded YouTube/Office viewers).
+- **Search engines:** [`robots.txt`](robots.txt) lets the sign-in page be
+  found and keeps every workspace out; those pages also say `noindex` (a meta
+  tag, and an `X-Robots-Tag` header on Vercel), which is what covers the
+  GitHub Pages copy. Unknown addresses get [`404.html`](404.html).
+
+[`scripts/check-csp.mjs`](scripts/check-csp.mjs) runs in CI and fails if a
+page gains inline code the policy would block, loads a script or stylesheet
+from a host it doesn't allow, or imports code from a URL. GitHub Pages can't
+send headers, so there the pages run without them.
+
 ### Turning on Google sign-in
 
 The **Continue with Google** button is already wired up on the frontend,
@@ -857,6 +888,11 @@ API immediately. (Password reset emails need the one-time mail setup in
 | `supabase/templates/recovery.html` | The HPF "Reset your password" email |
 | `docs/RBAC.md` | The access model: audit, roles, permissions, scope, menus, the five layers, migration, tests |
 | `supabase.js` | The Supabase Auth client (password + Google) and the "remember me" storage adapter |
+| `vendor/` | Third-party code served from the portal: supabase-js 2.117.2, pinned ([`vendor/README.md`](vendor/README.md)) |
+| `vercel.json` | Security headers for every route (CSP, frame, referrer, permissions, HSTS), long caching for `vendor/`, `noindex` for the workspaces |
+| `boot.js` | The sign-in page's first moments (role tiles, fonts, "taking longer than usual") — a file, not inline code |
+| `404.html` / `robots.txt` | The page for unknown addresses; what search engines may index (the sign-in page only) |
+| `scripts/check-csp.mjs` | CI check that the pages and the CSP agree |
 | `api.js` | Thin fetch wrapper over the `api` Edge Function; attaches the JWT; serves this device's copies offline |
 | `offline.js` | What the device keeps (IndexedDB): copies per account, the queue, files, settings |
 | `sync.js` | Offline work: send or queue, sync in order, idempotency keys, conflicts, files chosen offline, downloads |

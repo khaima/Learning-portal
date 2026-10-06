@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex">
+  <title>Page not found — HPF Digital Learning Portal</title>
+  <!-- Served for any missing address, at any depth, so it needs nothing
+       else from the site: its style and one line of script are here, and
+       vercel.json's CSP allows exactly these two by their SHA-256 hash
+       (scripts/check-csp.mjs keeps the hashes honest). No images, no fonts. -->
+  <style>
+    :root{ --ink:#14213D; --soft:#3D4C6B; --paper:#FAF6EF; --card:#FFFFFF; --line:#E4DACB; --brand:#1E4C8A; --brand-ink:#FFFFFF; }
+    @media (prefers-color-scheme: dark){ :root{ --ink:#F1EDE4; --soft:#B9C2D6; --paper:#101828; --card:#16213A; --line:#293659; --brand:#8FB4EA; --brand-ink:#0E1A30; } }
+    *{ box-sizing:border-box; }
+    body{ margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:1rem;
+      background:var(--paper); color:var(--ink); font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif; }
+    main{ width:100%; max-width:26rem; background:var(--card); border:1px solid var(--line); border-radius:20px; padding:1.75rem 1.5rem; text-align:center; }
+    .mark{ display:inline-grid; place-items:center; width:3rem; height:3rem; border-radius:12px; background:var(--brand); color:var(--brand-ink); font-weight:800; letter-spacing:.02em; }
+    h1{ font-size:1.35rem; margin:1rem 0 .4rem; }
+    p{ margin:0 0 1.25rem; color:var(--soft); }
+    a.btn{ display:inline-block; padding:.7rem 1.3rem; border-radius:999px; background:var(--brand); color:var(--brand-ink); font-weight:700; text-decoration:none; }
+    a.btn:focus-visible{ outline:3px solid var(--ink); outline-offset:3px; }
+    .code{ margin-top:1.25rem; font-size:.8rem; color:var(--soft); }
+  </style>
+</head>
+<body>
+  <main>
+    <span class="mark" aria-hidden="true">HPF</span>
+    <h1>Page not found</h1>
+    <p>There's nothing at this address. The link may be mistyped, or the page may have moved.</p>
+    <a class="btn" id="home" href="/">Go to the portal</a>
+    <p class="code">Error 404 · HPF Digital Learning Portal</p>
+  </main>
+  <script>document.getElementById("home").href = location.hostname.endsWith("github.io") ? "/Learning-portal/" : "/";</script>
+</body>
+</html>

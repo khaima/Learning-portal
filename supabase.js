@@ -15,7 +15,8 @@
    behave the same way.
    ============================================================ */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+// Served from the portal itself, pinned (vendor/README.md) — no CDN at run time.
+import { createClient } from "./vendor/supabase-js-2.117.2.js";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./config.js";
 
 const REMEMBER_KEY = "hpf_remember_me";

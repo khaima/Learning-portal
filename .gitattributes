@@ -1,0 +1,4 @@
+# The 404 page's inline <script> and <style> are allowed by the CSP by their
+# SHA-256 (vercel.json, scripts/check-csp.mjs) — the bytes must not change with
+# the checkout's line endings.
+404.html text eol=lf

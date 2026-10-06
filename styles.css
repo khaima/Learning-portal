@@ -958,6 +958,11 @@ body.viewer-locked{ overflow:hidden; }
 .confirm-actions .btn{ padding:.55rem 1.1rem; font-size:.84rem; }
 .btn-danger{ background:var(--danger); color:#fff; }
 .btn-danger:hover{ filter:brightness(.92); }
+/* An M&E report opened to print (console.js) */
+body.print-page{ background:#fff; padding:1.5rem; color:#14213D; }
+body.print-page .mel-report{ max-width:none; }
+body.print-page .lms-table-wrap{ overflow:visible; }
+
 /* A temporary password, shown once (console.js) */
 .temp-pw{ display:flex; gap:.6rem; align-items:center; margin:0 0 1.1rem; }
 .temp-pw code{
