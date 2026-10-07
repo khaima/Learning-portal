@@ -413,3 +413,20 @@ the next starts. Old addresses keep working at every stage.
 - Checked in the browser for all 8 roles: every row and tab, typed addresses
   of other roles' pages refused, old links (`#reports`, `#users?role=…`)
   still working, the phone drawer.
+
+**Stage 2 — one Schools module (released 7 Oct 2026).**
+- `admin-ui.js` `renderSchoolsModule`: the list of the schools a person may
+  see (the API scopes it), searchable and grouped by county, then one page
+  per school with tabs: **Overview · Teachers · Learners & classes · Visits ·
+  Assessments · Devices**. Each tab appears only with the permission its
+  data needs; the breadcrumb goes down to *Schools › school › tab*.
+- The console's Schools (`#school-profiles`, now the list, then
+  `?school=<id>&tab=<tab>`) and a field officer's **My schools**
+  (`field.html#schools`) are this one module.
+- The field officer's separate School profiles page and its dropdown are
+  gone. `#school-profiles` there now lands on `#schools`.
+- In the Schools menus, the cross-school views are named **All teachers** and
+  **Find a learner**. The per-school **Classes** picker is a hidden item: old
+  links open it, but a school's classes are on its page.
+- The school head's **My school** already was one school with tabs, and keeps
+  its management pages.

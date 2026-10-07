@@ -1,7 +1,7 @@
 import { mountNavigation } from "./nav.js";
 // Staff dashboards always need Supabase Auth: fetched with the page, not after it.
 import "./supabase-auth.js";
-import { $, $$, esc, initials, skeleton, emptyState, errorState, friendlyError, toast, confirmDialog } from "./util.js";
+import { $, $$, esc, initials, skeleton, errorState, friendlyError, toast, confirmDialog } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { VISIT_TYPES } from "./data.js";
 import {
@@ -9,7 +9,7 @@ import {
   myKoboSurveys, markKoboSubmitted, currentTermLabel,
 } from "./store.js";
 import { mountFormList, renderVisitForms, unfilledVisitForms, collectVisitResponses, FORM_KIND_LABEL } from "./forms.js";
-import { addResponse, getSchools } from "./store.js";
+import { addResponse } from "./store.js";
 import { openContentPanel, closeViewer } from "./viewer.js";
 import { waiting } from "./sync.js";
 // The school profile and teachers pages (admin-ui.js) load when first opened.
@@ -45,22 +45,15 @@ async function main() {
   // officer works only at the schools assigned to them — the server sends
   // only those.
   mountNavigation(user, {
-    onPage(page) {
+    onPage(page, params) {
       if (page === "teachers") adminUi().then((m) => m.renderTeachers($("#tchBody"))).catch(pageFailed($("#tchBody")));
-      if (page === "school-profiles") showSchoolProfiles();
+      // My schools: the portal's one Schools module, with only the schools assigned to this officer.
+      if (page === "schools") {
+        adminUi().then((m) => m.renderSchoolsModule($("#schoolsModule"), { params, perms: new Set(user.permissions || []), base: "#schools" }))
+          .catch(pageFailed($("#schoolsModule")));
+      }
     },
   });
-  async function showSchoolProfiles() {
-    const sel = $("#spSchool");
-    if (!sel.options.length) {
-      let dir;
-      try { dir = await getSchools(); } catch (err) { $("#spBody").innerHTML = errorState(friendlyError(err), showSchoolProfiles); return; }
-      sel.innerHTML = dir.schools.map((s) => `<option value="${esc(s.id)}">${esc(s.name)} — ${esc(s.county)}</option>`).join("");
-      sel.addEventListener("change", () => adminUi().then((m) => m.renderSchoolProfile($("#spBody"), sel.value)).catch(pageFailed($("#spBody"))));
-      if (!dir.schools.length) { $("#spBody").innerHTML = emptyState("No schools assigned to you yet", "An administrator assigns your county or schools."); return; }
-    }
-    adminUi().then((m) => m.renderSchoolProfile($("#spBody"), sel.value)).catch(pageFailed($("#spBody")));
-  }
   const countyLine = user.county || "No county set";
   $("#topSub").textContent = countyLine;
   currentTermLabel().then((term) => { if (term) $("#topSub").textContent = `${countyLine} · ${term}`; });
@@ -170,25 +163,6 @@ async function main() {
 
   renderKpis();
   refreshReports();
-
-  // ---- Schools directory — the same county→school list the visit flow uses ----
-  function renderDirectory() {
-    const { counties, schools } = directory;
-    // Their own county first; the rest after.
-    const ordered = [...counties].sort((a, b) => (b === user.county) - (a === user.county));
-    $("#schoolsDirectory").innerHTML = schools.length
-      ? ordered.map((c) => {
-          const list = schools.filter((s) => s.county === c);
-          return `
-            <div class="list-group">
-              <div class="list-group-title">${esc(c)}<span class="count">${list.length}</span></div>
-              ${list.length
-                ? list.map((s) => `<div class="task-row"><div><b>${esc(s.name)}</b><span><span class="code-chip">${esc(s.code)}</span></span></div></div>`).join("")
-                : `<div class="empty-state" style="padding:.6rem 0">No schools listed yet.</div>`}
-            </div>`;
-        }).join("")
-      : `<div class="empty-state">No schools listed yet — the Education Team adds them.</div>`;
-  }
 
   /* ---- Start School Visit — the one obvious primary action, walked
      through as a guided flow: county → school → visit type → start →
@@ -535,14 +509,9 @@ async function main() {
       }
     }
     directoryLoaded = true;
-    renderDirectory();
     renderKpis();
   }
-  $("#schoolsDirectory").innerHTML = skeleton(3, { avatar: false });
-  const schoolsWatch = watchSchools(applyDirectory, (err) => {
-    console.error("could not load schools:", err);
-    $("#schoolsDirectory").innerHTML = errorState(friendlyError(err), () => schoolsWatch.refresh());
-  });
+  watchSchools(applyDirectory, (err) => console.error("could not load schools:", err));
 
   /* ---- Field surveys (KoboToolbox) ----
      The Education Team attaches a deployed Kobo survey; it shows here with

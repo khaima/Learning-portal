@@ -1,6 +1,7 @@
 /* The console's administration and oversight pages (platform / admin / me /
    education workspaces): Platform overview, Administration overview,
-   Permissions, Account activity, Teachers, Classes, School profiles,
+   Permissions, Account activity, Schools (the list and each school's page —
+   a field officer's My schools too), Teachers, Classes, School profiles,
    Assignments, Results, Field visits, Subjects — and one account's access
    (role, data scope, grants, history) opened from Staff accounts.
 
@@ -11,6 +12,7 @@ import { esc, skeleton, errorState, friendlyError, toast, confirmDialog } from "
 import { apiGet, apiSend } from "./api.js";
 import { openContentPanel, closeViewer } from "./viewer.js";
 import { resultsTableHtml } from "./assignments-ui.js";
+import { extendTrail } from "./nav.js";
 
 const fmtDay = (v) => (v ? new Date(v).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—");
 const fmtWhen = (v) => (v ? new Date(v).toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
@@ -241,10 +243,10 @@ export function renderSchoolProfile(el, schoolId) {
   if (!schoolId) { el.innerHTML = `<div class="empty-state">Choose a school.</div>`; return null; }
   return load(el, `/schools/${encodeURIComponent(schoolId)}/profile`, schoolProfileHtml, () => renderSchoolProfile(el, schoolId));
 }
-export function schoolProfileHtml(d) {
+export function schoolProfileHtml(d, { heading = true } = {}) {
   return `
-    <div class="panel-head" style="margin-bottom:.4rem"><h2 style="margin:0">${esc(d.school.name)}</h2>
-      <span class="chart-meta" style="margin:0"><span class="code-chip">${esc(d.school.code)}</span> · ${esc(d.school.county)} County</span></div>
+    ${heading ? `<div class="panel-head" style="margin-bottom:.4rem"><h2 style="margin:0">${esc(d.school.name)}</h2>
+      <span class="chart-meta" style="margin:0"><span class="code-chip">${esc(d.school.code)}</span> · ${esc(d.school.county)} County</span></div>` : ""}
     <div class="stat-row">
       ${tile("School head", d.heads.join(", ") || "None yet")}
       ${tile("Teachers", d.teachers)}
@@ -265,6 +267,127 @@ export function schoolProfileHtml(d) {
         <p class="hint">${d.supportedBy.length ? `Supported by ${esc(d.supportedBy.join(", "))}.` : "No field officer is assigned to this school yet."}</p>
       </div>
     </div>`;
+}
+
+/* ------------------------------------------------------------------ Schools: one module, everywhere
+   docs/NAVIGATION.md, "one function, one home": the list of the schools
+   this person may see, then one page per school with its tabs — Overview,
+   Teachers, Learners & classes, Visits, Assessments, Devices. The console's
+   Schools and a field officer's My schools are this same module (the API
+   sends each person only their schools). A tab shows only with the
+   permission its data needs, and the API checks every request again.
+   Addresses: <base>?school=<id>&tab=<tab>. */
+const SCHOOL_TABS = [
+  ["overview", "Overview", ["schools.profile.view"]],
+  ["teachers", "Teachers", ["teachers.view"]],
+  ["learners", "Learners & classes", ["learners.view.all", "learners.view.school"]],
+  ["visits", "Visits", ["field_reports.view.all", "field_reports.view.own"]],
+  ["assessments", "Assessments", ["assignments.view.all", "assignments.view.school"]],
+  ["devices", "Devices", ["sync.problems.view"]],
+];
+let schoolDirectory = null;
+
+/** The list, or one school. `actions(school)` adds buttons to a school's row and page (e.g. Start visit). */
+export async function renderSchoolsModule(el, { params = new URLSearchParams(), perms = new Set(), base = "#school-profiles", actions = () => "", fresh = false } = {}) {
+  if (!schoolDirectory || fresh) {
+    el.innerHTML = skeleton(4, { avatar: false });
+    try { schoolDirectory = await apiGet("/schools"); } catch (err) {
+      el.innerHTML = errorState(navigator.onLine ? friendlyError(err) : "This page needs a connection.", () => renderSchoolsModule(el, { params, perms, base, actions, fresh: true }));
+      return;
+    }
+  }
+  const schools = schoolDirectory.schools || [];
+  const id = params.get("school");
+  if (!id) { schoolListHtml(el, schools, { base, actions }); return; }
+  const school = schools.find((s) => s.id === id);
+  if (!school) {
+    el.innerHTML = `<div class="empty-state"><b>That school isn't in your area.</b><div><a href="${esc(base)}">All schools</a></div></div>`;
+    return;
+  }
+  const tabs = SCHOOL_TABS.filter(([, , needs]) => needs.some((p) => perms.has(p)));
+  const tab = tabs.find(([t]) => t === params.get("tab"))?.[0] ?? tabs[0]?.[0] ?? "overview";
+  const at = (t) => `${base}?school=${encodeURIComponent(id)}${t === "overview" ? "" : `&tab=${t}`}`;
+  el.innerHTML = `
+    <div class="school-head">
+      <a class="back-link" href="${esc(base)}">← All schools</a>
+      <div class="school-title"><h2>${esc(school.name)}</h2>
+        <span class="chart-meta" style="margin:0"><span class="code-chip">${esc(school.code)}</span> · ${esc(school.county)} County</span></div>
+      <div class="school-actions">${actions(school)}</div>
+    </div>
+    <div class="school-tabs" role="tablist" aria-label="${esc(school.name)}">${tabs.map(([t, label]) =>
+      `<a class="module-tab${t === tab ? " active" : ""}" href="${esc(at(t))}" role="tab"${t === tab ? ' aria-selected="true" aria-current="page"' : ' aria-selected="false"'}>${esc(label)}</a>`).join("")}</div>
+    <div class="school-tab-body"></div>`;
+  extendTrail([{ label: school.name, href: at("overview") }, ...(tab === "overview" ? [] : [{ label: tabs.find(([t]) => t === tab)[1] }])]);
+  const body = el.querySelector(".school-tab-body");
+  const sid = encodeURIComponent(id);
+  switch (tab) {
+    case "overview":
+      await load(body, `/schools/${sid}/profile`, (d) => schoolProfileHtml(d, { heading: false }), () => renderSchoolsModule(el, { params, perms, base, actions }));
+      break;
+    case "teachers":
+      await load(body, "/teachers", (d) => table(["Name", "Role", "Type", "Classes taught", "Trainings"],
+        d.teachers.filter((t) => t.schoolId === id).map((t) => [
+          `<b>${esc(t.name)}</b>${t.code ? `<br><span class="code-chip">${esc(t.code)}</span>` : ""}`, esc(t.roleLabel), esc(t.teacherType || "—"),
+          esc(t.classes.join(", ") || "—"), t.trainings,
+        ]), "No teachers at this school yet."), () => renderSchoolsModule(el, { params, perms, base, actions }));
+      break;
+    case "learners": {
+      body.innerHTML = `<h3 class="mini-head">Classes this year</h3><div data-classes></div><h3 class="mini-head">Learners</h3><div data-learners></div>`;
+      await Promise.all([
+        renderClasses(body.querySelector("[data-classes]"), id),
+        load(body.querySelector("[data-learners]"), `/learners?schoolId=${sid}`, (d) => table(["Learner", "Grade", "Class", "Code"],
+          d.learners.map((l) => [`<b>${esc(l.fullName || l.name || "")}</b>`, esc(l.grade || "—"), esc(l.className || "—"), l.learnerCode ? `<span class="code-chip">${esc(l.learnerCode)}</span>` : "—"]),
+          "No learners enrolled yet."), () => renderSchoolsModule(el, { params, perms, base, actions })),
+      ]);
+      break;
+    }
+    case "visits":
+      await load(body, "/field-reports", (d) => table(["Date", "Visit type", "Field officer"],
+        d.reports.filter((v) => v.schoolId === id).map((v) => [esc(fmtDay(v.createdAt)), esc(v.visitType), esc(v.officer || "You")]),
+        "No visits to this school yet."), () => renderSchoolsModule(el, { params, perms, base, actions }));
+      break;
+    case "assessments":
+      body.innerHTML = `<h3 class="mini-head">Assignments & assessments</h3><div data-asg></div><h3 class="mini-head">Results by class</h3><div data-res></div>`;
+      await Promise.all([
+        renderAssignments(body.querySelector("[data-asg]"), { schoolId: id }, new Map([[id, school.name]])),
+        renderResults(body.querySelector("[data-res]"), { by: "class", schoolId: id }),
+      ]);
+      break;
+    case "devices":
+      await load(body, "/sync/problems", (d) => {
+        const here = d.stuck.filter((x) => x.schoolId === id);
+        return `<p class="hint" style="margin-top:0">Devices of people at this school with work unsent for ${esc(String(d.hours))} hours or more. <a href="#sync-problems">All stuck devices</a></p>`
+          + table(["Who", "Device", "Unsent", "Waiting for"], here.map((x) => [
+            `<b>${esc(x.name)}</b><br><span class="hint-inline">${esc(x.roleLabel)}</span>`, esc(x.deviceLabel || "A device"),
+            esc(String(x.pending + x.failed + x.conflicts)), esc(x.waitingHours >= 48 ? `${Math.floor(x.waitingHours / 24)} days` : `${x.waitingHours} h`),
+          ]), "No device at this school has work stuck.");
+      }, () => renderSchoolsModule(el, { params, perms, base, actions }));
+      break;
+    default: break;
+  }
+}
+
+function schoolListHtml(el, schools, { base, actions }) {
+  const counties = [...new Set(schools.map((s) => s.county))];
+  el.innerHTML = `
+    <div class="filter-bar-row" style="margin-bottom:.8rem"><div class="field"><label for="schoolFind">Find a school</label>
+      <input id="schoolFind" type="search" placeholder="Name, code or county…" autocomplete="off"></div></div>
+    <p class="hint" data-count style="margin-top:0"></p>
+    <div data-list></div>`;
+  const draw = () => {
+    const q = el.querySelector("#schoolFind").value.trim().toLowerCase();
+    const shown = schools.filter((s) => !q || [s.name, s.code, s.county].some((v) => String(v || "").toLowerCase().includes(q)));
+    el.querySelector("[data-count]").textContent = `${shown.length} of ${schools.length} school${schools.length === 1 ? "" : "s"}`;
+    el.querySelector("[data-list]").innerHTML = shown.length ? counties.map((c) => {
+      const list = shown.filter((s) => s.county === c);
+      return list.length ? `<div class="list-group"><div class="list-group-title">${esc(c)}<span class="count">${list.length}</span></div>
+        ${list.map((s) => `<div class="task-row"><div style="flex:1;min-width:0"><a class="school-link" href="${esc(`${base}?school=${encodeURIComponent(s.id)}`)}"><b>${esc(s.name)}</b></a>
+          <span><span class="code-chip">${esc(s.code)}</span></span></div>
+          <div class="roster-actions">${actions(s)}<a class="btn btn-ghost q-small" href="${esc(`${base}?school=${encodeURIComponent(s.id)}`)}">Open</a></div></div>`).join("")}</div>` : "";
+    }).join("") : `<div class="empty-state">${schools.length ? "No school matches that." : "No schools in your area yet."}</div>`;
+  };
+  el.querySelector("#schoolFind").addEventListener("input", draw);
+  draw();
 }
 
 /* ------------------------------------------------------------------ Assignments (read-only, across schools) */

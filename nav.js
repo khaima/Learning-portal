@@ -372,7 +372,7 @@ export function mountNavigation(user, { workspace, onPage } = {}) {
       ...(deeper ? [`<li aria-current="page">${escText(item.label)}</li>`] : []),
     ];
     trail.hidden = false;
-    trail.innerHTML = `<ol class="crumbs">${crumbs.join("")}</ol>` + (isModule ? `<div class="module-tabs">${g.items.map((it) => {
+    trail.innerHTML = `<ol class="crumbs">${crumbs.join("")}</ol>` + (isModule ? `<div class="module-tabs">${g.items.filter((it) => !it.hidden || it === item).map((it) => {
       const on = it === item;
       return `<a class="module-tab${on ? " active" : ""}" href="${escText(hrefOf(it))}"${on ? ' aria-current="page"' : ""}>${iconSvg(it.icon)}<span>${escText(it.label)}</span>${badgeHtml(it.badge)}</a>`;
     }).join("")}</div>` : "");
@@ -409,7 +409,7 @@ export function mountNavigation(user, { workspace, onPage } = {}) {
     entryLinks.forEach((l) => { const on = l.dataset.entry === g?.id; l.classList.toggle("active", on); l.toggleAttribute("aria-current", on); });
     drawTrail(g, item, raw, page);
     if (filterBar) filterBar.hidden = !item?.filters;
-    const title = page === "profile" ? "My profile" : g && g.items.length > 1 ? `${item?.label} — ${g.label}` : g?.label;
+    const title = page === "profile" ? "My profile" : g && g.items.length > 1 && item?.label !== g.label ? `${item?.label} — ${g.label}` : g?.label;
     document.title = `${title || ws.title} — ${ws.title}`;
     window.scrollTo(0, 0);
     if (page === "profile") {
@@ -444,6 +444,28 @@ export function mountNavigation(user, { workspace, onPage } = {}) {
 
   return { allowed, landing, workspace: wsId, refreshBadges: badges, canOpen: (page) => allowed.has(page) };
 }
+/** A page that goes deeper than its menu — a school inside Schools — adds
+    its own steps to the breadcrumb: "Schools › Aitong Primary › Teachers".
+    The step it came from becomes a link back. Cleared on the next page. */
+export function extendTrail(parts) {
+  const ol = $(".page-trail .crumbs");
+  if (!ol) return;
+  ol.querySelectorAll("[data-extra]").forEach((li) => li.remove());
+  const last = ol.querySelector("li[aria-current]");
+  if (last && parts.length) {
+    last.removeAttribute("aria-current");
+    last.innerHTML = `<a href="#${escText((location.hash.slice(1) || "").split("?")[0])}">${escText(last.textContent)}</a>`;
+  }
+  parts.forEach((p, i) => {
+    const li = document.createElement("li");
+    li.dataset.extra = "";
+    const end = i === parts.length - 1;
+    if (end) li.setAttribute("aria-current", "page");
+    li.innerHTML = p.href && !end ? `<a href="${escText(p.href)}">${escText(p.label)}</a>` : escText(p.label);
+    ol.appendChild(li);
+  });
+}
+
 /* notification bell — stored notifications, unread count, the list (notify-ui.js) */
 mountBell();
 

@@ -16,6 +16,8 @@
            item is a page; several make a module whose items are its tabs.
    Item:  { page, label, icon, needs?: [any of these permissions],
            hash?: "#page?param=…" (a filtered view of a page),
+           hidden?: true (opens — old links, links from inside the module —
+           but isn't a tab: its job moved onto another page),
            badge?: key from GET /nav/badges, filters?: true (the page uses
            the county / school / term filter bar) }
    ============================================================ */
@@ -143,7 +145,8 @@ export const WORKSPACES = {
     groups: [
       entry("dashboard", "Dashboard", "dashboard", [c("admin-overview", { label: "Dashboard" })]),
       entry("schools", "Schools", "school", [
-        c("school-profiles", { label: "Schools" }), c("teachers"), c("learners"), c("classes"),
+        c("school-profiles", { label: "Schools" }), c("teachers", { label: "All teachers" }), c("learners", { label: "Find a learner" }),
+        c("classes", { hidden: true }), // a school's classes are on its page; the old address still works
         c("schools", { label: "Counties & schools" }), c("calendar"),
       ]),
       entry("field", "Field operations", "pin", [
@@ -171,8 +174,8 @@ export const WORKSPACES = {
       ]),
       entry("data-quality", "Data quality", "check", [c("data-quality"), c("kobo", { label: "Kobo review" })], { badge: "dataQuality" }),
       entry("schools", "Schools", "school", [
-        c("school-profiles", { label: "Schools" }), c("teachers"), c("learners"), c("classes"), c("assignments"), c("results"),
-        c("field-visits", { label: "Visits" }), c("training"),
+        c("school-profiles", { label: "Schools" }), c("teachers", { label: "All teachers" }), c("learners", { label: "Find a learner" }),
+        c("classes", { hidden: true }), c("assignments"), c("results"), c("field-visits", { label: "Visits" }), c("training"),
       ]),
       entry("surveys", "Surveys & forms", "survey", [c("survey-results"), c("forms", { label: "Form responses" })]),
     ],
@@ -183,8 +186,8 @@ export const WORKSPACES = {
     groups: [
       entry("dashboard", "Dashboard", "dashboard", [c("learning", { label: "Dashboard" })]),
       entry("schools", "Schools & learning", "school", [
-        c("school-profiles", { label: "Schools" }), c("teachers"), c("learners"), c("classes"),
-        c("field-visits", { label: "Visits" }), c("sync-problems", { label: "Devices" }),
+        c("school-profiles", { label: "Schools" }), c("teachers", { label: "All teachers" }), c("learners", { label: "Find a learner" }),
+        c("classes", { hidden: true }), c("field-visits", { label: "Visits" }), c("sync-problems", { label: "Devices" }),
       ]),
       entry("activities", "Activities", "star", [c("training"), c("teacher-development"), c("forms", { label: "Education forms" })]),
       entry("assessments", "Assessments", "assignment", [c("assignments"), c("results")]),
@@ -194,15 +197,14 @@ export const WORKSPACES = {
   },
   field: {
     title: "Field Operations", page: "field.html", roles: ["field_officer"],
-    // Older links (notifications already sent) still land on the right page.
-    aliases: { reports: "forms" },
+    // Older links (notifications already sent, bookmarks) still land on the right page.
+    aliases: { reports: "forms", "school-profiles": "schools" },
     question: "What needs to happen at the schools I support?",
     groups: [
       entry("dashboard", "Dashboard", "dashboard", [{ page: "dashboard", label: "Dashboard", icon: "dashboard" }]),
       entry("schools", "My schools", "school", [
         { page: "schools", label: "My schools", icon: "school" },
-        { page: "school-profiles", label: "School profiles", icon: "school", needs: ["schools.profile.view"] },
-        { page: "teachers", label: "Teachers", icon: "teacher", needs: ["teachers.view"] },
+        { page: "teachers", label: "All my teachers", icon: "teacher", needs: ["teachers.view"] },
       ]),
       entry("visits", "My visits", "pin", [{ page: "visits", label: "My visits", icon: "pin" }]),
       entry("surveys", "Field surveys", "survey", [

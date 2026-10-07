@@ -3224,11 +3224,7 @@ async function main() {
         A.renderClasses($("#clsBody"), $("#clsSchool").value);
         break;
       case "school-profiles":
-        await ensureSchools();
-        schoolOptions($("#spSchool"));
-        if (params.get("school")) $("#spSchool").value = params.get("school");
-        if (first) $("#spSchool").addEventListener("change", () => A.renderSchoolProfile($("#spBody"), $("#spSchool").value));
-        A.renderSchoolProfile($("#spBody"), $("#spSchool").value);
+        A.renderSchoolsModule($("#schoolsModule"), { params, perms, base: "#school-profiles" });
         break;
       case "assignments": {
         await ensureSchools();
