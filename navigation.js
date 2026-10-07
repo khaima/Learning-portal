@@ -170,7 +170,7 @@ export const WORKSPACES = {
       entry("framework", "Results framework", "layers", [c("mel-framework", { label: "Programmes & indicators" }), c("mel-results")]),
       entry("analytics", "Reports & analytics", "chart", [
         c("overview", { label: "Executive" }), c("reach"), c("learning", { label: "Learning outcomes" }), c("teacher-development"),
-        c("digital-resources"), c("field-operations"), c("mel-reports"), c("reports", { label: "Exports" }), c("content", { label: "Content library" }),
+        c("digital-resources"), c("field-operations"), c("mel-reports"), c("reports", { label: "Exports" }), c("content", { label: "Content usage" }),
       ]),
       entry("data-quality", "Data quality", "check", [c("data-quality"), c("kobo", { label: "Kobo review" })], { badge: "dataQuality" }),
       entry("schools", "Schools", "school", [
@@ -191,7 +191,7 @@ export const WORKSPACES = {
       ]),
       entry("activities", "Activities", "star", [c("training"), c("teacher-development"), c("forms", { label: "Education forms" })]),
       entry("assessments", "Assessments", "assignment", [c("assignments"), c("results")]),
-      entry("content", "Content & resources", "book", [c("content", { label: "Content library" }), c("digital-resources", { label: "Usage" }), c("subjects")]),
+      entry("content", "Content & resources", "book", [c("content", { label: "Content library" }), c("digital-resources", { label: "Usage dashboard" }), c("subjects")]),
       entry("reports", "Education reports", "download", [c("reports", { label: "Reports" })]),
     ],
   },
@@ -224,6 +224,7 @@ export const WORKSPACES = {
         { page: "teachers", label: "Teachers", icon: "teacher" },
         { page: "learners", label: "Learners & classes", icon: "cap" },
         { page: "learning", label: "Assignments & results", icon: "results" },
+        { page: "visits", label: "Visits", icon: "pin" },
       ]),
       entry("resources", "Learning resources", "book", [{ page: "resources", label: "Learning resources", icon: "book" }]),
       entry("reports", "Reports", "download", [{ page: "reports", label: "Reports", icon: "download" }]),

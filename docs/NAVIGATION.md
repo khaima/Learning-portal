@@ -467,3 +467,19 @@ the next starts. Old addresses keep working at every stage.
     review;
   - Education Team: Activities › Education forms;
   - Super Admin: Data & integrations › Kobo and Form registry.
+
+**Stage 5 — one Reports home (released 7 Oct 2026).**
+- Every role has exactly one reports entry:
+  - **Reports & analytics** for Super Admin and M&E (exports, the programme
+    dashboards and M&E reports as tabs);
+  - **Reports** for Admin, Field Officer, School Head and Teacher;
+  - **Education reports** for the Education Team.
+
+  The same export centre (`reports-ui.js`) sits behind each, filtered by
+  the API to what that person may export.
+- The school head's field visits moved out of Reports into **My school ›
+  Visits**, where a school's visits belong; the dashboard's "View all" opens
+  it.
+- Clearer names: the Education Team's usage tab is **Usage dashboard**, next
+  to the library's own per-item usage report. M&E's library tab is **Content
+  usage**.
