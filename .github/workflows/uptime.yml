@@ -7,6 +7,10 @@ name: Uptime
 # the repository) and updated at most hourly while it lasts; the first check
 # that passes again closes it. docs/OPERATIONS.md has the details — and why
 # an outside monitor is worth adding too.
+#
+# GitHub starts (or changes) a schedule only when a person pushes this file to
+# main — not when the release's own token moves main. After editing the
+# schedule, push the commit to main yourself as well (docs/OPERATIONS.md).
 on:
   schedule:
     - cron: "*/10 * * * *"

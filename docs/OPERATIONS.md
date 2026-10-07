@@ -148,7 +148,12 @@ Each address gets three tries, 15 seconds apart. If one is down:
 - it's updated at most hourly while the outage lasts;
 - the next good check closes it.
 
-**Its limits.** GitHub's scheduled runs can start several minutes late when
+**Its limits.** GitHub registers a schedule only when a *person* pushes the
+workflow file to `main` — a push by the release's own token (which is how
+`main` normally moves) doesn't start or change one. So after changing the
+schedule of `uptime.yml` or `backup.yml`, also push that commit to `main`
+yourself (`git push origin <commit>:main`, once the release has tested it,
+or just before — it's the same commit). GitHub's scheduled runs can also start several minutes late when
 GitHub is busy. On a public repository, GitHub also pauses scheduled
 workflows after 60 days without a commit; the Actions tab then offers to
 re-enable them. For alerts that don't depend on GitHub, add an outside

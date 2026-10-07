@@ -11,6 +11,10 @@ name: Nightly database backup
 #
 # Needs the SUPABASE_ACCESS_TOKEN repository secret. Files in Storage (the
 # library's uploads) are not in a database dump — RESTORE.md says more.
+#
+# GitHub starts (or changes) a schedule only when a person pushes this file to
+# main — not when the release's own token moves main. After editing the
+# schedule, push the commit to main yourself as well (docs/OPERATIONS.md).
 on:
   schedule:
     - cron: "15 23 * * *" # 02:15 in Kenya
