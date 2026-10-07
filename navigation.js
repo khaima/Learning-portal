@@ -12,10 +12,12 @@
    security; it just keeps each workspace about one responsibility.
    (docs/RBAC.md has the full model.)
 
-   Item: { page, label, icon, needs?: [any of these permissions],
+   Entry (a sidebar row): { id, label, icon, items: [Item…], badge? } — one
+           item is a page; several make a module whose items are its tabs.
+   Item:  { page, label, icon, needs?: [any of these permissions],
            hash?: "#page?param=…" (a filtered view of a page),
            badge?: key from GET /nav/badges, filters?: true (the page uses
-           the county / school / term filter bar), action?: "sync" | "notifications" }
+           the county / school / term filter bar) }
    ============================================================ */
 
 const P = (d) => d;
@@ -94,78 +96,100 @@ const PAGES = {
 };
 /** A console page as a menu item, optionally relabelled or as a filtered view. */
 const c = (page, extra = {}) => ({ page, ...PAGES[page], ...extra });
-const ACCOUNT = (more = []) => ({
-  label: "Account",
-  items: [
-    { page: "profile", label: "My profile", icon: "user" },
-    { action: "notifications", label: "Notifications", icon: "bell", badge: "notifications" },
-    ...more,
-  ],
-});
-const SYNC = { action: "sync", label: "Sync center", icon: "sync" };
+
+/* ---- the menus: one entry per module (docs/NAVIGATION.md) ----
+   A workspace's `groups` are its sidebar entries, in order. An entry with
+   one item is a page; an entry with several is a MODULE — the sidebar
+   shows it once, opening its first item the person may see, and the
+   others are its tabs (nav.js draws them, with a breadcrumb, at the top of
+   each of its pages). A page has one home per workspace: it's in one
+   entry only (navigation_test.ts holds that). Account things — profile,
+   notifications, the Sync center, sign out — are in the menu under the
+   person's name, not here. */
+const entry = (id, label, icon, items, extra = {}) => ({ id, label, icon, items, ...extra });
 
 export const WORKSPACES = {
   platform: {
     title: "Platform Administration", page: "platform.html", roles: ["super_admin"],
     question: "Is the platform secure, healthy and correctly configured?",
+    // The operational areas — administration, M&E, learning — are the other
+    // workspaces, reached deliberately with "Switch workspace" (nav.js).
     groups: [
-      { label: "Dashboard", items: [c("platform-overview"), c("admin-overview"), c("me-dashboard")] },
-      { label: "System management", items: [c("users", { label: "Users & roles" }), c("schools"), c("calendar"), c("classes", { label: "Classes & structure" }), c("subjects")] },
-      { label: "People & learning", items: [c("learners"), c("teachers"), c("school-profiles"), c("assignments"), c("results"), c("content"), c("training")] },
-      { label: "Programme performance", items: [c("overview"), c("reach"), c("learning"), c("teacher-development"), c("field-operations"), c("digital-resources")] },
-      { label: "M&E and data", items: [c("mel-framework"), c("mel-results"), c("mel-reports"), c("data-quality"), c("survey-results"), c("field-visits")] },
-      { label: "Integrations", items: [c("kobo"), c("forms"), c("notifications"), c("sync-problems"), SYNC] },
-      { label: "Security", items: [c("permissions"), c("audit"), c("audit", { label: "Security events", icon: "alert", hash: "#audit?kind=security" }), c("account-activity")] },
-      { label: "Reports", items: [c("reports", { label: "System reports" })] },
-      ACCOUNT(),
+      entry("overview", "Overview", "dashboard", [c("platform-overview", { label: "Overview" })]),
+      entry("users", "Users & roles", "users", [
+        c("users", { label: "Accounts", badge: undefined }), // the approvals count belongs on Approvals
+        c("users", { label: "Approvals", icon: "approve", hash: "#users?status=pending" }),
+        c("permissions", { label: "Permissions & grants" }),
+        c("notifications", { label: "Notifications sent" }),
+      ], { badge: "approvals" }),
+      entry("organisation", "Organisation setup", "school", [
+        c("schools", { label: "Counties & schools" }), c("calendar"), c("classes", { label: "Classes & structure" }), c("subjects"),
+      ]),
+      entry("integrations", "Data & integrations", "plug", [
+        c("kobo"), c("forms", { label: "Form registry" }), c("data-quality", { label: "Validation" }), c("sync-problems", { label: "Sync monitor" }),
+      ]),
+      entry("analytics", "Reports & analytics", "chart", [
+        c("reports", { label: "Exports" }), c("overview", { label: "Executive" }), c("reach"), c("learning"), c("teacher-development"),
+        c("field-operations"), c("digital-resources"), c("survey-results"), c("mel-reports"),
+      ]),
+      entry("security", "Audit & security", "shield", [
+        c("audit"), c("audit", { label: "Security events", icon: "alert", hash: "#audit?kind=security" }), c("account-activity"),
+      ]),
     ],
   },
   admin: {
     title: "Programme Administration", page: "admin.html", roles: ["admin", "super_admin"],
     question: "Is the programme operationally organised and running correctly?",
     groups: [
-      { label: "Dashboard", items: [c("admin-overview")] },
-      { label: "Organisation", items: [c("schools"), c("school-profiles"), c("calendar"), c("classes")] },
-      { label: "People", items: [
-        c("users", { label: "Staff accounts", badge: undefined }),
-        c("teachers"),
-        c("users", { label: "School heads", icon: "school", hash: "#users?role=school_leader", badge: undefined }),
-        c("learners"),
-        c("users", { label: "User approvals", icon: "approve", hash: "#users?status=pending" }),
-      ] },
-      { label: "Learning operations", items: [c("assignments"), c("results"), c("content", { label: "Learning resources" })] },
-      { label: "Programme operations", items: [c("forms"), c("field-visits"), c("kobo", { label: "Kobo surveys" }), c("survey-results"), c("sync-problems"), SYNC] },
-      { label: "Data", items: [c("data-quality"), c("reports", { label: "Reports & exports" })] },
-      ACCOUNT([c("notifications")]),
+      entry("dashboard", "Dashboard", "dashboard", [c("admin-overview", { label: "Dashboard" })]),
+      entry("schools", "Schools", "school", [
+        c("school-profiles", { label: "Schools" }), c("teachers"), c("learners"), c("classes"),
+        c("schools", { label: "Counties & schools" }), c("calendar"),
+      ]),
+      entry("field", "Field operations", "pin", [
+        c("field-visits", { label: "Visits" }), c("forms"), c("kobo", { label: "Kobo surveys" }), c("survey-results"), c("sync-problems"),
+      ]),
+      entry("education", "Education programmes", "cap", [c("assignments"), c("results"), c("content", { label: "Content library" })]),
+      entry("data-quality", "Data quality", "check", [c("data-quality")], { badge: "dataQuality" }),
+      entry("reports", "Reports", "download", [c("reports", { label: "Reports" })]),
+      entry("users", "Users", "users", [
+        c("users", { label: "Accounts", badge: undefined }), // the approvals count belongs on Approvals
+        c("users", { label: "Approvals", icon: "approve", hash: "#users?status=pending" }),
+        c("notifications", { label: "Notifications sent" }),
+      ], { badge: "approvals" }),
     ],
   },
   me: {
     title: "Monitoring & Evaluation", page: "me.html", roles: ["me", "super_admin"],
     question: "Are HPF programmes achieving their intended results — and can we show it with reliable data?",
     groups: [
-      { label: "Dashboard", items: [c("me-dashboard")] },
-      { label: "Programme performance", items: [c("overview"), c("reach"), c("learning", { label: "Learning outcomes" }), c("teacher-development"),
-        c("digital-resources", { label: "Digital resource usage" }), c("field-operations")] },
-      { label: "Results framework", items: [c("mel-framework", { label: "Programmes & indicators" }), c("mel-results")] },
-      { label: "Data quality", items: [c("data-quality", { label: "Data Quality Center" }), c("kobo", { label: "Kobo data quality" })] },
-      { label: "Evidence", items: [c("survey-results"), c("field-visits"), c("forms", { label: "Form responses" })] },
-      { label: "Programme data", items: [c("learners"), c("teachers"), c("classes"), c("school-profiles"), c("assignments"), c("results"),
-        c("training"), c("content", { label: "Content usage" })] },
-      { label: "Reporting", items: [c("mel-reports"), c("reports", { label: "Reports & exports" })] },
-      ACCOUNT(),
+      entry("overview", "M&E overview", "target", [c("me-dashboard", { label: "M&E overview" })]),
+      entry("framework", "Results framework", "layers", [c("mel-framework", { label: "Programmes & indicators" }), c("mel-results")]),
+      entry("analytics", "Reports & analytics", "chart", [
+        c("overview", { label: "Executive" }), c("reach"), c("learning", { label: "Learning outcomes" }), c("teacher-development"),
+        c("digital-resources"), c("field-operations"), c("mel-reports"), c("reports", { label: "Exports" }), c("content", { label: "Content library" }),
+      ]),
+      entry("data-quality", "Data quality", "check", [c("data-quality"), c("kobo", { label: "Kobo review" })], { badge: "dataQuality" }),
+      entry("schools", "Schools", "school", [
+        c("school-profiles", { label: "Schools" }), c("teachers"), c("learners"), c("classes"), c("assignments"), c("results"),
+        c("field-visits", { label: "Visits" }), c("training"),
+      ]),
+      entry("surveys", "Surveys & forms", "survey", [c("survey-results"), c("forms", { label: "Form responses" })]),
     ],
   },
   education: {
     title: "Learning & Education", page: "education.html", roles: ["education_team", "super_admin"],
     question: "How is learning happening, and what support do teachers and learners need?",
     groups: [
-      { label: "Dashboard", items: [c("learning", { label: "Learning overview", icon: "dashboard" })] },
-      { label: "Learning", items: [c("learners"), c("teachers"), c("classes"), c("assignments"), c("results")] },
-      { label: "Content & curriculum", items: [c("content"), c("digital-resources", { label: "Content usage" }), c("subjects")] },
-      { label: "Teacher development", items: [c("teacher-development"), c("training")] },
-      { label: "Field support", items: [c("school-profiles", { label: "School support" }), c("field-visits"), c("forms", { label: "Education forms" }), c("sync-problems")] },
-      { label: "Reports", items: [c("reports", { label: "Learning reports" })] },
-      ACCOUNT(),
+      entry("dashboard", "Dashboard", "dashboard", [c("learning", { label: "Dashboard" })]),
+      entry("schools", "Schools & learning", "school", [
+        c("school-profiles", { label: "Schools" }), c("teachers"), c("learners"), c("classes"),
+        c("field-visits", { label: "Visits" }), c("sync-problems", { label: "Devices" }),
+      ]),
+      entry("activities", "Activities", "star", [c("training"), c("teacher-development"), c("forms", { label: "Education forms" })]),
+      entry("assessments", "Assessments", "assignment", [c("assignments"), c("results")]),
+      entry("content", "Content & resources", "book", [c("content", { label: "Content library" }), c("digital-resources", { label: "Usage" }), c("subjects")]),
+      entry("reports", "Education reports", "download", [c("reports", { label: "Reports" })]),
     ],
   },
   field: {
@@ -174,66 +198,65 @@ export const WORKSPACES = {
     aliases: { reports: "forms" },
     question: "What needs to happen at the schools I support?",
     groups: [
-      { label: "Dashboard", items: [{ page: "dashboard", label: "My dashboard", icon: "dashboard" }] },
-      { label: "My work", items: [
+      entry("dashboard", "Dashboard", "dashboard", [{ page: "dashboard", label: "Dashboard", icon: "dashboard" }]),
+      entry("schools", "My schools", "school", [
         { page: "schools", label: "My schools", icon: "school" },
-        { page: "visits", label: "My visits", icon: "pin" },
-        { page: "forms", label: "Visit forms", icon: "form" },
+        { page: "school-profiles", label: "School profiles", icon: "school", needs: ["schools.profile.view"] },
+        { page: "teachers", label: "Teachers", icon: "teacher", needs: ["teachers.view"] },
+      ]),
+      entry("visits", "My visits", "pin", [{ page: "visits", label: "My visits", icon: "pin" }]),
+      entry("surveys", "Field surveys", "survey", [
         { page: "kobo-surveys", label: "Kobo surveys", icon: "survey", needs: ["kobo.surveys.fill"] },
-      ] },
-      { label: "Schools", items: [{ page: "school-profiles", label: "School profiles", icon: "school", needs: ["schools.profile.view"] }] },
-      { label: "Learning support", items: [{ page: "teachers", label: "Teachers", icon: "teacher", needs: ["teachers.view"] }] },
-      { label: "Reports", items: [{ page: "activity", label: "My activity", icon: "activity" }] },
-      ACCOUNT([SYNC]),
+        { page: "forms", label: "Forms", icon: "form" },
+      ]),
+      entry("reports", "Reports", "download", [{ page: "activity", label: "Reports", icon: "download" }]),
     ],
   },
   school: {
     title: "School Management", page: "leader.html", roles: ["school_leader"],
     question: "What is happening in my school?",
     groups: [
-      { label: "Dashboard", items: [{ page: "overview", label: "School overview", icon: "dashboard" }] },
-      { label: "My school", items: [
-        { page: "school-profile", label: "School profile", icon: "school" },
+      entry("dashboard", "Dashboard", "dashboard", [{ page: "overview", label: "Dashboard", icon: "dashboard" }]),
+      entry("school", "My school", "school", [
+        { page: "school-profile", label: "Profile", icon: "school" },
         { page: "teachers", label: "Teachers", icon: "teacher" },
         { page: "learners", label: "Learners & classes", icon: "cap" },
-      ] },
-      { label: "Learning", items: [
         { page: "learning", label: "Assignments & results", icon: "results" },
-        { page: "resources", label: "Learning resources", icon: "book" },
-      ] },
-      { label: "Reports", items: [{ page: "reports", label: "School reports", icon: "download" }] },
-      ACCOUNT(),
+      ]),
+      entry("resources", "Learning resources", "book", [{ page: "resources", label: "Learning resources", icon: "book" }]),
+      entry("reports", "Reports", "download", [{ page: "reports", label: "Reports", icon: "download" }]),
     ],
   },
   teacher: {
     title: "Teaching & Learning", page: "teacher.html", roles: ["teacher"],
     question: "What is happening in my classes and with my learners?",
     groups: [
-      { label: "Dashboard", items: [{ page: "home", label: "My teaching", icon: "dashboard" }] },
-      { label: "My teaching", items: [
+      entry("dashboard", "Dashboard", "dashboard", [{ page: "home", label: "Dashboard", icon: "dashboard" }]),
+      entry("classes", "My classes", "classes", [
         { page: "my-classes", label: "My classes", icon: "classes" },
         { page: "my-learners", label: "Class roster", icon: "cap" },
-        { page: "assignments", label: "Assignments & assessments", icon: "assignment", badge: "toMark" },
-        { page: "results", label: "Results & progress", icon: "results" },
-      ] },
-      { label: "Content", items: [{ page: "resources", label: "Learning resources", icon: "book" }] },
-      { label: "Activity", items: [{ page: "activity", label: "My activity", icon: "clock" }] },
-      ACCOUNT(),
+      ]),
+      entry("assessments", "Assessments", "assignment", [{ page: "assignments", label: "Assessments", icon: "assignment", badge: "toMark" }], { badge: "toMark" }),
+      entry("results", "Results", "results", [{ page: "results", label: "Results & progress", icon: "results" }]),
+      entry("resources", "Learning resources", "book", [
+        { page: "resources", label: "Learning resources", icon: "book" },
+        { page: "activity", label: "Reading activity", icon: "clock" },
+      ]),
+      entry("reports", "Reports", "download", [{ page: "reports", label: "Reports", icon: "download" }]),
     ],
   },
   learner: {
     title: "My Learning", page: "learner.html", roles: ["learner"],
     question: "What do I need to learn, complete and improve?",
     groups: [
-      { label: "Dashboard", items: [{ page: "home", label: "My learning", icon: "home" }] },
-      { label: "My learning", items: [
-        { page: "my-learning", label: "My classes", icon: "classes" },
-        { page: "assignments", label: "My assignments", icon: "assignment" },
+      entry("home", "Home", "home", [{ page: "home", label: "Home", icon: "home" }]),
+      entry("classes", "My classes", "classes", [{ page: "my-learning", label: "My classes", icon: "classes" }]),
+      entry("assignments", "My assignments", "assignment", [{ page: "assignments", label: "My assignments", icon: "assignment" }]),
+      entry("progress", "My progress", "results", [
         { page: "my-progress", label: "My progress", icon: "results" },
-        { page: "activity", label: "My activity", icon: "clock" },
-      ] },
-      { label: "Library", items: [{ page: "resources", label: "Learning library", icon: "book" }] },
-      ACCOUNT(),
+        { page: "activity", label: "Reading activity", icon: "clock" },
+      ]),
+      entry("library", "Library", "book", [{ page: "resources", label: "Library", icon: "book" }]),
     ],
   },
 };
@@ -244,6 +267,9 @@ export const ROLE_WORKSPACE = {
   field_officer: "field", school_leader: "school", teacher: "teacher", learner: "learner",
 };
 export const workspacePage = (role) => WORKSPACES[ROLE_WORKSPACE[role]]?.page ?? "index.html";
+/** The workspaces this role may open: its own first (a Super Admin can switch into the other management ones). */
+export const workspacesFor = (role) => [ROLE_WORKSPACE[role], ...Object.keys(WORKSPACES).filter((id) => id !== ROLE_WORKSPACE[role] && WORKSPACES[id].roles.includes(role))]
+  .filter((id) => WORKSPACES[id]);
 
 /* Console pages someone reaches only through an explicit grant (e.g. an
    Education Team member granted kobo.results.view) are listed together, so
@@ -251,18 +277,19 @@ export const workspacePage = (role) => WORKSPACES[ROLE_WORKSPACE[role]]?.page ??
    role's own menu above already lists every page its role opens. */
 const CONSOLE_WORKSPACES = new Set(["platform", "admin", "me", "education"]);
 
-/** The menu for this person in this workspace: groups of the items their
-    permissions allow, plus pages opened to them by a grant. */
+/** The menu for this person in this workspace: its entries, each with the
+    items (tabs) their permissions allow — an entry with none is left out —
+    plus pages opened to them by a grant, as an entry of their own. */
 export function menuFor(workspaceId, permissions = [], grants = []) {
   const ws = WORKSPACES[workspaceId];
   if (!ws) return [];
   const held = new Set(permissions);
   const allowed = (it) => !it.needs || it.needs.some((p) => held.has(p));
-  const groups = ws.groups.map((g) => ({ label: g.label, items: g.items.filter(allowed) })).filter((g) => g.items.length);
+  const groups = ws.groups.map((g) => ({ ...g, items: g.items.filter(allowed) })).filter((g) => g.items.length);
   if (CONSOLE_WORKSPACES.has(workspaceId) && grants.length) {
     const have = new Set(groups.flatMap((g) => g.items.map((i) => i.page)));
     const extra = Object.entries(PAGES).filter(([page, it]) => !have.has(page) && it.needs?.some((p) => grants.includes(p))).map(([page]) => c(page));
-    if (extra.length) groups.splice(groups.length - 1, 0, { label: "Granted to you", items: extra });
+    if (extra.length) groups.push(entry("granted", "Granted to you", "star", extra));
   }
   return groups;
 }

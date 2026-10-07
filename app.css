@@ -1283,6 +1283,55 @@ a.stat-tile.dq-tile-link:hover{ border-color:var(--brand); }
   .nav-rail .side-rail-btn .icon{ transform:rotate(180deg); }
 }
 
+/* ---- one row per module (navigation.js); Switch workspace for a Super Admin ---- */
+.ws-switch{ margin:0 0 .6rem; border:1px solid rgba(255,255,255,.14); border-radius:10px; }
+.ws-switch summary{
+  list-style:none; display:flex; align-items:center; gap:.65rem; padding:.5rem .7rem; cursor:pointer;
+  color:#fff; font-size:.84rem; font-weight:600; border-radius:10px;
+}
+.ws-switch summary::-webkit-details-marker{ display:none; }
+.ws-switch summary:hover{ background:rgba(255,255,255,.07); }
+.ws-switch summary:focus-visible{ outline:2px solid rgba(255,255,255,.55); outline-offset:1px; }
+.ws-switch summary small{ display:block; font-size:.64rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:rgba(255,255,255,.55); }
+.ws-list{ display:flex; flex-direction:column; gap:.1rem; padding:0 .35rem .45rem; }
+.ws-link{ padding:.4rem .6rem; border-radius:8px; color:rgba(255,255,255,.78); font-size:.82rem; font-weight:600; text-decoration:none; }
+.ws-link:hover{ background:rgba(255,255,255,.07); color:#fff; }
+.ws-link.current{ color:#fff; box-shadow:inset 3px 0 0 var(--accent); }
+.nav-rail .ws-switch{ border:0; }
+.nav-rail .ws-switch summary{ justify-content:center; padding:.55rem; }
+.nav-rail .ws-switch[open] .ws-list{ display:none; }
+
+/* ---- under the person's name: profile, notifications, sync, sign out ---- */
+.side-menu-links{ display:flex; flex-direction:column; gap:.1rem; margin-top:.5rem; }
+.side-menu-link{
+  display:flex; align-items:center; gap:.55rem; padding:.45rem .7rem; border-radius:10px;
+  color:rgba(255,255,255,.85); font-size:.82rem; font-weight:600; text-decoration:none;
+}
+.side-menu-link .icon{ width:16px; height:16px; opacity:.85; }
+.side-menu-link:hover{ background:rgba(255,255,255,.08); color:#fff; }
+
+/* ---- where you are: breadcrumb, and the module's tabs ---- */
+.page-trail{ margin:-.4rem 0 1rem; }
+.page-trail[hidden]{ display:none; }
+.crumbs{ display:flex; flex-wrap:wrap; gap:.15rem .4rem; list-style:none; margin:0 0 .5rem; padding:0; font-size:.78rem; color:var(--ink-soft); }
+.crumbs li + li::before{ content:"›"; margin-right:.4rem; color:var(--ink-soft); }
+.crumbs a{ color:var(--ink-soft); text-decoration:none; }
+.crumbs a:hover{ color:var(--brand); text-decoration:underline; }
+.crumbs [aria-current]{ color:var(--ink); font-weight:600; }
+.module-tabs{
+  display:flex; gap:.35rem; overflow-x:auto; padding-bottom:.35rem; border-bottom:1px solid var(--line);
+  scrollbar-width:thin; -webkit-overflow-scrolling:touch;
+}
+.module-tab{
+  display:inline-flex; align-items:center; gap:.4rem; flex:none; padding:.45rem .75rem; border-radius:999px;
+  color:var(--ink-soft); font-size:.84rem; font-weight:600; text-decoration:none; white-space:nowrap;
+}
+.module-tab .icon{ width:15px; height:15px; }
+.module-tab:hover{ background:var(--paper-sunk); color:var(--ink); }
+.module-tab:focus-visible{ outline:2px solid var(--focus); outline-offset:1px; }
+.module-tab.active{ background:var(--brand-soft); color:var(--brand); }
+@media print{ .page-trail{ display:none; } }
+
 /* The header: which workspace, and who is signed in. */
 .top-identity{ margin:.1rem 0 .15rem !important; font-size:.84rem !important; font-weight:600; color:var(--ink) !important; }
 .filter-bar[hidden]{ display:none; }

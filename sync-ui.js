@@ -132,20 +132,22 @@ function rowsHtml({ st, server, perms, index, busy }) {
   const role = st.role;
   const k = server?.kobo;
   const manage = perms.has("kobo.manage");
+  // Connecting Kobo (and its API token) is the Super Admin's: Platform → Data & integrations → Kobo.
+  const configure = perms.has("kobo.configure");
 
   // ---- Kobo
   if (k) {
     if (busy.kobo) out.push(row("kobo", "Kobo", "update", "Syncing with KoboToolbox…", "This can take a minute for big surveys."));
     else if (!k.connected) {
       out.push(row("kobo", "Kobo", "error", "Not connected", "",
-        manage ? `Connect KoboToolbox on <a href="education.html#kobo">Kobo Surveys</a> with the account's API token.` : "KoboToolbox isn't connected to the portal yet — ask the Education Team."));
+        configure ? `Connect KoboToolbox on <a href="platform.html#kobo">Data &amp; integrations → Kobo</a> with the account's API token.` : "KoboToolbox isn't connected to the portal yet — a Super Admin connects it."));
     } else {
       const tips = [];
       if (k.failing) {
         tips.push(manage ? `${plural(k.failing, "survey")} couldn't sync — the reason is below.`
           : "Some surveys couldn't be fetched from KoboToolbox at the last sync. Your submissions are safe in Kobo and arrive once it works again.");
       }
-      if (k.mine?.needsReview) tips.push(`${plural(k.mine.needsReview, "of your submissions needs", "of your submissions need")} review — why is below; the Education Team reviews them.`);
+      if (k.mine?.needsReview) tips.push(`${plural(k.mine.needsReview, "of your submissions needs", "of your submissions need")} review — why is below; M&E reviews them.`);
       if (!k.pushConfigured && (!k.lastSyncedAt || Date.now() - Date.parse(k.lastSyncedAt) > 24 * 3600e3)) {
         tips.push(`What you send from Kobo Collect reaches the portal at the next Kobo sync${manage ? " — press Sync now" : ""}.`);
       }
@@ -196,7 +198,7 @@ function rowsHtml({ st, server, perms, index, busy }) {
   return out.join("");
 }
 
-function koboDetailHtml(k, manage) {
+function koboDetailHtml(k, perms) {
   if (!k?.connected) return "";
   let html = "";
   if (k.surveys?.length) {
@@ -205,8 +207,8 @@ function koboDetailHtml(k, manage) {
       <tbody>${k.surveys.map((f) => `<tr>
         <td class="lms-name">${esc(f.title)}${f.error ? `<br><span class="field-error">${esc(f.error)}${f.lastAttemptAt ? ` (${esc(fmtSyncTime(f.lastAttemptAt))})` : ""}</span>` : ""}</td>
         <td>${f.syncedAt ? esc(fmtSyncTime(f.syncedAt)) : "never"}</td><td>${f.received}</td><td>${f.counted}</td><td>${f.needsReview}</td></tr>`).join("")}</tbody></table></div>
-      ${k.surveys.some((f) => /token/i.test(f.error || "")) && manage ? `<p class="field-hint">Update the API token on <a href="education.html#kobo">Kobo Surveys</a>.</p>` : ""}
-      ${k.surveys.some((f) => f.needsReview) && manage ? `<p class="field-hint">Review flagged submissions on Kobo Surveys → Data pipeline.</p>` : ""}`;
+      ${k.surveys.some((f) => /token/i.test(f.error || "")) && perms.has("kobo.configure") ? `<p class="field-hint">Update the API token on <a href="platform.html#kobo">Data &amp; integrations → Kobo</a>.</p>` : ""}
+      ${k.surveys.some((f) => f.needsReview) && perms.has("kobo.review") ? `<p class="field-hint">Review flagged submissions on <a href="#kobo">the Kobo page</a> → Data pipeline.</p>` : ""}`;
   }
   if (k.mine) {
     const m = k.mine;
@@ -269,7 +271,7 @@ export function openSyncPanel() {
       ${stuck.length ? `<h3>Needs your decision</h3><ul class="sync-list">${stuck.map(itemHtml).join("")}</ul>` : ""}
       <h3>Waiting to sync</h3>
       ${waiting.length ? `<ul class="sync-list">${waiting.map(itemHtml).join("")}</ul>` : `<p class="hint">Nothing — everything done on this device has been sent.</p>`}
-      ${koboDetailHtml(server?.kobo, perms.has("kobo.manage"))}
+      ${koboDetailHtml(server?.kobo, perms)}
       <h3>Saved for offline reading</h3>
       ${st.savedFiles.length ? `<ul class="sync-list">${st.savedFiles.map((f) => `
         <li class="sync-item"><b>${esc(f.title || f.name)}</b><span class="hint-inline"> · ${esc(f.name)} · ${esc(fmtBytes(f.size))}</span>

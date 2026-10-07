@@ -21,7 +21,7 @@ import { openViewer, openYouTubeViewer, viewableKind, isViewerOpen, currentOpenI
 import * as sync from "./sync.js";
 import { mountSyncStatus, openSyncPanel } from "./sync-ui.js";
 import { mountBell, openNotifications } from "./notify-ui.js";
-import { ICON, menuFor, ROLE_WORKSPACE, WORKSPACES } from "./navigation.js";
+import { ICON, menuFor, ROLE_WORKSPACE, WORKSPACES, workspacesFor } from "./navigation.js";
 import { rawRequest } from "./api.js";
 
 // Online / offline, last sync and what's waiting — on every dashboard; the
@@ -233,18 +233,20 @@ document.addEventListener("visibilitychange", () => {
    the items their permissions allow), once their profile has loaded —
    every dashboard calls mountNavigation(user) right after requireRole().
 
-   A page is shown only if it's in that person's menu: an address for any
-   other page (typed, bookmarked, or left over from another role) goes to
-   their own landing page instead. That's the screen; the API checks every
+   The sidebar has one row per entry; a module's other pages are tabs drawn
+   above the page, under a breadcrumb (Workspace › Module › Tab).
+
+   A page is shown only if it's in that person's menu — a row or a tab: an
+   address for any other page (typed, bookmarked, or left over from another
+   role) goes to their own landing page instead. That's the screen; the API checks every
    request again. The current page is the URL hash (#users, or
    #users?role=teacher for a filtered view) and the highlighted link, so
    reload / back / forward and shared links all agree. */
 const iconSvg = (name) =>
   `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${ICON[name] ?? ICON.dashboard}</svg>`;
-const navKey = (ws) => `hpf_nav_groups:${ws}`;
-const readJson = (k, d) => { try { return JSON.parse(localStorage.getItem(k) ?? "") ?? d; } catch { return d; } };
-const writeJson = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } };
 const escText = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const hrefOf = (it) => it.hash || `#${it.page}`;
+const badgeText = (n) => (!n ? "" : n > 99 ? "99+" : String(n));
 
 let pageHandler = null;
 
@@ -259,6 +261,26 @@ const ROLE_TEXT = {
   super_admin: "Super Admin", admin: "Admin", me: "M&E", education_team: "Education Team",
   field_officer: "Field Officer", school_leader: "School Head", teacher: "Teacher", learner: "Learner",
 };
+
+/* Under the person's name: their profile, notifications (also the bell),
+   the Sync center (also the sync chip), and Sign out — the same on every
+   dashboard, so none of it takes a row in the menu. */
+function mountAccountMenu() {
+  const menu = $("#sideMenu");
+  if (!menu || menu.querySelector("[data-account-links]")) return;
+  const box = document.createElement("div");
+  box.className = "side-menu-links";
+  box.dataset.accountLinks = "";
+  box.innerHTML = `
+    <a class="side-menu-link" href="#profile">${iconSvg("user")}My profile</a>
+    <a class="side-menu-link" href="#" data-open-notifications>${iconSvg("bell")}Notifications</a>
+    <a class="side-menu-link" href="#" data-open-sync-center>${iconSvg("sync")}Sync center</a>`;
+  menu.prepend(box);
+  menu.addEventListener("click", (e) => {
+    if (e.target.closest("[data-open-notifications]")) { e.preventDefault(); openNotifications(); }
+    if (e.target.closest("a")) { menu.hidden = true; $("#sideUserBtn")?.setAttribute("aria-expanded", "false"); }
+  });
+}
 
 export function mountNavigation(user, { workspace, onPage } = {}) {
   const wsId = workspace || ROLE_WORKSPACE[user.role];
@@ -281,6 +303,7 @@ export function mountNavigation(user, { workspace, onPage } = {}) {
   if (who) who.textContent = identityLine(user);
   const sideMeta = $("#sideMeta");
   if (sideMeta) sideMeta.textContent = identityLine(user);
+  mountAccountMenu();
 
   // ---- My profile is on every dashboard
   const main = $(".app-main");
@@ -292,53 +315,74 @@ export function mountNavigation(user, { workspace, onPage } = {}) {
     main.appendChild(sec);
   }
 
-  // ---- the menu
+  // ---- the menu: one row per entry; a module's other pages are its tabs.
+  // Someone who may open more than one workspace (a Super Admin) switches
+  // between them here — the operational areas stay out of their own menu.
   const items = groups.flatMap((g) => g.items);
-  const saved = readJson(navKey(wsId), null);
-  const many = items.length > 14;
+  const switchable = workspacesFor(user.role);
   nav.setAttribute("aria-label", `${ws.title} menu`);
-  nav.innerHTML = groups.map((g, gi) => {
-    const open = saved ? !saved.includes(g.label) : !many || gi === 0;
-    return `<div class="side-section${open ? " open" : ""}" data-group="${escText(g.label)}">
-      <button type="button" class="side-group-btn" aria-expanded="${open}"><span>${escText(g.label)}</span>
-        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
-      <div class="side-items">${g.items.map((it) => {
-        const badge = it.badge ? `<span class="nav-badge" data-badge="${it.badge}" hidden></span>` : "";
-        const label = `<span class="side-label">${escText(it.label)}</span>`;
-        if (it.action === "sync") return `<a class="side-link" href="#" data-open-sync-center title="${escText(it.label)}">${iconSvg(it.icon)}${label}${badge}</a>`;
-        if (it.action === "notifications") return `<a class="side-link" href="#" data-open-notifications title="${escText(it.label)}">${iconSvg(it.icon)}${label}${badge}</a>`;
-        const href = it.hash || `#${it.page}`;
-        return `<a class="side-link" href="${escText(href)}" data-page="${it.page}"${it.hash ? " data-view" : ""} title="${escText(it.label)}">${iconSvg(it.icon)}${label}${badge}</a>`;
-      }).join("")}</div></div>`;
-  }).join("") + `<button type="button" class="side-rail-btn" title="Collapse the menu" aria-label="Collapse the menu">
+  nav.innerHTML = (switchable.length > 1 ? `
+    <details class="ws-switch">
+      <summary title="Switch workspace">${iconSvg("layers")}<span class="side-label"><small>Workspace</small>${escText(ws.title)}</span></summary>
+      <div class="ws-list">${switchable.map((id) => id === wsId
+        ? `<span class="ws-link current" aria-current="page">${escText(WORKSPACES[id].title)}</span>`
+        : `<a class="ws-link" href="${escText(WORKSPACES[id].page)}">${escText(WORKSPACES[id].title)}</a>`).join("")}</div>
+    </details>` : "")
+    + `<div class="side-items">${groups.map((g) => {
+      const badge = g.badge ? `<span class="nav-badge" data-badge="${escText(g.badge)}" hidden></span>` : "";
+      return `<a class="side-link" href="${escText(hrefOf(g.items[0]))}" data-entry="${escText(g.id)}" title="${escText(g.label)}">${iconSvg(g.icon)}<span class="side-label">${escText(g.label)}</span>${badge}</a>`;
+    }).join("")}</div>`
+    + `<button type="button" class="side-rail-btn" title="Collapse the menu" aria-label="Collapse the menu">
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg><span class="side-label">Collapse menu</span></button>`;
 
-  // Expand / collapse a group (remembered per workspace on this device).
   nav.addEventListener("click", (e) => {
-    const btn = e.target.closest(".side-group-btn");
-    if (btn) {
-      const sec = btn.closest(".side-section");
-      const open = !sec.classList.contains("open");
-      sec.classList.toggle("open", open);
-      btn.setAttribute("aria-expanded", String(open));
-      writeJson(navKey(wsId), $$(".side-section:not(.open)", nav).map((s) => s.dataset.group));
-      return;
-    }
     if (e.target.closest(".side-rail-btn")) {
       const rail = !$(".app-shell").classList.contains("nav-rail");
       $(".app-shell").classList.toggle("nav-rail", rail);
       try { localStorage.setItem("hpf_nav_rail", rail ? "1" : "0"); } catch { /* ignore */ }
-      return;
     }
-    if (e.target.closest("[data-open-notifications]")) { e.preventDefault(); openNotifications(); }
   });
   try { if (localStorage.getItem("hpf_nav_rail") === "1") $(".app-shell")?.classList.add("nav-rail"); } catch { /* ignore */ }
 
-  // ---- which pages this person may open
+  // ---- where you are: a breadcrumb, and a module's tabs, above the page
+  let trail = $(".page-trail");
+  if (!trail && main) {
+    trail = document.createElement("nav");
+    trail.className = "page-trail";
+    trail.setAttribute("aria-label", "Where you are");
+    ($(".app-top", main) ?? main.firstElementChild)?.after(trail);
+  }
+  const badgeCounts = {};
+  const badgeHtml = (key) => (key ? `<span class="nav-badge" data-badge="${escText(key)}"${badgeCounts[key] ? "" : " hidden"}>${escText(badgeText(badgeCounts[key]))}</span>` : "");
+  function drawTrail(g, item, raw, page) {
+    if (!trail) return;
+    const home = groups[0];
+    if (page === "profile") {
+      trail.hidden = false;
+      trail.innerHTML = `<ol class="crumbs"><li><a href="${escText(hrefOf(home.items[0]))}">${escText(ws.title)}</a></li><li aria-current="page">My profile</li></ol>`;
+      return;
+    }
+    if (!g || (g === home && g.items.length === 1)) { trail.hidden = true; trail.innerHTML = ""; return; }
+    const isModule = g.items.length > 1;
+    // "My schools › My schools" says nothing twice: a tab named like its module ends the trail at the module.
+    const deeper = isModule && item && item.label !== g.label;
+    const crumbs = [
+      `<li><a href="${escText(hrefOf(home.items[0]))}">${escText(ws.title)}</a></li>`,
+      deeper ? `<li><a href="${escText(hrefOf(g.items[0]))}">${escText(g.label)}</a></li>` : `<li aria-current="page">${escText(g.label)}</li>`,
+      ...(deeper ? [`<li aria-current="page">${escText(item.label)}</li>`] : []),
+    ];
+    trail.hidden = false;
+    trail.innerHTML = `<ol class="crumbs">${crumbs.join("")}</ol>` + (isModule ? `<div class="module-tabs">${g.items.map((it) => {
+      const on = it === item;
+      return `<a class="module-tab${on ? " active" : ""}" href="${escText(hrefOf(it))}"${on ? ' aria-current="page"' : ""}>${iconSvg(it.icon)}<span>${escText(it.label)}</span>${badgeHtml(it.badge)}</a>`;
+    }).join("")}</div>` : "");
+  }
+
+  // ---- which pages this person may open: every item of every entry
   const allowed = new Set([...items.map((i) => i.page).filter(Boolean), "profile"]);
   const landing = items.find((i) => i.page)?.page || "profile";
   const pages = $$(".app-main .dash-page[data-page]");
-  const links = $$(".side-link[data-page]", nav);
+  const entryLinks = $$(".side-link[data-entry]", nav);
   const filterBar = $(".filter-bar");
   const parse = () => {
     let raw = decodeURIComponent((location.hash || "").slice(1));
@@ -346,6 +390,12 @@ export function mountNavigation(user, { workspace, onPage } = {}) {
     if (ws.aliases?.[first]) { raw = ws.aliases[first]; history.replaceState(null, "", `#${raw}`); }
     const [page, qs] = raw.split("?");
     return { raw, page, params: new URLSearchParams(qs || "") };
+  };
+  /** The entry and item this address belongs to: an exact filtered view first, then the page itself. */
+  const locate = (page, raw) => {
+    for (const g of groups) { const it = g.items.find((i) => hrefOf(i) === `#${raw}`); if (it) return [g, it]; }
+    for (const g of groups) { const it = g.items.find((i) => i.page === page && !i.hash) ?? g.items.find((i) => i.page === page); if (it) return [g, it]; }
+    return [null, null];
   };
   function show() {
     let { raw, page, params } = parse();
@@ -355,15 +405,12 @@ export function mountNavigation(user, { workspace, onPage } = {}) {
       ({ raw, page, params } = { raw: landing, page: landing, params: new URLSearchParams() });
     }
     pages.forEach((p) => { p.hidden = p.dataset.page !== page; });
-    const exact = links.find((l) => l.getAttribute("href") === `#${raw}`) ||
-      links.find((l) => l.dataset.page === page && !l.hasAttribute("data-view"));
-    links.forEach((l) => { l.classList.toggle("active", l === exact); l.toggleAttribute("aria-current", l === exact); });
-    const sec = exact?.closest(".side-section");
-    if (sec && !sec.classList.contains("open")) { sec.classList.add("open"); sec.querySelector(".side-group-btn")?.setAttribute("aria-expanded", "true"); }
-    const item = items.find((i) => i.page === page);
+    const [g, item] = page === "profile" ? [null, null] : locate(page, raw);
+    entryLinks.forEach((l) => { const on = l.dataset.entry === g?.id; l.classList.toggle("active", on); l.toggleAttribute("aria-current", on); });
+    drawTrail(g, item, raw, page);
     if (filterBar) filterBar.hidden = !item?.filters;
-    const label = exact?.querySelector(".side-label")?.textContent.trim();
-    document.title = `${page === "profile" ? "My profile" : label || item?.label || ws.title} — ${ws.title}`;
+    const title = page === "profile" ? "My profile" : g && g.items.length > 1 ? `${item?.label} — ${g.label}` : g?.label;
+    document.title = `${title || ws.title} — ${ws.title}`;
     window.scrollTo(0, 0);
     if (page === "profile") {
       import("./profile-ui.js").then((m) => m.renderProfile($('.dash-page[data-page="profile"]'), user)).catch(() => {});
@@ -378,15 +425,16 @@ export function mountNavigation(user, { workspace, onPage } = {}) {
   window.addEventListener("hashchange", show);
   show();
 
-  // ---- badges: what's waiting, only the counts this person may see
+  // ---- badges: what's waiting, only the counts this person may see (menu rows and tabs)
   async function badges() {
     if (!navigator.onLine) return;
     let b;
     try { b = (await rawRequest("GET", "/nav/badges")).badges || {}; } catch { return; }
-    for (const el of $$("[data-badge]", nav)) {
-      const n = Number(b[el.dataset.badge] || 0);
+    Object.assign(badgeCounts, b);
+    for (const el of $$("[data-badge]")) {
+      const n = Number(badgeCounts[el.dataset.badge] || 0);
       el.hidden = !n;
-      el.textContent = n > 99 ? "99+" : String(n);
+      el.textContent = badgeText(n);
     }
   }
   setTimeout(badges, 1500);
@@ -396,7 +444,6 @@ export function mountNavigation(user, { workspace, onPage } = {}) {
 
   return { allowed, landing, workspace: wsId, refreshBadges: badges, canOpen: (page) => allowed.has(page) };
 }
-
 /* notification bell — stored notifications, unread count, the list (notify-ui.js) */
 mountBell();
 
