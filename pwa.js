@@ -16,13 +16,14 @@
 
 // Every page loads this file, so every page reports its errors (telemetry.js).
 import "./telemetry.js";
-import { TARGET } from "./config.js";
+import { PREVIEW, TARGET } from "./config.js";
 
-// A staging build (a Vercel preview) says so on every page: its data is test data.
-if (TARGET === "staging") {
+// A preview says so on every page — and whose data it is: staging's test
+// data, or (until a staging project is set up) the live data.
+if (TARGET === "staging" || PREVIEW) {
   const tag = document.createElement("div");
-  tag.className = "env-ribbon";
-  tag.textContent = "Staging — test data";
+  tag.className = `env-ribbon${TARGET === "staging" ? "" : " live"}`;
+  tag.textContent = TARGET === "staging" ? "Staging — test data" : "Preview — live data";
   document.documentElement.appendChild(tag);
 }
 

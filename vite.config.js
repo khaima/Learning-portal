@@ -58,6 +58,8 @@ export default defineConfig({
   base: "./",
   define: {
     "import.meta.env.HPF_TARGET": JSON.stringify(targetName),
+    // A Vercel preview: says so on every page (pwa.js), live data or not.
+    "import.meta.env.HPF_PREVIEW": JSON.stringify(process.env.VERCEL_ENV === "preview"),
     "import.meta.env.HPF_SUPABASE_URL": JSON.stringify(target.supabaseUrl),
     "import.meta.env.HPF_PUBLISHABLE_KEY": JSON.stringify(target.publishableKey),
   },

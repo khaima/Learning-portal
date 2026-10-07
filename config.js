@@ -18,6 +18,8 @@ export const SUPABASE_URL = import.meta.env.HPF_SUPABASE_URL;
 export const SUPABASE_PUBLISHABLE_KEY = import.meta.env.HPF_PUBLISHABLE_KEY;
 /** "production" or "staging". */
 export const TARGET = import.meta.env.HPF_TARGET;
+/** A Vercel preview deployment (the staging branch, or any other). */
+export const PREVIEW = import.meta.env.HPF_PREVIEW === true;
 
 /** Base URL of the backend API (the `api` Edge Function). */
 export const API_BASE = `${SUPABASE_URL}/functions/v1/api`;

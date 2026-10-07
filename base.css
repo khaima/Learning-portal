@@ -341,6 +341,7 @@ a{ color:inherit; }
   background:var(--accent); color:#fff; font-size:.72rem; font-weight:600; line-height:1.6; letter-spacing:.04em;
   padding:.05rem .8rem; border-radius:0 0 .5rem .5rem; text-transform:uppercase;
 }
+.env-ribbon.live{ background:var(--danger); }
 @media print{ .env-ribbon{ display:none; } }
 .update-notice{
   position:fixed; left:50%; bottom:1rem; transform:translateX(-50%); z-index:700;

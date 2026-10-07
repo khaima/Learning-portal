@@ -5,7 +5,7 @@
 
      node scripts/bootstrap-staging.mjs <staging project ref> --site=<staging site URL>
 
-   e.g. --site=https://learning-portal-git-staging-<team>.vercel.app/
+   e.g. --site=https://learning-portal-git-staging-hpf1.vercel.app/
 
    1. the schema: supabase-schema.sql (reference lists only — counties,
       terms, subjects, grade bands — no people), with its hourly
@@ -33,7 +33,7 @@ const ref = process.argv[2];
 const site = process.argv.find((a) => a.startsWith("--site="))?.slice(7);
 if (!/^[a-z]{20}$/.test(ref ?? "")) throw new Error("usage: node scripts/bootstrap-staging.mjs <staging project ref> --site=<staging site URL>");
 if (ref === PRODUCTION) throw new Error("That's production's ref — this is only for a new, empty staging project.");
-if (!/^https:\/\/[\w.-]+\/?$/.test(site ?? "")) throw new Error("--site=<the staging site's address>, e.g. https://learning-portal-git-staging-<team>.vercel.app/");
+if (!/^https:\/\/[\w.-]+\/?$/.test(site ?? "")) throw new Error("--site=<the staging site's address>, e.g. https://learning-portal-git-staging-hpf1.vercel.app/");
 
 /** Runs a command; on Windows through the shell (npx is a .cmd there) as one quoted string. */
 const run = (cmd, args, opts) => (process.platform === "win32"

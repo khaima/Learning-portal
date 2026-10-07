@@ -239,11 +239,16 @@ history and in `supabase-schema.sql`.
 ### Staging
 
 **Vercel side (no setup).** Vercel builds a preview of every branch, and
-`staging` gets a fixed address: `learning-portal-git-staging-<team>.vercel.app`.
-A preview build talks to the project named `staging` in
-[`environments.json`](../environments.json) (`vite.config.js` decides). Until
-that's filled in, previews use production, as they always have. A staging
-build shows **Staging — test data** at the top of every page.
+`staging` has a fixed address:
+<https://learning-portal-git-staging-hpf1.vercel.app/>. Vercel
+Authentication protects it, so only members of the Vercel team can open it;
+testers need to be added there. A preview build talks to the project named
+`staging` in [`environments.json`](../environments.json) (`vite.config.js`
+decides), and every page says which:
+- **Staging — test data:** the staging project.
+- **Preview — live data:** in red, until a staging project is filled in.
+  Previews then use production, as they always have, so anything done there
+  is real.
 
 **Supabase side (one-time setup).** A staging project is a second Supabase
 project. **The Free plan allows two active projects, and both are in use**
@@ -255,7 +260,7 @@ project. **The Free plan allows two active projects, and both are in use**
 Once it exists:
 1. Bootstrap it:
    ```bash
-   node scripts/bootstrap-staging.mjs <staging ref> --site=https://learning-portal-git-staging-<team>.vercel.app/
+   node scripts/bootstrap-staging.mjs <staging ref> --site=https://learning-portal-git-staging-hpf1.vercel.app/
    ```
    It copies production's **structure, never its data**:
    - `supabase-schema.sql`, with only reference lists (counties, terms,
