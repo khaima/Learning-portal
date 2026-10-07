@@ -35,8 +35,12 @@ if (!/^[a-z]{20}$/.test(ref ?? "")) throw new Error("usage: node scripts/bootstr
 if (ref === PRODUCTION) throw new Error("That's production's ref — this is only for a new, empty staging project.");
 if (!/^https:\/\/[\w.-]+\/?$/.test(site ?? "")) throw new Error("--site=<the staging site's address>, e.g. https://learning-portal-git-staging-<team>.vercel.app/");
 
+/** Runs a command; on Windows through the shell (npx is a .cmd there) as one quoted string. */
+const run = (cmd, args, opts) => (process.platform === "win32"
+  ? spawnSync([cmd, ...args].map((a) => (/[\s"&|<>^]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a)).join(" "), { ...opts, shell: true })
+  : spawnSync(cmd, args, opts));
 const supabase = (...args) => {
-  const r = spawnSync("npx", ["--yes", CLI, ...args], { cwd: ROOT, encoding: "utf8", shell: process.platform === "win32", stdio: ["ignore", "pipe", "inherit"] });
+  const r = run("npx", ["--yes", CLI, ...args], { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
   if (r.status !== 0) throw new Error(`supabase ${args.slice(0, 2).join(" ")} failed:\n${r.stdout}`);
   return r.stdout;
 };

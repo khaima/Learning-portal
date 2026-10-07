@@ -17,6 +17,10 @@ import { join } from "node:path";
 const ROOT = join(import.meta.dirname, "..");
 const PRODUCTION = "fwpqytrdlmxymvegvgji";
 const CLI = "supabase@2.114.0";
+/** Runs a command; on Windows through the shell (npx is a .cmd there) as one quoted string. */
+const run = (cmd, args, opts) => (process.platform === "win32"
+  ? spawnSync([cmd, ...args].map((a) => (/[\s"&|<>^]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a)).join(" "), { ...opts, shell: true })
+  : spawnSync(cmd, args, opts));
 const ref = process.argv.find((a) => a.startsWith("--project-ref="))?.slice(14) || PRODUCTION;
 if (!/^[a-z]{20}$/.test(ref)) throw new Error(`deploy-api: "${ref}" isn't a project ref`);
 
@@ -30,8 +34,8 @@ writeFileSync(file, original.replace(/export const RELEASE = "[^"]*";/, `export 
 let status = 1;
 try {
   console.log(`Deploying api ${release} to ${ref === PRODUCTION ? "production" : ref}…`);
-  status = spawnSync("npx", ["--yes", CLI, "functions", "deploy", "api", "--project-ref", ref, "--no-verify-jwt", "--use-api"], {
-    cwd: ROOT, stdio: "inherit", shell: process.platform === "win32",
+  status = run("npx", ["--yes", CLI, "functions", "deploy", "api", "--project-ref", ref, "--no-verify-jwt", "--use-api"], {
+    cwd: ROOT, stdio: "inherit",
   }).status ?? 1;
 } finally {
   writeFileSync(file, original);

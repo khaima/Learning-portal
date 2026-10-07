@@ -6,7 +6,8 @@ url=$1
 release=$2
 for attempt in $(seq 1 24); do
   body=$(curl -s --max-time 20 "$url" || true)
-  if echo "$body" | jq -e --arg r "$release" '.ok == true and .release == $r' >/dev/null 2>&1; then
+  # The reply is compact JSON: {"ok":true,"database":"ok",…,"release":"<commit>",…}
+  if echo "$body" | grep -q '"ok":true' && echo "$body" | grep -q "\"release\":\"$release\""; then
     echo "✓ $url — up, release $release"
     exit 0
   fi
