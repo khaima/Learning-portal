@@ -1,12 +1,16 @@
 name: Tests
 
-# Every push to any branch, and every pull request. The api Edge Function's
-# full suite runs against an in-memory stand-in for Supabase — no database,
-# no network, no secrets needed (supabase/functions/api/test_world.ts).
+# Every push, and every pull request. The api Edge Function's full suite
+# runs against an in-memory stand-in for Supabase — no database, no network,
+# no secrets needed (supabase/functions/api/test_world.ts). A push to
+# `staging` is tested by the release instead, which calls this workflow and
+# goes on to production only if it passes (release.yml).
 on:
   push:
+    branches-ignore: [staging]
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read

@@ -335,6 +335,13 @@ a{ color:inherit; }
 
 /* ---- "Update available — reload" (pwa.js): a new version of the
    portal is on this device and starts when the person chooses. ---- */
+/* A staging build (pwa.js) says so on every page. */
+.env-ribbon{
+  position:fixed; top:0; left:50%; transform:translateX(-50%); z-index:200; pointer-events:none;
+  background:var(--accent); color:#fff; font-size:.72rem; font-weight:600; line-height:1.6; letter-spacing:.04em;
+  padding:.05rem .8rem; border-radius:0 0 .5rem .5rem; text-transform:uppercase;
+}
+@media print{ .env-ribbon{ display:none; } }
 .update-notice{
   position:fixed; left:50%; bottom:1rem; transform:translateX(-50%); z-index:700;
   display:flex; align-items:center; gap:.9rem; max-width:calc(100% - 2rem);

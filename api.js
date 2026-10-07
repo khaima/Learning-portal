@@ -51,7 +51,8 @@ export class ApiError extends Error {
   }
 }
 
-async function authHeader() {
+/** The caller's Authorization header (telemetry.js uses it too). */
+export async function authHeader() {
   const lt = learnerToken();
   if (lt) return { Authorization: `Bearer hpl_${lt}` };
   const t = await accessToken();

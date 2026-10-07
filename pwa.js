@@ -14,6 +14,18 @@
    tab comes back into view, and every hour.
    ============================================================ */
 
+// Every page loads this file, so every page reports its errors (telemetry.js).
+import "./telemetry.js";
+import { TARGET } from "./config.js";
+
+// A staging build (a Vercel preview) says so on every page: its data is test data.
+if (TARGET === "staging") {
+  const tag = document.createElement("div");
+  tag.className = "env-ribbon";
+  tag.textContent = "Staging — test data";
+  document.documentElement.appendChild(tag);
+}
+
 const CHECK_EVERY_MS = 60 * 60 * 1000;
 let registration = null;
 let reloading = false;

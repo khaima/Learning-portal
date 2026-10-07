@@ -45,6 +45,8 @@ import {
 } from "./data_quality.ts";
 import { invitationEmail, type MailMessage, mailReady, type MailResult, sendMail } from "./mail.ts";
 import { PWNED_MESSAGE, timesPwned } from "./pwned.ts";
+import { environment, report, type Report, routePattern, scrub, telemetryOn } from "./telemetry.ts";
+import { RELEASE } from "./release.ts";
 import {
   achievement, cleanSourceConfig, type Computed, koboInScope, koboMeasure, periodRange, PORTAL_METRICS,
   type Scope as MeScope, targetFor, UNITS as ME_UNITS,
@@ -470,7 +472,64 @@ app.use(
   }),
 );
 
-app.get("/health", (c) => c.json({ ok: true }));
+/* ---- error reporting (telemetry.ts) ----
+   Every 5xx reply and every exception goes to the error tracker, tagged
+   with the caller's role and school as the database knows them — never who
+   they are. Off until the SENTRY_DSN secret is set. */
+app.use("*", async (c, next) => {
+  await next();
+  if (c.res.status < 500 || !telemetryOn()) return;
+  const thrown = c.error;
+  let message = thrown?.message ?? "";
+  if (!thrown) {
+    try { message = String((await c.res.clone().json())?.error ?? ""); } catch { /* not JSON */ }
+  }
+  const status = c.res.status;
+  const method = c.req.method;
+  report(whoIsCalling(c).then((who): Report => ({
+    side: "api", type: thrown?.name ?? `HTTP ${status}`, message: message || `${status} reply`, stack: thrown?.stack,
+    transaction: `${method} ${routePattern(new URL(c.req.url).pathname)}`,
+    tags: { ...who.tags, method, status: String(status) }, actorId: who.actorId, release: RELEASE,
+  })));
+});
+
+/** Role, school and kind of account of whoever made this request — for an error report. */
+// deno-lint-ignore no-explicit-any
+async function whoIsCalling(c: any): Promise<{ tags: Record<string, string>; actorId: string | null }> {
+  const actor = c.get("actor") as Actor | undefined;
+  const kind = c.get("actorKind") as string | undefined;
+  if (actor) return { tags: { role: actor.role, account: kind ?? "staff", school: await schoolCode(actor.schoolId) }, actorId: actor.id };
+  if (kind) return { tags: { role: "unresolved", account: kind }, actorId: (kind === "learner" ? c.get("learnerId") : c.get("userId")) ?? null };
+  return { tags: { role: "signed-out", account: "none" }, actorId: null };
+}
+
+/** A school's code (NRK-001), for tags — never its name or anyone in it. */
+const schoolCodes = new Map<string, { code: string; at: number }>();
+async function schoolCode(id: string | null | undefined): Promise<string> {
+  if (!id) return "none";
+  const hit = schoolCodes.get(id);
+  if (hit && Date.now() - hit.at < 10 * 60_000) return hit.code;
+  const { data } = await admin.from("schools").select("code").eq("id", id).maybeSingle();
+  const code = String(data?.code ?? "unknown");
+  schoolCodes.set(id, { code, at: Date.now() });
+  return code;
+}
+
+/* Is the API up? For the uptime check (.github/workflows/uptime.yml): the
+   function answers AND the database does — 503 when it doesn't. Public,
+   and it says nothing about the data. */
+app.get("/health", async (c) => {
+  const started = Date.now();
+  let db = false;
+  try {
+    const { error } = await admin.from("counties").select("name").limit(1).abortSignal(AbortSignal.timeout(5000));
+    db = !error;
+  } catch {
+    db = false;
+  }
+  c.header("Cache-Control", "no-store");
+  return c.json({ ok: db, database: db ? "ok" : "unreachable", ms: Date.now() - started, release: RELEASE, environment: environment() }, db ? 200 : 503);
+});
 
 // ---- staff sign-up (email + password, no confirmation email) ----
 
@@ -672,6 +731,70 @@ app.post("/notifications/run", async (c) => {
   if (error || ok !== true) return c.json({ error: "Not allowed" }, 401);
   return c.json(await runNotifications("schedule"));
 });
+
+/* ---- errors in the browser (telemetry.js) ----
+   Public — the sign-in page can fail too. The page says what went wrong;
+   who it was (role, school) is worked out here from the session, if there
+   is one, never taken from the report. At most 20 a minute from one person
+   or address, and always 202, so a page never retries. */
+const browserReports = new Map<string, { n: number; since: number }>();
+function browserReportAllowed(key: string): boolean {
+  const now = Date.now();
+  const seen = browserReports.get(key);
+  if (!seen || now - seen.since > 60_000) {
+    if (browserReports.size > 2000) browserReports.clear();
+    browserReports.set(key, { n: 1, since: now });
+    return true;
+  }
+  seen.n += 1;
+  return seen.n <= 20;
+}
+const reportText = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : "");
+app.post("/telemetry/error", async (c) => {
+  const raw = await c.req.text();
+  if (raw.length > 16_000) return c.json({ error: "Report too large" }, 413);
+  let b: Record<string, unknown>;
+  try { b = JSON.parse(raw); } catch { return c.json({ error: "Invalid report" }, 400); }
+  if (!b || typeof b !== "object" || Array.isArray(b)) return c.json({ error: "Invalid report" }, 400);
+  const who = await quietIdentity(c.req.header("Authorization"));
+  const key = who.actorId ?? c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "anonymous";
+  if (!browserReportAllowed(key)) return c.json({ ok: true, sent: false }, 202);
+  const page = reportText(b.page, 80).replace(/[^\w./-]/g, "") || "unknown";
+  const r: Report = {
+    side: "browser", level: b.level === "warning" ? "warning" : "error",
+    type: reportText(b.type, 80) || "Error", message: reportText(b.message, 2000), stack: reportText(b.stack, 8000),
+    transaction: page,
+    tags: { ...who.tags, page, source: reportText(b.source, 40), online: b.online === false ? "no" : "yes", app_version: reportText(b.appVersion, 40) },
+    actorId: who.actorId, release: reportText(b.release, 64),
+  };
+  if (!telemetryOn()) {
+    console.warn("browser error:", page, scrub(r.type, 80), scrub(r.message, 200));
+    return c.json({ ok: true, sent: false }, 202);
+  }
+  report(r);
+  return c.json({ ok: true, sent: true }, 202);
+});
+
+/** Who sent a report, if their session is real — for its tags only. Never refuses. */
+async function quietIdentity(header: string | undefined): Promise<{ tags: Record<string, string>; actorId: string | null }> {
+  const none = { tags: { role: "signed-out", account: "none" }, actorId: null };
+  const raw = header?.replace(/^Bearer\s+/i, "");
+  if (!raw) return none;
+  try {
+    if (raw.startsWith("hpl_")) {
+      const { data: s } = await admin.from("learner_sessions").select("learner_id, expires_at").eq("token", raw.slice(4)).maybeSingle();
+      if (!s || Date.parse(s.expires_at) < Date.now()) return none;
+      const { data: l } = await admin.from("learners").select("school_id").eq("id", s.learner_id).maybeSingle();
+      return { tags: { role: "learner", account: "learner", school: await schoolCode(l?.school_id) }, actorId: s.learner_id };
+    }
+    const { data } = await admin.auth.getUser(raw);
+    if (!data?.user) return none;
+    const p = await loadStaffProfile(data.user.id);
+    return { tags: { role: p?.role ?? "no-profile", account: "staff", school: await schoolCode(p?.school_id) }, actorId: data.user.id };
+  } catch {
+    return none;
+  }
+}
 
 // ---- authentication ----
 
@@ -6065,27 +6188,142 @@ app.get("/sync/status", requireActive(), async (c) => {
   return c.json(out);
 });
 
-/* A staff device's own sync state, sent after it syncs. Numbers only —
-   never the work itself. */
+/* A device's own sync state, sent after it syncs. Numbers only — never the
+   work itself. A staff device: one row per account and device. A learner's
+   (often a shared tablet): one row per learner and device, with their
+   school — so work handed in offline that never arrived shows up too. */
 const DEVICE_ID_RE = /^[A-Za-z0-9_-]{8,80}$/;
-app.post("/sync/report", requireStaff(), async (c) => {
+const deviceCount = (v: unknown) => Math.max(0, Math.min(100_000, Math.round(Number(v) || 0)));
+/** A time from a device: a real one, and not in the future (5 minutes' grace for its clock). */
+const deviceTime = (v: unknown) => {
+  const t = typeof v === "string" ? new Date(v) : null;
+  return t && Number.isFinite(t.getTime()) && t.getTime() <= Date.now() + 5 * 60_000 ? t.toISOString() : null;
+};
+app.post("/sync/report", requireActive(), async (c) => {
   const b = await c.req.json().catch(() => ({}));
   if (!DEVICE_ID_RE.test(String(b.deviceId ?? ""))) return c.json({ error: "Invalid device" }, 400);
-  const n = (v: unknown) => Math.max(0, Math.min(100_000, Math.round(Number(v) || 0)));
-  const when = (v: unknown) => {
-    const t = typeof v === "string" ? new Date(v) : null;
-    return t && Number.isFinite(t.getTime()) && t.getTime() <= Date.now() + 5 * 60_000 ? t.toISOString() : null;
-  };
+  const actor = c.get("actor");
   const row = {
-    actor_id: c.get("actor").id, device_id: String(b.deviceId),
+    device_id: String(b.deviceId),
     device_label: String(b.deviceLabel ?? "").slice(0, 120), app_version: String(b.appVersion ?? "").slice(0, 40),
-    online: b.online !== false, last_sync_at: when(b.lastSyncAt),
-    pending: n(b.pending), failed: n(b.failed), conflicts: n(b.conflicts), saved_files: n(b.savedFiles),
-    oldest_pending_at: when(b.oldestPendingAt), reported_at: new Date().toISOString(),
+    online: b.online !== false, last_sync_at: deviceTime(b.lastSyncAt),
+    pending: deviceCount(b.pending), failed: deviceCount(b.failed), conflicts: deviceCount(b.conflicts), saved_files: deviceCount(b.savedFiles),
+    oldest_pending_at: deviceTime(b.oldestPendingAt), oldest_queued_at: deviceTime(b.oldestQueuedAt),
+    reported_at: new Date().toISOString(),
   };
-  const { error } = await admin.from("device_sync_status").upsert(row, { onConflict: "actor_id,device_id" });
+  const { error } = c.get("actorKind") === "learner"
+    ? await admin.from("learner_device_sync_status").upsert({ ...row, learner_id: actor.id, school_id: actor.schoolId ?? null }, { onConflict: "learner_id,device_id" })
+    : await admin.from("device_sync_status").upsert({ ...row, actor_id: actor.id }, { onConflict: "actor_id,device_id" });
   if (error) return c.json({ error: error.message }, 400);
   return c.json({ ok: true });
+});
+
+/* What went wrong while a device synced, sent in batches after each sync
+   (sync.js): a refusal, a conflict, and what the person then chose (keep
+   mine, try again, discard). Who and where come from the session; the
+   device only says what happened. Each event has its own id, so a batch
+   sent twice is stored once. Append-only, like the audit log. */
+const SYNC_EVENTS = new Set(["failed", "conflict", "kept_mine", "retried", "discarded"]);
+app.post("/sync/events", requireActive(), async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  if (!DEVICE_ID_RE.test(String(b.deviceId ?? ""))) return c.json({ error: "Invalid device" }, 400);
+  const actor = c.get("actor");
+  const learner = c.get("actorKind") === "learner";
+  const list: Record<string, any>[] = Array.isArray(b.events) ? b.events.slice(0, 50) : [];
+  const rows = list
+    .filter((e) => e && typeof e === "object" && IDEMPOTENCY_KEY_RE.test(String(e.id ?? "")) && SYNC_EVENTS.has(String(e.event)))
+    .map((e) => ({
+      event_key: String(e.id), occurred_at: deviceTime(e.at) ?? new Date().toISOString(), received_at: new Date().toISOString(),
+      actor_kind: learner ? "learner" : "staff", profile_id: learner ? null : actor.id, learner_id: learner ? actor.id : null,
+      role: actor.role, school_id: actor.schoolId ?? null, county: actor.county || null,
+      device_id: String(b.deviceId), app_version: String(b.appVersion ?? "").slice(0, 40),
+      event: String(e.event), kind: String(e.kind ?? "").slice(0, 40),
+      method: /^(POST|PUT|PATCH|DELETE)$/.test(String(e.method)) ? String(e.method) : null,
+      route: e.path ? routePattern(String(e.path)).slice(0, 200) : null,
+      status: Number.isInteger(e.status) && e.status >= 100 && e.status < 600 ? e.status : null,
+      message: e.message ? scrub(e.message, 300) : null,
+      attempts: deviceCount(e.attempts), item_created_at: deviceTime(e.itemCreatedAt),
+    }));
+  if (!rows.length) return c.json({ ok: true, stored: 0 });
+  const { error } = await admin.from("sync_events").upsert(rows, { onConflict: "event_key", ignoreDuplicates: true });
+  if (error) return c.json({ error: error.message }, 400);
+  return c.json({ ok: true, stored: rows.length });
+});
+
+/* Devices whose work has been stuck too long — 48 hours, or ?hours= — and
+   the sync failures and conflicts of the last 7 days, within the caller's
+   scope. A device is stuck when its oldest unsent activity (waiting,
+   refused or in conflict) is older than that as of its last report; one
+   that has gone quiet since stays on the list, which is the point. */
+app.get("/sync/problems", requirePermission("sync.problems.view"), async (c) => {
+  const hours = Math.min(720, Math.max(1, Math.round(Number(c.req.query("hours")) || 48)));
+  const now = Date.now();
+  const weekAgo = new Date(now - 7 * 864e5).toISOString();
+  const [staffDev, learnerDev, recent] = await Promise.all([
+    selectAll(() => admin.from("device_sync_status").select("*").order("actor_id").order("device_id")),
+    selectAll(() => admin.from("learner_device_sync_status").select("*").order("learner_id").order("device_id")),
+    admin.from("sync_events").select("*").gt("received_at", weekAgo).order("received_at", { ascending: false }).limit(500),
+  ]);
+  const failed = staffDev.error ?? learnerDev.error ?? recent.error;
+  if (failed) return c.json({ error: failed.message }, 500);
+
+  const waitingSince = (d: Record<string, any>) => (d.oldest_queued_at ?? d.oldest_pending_at ?? null) as string | null;
+  const isStuck = (d: Record<string, any>) => {
+    const since = waitingSince(d);
+    return Number(d.pending) + Number(d.failed) + Number(d.conflicts) > 0 && !!since && now - Date.parse(since) >= hours * 3600e3;
+  };
+  const stuckStaff = (staffDev.data ?? []).filter(isStuck);
+  const stuckLearners = (learnerDev.data ?? []).filter(isStuck);
+  const events = (recent.data ?? []) as Record<string, any>[];
+  const uniq = (xs: unknown[]) => [...new Set(xs.filter(Boolean) as string[])];
+  const [people, learners] = await Promise.all([
+    selectIn("profiles", "id", uniq([...stuckStaff.map((d) => d.actor_id), ...events.map((e) => e.profile_id)]), "id, full_name, role, school, school_id, county"),
+    selectIn("learners", "id", uniq([...stuckLearners.map((d) => d.learner_id), ...events.map((e) => e.learner_id)]), "id, full_name, grade, school, school_id, county"),
+  ]);
+  const personById = new Map(people.map((p) => [p.id, p]));
+  const learnerById = new Map(learners.map((l) => [l.id, l]));
+  const whoOf = (kind: "staff" | "learner", id: string | null) => {
+    const p = kind === "learner" ? learnerById.get(id) : personById.get(id);
+    return {
+      name: p?.full_name ?? "(account removed)", role: kind === "learner" ? "learner" : p?.role ?? "",
+      roleLabel: kind === "learner" ? `Learner${p?.grade ? ` · ${p.grade}` : ""}` : ROLE_LABEL[p?.role as Role] ?? p?.role ?? "",
+      school: p?.school ?? "", schoolId: p?.school_id ?? null, county: p?.county ?? "",
+    };
+  };
+  // The latest event from the same person and device, if any: usually the why.
+  const lastEventFor = (kind: string, personId: string, deviceId: string) => {
+    const e = events.find((x) => x.device_id === deviceId && (kind === "learner" ? x.learner_id : x.profile_id) === personId);
+    return e ? { event: e.event, message: e.message ?? null, at: e.occurred_at } : null;
+  };
+  const device = (kind: "staff" | "learner", d: Record<string, any>) => {
+    const personId = kind === "learner" ? d.learner_id : d.actor_id;
+    const since = waitingSince(d)!;
+    return {
+      kind, personId, ...whoOf(kind, personId),
+      deviceLabel: d.device_label, appVersion: d.app_version,
+      pending: d.pending, failed: d.failed, conflicts: d.conflicts,
+      waitingSince: since, waitingHours: Math.floor((now - Date.parse(since)) / 3600e3),
+      lastSyncAt: d.last_sync_at ?? null, reportedAt: d.reported_at,
+      lastEvent: lastEventFor(kind, personId, d.device_id),
+    };
+  };
+  const stuck = [...stuckStaff.map((d) => device("staff", d)), ...stuckLearners.map((d) => device("learner", d))]
+    .filter((d) => inScope(c, d.schoolId, d.county))
+    .sort((a, b) => a.waitingSince.localeCompare(b.waitingSince));
+
+  const visible = events
+    .map((e) => ({ e, who: whoOf(e.actor_kind === "learner" ? "learner" : "staff", e.actor_kind === "learner" ? e.learner_id : e.profile_id) }))
+    .filter(({ e, who }) => inScope(c, e.school_id ?? who.schoolId, e.county ?? who.county));
+  const summary: Record<string, number> = { failed: 0, conflict: 0, kept_mine: 0, retried: 0, discarded: 0 };
+  for (const { e } of visible) summary[e.event] = (summary[e.event] ?? 0) + 1;
+  return c.json({
+    hours, generatedAt: new Date(now).toISOString(), stuck, summary,
+    events: visible.slice(0, 200).map(({ e, who }) => ({
+      at: e.occurred_at, receivedAt: e.received_at, event: e.event, kind: e.kind, route: e.route, status: e.status,
+      message: e.message, attempts: e.attempts, itemCreatedAt: e.item_created_at, appVersion: e.app_version,
+      name: who.name, roleLabel: who.roleLabel, school: who.school,
+    })),
+  });
 });
 
 /** Why a device needs a look, in words — or null. */

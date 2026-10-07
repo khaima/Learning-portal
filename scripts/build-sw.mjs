@@ -11,6 +11,8 @@
                  sign-in page's code (what everyone needs first);
    - FILES     — every fingerprinted file (static/name-[hash].ext); a
                  device keeps the ones it has used (sw-template.js).
+   It also writes version.json — { version } — which error reports carry
+   (telemetry.js), kept on the device with the code it describes.
    ============================================================ */
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -18,7 +20,8 @@ import { join } from "node:path";
 import { builtPages, DIST, distFiles, pageFiles } from "./build-info.mjs";
 
 const ROOT = join(import.meta.dirname, "..");
-const all = distFiles().filter((f) => f !== "sw.js" && !f.startsWith(".vite/")).sort();
+// What the build made (sw.js and version.json are written below, from it).
+const all = distFiles().filter((f) => f !== "sw.js" && f !== "version.json" && !f.startsWith(".vite/")).sort();
 
 const FILES = all.filter((f) => f.startsWith("static/"));
 const pages = builtPages();
@@ -38,6 +41,10 @@ const VERSION = "hpf-" + sha([
   `sw-template.js:${sha(template)}`, // the worker's own code is part of the version too
   ...all.map((f) => `${f}:${sha(readFileSync(join(DIST, f)))}`),
 ].join("\n")).slice(0, 12);
+
+// Kept with the code it names, so a page reports the version it is really running.
+writeFileSync(join(DIST, "version.json"), `${JSON.stringify({ version: VERSION })}\n`);
+CORE.push("version.json");
 
 const sw = template
   .replace('"__VERSION__"', JSON.stringify(VERSION))

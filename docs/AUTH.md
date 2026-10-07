@@ -251,7 +251,7 @@ sign-in page sees (sign-ups, email, Google).
   `POST /me/password`, and the `must_change_password` check in
   `resolveActor`. Tests: "5b. passwords" in
   [`authz_test.ts`](../supabase/functions/api/authz_test.ts).
-- Database: [`20261004150000_password_policy.sql`](../supabase/migrations/20261004150000_password_policy.sql)
+- Database: [`20261004143547_password_policy.sql`](../supabase/migrations/20261004143547_password_policy.sql)
   (`profiles.must_change_password`, `temporary_password_at`,
   `temporary_password_hash`, `password_changed_at`).
 - Sign-in page: `index.js` (Google button, "Choose your own password"),

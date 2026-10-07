@@ -213,7 +213,7 @@ Deno.test("learner PIN: a lockout is one learner's only; a wrong username locks 
 /* ------------------------------------------------------------ pending and suspended accounts */
 
 /** Routes that need no account at all (they check their own credentials). */
-const PUBLIC = new Set(["GET /health", "POST /auth/register", "POST /learner/login", "POST /learner/logout", "GET /invitations/:token", "POST /kobo/hook", "POST /notifications/run"]);
+const PUBLIC = new Set(["GET /health", "POST /auth/register", "POST /learner/login", "POST /learner/logout", "GET /invitations/:token", "POST /kobo/hook", "POST /notifications/run", "POST /telemetry/error"]);
 
 /* What a signed-in but non-active account may still do — only about itself:
    see its own status (to be told why it's waiting or blocked), change its

@@ -1,0 +1,7 @@
+{
+  "production": {
+    "supabaseUrl": "https://fwpqytrdlmxymvegvgji.supabase.co",
+    "publishableKey": "sb_publishable_oP17Qvcq_jOzcZGJyh8UVw_paLVL9_v"
+  },
+  "staging": null
+}

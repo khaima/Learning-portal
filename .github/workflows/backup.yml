@@ -1,0 +1,138 @@
+name: Nightly database backup
+
+# Every night: a full dump of the production database — roles, schema and
+# data, the way Supabase documents for moving a project — restored into a
+# fresh local Supabase before it's kept (a backup that won't restore isn't
+# one), then stored in the project's private `backups` bucket:
+#   backups/daily/hpf-db-YYYY-MM-DD.tar.gz     kept 35 days
+#   backups/monthly/hpf-db-YYYY-MM-01.tar.gz   the 1st of each month, kept
+# Optionally also an encrypted copy outside Supabase (see BACKUP_AGE_RECIPIENT
+# in docs/OPERATIONS.md). RESTORE.md is how to bring one back.
+#
+# Needs the SUPABASE_ACCESS_TOKEN repository secret. Files in Storage (the
+# library's uploads) are not in a database dump — RESTORE.md says more.
+on:
+  schedule:
+    - cron: "15 23 * * *" # 02:15 in Kenya
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+env:
+  PROJECT_REF: fwpqytrdlmxymvegvgji
+  KEEP_DAYS: "35"
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: The access token is set
+        run: |
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
+            echo "::error::Add the SUPABASE_ACCESS_TOKEN repository secret (docs/OPERATIONS.md). No backup was made."
+            exit 1
+          fi
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.114.0
+
+      - name: Dump the database
+        run: |
+          mkdir -p backup && cd backup
+          supabase db dump --project-ref "$PROJECT_REF" -f roles.sql --role-only
+          supabase db dump --project-ref "$PROJECT_REF" -f schema.sql
+          supabase db dump --project-ref "$PROJECT_REF" -f data.sql --use-copy --data-only \
+            -x "storage.buckets_vectors" -x "storage.vector_indexes"
+          ls -la
+
+      - name: Restore it into a fresh Supabase, and count every table
+        run: |
+          mkdir drill && cd drill
+          supabase init --force >/dev/null
+          sed -i 's/^major_version = .*/major_version = 17/' supabase/config.toml
+          supabase start -x realtime,imgproxy,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+          cd ..
+          psql() { docker run --rm -i --network host -e PGPASSWORD=postgres -v "$PWD/backup:/backup" postgres:17 psql -h 127.0.0.1 -p 54322 -U postgres -d postgres "$@"; }
+          psql --single-transaction -v ON_ERROR_STOP=1 \
+            -f /backup/roles.sql -f /backup/schema.sql -c "SET session_replication_role = replica" -f /backup/data.sql > restore.log
+          # Rows per table in the dump, then in the restored database: they must match.
+          awk '/^COPY [^ ]+ /{t=$2; n=0; inside=1; next} inside && /^\\\.$/{print t, n; inside=0; next} inside{n++}' backup/data.sql | sort > dumped.txt
+          # One query counts them all: select '"public"."x"', count(*) from "public"."x" union all …
+          awk '{ printf "%sselect %c%s%c, count(*) from %s\n", (NR > 1 ? "union all " : ""), 39, $1, 39, $1 }' dumped.txt > backup/counts.sql
+          psql -At -F ' ' -f /backup/counts.sql | sort > restored.txt
+          tables=$(wc -l < dumped.txt); rows=$(awk '{s+=$2} END {print s+0}' dumped.txt)
+          [ "$tables" -gt 0 ] || { echo "::error::The dump has no data in it."; exit 1; }
+          {
+            echo "### Restore check"
+            echo "$tables tables, $rows rows dumped and restored into a fresh Supabase (Postgres 17)."
+            echo; echo "| table | rows |"; echo "|---|---|"
+            awk '{print "| " $1 " | " $2 " |"}' dumped.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+          if ! diff dumped.txt restored.txt; then
+            echo "::error::The restored database doesn't match the dump (diff above)."
+            exit 1
+          fi
+          echo "✓ $tables tables, $rows rows restored and matched"
+          # The manifest travels with the backup.
+          jq -n --arg at "$(date -u +%FT%TZ)" --arg ref "$PROJECT_REF" --arg run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --rawfile counts dumped.txt \
+            '{createdAt: $at, project: $ref, run: $run, restoreChecked: true, rows: ($counts | split("\n") | map(select(length > 0) | split(" ") | {(.[0]): (.[1] | tonumber)}) | add)}' \
+            > backup/manifest.json
+
+      - name: Keep it in the backups bucket
+        run: |
+          day=$(date -u +%F)
+          name="hpf-db-$day.tar.gz"
+          tar -czf "$name" -C backup roles.sql schema.sql data.sql manifest.json
+          sha256sum "$name" | tee "$name.sha256"
+          echo "Size: $(du -h "$name" | cut -f1)"
+          supabase storage cp --experimental --project-ref "$PROJECT_REF" --content-type application/gzip "$name" "ss:///backups/daily/$name"
+          if [ "$(date -u +%d)" = "01" ]; then
+            supabase storage cp --experimental --project-ref "$PROJECT_REF" --content-type application/gzip "$name" "ss:///backups/monthly/$name"
+          fi
+          echo "Stored backups/daily/$name ($(cut -c1-16 "$name.sha256")…)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove daily backups older than ${{ env.KEEP_DAYS }} days
+        run: |
+          cutoff=$(date -u -d "-$KEEP_DAYS days" +%F)
+          names=$(supabase storage ls --experimental --project-ref "$PROJECT_REF" ss:///backups/daily/ | grep -oE 'hpf-db-[0-9]{4}-[0-9]{2}-[0-9]{2}\.tar\.gz' | sort -u)
+          total=$(echo "$names" | grep -c . || true)
+          # Never fewer than 7, whatever the dates say.
+          echo "$names" | head -n $(( total > 7 ? total - 7 : 0 )) | while read -r old; do
+            [ -n "$old" ] || continue
+            day=${old#hpf-db-}; day=${day%.tar.gz}
+            if [[ "$day" < "$cutoff" ]]; then
+              supabase storage rm --experimental --project-ref "$PROJECT_REF" "ss:///backups/daily/$old"
+              echo "removed $old"
+            fi
+          done
+
+      - name: An encrypted copy outside Supabase (if a key is set)
+        if: vars.BACKUP_AGE_RECIPIENT != ''
+        env:
+          RECIPIENT: ${{ vars.BACKUP_AGE_RECIPIENT }}
+        run: |
+          sudo apt-get install -y -qq age >/dev/null
+          name="hpf-db-$(date -u +%F).tar.gz"
+          age -r "$RECIPIENT" -o "$name.age" "$name"
+          rm -f "$name"
+
+      - uses: actions/upload-artifact@v4
+        if: vars.BACKUP_AGE_RECIPIENT != ''
+        with:
+          name: hpf-db-encrypted
+          path: "*.tar.gz.age"
+          retention-days: 30
+
+      - name: Stop the drill database
+        if: always()
+        run: cd drill 2>/dev/null && supabase stop --no-backup || true

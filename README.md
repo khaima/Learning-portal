@@ -319,12 +319,18 @@ Content             ✓ Synced
   for the Education Team — syncs Kobo too.
 - Each row says what's wrong in words and what to do. Offline, it shows
   what the device knew at its last sync.
-- **Field team devices** (Education Team and administrators): every
-  field officer's, teacher's and school head's device — last sync, what's
-  waiting, and who needs a look (work waiting for over a day, something to
-  decide on the device, no sync for a week, or never reported). Staff
-  devices report this after each sync — counts and times only, never the
-  work (`device_sync_status`); learners' shared tablets don't report.
+- **Field team devices** (administrators): every field officer's,
+  teacher's and school head's device — last sync, what's waiting, and who
+  needs a look (work waiting for over a day, something to decide on the
+  device, no sync for a week, or never reported). Every device reports this
+  after each sync — counts and times only, never the work
+  (`device_sync_status`; learners' devices, often shared tablets, in
+  `learner_device_sync_status`).
+- **Stuck devices** (its own page — Education Team and administrators):
+  the devices, staff and learners', with work unsent for 48 hours or more,
+  with the latest reason; and the last week's sync failures and conflicts,
+  and what people chose (`sync_events`, append-only).
+  [`docs/OPERATIONS.md`](docs/OPERATIONS.md#2-sync-problems).
 
 ### Notifications
 
@@ -863,6 +869,26 @@ Once enabled, no frontend change is needed — the button appears by
 itself. While public sign-ups are off it signs in existing accounts only;
 new people still join through the portal.
 
+## Running it in production
+
+[`docs/OPERATIONS.md`](docs/OPERATIONS.md) has the details. In short:
+
+- **Error reporting** — Sentry or GlitchTip, for the browser and the API,
+  both through the API: no tracker library is downloaded and the CSP lets
+  nothing new in. Tagged with the role and school — never names, emails or
+  PINs. Off until the function's `SENTRY_DSN` is set.
+- **Sync problems** — devices send their sync failures and conflicts
+  (`sync_events`); the **Stuck devices** page lists every device with work
+  unsent for 48 hours or more.
+- **Uptime** — every 10 minutes, the API's health (the function *and* its
+  database) and both copies of the site; an issue opens when something is
+  down and closes itself when it's back.
+- **Backups** — a nightly dump, restored into a fresh Supabase and counted
+  table by table before it's kept. [`RESTORE.md`](RESTORE.md) brings one back.
+- **Releases** — push to `staging`: the tests, then staging, then
+  production — and `main` moves to the tested commit, which is what Vercel
+  and GitHub Pages publish. Nothing reaches production untested.
+
 ## The content → form → feedback loop
 
 Worth trying end to end:
@@ -912,8 +938,11 @@ same data everywhere, because the database is the source of truth.
 
 ## Try it
 
-**Live:** <https://khaima.github.io/Learning-portal/> — deployed from
-`main` via GitHub Pages ([`.github/workflows/pages.yml`](.github/workflows/pages.yml)).
+**Live:** <https://khaima.github.io/Learning-portal/> and
+<https://learning-portal-mu-two.vercel.app/> — both publish `main`, which only
+the release moves, once the tests have passed
+([`.github/workflows/release.yml`](.github/workflows/release.yml);
+[`docs/OPERATIONS.md`](docs/OPERATIONS.md#5-staging-and-releases)).
 
 Run it locally (Node 22.12 or newer):
 
@@ -978,6 +1007,12 @@ the one-time mail setup in [`docs/AUTH.md`](docs/AUTH.md).) Before pushing,
 | `reports-ui.js` | Export reports: the reports this person may export, their filters, Excel / CSV / PDF |
 | `export.js` | Writes report files in the browser: Excel (.xlsx), CSV and PDF, no libraries |
 | `sync-ui.js` | The sync status in every top bar and the Sync center (Kobo, school data, learning, content, field team devices) |
+| `sync-problems-ui.js` | The Stuck devices page: work unsent for 48 hours or more, and the week's sync failures and conflicts |
+| `telemetry.js` | Reports errors no page caught to the API, which passes them to Sentry / GlitchTip |
+| `environments.json` | The Supabase projects a build can talk to: production, and staging for Vercel previews |
+| `docs/OPERATIONS.md` / `RESTORE.md` | Error reporting, sync problems, uptime, backups, staging and releases; bringing a backup back |
+| `scripts/deploy-api.mjs` / `scripts/bootstrap-staging.mjs` | Deploy the API stamped with its release; set up a new staging project (structure, never data) |
+| `.github/workflows/` | `test.yml` (every push), `release.yml` (staging → production), `uptime.yml` (every 10 min), `backup.yml` (nightly), `pages.yml` |
 | `pwa.js` | Registers the service worker; the "Update available — Reload" notice; home-screen install |
 | `auth.js` | Sessions, the profile, `requireRole` for each dashboard |
 | `store.js` | Every data call — library, forms, responses, assignments, reports, stats |

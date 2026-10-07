@@ -97,7 +97,7 @@ export function fakeAdmin(db: Db, users: Record<string, { id: string; email: str
       ilike: (k: string, v: string) => f(k, (x) => String(x ?? "").toLowerCase() === v.replace(/\\(.)/g, "$1").toLowerCase()),
       lt: (k: string, v: number) => f(k, (x) => (x as number) < v),
       gt: (k: string, v: number) => f(k, (x) => (x as number) > v),
-      not: () => api, like: () => api, order: () => api,
+      not: () => api, like: () => api, order: () => api, abortSignal: () => api,
       limit(n: number) { limit = n; return api; },
       range(a: number, b: number) { range = [a, b]; return api; },
       single() { one = "single"; return api; },
@@ -269,7 +269,7 @@ export function freshWorld() {
     dq_scans: [],
     me_programmes: [], me_outcomes: [], me_indicators: [], me_targets: [], me_actuals: [], me_evidence: [], me_reports: [],
     trainings: [], training_attendance: [],
-    sync_requests: [], device_sync_status: [],
+    sync_requests: [], device_sync_status: [], learner_device_sync_status: [], sync_events: [],
     notifications: [], notification_events: [], notification_runs: [],
     staff_invitations: [],
     // The field officer works in Narok (as the migration sets up from their profile county).

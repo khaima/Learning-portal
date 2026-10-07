@@ -43,6 +43,7 @@ const LEARNER_VIEWERS: R[] = [...ANALYSTS, "school_leader", "teacher"];
 const LEARNER_MANAGERS: R[] = ["super_admin", "admin", "school_leader", "teacher"];
 const CLASS_MANAGERS: R[] = ["super_admin", "admin", "school_leader"];
 const USER_ADMIN = ADMINS;
+const SYNC_PROBLEMS: R[] = ["super_admin", "admin", "education_team"];      // devices with work stuck 48 hours, sync failures
 
 /* Every allowed role must get a real success (2xx), not just get past the
    guard — so a route whose work needs records (an M&E programme, a started
@@ -207,7 +208,9 @@ const ROUTES: RouteSpec[] = [
   r("GET", "/notifications/log", ADMINS),
   r("POST", "/notifications/run-now", ADMINS, {}),
   r("PATCH", "/forms/:id", FORM_MANAGERS, { dueOn: "2026-10-10" }, "/forms/form_1"),
-  r("POST", "/sync/report", [...STAFF], { deviceId: "device-0001" }),
+  r("POST", "/sync/report", ALL, { deviceId: "device-0001" }),
+  r("POST", "/sync/events", ALL, { deviceId: "device-0001", events: [{ id: "event-00001", event: "failed", kind: "mark", status: 400, message: "Closed" }] }),
+  r("GET", "/sync/problems", SYNC_PROBLEMS),
   r("GET", "/sync/devices", ADMINS),
   // Reports export: each report's own permissions decide who may export it.
   r("GET", "/reports", [...STAFF]),
@@ -315,7 +318,7 @@ const ROUTES: RouteSpec[] = [
 ];
 /** Need a sign-in but no particular permission (sign-up, own profile, school list). */
 const SIGNED_IN_ONLY = ["GET /me", "POST /me", "POST /me/accept-invite", "GET /schools", "POST /me/password"];
-const PUBLIC = ["GET /health", "POST /auth/register", "POST /learner/login", "POST /learner/logout", "GET /invitations/:token", "POST /kobo/hook", "POST /notifications/run"];
+const PUBLIC = ["GET /health", "POST /auth/register", "POST /learner/login", "POST /learner/logout", "GET /invitations/:token", "POST /kobo/hook", "POST /notifications/run", "POST /telemetry/error"];
 
 const denied = (s: number) => s === 401 || s === 403;
 
@@ -1861,7 +1864,8 @@ Deno.test("sync center: staff devices report their sync state; administrators se
   assertEquals(db.device_sync_status.length, 1, "one row per device");
   assertEquals(db.device_sync_status[0].pending, 3);
   assertEquals((await call("POST", "/sync/report", "tok_field_officer", { deviceId: "x" })).status, 400);
-  assertEquals((await call("POST", "/sync/report", LEARNER, report)).status, 403, "learners' shared tablets don't report");
+  assertEquals((await call("POST", "/sync/report", LEARNER, report)).status, 200, "a learner's tablet reports too…");
+  assertEquals([db.learner_device_sync_status.length, db.device_sync_status.length], [1, 1], "…in a table of its own, never among the staff");
   await call("POST", "/sync/report", "tok_teacher", { deviceId: "laptop-0001", lastSyncAt: new Date().toISOString(), lastSyncAtFuture: true });
   const res = await call("GET", "/sync/devices", "tok_admin");
   assertEquals(res.status, 200);

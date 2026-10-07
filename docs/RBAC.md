@@ -289,6 +289,7 @@ Generated from `permissions.ts` (role permissions; explicit grants come on top):
 | See Kobo survey results <br>`kobo.results.view` | ✓ | ✓ | ✓ |  |  |  |  |  |
 | Fill Kobo surveys <br>`kobo.surveys.fill` |  |  |  |  | ✓ |  |  |  |
 | See field-team devices in the Sync center <br>`sync.monitor` | ✓ | ✓ |  |  |  |  |  |  |
+| See devices with work stuck for 48 hours or more, and sync failures <br>`sync.problems.view` (added 7 Oct 2026) | ✓ | ✓ |  | ✓ |  |  |  |  |
 | See the notifications log <br>`notifications.view.all` | ✓ | ✓ |  |  |  |  |  |  |
 | **Dashboards and M&E** |||||||||
 | Platform overview and system health <br>`platform.view` | ✓ |  |  |  |  |  |  |  |
@@ -352,6 +353,7 @@ FULL · CREATE · EDIT · VIEW · OWN · SCOPED (within their data scope) · NON
 | Notifications (own) | OWN | OWN | OWN | OWN | OWN | OWN | OWN | OWN |
 | Notifications log | VIEW | VIEW (scoped) | NONE | NONE | NONE | NONE | NONE | NONE |
 | Sync center: own device / field-team devices | OWN / VIEW | OWN / VIEW (scoped) | OWN / NONE | OWN / NONE | OWN / NONE | OWN / NONE | OWN / NONE | OWN / NONE |
+| Stuck devices (work unsent 48 h+, sync failures and conflicts) | VIEW | VIEW (scoped) | NONE | VIEW (scoped) | NONE | NONE | NONE | NONE |
 | My profile (and own password) | OWN | OWN | OWN | OWN | OWN | OWN | OWN | OWN (no password; the teacher sets the PIN) |
 
 ## 7. Data-scope matrix
@@ -385,10 +387,10 @@ else.
 
 | Role (lands on) | Menu |
 |---|---|
-| **Super Admin** — Platform overview | Dashboard: Platform overview, Administration overview, M&E overview · System management: Users & roles, Schools & counties, Academic calendar, Classes & structure, Subjects · People & learning: Learners, Teachers, School profiles, Assignments & assessments, Results, Content library, Training register · Programme performance: Executive overview, Reach, Learning, Teacher development, Field operations, Digital resources · M&E and data: Results framework, Indicator results, M&E reports, Data quality, Survey results, Field visits · Integrations: KoboToolbox, Forms, Notifications log, Sync center · Security: Permissions, Audit log, Security events, Account activity · Reports: System reports · Account: My profile, Notifications |
-| **Admin** — Administration overview | Dashboard · Organisation: Schools & counties, School profiles, Academic calendar, Classes · People: Staff accounts, Teachers, School heads, Learners, User approvals · Learning operations: Assignments & assessments, Results, Learning resources · Programme operations: Forms, Field visits, Kobo surveys, Survey results, Sync center · Data: Data quality, Reports & exports · Account: My profile, Notifications, Notifications log |
+| **Super Admin** — Platform overview | Dashboard: Platform overview, Administration overview, M&E overview · System management: Users & roles, Schools & counties, Academic calendar, Classes & structure, Subjects · People & learning: Learners, Teachers, School profiles, Assignments & assessments, Results, Content library, Training register · Programme performance: Executive overview, Reach, Learning, Teacher development, Field operations, Digital resources · M&E and data: Results framework, Indicator results, M&E reports, Data quality, Survey results, Field visits · Integrations: KoboToolbox, Forms, Notifications log, Stuck devices, Sync center · Security: Permissions, Audit log, Security events, Account activity · Reports: System reports · Account: My profile, Notifications |
+| **Admin** — Administration overview | Dashboard · Organisation: Schools & counties, School profiles, Academic calendar, Classes · People: Staff accounts, Teachers, School heads, Learners, User approvals · Learning operations: Assignments & assessments, Results, Learning resources · Programme operations: Forms, Field visits, Kobo surveys, Survey results, Stuck devices, Sync center · Data: Data quality, Reports & exports · Account: My profile, Notifications, Notifications log |
 | **M&E** — M&E overview | Dashboard · Programme performance: Executive overview, Reach, Learning outcomes, Teacher development, Digital resource usage, Field operations · Results framework: Programmes & indicators, Indicator results · Data quality: Data Quality Center, Kobo data quality · Evidence: Survey results, Field visits, Form responses · Programme data: Learners, Teachers, Classes, School profiles, Assignments & assessments, Results, Training register, Content usage · Reporting: M&E reports, Reports & exports · Account |
-| **Education Team** — Learning overview | Dashboard · Learning: Learners, Teachers, Classes, Assignments & assessments, Results · Content & curriculum: Content library, Content usage, Subjects · Teacher development: Teacher development, Training register · Field support: School support, Field visits, Education forms · Reports: Learning reports · Account |
+| **Education Team** — Learning overview | Dashboard · Learning: Learners, Teachers, Classes, Assignments & assessments, Results · Content & curriculum: Content library, Content usage, Subjects · Teacher development: Teacher development, Training register · Field support: School support, Field visits, Education forms, Stuck devices · Reports: Learning reports · Account |
 | **Field Officer** — My dashboard | My work: My schools, My visits, Visit forms, Kobo surveys · Schools: School profiles · Learning support: Teachers · Reports: My activity · Account (with Sync center) |
 | **School Head** — School overview | My school: School profile, Teachers, Learners & classes · Learning: Assignments & results, Learning resources · Reports: School reports · Account |
 | **Teacher** — My teaching | My teaching: My classes, Class roster, Assignments & assessments, Results & progress · Content: Learning resources · Activity: My activity · Account |
@@ -410,7 +412,7 @@ else.
    idempotency log was copied into schema `backup_20261004_rbac` (locked
    down like the rest) before anything changed.
 2. **Roles** inspected (§1): all map one-to-one; no account's role or id changed.
-3. **`20261004090000_rbac_scopes_grants.sql`** — new `staff_scopes` and
+3. **`20261004095853_rbac_scopes_grants.sql`** — new `staff_scopes` and
    `permission_grants`, deny-all, with guard triggers; field officers' profile
    counties backfilled where they name a real county (Meru, Isiolo, and
    "isiolo" → Isiolo), each recorded in the audit log as `scope.assigned`.

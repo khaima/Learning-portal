@@ -100,6 +100,15 @@ for (const name of ["CORE", "FILES"]) {
   for (const f of list) if (f && !existsSync(join(DIST, f))) problems.push(`dist/sw.js lists ${f}, but the build has no such file`);
 }
 
+// ---- every project a build can talk to (environments.json) is one the CSP lets it reach
+const environments = JSON.parse(read(ROOT, "environments.json"));
+for (const [name, env] of Object.entries(environments)) {
+  if (!env) continue; // not set up yet
+  for (const directive of ["connect-src", "img-src", "media-src", "frame-src"]) {
+    if (!hostAllowed(env.supabaseUrl, directive)) problems.push(`environments.json: ${name} (${env.supabaseUrl}) isn't in ${directive} — add it to the CSP in vercel.json`);
+  }
+}
+
 if (problems.length) {
   console.error(`✗ ${problems.length} problem(s):\n  - ${problems.join("\n  - ")}`);
   process.exitCode = 1;

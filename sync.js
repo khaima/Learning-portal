@@ -35,7 +35,7 @@ import { getStorage } from "./supabase.js";
 const BUCKET = "library";
 const FIVE_MIN = 5 * 60_000;
 /** Shown to the Education Team next to each device, to spot an old copy of the app. */
-export const APP_VERSION = "2026.10.06a";
+export const APP_VERSION = "2026.10.07a";
 
 /* What each kind of queued activity counts as, in the Sync center. */
 const AREA = {
@@ -109,6 +109,8 @@ export function status() {
   return {
     byArea,
     oldestPendingAt: open.map((i) => i.createdAt).sort()[0] ?? null,
+    // Waiting, refused or in conflict: anything not yet on the server.
+    oldestQueuedAt: items.map((i) => i.createdAt).sort()[0] ?? null,
     role: ownerRole,
     online: isOnline(),
     lastSync,
@@ -296,11 +298,14 @@ export async function sync({ manual = false } = {}) {
           Object.assign(it, { status: "pending", nextAt: Date.now() + 30_000 });
         } else if (err.status === 409 && err.body?.conflict) {
           Object.assign(it, { status: "conflict", conflict: err.body.conflict, error: err.message });
+          await noteEvent("conflict", it, err);
         } else if (err.status >= 500 || err.status === 429) {
           it.attempts += 1;
           Object.assign(it, { status: it.attempts >= 6 ? "failed" : "pending", error: err.message, nextAt: Date.now() + backoff(it.attempts) });
+          if (it.status === "failed") await noteEvent("failed", it, err);
         } else {
           Object.assign(it, { status: "failed", error: err.message || "The server refused it" });
+          await noteEvent("failed", it, err);
         }
         await store.putItem(it);
       }
@@ -310,7 +315,10 @@ export async function sync({ manual = false } = {}) {
     // "Last sync" only when the server really answered during this sync —
     // downloads fall back to this device's copies, so they can't tell.
     if (!cut && !needsSignIn && reachedAt >= started) await markSynced();
-    if (reachedAt >= started) await reportDevice();
+    if (reachedAt >= started) {
+      await reportDevice();
+      await sendEvents();
+    }
   } catch (err) {
     if (!isNetworkError(err)) console.error("sync:", err);
     cut = true;
@@ -343,11 +351,15 @@ async function markSynced() {
   await store.setMeta(`lastSync:${owner}`, lastSync);
 }
 
-/* ------------------------------------------------------------ this device, for the field team view
-   Staff devices tell the server how they're doing after each sync —
-   counts and times only, never the work — so the Education Team can see,
-   say, that an officer's phone has had visits waiting for three days.
-   Learners' (often shared) tablets don't report. */
+/* ------------------------------------------------------------ this device, for the Education Team
+   Every device tells the server how it's doing after each sync — counts
+   and times only, never the work — so the Education Team can see, say,
+   that an officer's phone has had visits waiting for three days, or that
+   a class tablet has hand-ins that never arrived (a learner's report is
+   theirs and this device's; on a shared tablet, each learner's own).
+   What went wrong along the way — a refusal, a conflict, and what the
+   person then chose — is noted here and sent after the next sync that
+   reaches the server (POST /sync/events). */
 function deviceId() {
   try {
     let id = localStorage.getItem("hpf_device_id");
@@ -366,12 +378,45 @@ export function deviceLabel() {
 }
 async function reportDevice() {
   const id = deviceId();
-  if (!id || !ownerRole || ownerRole === "learner") return;
+  if (!id || !owner) return;
   const st = status();
   await rawRequest("POST", "/sync/report", {
     deviceId: id, deviceLabel: deviceLabel(), appVersion: APP_VERSION, online: true, lastSyncAt: st.lastSync,
-    pending: st.pending, failed: st.failed, conflicts: st.conflicts, savedFiles: st.savedFiles.length, oldestPendingAt: st.oldestPendingAt,
+    pending: st.pending, failed: st.failed, conflicts: st.conflicts, savedFiles: st.savedFiles.length,
+    oldestPendingAt: st.oldestPendingAt, oldestQueuedAt: st.oldestQueuedAt,
   }, { timeoutMs: 20_000 }).catch(() => {});
+}
+
+const eventsKey = () => `syncEvents:${owner}`;
+/** Notes what happened to a queued activity: failed, conflict, kept_mine, retried, discarded. */
+async function noteEvent(event, it, err = null) {
+  if (!owner) return;
+  const list = (await store.getMeta(eventsKey()).catch(() => null)) || [];
+  list.push({
+    id: newId(), at: new Date().toISOString(), event, kind: it.kind || "", method: it.method, path: it.path,
+    status: err?.status ?? null, message: err ? String(err.message || it.error || "").slice(0, 300) : null,
+    attempts: it.attempts || 0, itemCreatedAt: it.createdAt,
+  });
+  await store.setMeta(eventsKey(), list.slice(-200)).catch(() => {}); // the newest 200, if it's been a long time
+}
+/** Sends what's been noted, 50 at a time; what doesn't go waits for the next sync. */
+async function sendEvents() {
+  const id = deviceId();
+  if (!id || !owner) return;
+  const key = eventsKey();
+  for (let round = 0; round < 4; round++) {
+    const list = (await store.getMeta(key).catch(() => null)) || [];
+    if (!list.length) return;
+    const batch = list.slice(0, 50);
+    try {
+      await rawRequest("POST", "/sync/events", { deviceId: id, appVersion: APP_VERSION, events: batch }, { timeoutMs: 20_000 });
+    } catch {
+      return;
+    }
+    const sent = new Set(batch.map((e) => e.id));
+    const now = (await store.getMeta(key).catch(() => null)) || [];
+    await store.setMeta(key, now.filter((e) => !sent.has(e.id))).catch(() => {});
+  }
 }
 
 /* ------------------------------------------------------------ settling what's stuck */
@@ -387,17 +432,20 @@ const find = (id) => items.find((i) => i.id === id);
 /** Conflict: send mine anyway. */
 export async function keepMine(id) {
   const it = find(id); if (!it) return;
+  await noteEvent("kept_mine", it);
   await replaceItem(it, { body: { ...it.body, force: true } });
 }
 /** Refused: try again (e.g. after the problem was fixed). */
 export async function retry(id) {
   const it = find(id); if (!it) return;
+  await noteEvent("retried", it);
   await replaceItem(it, {});
 }
 /** Conflict: use the server's copy. Refused: give up on it. Either way this
     device's version is dropped (with any files it was holding). */
 export async function discard(id) {
   const it = find(id); if (!it) return;
+  await noteEvent("discarded", it);
   await store.removeItem(it.id);
   for (const key of uploadKeysIn(it.body)) await store.removeBlob(key).catch(() => {});
   await refresh();

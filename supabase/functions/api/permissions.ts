@@ -97,6 +97,7 @@ export const PERMISSIONS = [
   "me.reports.manage",        // generate and finalize reports
   "trainings.manage",         // the training register: sessions and who attended
   "sync.monitor",             // the Sync center's field-team view: every staff device's sync state
+  "sync.problems.view",       // devices whose work has been stuck for 48 hours or more, and the sync failures and conflicts behind it
   "notifications.view.all",   // the notifications log: who was told what, when, and when they read it
   // KoboToolbox
   "kobo.configure",           // the connection itself: server, API token, officer field, live push
@@ -143,7 +144,7 @@ const ADMIN: Permission[] = [
   "assignments.view.all", "field_reports.view.all", "stats.view",
   "data_quality.view", "data_quality.manage",
   "kobo.manage", "kobo.review", "kobo.results.view",
-  "sync.monitor", "notifications.view.all",
+  "sync.monitor", "sync.problems.view", "notifications.view.all",
   "reports.export", "reports.programme",
   ...USER_ADMIN,
 ];
@@ -169,6 +170,7 @@ const EDUCATION_TEAM: Permission[] = [
   ...LIBRARY_READ, "library.manage", "library.usage.view",
   "forms.manage", "forms.responses.view",
   "assignments.view.all", "field_reports.view.all", "trainings.manage",
+  "sync.problems.view",
   "reports.export",
 ];
 
@@ -345,6 +347,7 @@ export const PERMISSION_GROUPS: { group: string; items: [Permission, string][] }
     ["kobo.results.view", "See Kobo survey results"],
     ["kobo.surveys.fill", "Fill Kobo surveys"],
     ["sync.monitor", "See field-team devices in the Sync center"],
+    ["sync.problems.view", "See devices with work stuck for 48 hours or more, and sync failures"],
     ["notifications.view.all", "See the notifications log"],
   ] },
   { group: "Dashboards and M&E", items: [

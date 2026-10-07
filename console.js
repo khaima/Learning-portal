@@ -46,6 +46,7 @@ const koboUi = once(() => import("./kobo-ui.js"));
 const dqUi = once(() => import("./dq-ui.js"));
 const melUi = once(() => import("./mel-ui.js"));
 const learnersUi = once(() => import("./learners-ui.js"));
+const syncProblemsUi = once(() => import("./sync-problems-ui.js"));
 
 const AUDIENCE_LABEL = Object.fromEntries(FORM_AUDIENCES.map((a) => [a.value, a.label]));
 const STAFF_ROLES = ROLES.filter((r) => r.value !== "learner");
@@ -3269,6 +3270,12 @@ async function main() {
         await ensureSchools();
         fillFinderSchools();
         break;
+      case "sync-problems": {
+        const ui = await syncProblemsUi().catch(() => null);
+        if (!ui) { toast("Couldn't open this page", "Check your connection and try again.", "error"); return; }
+        ui.renderSyncProblems($("#syncProblems"));
+        break;
+      }
       default: break;
     }
   }

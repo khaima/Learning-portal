@@ -403,7 +403,7 @@ on conflict (id) do update set public = false, file_size_limit = 52428800;
 
 -- ---------------------------------------------------------------- role governance
 -- Roles, account states, staff invitations and the audit log. Also shipped
--- as supabase/migrations/20261001120000_role_governance.sql for existing
+-- as supabase/migrations/20261001072519_role_governance.sql for existing
 -- databases; repeated here so a fresh install matches. Safe to re-run.
 -- ---------------------------------------------------------------- 1. roles
 -- 'learner' is dropped from the staff role list: learners live in their
@@ -518,7 +518,7 @@ select 'system', 'role.changed', 'profile', id::text,
 -- ---------------------------------------------------------------- school / class enrollment
 -- School -> academic year -> term -> class -> teacher assignment -> learner
 -- enrollment. Also shipped as
--- supabase/migrations/20261001150000_school_class_enrollment.sql for existing
+-- supabase/migrations/20261001074504_school_class_enrollment.sql for existing
 -- databases; repeated here so a fresh install matches. Safe to re-run.
 -- ============================================================
 -- Learners move from "owned by the teacher who created them" to
@@ -708,7 +708,7 @@ revoke all on public.academic_years, public.terms, public.classes, public.class_
               public.learner_enrollments from anon, authenticated;
 
 -- ---------------------------------------------------------------- lms core: subjects, assignments, marking
--- Also shipped as supabase/migrations/20261001170000_lms_core.sql for
+-- Also shipped as supabase/migrations/20261001120022_lms_core.sql for
 -- existing databases; repeated here so a fresh install matches. Safe to re-run.
 -- LMS core: subjects, class subjects, assignments with questions, learner
 -- submissions and answers, marking, and grade bands.
@@ -901,7 +901,7 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------- programme intelligence
--- Also shipped as supabase/migrations/20261001190000_programme_intelligence.sql.
+-- Also shipped as supabase/migrations/20261001121339_programme_intelligence.sql.
 -- Programme Intelligence dashboard: data-quality counts from each Kobo sync.
 --   rejected_count     — submissions marked "not approved" in KoboToolbox
 --                        (left out of the portal's results)
@@ -911,7 +911,7 @@ alter table public.kobo_forms add column if not exists rejected_count int not nu
 alter table public.kobo_forms add column if not exists unattributed_count int not null default 0;
 
 -- ---------------------------------------------------------------- kobo ingestion pipeline
--- Also shipped as supabase/migrations/20261001210000_kobo_pipeline.sql.
+-- Also shipped as supabase/migrations/20261001124833_kobo_pipeline.sql.
 -- KoboToolbox ingestion pipeline: Postgres becomes the source of truth.
 --
 --   Kobo ─→ API ─→ kobo_raw_submissions   (exactly what Kobo sent, kept for
@@ -1023,7 +1023,7 @@ revoke all on public.kobo_raw_submissions, public.kobo_records, public.kobo_reco
   from anon, authenticated;
 
 -- ---------------------------------------------------------------- data quality center
--- Also shipped as supabase/migrations/20261002090000_data_quality_center.sql.
+-- Also shipped as supabase/migrations/20261002092658_data_quality_center.sql.
 -- Data Quality Center: a register of every data problem the portal finds,
 -- what happened to each, and who did it.
 --
@@ -1118,7 +1118,7 @@ revoke all on public.dq_issues, public.dq_issue_events, public.dq_scans from ano
 revoke all on sequence public.dq_issue_events_id_seq from anon, authenticated;
 
 -- ---------------------------------------------------------------- M&E layer
--- Also shipped as supabase/migrations/20261002120000_me_layer.sql.
+-- Also shipped as supabase/migrations/20261002095645_me_layer.sql.
 -- The M&E layer:
 --   PROGRAMME → OUTCOMES → INDICATORS → TARGETS → ACTUALS → EVIDENCE → REPORT
 --
@@ -1271,7 +1271,7 @@ revoke all on public.me_programmes, public.me_outcomes, public.me_indicators, pu
   public.me_actuals, public.me_evidence, public.me_reports from anon, authenticated;
 
 -- ---------------------------------------------------------------- Impact dashboards
--- Also shipped as supabase/migrations/20261002150000_impact_dashboards.sql.
+-- Also shipped as supabase/migrations/20261002103804_impact_dashboards.sql.
 -- Impact dashboards: the data three of them need that the portal didn't keep.
 --
 -- 1. Gender — OPTIONAL, for learners and staff: female / male / prefer not to
@@ -1324,7 +1324,7 @@ alter table public.training_attendance enable row level security;
 revoke all on public.trainings, public.training_attendance from anon, authenticated;
 
 -- ---------------------------------------------------------------- Offline sync
--- Also shipped as supabase/migrations/20261003090000_offline_sync.sql.
+-- Also shipped as supabase/migrations/20261002140316_offline_sync.sql.
 -- Offline work: the device queues what was done without a connection and
 -- sends it when the network is back.
 --
@@ -1357,7 +1357,7 @@ alter table public.sync_requests enable row level security;
 revoke all on public.sync_requests from anon, authenticated;
 
 -- ---------------------------------------------------------------- Sync center
--- Also shipped as supabase/migrations/20261003120000_sync_center.sql.
+-- Also shipped as supabase/migrations/20261002142043_sync_center.sql.
 -- Sync center: what's synced, what isn't, and why — for Kobo and school work.
 --
 -- 1. kobo_forms.last_sync_attempt_at / last_sync_error — every Kobo sync
@@ -1395,7 +1395,7 @@ alter table public.device_sync_status enable row level security;
 revoke all on public.device_sync_status from anon, authenticated;
 
 -- ---------------------------------------------------------------- Notifications
--- Also shipped as supabase/migrations/20261003150000_notifications.sql.
+-- Also shipped as supabase/migrations/20261003080102_notifications.sql.
 -- Notifications: stored and auditable, not just browser alerts.
 --
 -- 1. notifications — what each person was told, by the rules in
@@ -1521,7 +1521,7 @@ select cron.schedule('hpf-notifications-hourly', '7 * * * *', $job$
 $job$);
 
 -- ---------------------------------------------------------------- Role-based access: data scope and grants
--- Also shipped as supabase/migrations/20261004090000_rbac_scopes_grants.sql. See docs/RBAC.md.
+-- Also shipped as supabase/migrations/20261004095853_rbac_scopes_grants.sql. See docs/RBAC.md.
 -- Role-based access: data scope assignments and explicit permission grants.
 -- See docs/RBAC.md. Additive only — no existing row is changed or removed,
 -- no role is renamed. Safe to re-run.
@@ -1644,7 +1644,7 @@ revoke all on function public.staff_scopes_guard() from public, anon, authentica
 revoke all on function public.permission_grants_guard() from public, anon, authenticated;
 
 -- ============================================================
--- 20261004150000_password_policy (docs/AUTH.md)
+-- 20261004143547_password_policy (docs/AUTH.md)
 -- ============================================================
 -- Production sign-in: temporary passwords that must be changed.
 --
@@ -1673,7 +1673,7 @@ alter table public.profiles add column if not exists temporary_password_hash tex
 alter table public.profiles add column if not exists password_changed_at timestamptz;
 
 -- ============================================================
--- 20261004170000_fk_indexes
+-- 20261004153434_fk_indexes
 -- ============================================================
 -- Supabase performance advisor: 42 foreign keys had no covering index.
 --
@@ -1729,3 +1729,82 @@ create index if not exists submission_answers_question_id_fk_idx on public.submi
 create index if not exists training_attendance_recorded_by_fk_idx on public.training_attendance (recorded_by);
 create index if not exists trainings_created_by_fk_idx on public.trainings (created_by);
 create index if not exists trainings_school_id_fk_idx on public.trainings (school_id);
+
+-- ---------------------------------------------------------------- Observability
+-- Also shipped as supabase/migrations/20261007090000_observability.sql.
+-- sync_events (append-only: what went wrong while a device synced, and
+-- what the person chose), learner_device_sync_status (learners' devices
+-- report their queue too), oldest_queued_at (the "stuck for 48 hours"
+-- page), and the private `backups` bucket for the nightly dumps.
+
+-- ---------------------------------------------------------------- 1. sync events
+create table if not exists public.sync_events (
+  id              bigint generated always as identity primary key,
+  event_key       text not null unique check (event_key ~ '^[A-Za-z0-9_-]{8,80}$'),
+  occurred_at     timestamptz not null,            -- on the device's clock
+  received_at     timestamptz not null default now(),
+  actor_kind      text not null check (actor_kind in ('staff', 'learner')),
+  profile_id      uuid,                            -- staff
+  learner_id      uuid,                            -- learners
+  role            text not null,
+  school_id       text,
+  county          text,
+  device_id       text not null check (device_id ~ '^[A-Za-z0-9_-]{8,80}$'),
+  app_version     text not null default '' check (length(app_version) <= 40),
+  event           text not null check (event in ('failed', 'conflict', 'kept_mine', 'retried', 'discarded')),
+  kind            text not null default '' check (length(kind) <= 40),   -- learner-work, mark, field-visit…
+  method          text check (method in ('POST', 'PUT', 'PATCH', 'DELETE')),
+  route           text check (length(route) <= 200),                     -- ids replaced: /assignments/:id/submit
+  status          int check (status between 100 and 599),
+  message         text check (length(message) <= 300),
+  attempts        int not null default 0 check (attempts >= 0),
+  item_created_at timestamptz
+);
+create index if not exists sync_events_received_idx on public.sync_events (received_at desc);
+create index if not exists sync_events_device_idx on public.sync_events (device_id, received_at desc);
+
+create or replace function public.sync_events_append_only() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  raise exception 'sync_events is append-only';
+end $$;
+drop trigger if exists sync_events_no_update on public.sync_events;
+create trigger sync_events_no_update before update or delete on public.sync_events
+  for each row execute function public.sync_events_append_only();
+revoke all on function public.sync_events_append_only() from public, anon, authenticated;
+
+-- ---------------------------------------------------------------- 2. learners' devices
+create table if not exists public.learner_device_sync_status (
+  learner_id        uuid not null references public.learners(id) on delete cascade,
+  device_id         text not null check (device_id ~ '^[A-Za-z0-9_-]{8,80}$'),
+  school_id         text references public.schools(id) on delete set null,
+  device_label      text not null default '' check (length(device_label) <= 120),
+  app_version       text not null default '' check (length(app_version) <= 40),
+  online            boolean not null default true,
+  last_sync_at      timestamptz,
+  pending           int not null default 0 check (pending >= 0),
+  failed            int not null default 0 check (failed >= 0),
+  conflicts         int not null default 0 check (conflicts >= 0),
+  saved_files       int not null default 0 check (saved_files >= 0),
+  oldest_pending_at timestamptz,
+  oldest_queued_at  timestamptz,
+  reported_at       timestamptz not null default now(),
+  primary key (learner_id, device_id)
+);
+create index if not exists learner_device_sync_status_reported_idx on public.learner_device_sync_status (reported_at);
+create index if not exists learner_device_sync_status_school_id_fk_idx on public.learner_device_sync_status (school_id);
+
+-- ---------------------------------------------------------------- 3. the oldest unsent activity
+alter table public.device_sync_status add column if not exists oldest_queued_at timestamptz;
+
+-- ---------------------------------------------------------------- lock down (same as every other table)
+alter table public.sync_events enable row level security;
+alter table public.learner_device_sync_status enable row level security;
+revoke all on public.sync_events from anon, authenticated;
+revoke all on public.learner_device_sync_status from anon, authenticated;
+revoke all on sequence public.sync_events_id_seq from anon, authenticated;
+
+-- ---------------------------------------------------------------- 4. the backups bucket
+insert into storage.buckets (id, name, public)
+values ('backups', 'backups', false)
+on conflict (id) do nothing;

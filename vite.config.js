@@ -17,11 +17,22 @@
    Relative paths (base "./"), so the same build works at the site root
    (Vercel) and under /Learning-portal/ (GitHub Pages).
    ============================================================ */
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { defineConfig } from "vite";
 
 const root = import.meta.dirname;
+
+/* Which Supabase project the build talks to (config.js): production for
+   the live sites; staging for Vercel's preview deployments, once a staging
+   project is filled in in environments.json — until then previews use
+   production, as they always have. HPF_TARGET=staging|production decides
+   it outright. docs/OPERATIONS.md has the details. */
+const environments = JSON.parse(readFileSync(resolve(root, "environments.json"), "utf8"));
+const wanted = process.env.HPF_TARGET || (process.env.VERCEL_ENV === "preview" ? "staging" : "production");
+const targetName = environments[wanted] ? wanted : "production";
+if (targetName !== wanted) console.warn(`environments.json has no "${wanted}" project yet: this build talks to production.`);
+const target = environments[targetName];
 // Every page; workspace.html is markup the workspace pages pull in (workspace.js), not a page.
 const pages = readdirSync(root).filter((f) => f.endsWith(".html") && f !== "workspace.html");
 
@@ -45,6 +56,11 @@ const stylesheetsFirst = {
 
 export default defineConfig({
   base: "./",
+  define: {
+    "import.meta.env.HPF_TARGET": JSON.stringify(targetName),
+    "import.meta.env.HPF_SUPABASE_URL": JSON.stringify(target.supabaseUrl),
+    "import.meta.env.HPF_PUBLISHABLE_KEY": JSON.stringify(target.publishableKey),
+  },
   plugins: [stylesheetsFirst],
   publicDir: "public",
   server: { port: 5174, strictPort: true },

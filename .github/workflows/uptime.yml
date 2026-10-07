@@ -1,0 +1,78 @@
+name: Uptime
+
+# Every 10 minutes: is the API up — the function AND its database
+# (GET /functions/v1/api/health) — and are both copies of the site answering?
+# Each address gets 3 tries a quarter-minute apart before it counts as down.
+# Down: an issue labelled "uptime" is opened (GitHub emails whoever watches
+# the repository) and updated at most hourly while it lasts; the first check
+# that passes again closes it. docs/OPERATIONS.md has the details — and why
+# an outside monitor is worth adding too.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: uptime
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check the API and the sites
+        id: check
+        run: |
+          failures=""
+          check() { # name, url
+            for attempt in 1 2 3; do
+              code=$(curl -s -o body.txt -w "%{http_code}" --max-time 20 "$2" || true)
+              if [ "$code" = "200" ]; then echo "✓ $1"; return; fi
+              [ "$attempt" -lt 3 ] && sleep 15
+            done
+            echo "✗ $1 — $2 answered ${code:-nothing}: $(head -c 300 body.txt 2>/dev/null)"
+            failures="${failures}- **$1** — \`$2\` answered **${code:-nothing}** three times"$'\n'
+          }
+          check "API (function and database)" "https://fwpqytrdlmxymvegvgji.supabase.co/functions/v1/api/health"
+          check "Portal on Vercel" "https://learning-portal-mu-two.vercel.app/"
+          check "Portal on GitHub Pages" "https://khaima.github.io/Learning-portal/"
+          {
+            echo "failures<<END_OF_FAILURES"
+            printf '%s' "$failures"
+            echo "END_OF_FAILURES"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open or update the outage issue
+        if: steps.check.outputs.failures != ''
+        uses: actions/github-script@v7
+        env:
+          FAILURES: ${{ steps.check.outputs.failures }}
+        with:
+          script: |
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = `${process.env.FAILURES}\nChecked ${new Date().toISOString()} ([run](${run})).`;
+            await github.rest.issues.createLabel({ ...context.repo, name: "uptime", color: "d73a4a", description: "Opened and closed by the uptime check" }).catch(() => {});
+            const { data: open } = await github.rest.issues.listForRepo({ ...context.repo, state: "open", labels: "uptime" });
+            if (!open.length) {
+              await github.rest.issues.create({ ...context.repo, title: "Uptime check failing", labels: ["uptime"],
+                body: `The uptime check failed:\n${body}\n\nThis issue closes itself when a check passes again (.github/workflows/uptime.yml).` });
+            } else if (Date.now() - Date.parse(open[0].updated_at) > 55 * 60_000) {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: open[0].number, body: `Still failing:\n${body}` });
+            }
+            core.setFailed("Something is down — see the uptime issue.");
+
+      - name: Close the outage issue
+        if: steps.check.outputs.failures == ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: open } = await github.rest.issues.listForRepo({ ...context.repo, state: "open", labels: "uptime" });
+            for (const issue of open) {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: issue.number, body: `Back up — every check passed at ${new Date().toISOString()}.` });
+              await github.rest.issues.update({ ...context.repo, issue_number: issue.number, state: "closed" });
+            }

@@ -1,0 +1,116 @@
+name: Release
+
+# How a change reaches production (docs/OPERATIONS.md):
+#
+#   push to `staging` ─► the full test suite (test.yml)
+#                     ─► staging: database migrations, the API, and Vercel's
+#                        preview of the branch (which talks to staging)
+#                     ─► production: migrations, the API, then `main` moves
+#                        to the commit — which is what Vercel and GitHub
+#                        Pages publish
+#
+# Nothing goes to production unless the tests passed (and staging, when one
+# is set up, took the same change first). `main` only ever moves forward to
+# a tested commit; nobody pushes to it directly.
+#
+# Needs: the SUPABASE_ACCESS_TOKEN secret (migrations and the API — without
+# it, only the site is promoted, with a warning) and, for staging, the
+# STAGING_PROJECT_REF variable. An approval step can be added in Settings →
+# Environments → release → Required reviewers.
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch:
+
+permissions:
+  contents: write # to move main
+  actions: write  # to start the GitHub Pages deploy
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    uses: ./.github/workflows/test.yml
+
+  staging:
+    needs: tests
+    if: vars.STAGING_PROJECT_REF != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      REF: ${{ vars.STAGING_PROJECT_REF }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.114.0
+      - name: Database migrations
+        run: |
+          supabase link --project-ref "$REF"
+          supabase db push --linked --yes
+      - name: The API
+        run: node scripts/deploy-api.mjs --project-ref="$REF"
+      - name: It answers, with this release
+        run: bash scripts/wait-for-api.sh "https://$REF.supabase.co/functions/v1/api/health" "${GITHUB_SHA::12}"
+
+  production:
+    needs: [tests, staging]
+    if: always() && needs.tests.result == 'success' && (needs.staging.result == 'success' || needs.staging.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: release
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      REF: fwpqytrdlmxymvegvgji
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: main can move forward to this commit
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor origin/main "$GITHUB_SHA"; then
+            echo "::error::main has commits that staging doesn't. Merge main into staging, push, and the release runs again."
+            exit 1
+          fi
+      - uses: actions/setup-node@v4
+        if: env.SUPABASE_ACCESS_TOKEN != ''
+        with:
+          node-version: 22
+      - uses: supabase/setup-cli@v1
+        if: env.SUPABASE_ACCESS_TOKEN != ''
+        with:
+          version: 2.114.0
+      - name: Database migrations
+        if: env.SUPABASE_ACCESS_TOKEN != ''
+        run: |
+          supabase link --project-ref "$REF"
+          supabase db push --linked --yes
+      - name: The API
+        if: env.SUPABASE_ACCESS_TOKEN != ''
+        run: node scripts/deploy-api.mjs --project-ref="$REF"
+      - name: It answers, with this release
+        if: env.SUPABASE_ACCESS_TOKEN != ''
+        run: bash scripts/wait-for-api.sh "https://$REF.supabase.co/functions/v1/api/health" "${GITHUB_SHA::12}"
+      - name: Without the access token, only the site is promoted
+        if: env.SUPABASE_ACCESS_TOKEN == ''
+        run: echo "::warning::No SUPABASE_ACCESS_TOKEN secret, so this release didn't apply migrations or deploy the API — deploy them by hand (docs/OPERATIONS.md) or add the secret."
+      - name: Move main to this commit (Vercel publishes it)
+        run: git push origin "$GITHUB_SHA:refs/heads/main"
+      - name: Publish GitHub Pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml --ref main
+      - name: Summary
+        run: |
+          {
+            echo "### Released ${GITHUB_SHA::12} to production"
+            echo "- main → \`${GITHUB_SHA::12}\` (Vercel publishes it; GitHub Pages deploy started)"
+            if [ -n "$SUPABASE_ACCESS_TOKEN" ]; then echo "- database migrations applied, API deployed and answering"; else echo "- **API and migrations not deployed** (no SUPABASE_ACCESS_TOKEN)"; fi
+          } >> "$GITHUB_STEP_SUMMARY"
