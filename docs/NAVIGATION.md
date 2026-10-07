@@ -1,8 +1,9 @@
 # Navigation: audit and plan
 
 **Date:** 7 October 2026. **Status:** done — all eight stages of
-the stages of [§11](#11-implementation-plan), with the decisions in
-[§12](#12-decisions-taken-7-october-2026). [`docs/RBAC.md`](RBAC.md) is the access model this builds on;
+[§11](#11-implementation-plan) are released, with the decisions in
+[§12](#12-decisions-taken-7-october-2026); [§14](#14-before-vs-after) is the
+before and after. [`docs/RBAC.md`](RBAC.md) is the access model this builds on;
 none of its server-side rules change here.
 
 The aim, in one line: **one function, one home.** A function may have several
