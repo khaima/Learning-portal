@@ -1332,6 +1332,9 @@ a.stat-tile.dq-tile-link:hover{ border-color:var(--brand); }
 .module-tab.active{ background:var(--brand-soft); color:var(--brand); }
 @media print{ .page-trail{ display:none; } }
 
+/* ---- a dashboard's main actions (field.html) ---- */
+.dash-actions{ display:flex; flex-wrap:wrap; gap:.6rem; margin-bottom:1rem; }
+
 /* ---- a school's page (admin-ui.js, Schools): back, name, actions, its tabs ---- */
 .school-head{ display:flex; flex-wrap:wrap; align-items:flex-end; gap:.4rem 1rem; margin-bottom:.8rem; }
 .school-head .back-link{ flex-basis:100%; font-size:.82rem; font-weight:600; color:var(--brand); text-decoration:none; }

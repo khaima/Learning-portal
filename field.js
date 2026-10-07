@@ -11,15 +11,17 @@ import {
 import { mountFormList, renderVisitForms, unfilledVisitForms, collectVisitResponses, FORM_KIND_LABEL } from "./forms.js";
 import { addResponse } from "./store.js";
 import { openContentPanel, closeViewer } from "./viewer.js";
-import { waiting } from "./sync.js";
+import * as sync from "./sync.js";
+const { waiting } = sync;
 // The school profile and teachers pages (admin-ui.js) load when first opened.
 const adminUi = () => import("./admin-ui.js");
 const pageFailed = (el) => (err) => { el.innerHTML = errorState(friendlyError(err, "Couldn't load this page — check your connection.")); };
 
 const ICON = {
   schools: '<path d="M4 21V8l8-5 8 5v13"/><path d="M9 21v-6h6v6"/>',
-  counties: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18Z"/>',
   visits: '<path d="M12 21s7-6.1 7-11.5A7 7 0 0 0 5 9.5C5 14.9 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/>',
+  forms: '<path d="M4 19V5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M9 13l2 2 4-4"/>',
+  sync: '<path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5M3 21v-5h5"/>',
 };
 const svg = (paths) => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${paths}</svg>`;
 
@@ -44,12 +46,23 @@ async function main() {
   // The menu (navigation.js), and the pages loaded when first opened. A field
   // officer works only at the schools assigned to them — the server sends
   // only those.
+  // "Start visit" — from the dashboard, My schools or a school's page — is
+  // #visits?start or #visits?start=<schoolId>: the one visit workflow, with
+  // the school already chosen when there is one (startFromLink, below).
+  let pendingStart = null;
+  let startFromLink = () => {};
   mountNavigation(user, {
     onPage(page, params) {
+      if (page === "visits" && params.has("start")) {
+        pendingStart = params.get("start") || "";
+        history.replaceState(null, "", "#visits");
+        startFromLink();
+      }
       if (page === "teachers") adminUi().then((m) => m.renderTeachers($("#tchBody"))).catch(pageFailed($("#tchBody")));
       // My schools: the portal's one Schools module, with only the schools assigned to this officer.
       if (page === "schools") {
-        adminUi().then((m) => m.renderSchoolsModule($("#schoolsModule"), { params, perms: new Set(user.permissions || []), base: "#schools" }))
+        const startVisit = (s) => `<a class="btn btn-primary q-small" href="#visits?start=${encodeURIComponent(s.id)}">Start visit</a>`;
+        adminUi().then((m) => m.renderSchoolsModule($("#schoolsModule"), { params, perms: new Set(user.permissions || []), base: "#schools", actions: startVisit }))
           .catch(pageFailed($("#schoolsModule")));
       }
     },
@@ -65,16 +78,24 @@ async function main() {
   let reportsCache = [];
   let directory = { counties: [], schools: [] };
 
+  /* The dashboard's numbers — each tile opens what it counts. The schools
+     are the ones assigned to this officer (the server sends only those). */
+  const formsToFinish = () => reportsCache.filter((r) => (r.missingForms || []).some((f) => !waiting(`form:${f.id}:${r.id}`)));
   function renderKpis() {
-    const mine = directory.schools.filter((s) => s.county === user.county);
     const thisTerm = termOf(new Date().toISOString());
     const visitsThisTerm = reportsCache.filter((r) => termOf(r.createdAt) === thisTerm).length;
+    const weekAgo = Date.now() - 7 * 864e5;
+    const thisWeek = reportsCache.filter((r) => Date.parse(r.createdAt) >= weekAgo).length;
+    const unsent = sync.status().pending;
+    const n = directory.schools.length;
     $("#statRow").innerHTML = `
-      <div class="stat-tile"><div class="s-label">${svg(ICON.schools)}Schools in ${esc(user.county || "your county")}</div><div class="s-num">${mine.length}</div><div class="s-sub">${directory.schools.length} listed across all counties</div></div>
-      <div class="stat-tile"><div class="s-label">${svg(ICON.visits)}Visits this term</div><div class="s-num">${visitsThisTerm}</div><div class="s-sub">field reports filed</div></div>
-      <div class="stat-tile"><div class="s-label">${svg(ICON.counties)}Counties</div><div class="s-num">${directory.counties.length}</div><div class="s-sub">in the programme</div></div>
+      <a class="stat-tile stat-link" href="#schools"><div class="s-label">${svg(ICON.schools)}My schools</div><div class="s-num">${n}</div><div class="s-sub">${n ? "assigned to you" : "none assigned yet"}</div></a>
+      <a class="stat-tile stat-link" href="#visits"><div class="s-label">${svg(ICON.visits)}Visits this term</div><div class="s-num">${visitsThisTerm}</div><div class="s-sub">${thisWeek} this week</div></a>
+      <a class="stat-tile stat-link" href="#visits"><div class="s-label">${svg(ICON.forms)}Forms to finish</div><div class="s-num">${formsToFinish().length}</div><div class="s-sub">visits with forms still to fill</div></a>
+      <a class="stat-tile stat-link" href="#" data-open-sync-center><div class="s-label">${svg(ICON.sync)}Waiting to sync</div><div class="s-num">${unsent}</div><div class="s-sub">${unsent ? "sent when you're online" : "everything is sent"}</div></a>
     `;
   }
+  sync.onChange(() => renderKpis());
 
   function reportRow(r) {
     const missing = (r.missingForms || []).filter((f) => !waiting(`form:${f.id}:${r.id}`));
@@ -118,7 +139,7 @@ async function main() {
       }
     });
   }
-  for (const sel of ["#reportList", "#homeReportList"]) {
+  for (const sel of ["#reportList", "#homeTasks"]) {
     $(sel).addEventListener("click", (e) => {
       const b = e.target.closest("[data-finish-visit]");
       if (b) openFinishVisit(b.dataset.finishVisit);
@@ -130,21 +151,21 @@ async function main() {
     if (reportsFailed) {
       const msg = errorState("Couldn't load your visits — check your connection and try again.", refreshReports);
       $("#reportList").innerHTML = msg;
-      $("#homeReportList").innerHTML = msg;
+      $("#homeTasks").innerHTML = msg;
       return;
     }
     $("#reportList").innerHTML = reportsCache.length
       ? reportsCache.map(reportRow).join("")
-      : `<div class="empty-state">No field reports filed yet.</div>`;
-    $("#homeReportList").innerHTML = reportsCache.length
-      ? reportsCache.slice(0, 5).map(reportRow).join("")
-        + (reportsCache.length > 5 ? `<p class="hint" style="margin-top:.4rem">${reportsCache.length} visits on record — view all.</p>` : "")
-      : `<div class="empty-state">No field reports filed yet.</div>`;
+      : `<div class="empty-state">No visits filed yet — Start school visit is above.</div>`;
+    const todo = formsToFinish();
+    $("#homeTasks").innerHTML = todo.length
+      ? `<h3 class="mini-head">Forms to finish</h3>${todo.map(reportRow).join("")}`
+      : `<p class="hint" style="margin:0">Nothing waiting: every visit's forms are in. <a href="#visits">My visits</a></p>`;
   }
 
   async function refreshReports() {
     $("#reportList").innerHTML = skeleton(3, { avatar: false });
-    $("#homeReportList").innerHTML = skeleton(2, { avatar: false });
+    $("#homeTasks").innerHTML = skeleton(1, { avatar: false });
     try {
       const reports = await getFieldReports();
       reportsCache = reports.map((r) => ({
@@ -185,6 +206,7 @@ async function main() {
     VISIT_TYPES.map((v) => `<option>${esc(v)}</option>`).join("");
 
   let currentVisit = null;
+  let directoryLoaded = false;
 
   function showStage(stage) {
     stageIdle.hidden = stage !== "idle";
@@ -245,7 +267,10 @@ async function main() {
   const DRAFT_KEY = `hpf_visit_draft_${user.id}`;
   const PENDING_MSG = "Not sent yet — no connection. Saved on this device; it will be sent automatically when you're back online.";
   const loadDraft = () => { try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || "null"); } catch { return null; } };
-  const clearDraft = () => { try { localStorage.removeItem(DRAFT_KEY); } catch { /* private mode etc. */ } };
+  const clearDraft = () => {
+    try { localStorage.removeItem(DRAFT_KEY); } catch { /* private mode etc. */ }
+    showResumeOffer();
+  };
   const newVisitRef = () => crypto.randomUUID
     ? crypto.randomUUID()
     : `v${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
@@ -296,6 +321,7 @@ async function main() {
     try {
       localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
       setDraftStatus(draft.pending ? PENDING_MSG : "Answers are saved on this device as you go.");
+      showResumeOffer(); // the dashboard offers the way back into it
     } catch {
       setDraftStatus("This browser can't save a draft — keep this page open until the visit is sent.");
     }
@@ -304,11 +330,14 @@ async function main() {
   function showResumeOffer() {
     const d = loadDraft();
     $("#visitResume").hidden = !d || !!currentVisit;
+    $("#dashResume").hidden = !d;
     if (!d) return;
     const started = new Date(d.startedAt);
-    $("#visitResumeText").textContent = `${d.school} · ${d.visitType} · started ${
+    const line = `${d.school} · ${d.visitType} · started ${
       started.toLocaleDateString([], { day: "numeric", month: "short" })} ${
       started.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}${d.pending ? " · not sent yet" : ""}`;
+    $("#visitResumeText").textContent = line;
+    $("#dashResumeText").textContent = line;
   }
 
   /* Shows the "visit in progress" stage for a new or resumed visit. */
@@ -357,6 +386,25 @@ async function main() {
   });
 
   $("#startVisitCta").addEventListener("click", () => showStage("select"));
+
+  /* #visits?start[=<schoolId>]: open the workflow, the school already
+     chosen when there is one — never on top of a visit under way. Waits for
+     the schools list if it hasn't arrived yet. */
+  startFromLink = () => {
+    if (pendingStart === null || !directoryLoaded) return;
+    const schoolId = pendingStart;
+    pendingStart = null;
+    if (currentVisit) { toast("A visit is already under way", "Finish or cancel it before starting another.", "error"); return; }
+    resetWizard();
+    showStage("select");
+    const school = directory.schools.find((s) => s.id === schoolId);
+    if (!school) return;
+    countySelect.value = school.county;
+    countySelect.dispatchEvent(new Event("change"));
+    schoolSelect.value = school.id;
+    schoolSelect.dispatchEvent(new Event("change"));
+    visitTypeSelect.focus();
+  };
   $("#cancelSelectBtn").addEventListener("click", resetWizard);
   $("#cancelActiveBtn").addEventListener("click", async () => {
     const ok = await confirmDialog({
@@ -483,7 +531,6 @@ async function main() {
   /* Live list: new or renamed schools/counties from the Education Team
      show up when this tab comes back into view (or within a minute),
      without losing a visit that's half-picked. */
-  let directoryLoaded = false;
   function applyDirectory(data) {
     const keep = { county: countySelect.value, school: schoolSelect.value };
     directory = data;
@@ -510,6 +557,7 @@ async function main() {
     }
     directoryLoaded = true;
     renderKpis();
+    startFromLink();
   }
   watchSchools(applyDirectory, (err) => console.error("could not load schools:", err));
 

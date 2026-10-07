@@ -430,3 +430,22 @@ the next starts. Old addresses keep working at every stage.
   links open it, but a school's classes are on its page.
 - The school head's **My school** already was one school with tabs, and keeps
   its management pages.
+
+**Stage 3 — one Visits workflow (released 7 Oct 2026).**
+- The field officer's visit workflow moved from the dashboard to **My
+  visits**, the one place a visit is started, filled in, saved on the device
+  and submitted. The history is under it.
+- **Start visit** is a link, `#visits?start=<school>`. The dashboard, every
+  row of My schools and every school's page open the same workflow, with the
+  school already chosen. It won't start on top of a visit already under way.
+- The field officer's dashboard became a summary with actions:
+  - tiles that open what they count: My schools, Visits this term (and this
+    week), Forms to finish, Waiting to sync;
+  - Start school visit, My schools, and Resume for an unfinished visit on
+    the device;
+  - only the visits whose forms still need finishing.
+
+  The second "Recent visits" list, the irrelevant "Counties" tile, and the
+  loop from My visits back to the dashboard are gone.
+- Everyone else sees visits in the read-only Visits views and on each
+  school's Visits tab: the same visits, from the same API.

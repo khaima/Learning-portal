@@ -47,6 +47,27 @@
         <div class="stat-row" id="statRow"></div>
 
         <div class="panel">
+          <div class="panel-head"><h2>What to do</h2></div>
+          <!-- An unfinished visit saved on this device: the way back into it (field.js) -->
+          <div class="alert alert-warn" id="dashResume" hidden>
+            <div><b>Unfinished visit on this device</b><span id="dashResumeText"></span></div>
+            <div style="margin-top:.6rem"><a class="btn btn-primary" href="#visits">Resume visit</a></div>
+          </div>
+          <div class="dash-actions">
+            <a class="btn btn-primary" href="#visits?start">Start school visit</a>
+            <a class="btn btn-outline" href="#schools">My schools</a>
+          </div>
+          <!-- Visits whose forms aren't all in yet — the officer's open tasks -->
+          <div id="homeTasks"></div>
+        </div>
+      </section>
+
+      <section class="dash-page" data-page="schools" hidden>
+        <div class="panel" id="schoolsModule"><div class="empty-state">Loading…</div></div>
+      </section>
+
+      <section class="dash-page" data-page="visits" hidden>
+        <div class="panel">
           <!-- Stage: idle — the one obvious primary action -->
           <div id="visitIdle">
             <!-- An unfinished visit saved on this device (field.js) -->
@@ -58,7 +79,7 @@
               </div>
             </div>
             <button type="button" class="btn btn-primary btn-block visit-cta" id="startVisitCta">Start School Visit</button>
-            <p class="hint" style="text-align:center;margin-top:.6rem">County → school → visit type → done, in a few taps.</p>
+            <p class="hint" style="text-align:center;margin-top:.6rem">School → visit type → forms → submit. Saved on this device as you go.</p>
           </div>
 
           <!-- Stage: pick county / school / visit type, revealed one at a time -->
@@ -105,18 +126,7 @@
         </div>
 
         <div class="panel">
-          <div class="panel-head"><h2>Recent visits</h2><a href="#visits">View all</a></div>
-          <div id="homeReportList"></div>
-        </div>
-      </section>
-
-      <section class="dash-page" data-page="schools" hidden>
-        <div class="panel" id="schoolsModule"><div class="empty-state">Loading…</div></div>
-      </section>
-
-      <section class="dash-page" data-page="visits" hidden>
-        <div class="panel">
-          <div class="panel-head"><h2>Recent visits</h2><a href="#dashboard">+ Start a visit</a></div>
+          <div class="panel-head"><h2>My visits</h2></div>
           <div id="reportList"></div>
         </div>
       </section>
