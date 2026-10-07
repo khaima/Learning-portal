@@ -54,7 +54,7 @@ export function renderPlatformOverview(el) {
       <div class="stat-row">
         ${tile("Staff accounts", d.accounts.active, `${d.accounts.pending} waiting for approval`, "#users")}
         ${tile("Signed in this week", d.accounts.signedIn7d, `${d.accounts.neverSignedIn} active accounts have never signed in`, "#account-activity")}
-        ${tile("Learners enrolled", d.learners.enrolled, d.learners.lockedNow ? `${d.learners.lockedNow} locked out right now` : "None locked out")}
+        ${tile("Learners enrolled", d.learners.enrolled, d.learners.lockedNow ? `${d.learners.lockedNow} locked out right now` : "None locked out", "admin.html#learners")}
         ${tile("Schools", d.organisation.schools, `${d.organisation.counties} counties`, "#schools")}
         ${tile("Data quality", d.dataQuality.score == null ? "—" : `${d.dataQuality.score}%`, `${d.dataQuality.high} high-severity issues open`, "#data-quality")}
         ${tile("Access exceptions", d.access.grants, `explicit grants · ${d.access.scopedStaff} staff with a narrowed scope`, "#permissions")}

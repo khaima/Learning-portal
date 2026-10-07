@@ -222,29 +222,9 @@ function koboDetailHtml(k, perms) {
   return html;
 }
 
-function devicesHtml(data, roleFilter) {
-  if (!data) return `<div class="empty-state">Loading the field team…</div>`;
-  const people = data.people.filter((p) => !roleFilter || p.role === roleFilter);
-  if (!people.length) return `<p class="hint">Nobody here yet.</p>`;
-  return `<div class="lms-table-wrap"><table class="lms-table intel-table sc-team">
-    <thead><tr><th class="lms-name">Who</th><th>Device</th><th>Last sync</th><th>Waiting</th><th class="lms-name">Status</th></tr></thead>
-    <tbody>${people.map((p) => {
-      const d = p.devices[0];
-      return `<tr class="${p.attention && p.devices.length ? "sc-attn" : ""}">
-        <td class="lms-name"><b>${esc(p.name)}</b><br><span class="hint-inline">${esc(p.roleLabel)}${p.school ? ` · ${esc(p.school)}` : p.county ? ` · ${esc(p.county)}` : ""}</span></td>
-        <td>${d ? `${esc(d.deviceLabel || "Device")}${p.devices.length > 1 ? ` <span class="hint-inline">+${p.devices.length - 1}</span>` : ""}` : "—"}</td>
-        <td>${p.lastSyncAt ? esc(fmtSyncTime(p.lastSyncAt)) : "—"}</td>
-        <td>${p.pending || "0"}</td>
-        <td class="lms-name">${p.attention ? `<span class="${p.devices.length ? "field-error" : "hint-inline"}">${esc(p.attention)}</span>` : `<span class="pill ok">OK</span>`}</td></tr>`;
-    }).join("")}</tbody></table></div>
-    <p class="field-hint">Each staff device reports after it syncs — counts only, never the work. Someone whose device has work waiting for days may need help getting a connection, or to open the portal once.</p>`;
-}
-
 export function openSyncPanel() {
   const busy = { all: false, kobo: false };
   let server = null;
-  let devices = null;
-  let roleFilter = "field_officer";
   let perms = new Set();
   const panel = openContentPanel({ title: "Sync center", html: `<div class="empty-state">Loading…</div>` }, () => stop());
 
@@ -277,22 +257,13 @@ export function openSyncPanel() {
         <li class="sync-item"><b>${esc(f.title || f.name)}</b><span class="hint-inline"> · ${esc(f.name)} · ${esc(fmtBytes(f.size))}</span>
           <div class="lms-actions"><button type="button" class="btn btn-ghost q-small" data-act="unsave" data-key="${esc(f.key)}">Remove from this device</button></div></li>`).join("")}</ul>`
         : `<p class="hint">Nothing saved yet. Use <b>Save offline</b> on a resource to read it without a connection.</p>`}
-      ${perms.has("sync.monitor") ? `
-        <div class="panel-head" style="margin-top:1.2rem"><h3 style="margin:0">Field team devices</h3>
-          <select data-role-filter aria-label="Whose devices">
-            ${[["field_officer", "Field officers"], ["teacher", "Teachers"], ["school_leader", "School heads"], ["", "Everyone"]].map(([v, l]) => `<option value="${v}"${v === roleFilter ? " selected" : ""}>${l}</option>`).join("")}
-          </select></div>
-        ${st.online ? devicesHtml(devices, roleFilter) : `<p class="hint">Needs a connection.</p>`}` : ""}
+      ${perms.has("sync.monitor") || perms.has("sync.problems.view") ? `<p class="hint" style="margin-top:1rem">Everyone's devices — who synced when, and whose work is stuck — are on <a href="#sync-problems">the Sync monitor</a>.</p>` : ""}
       <p class="field-hint" style="margin-top:1rem">This device: ${esc(sync.deviceLabel())} · app ${esc(sync.APP_VERSION)}${est?.usage != null ? ` · using ${esc(fmtBytes(est.usage))}` : ""}.
         Signing out removes this account's offline copies and saved resources from the device — never work that hasn't been sent.</p>`;
   };
 
   const loadServer = async () => {
     try { server = await apiGet("/sync/status"); } catch { /* offline with no copy yet */ }
-  };
-  const loadDevices = async () => {
-    if (!perms.has("sync.monitor") || !sync.isOnline()) return;
-    try { devices = await apiGet("/sync/devices"); } catch { devices = { people: [] }; }
   };
 
   const stop = sync.onChange(() => render());
@@ -301,13 +272,8 @@ export function openSyncPanel() {
     await render();
     await loadServer();
     await render();
-    await loadDevices();
-    await render();
   })();
 
-  panel.addEventListener("change", (e) => {
-    if (e.target.matches("[data-role-filter]")) { roleFilter = e.target.value; render(); }
-  });
   panel.addEventListener("click", async (e) => {
     const b = e.target.closest("[data-act]");
     if (!b) return;
@@ -327,7 +293,6 @@ export function openSyncPanel() {
           } finally { busy.kobo = false; }
         }
         await loadServer();
-        await loadDevices();
         busy.all = false;
         await render();
         toast(st.pending ? "Not everything could be sent" : "Synced",

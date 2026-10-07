@@ -3271,7 +3271,7 @@ async function main() {
       case "sync-problems": {
         const ui = await syncProblemsUi().catch(() => null);
         if (!ui) { toast("Couldn't open this page", "Check your connection and try again.", "error"); return; }
-        ui.renderSyncProblems($("#syncProblems"));
+        ui.renderSyncProblems($("#syncProblems"), { perms });
         break;
       }
       default: break;

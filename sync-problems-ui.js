@@ -14,6 +14,7 @@
    ============================================================ */
 import { apiGet } from "./api.js";
 import { esc, skeleton, errorState, friendlyError } from "./util.js";
+import { fmtSyncTime } from "./sync-ui.js";
 
 const KIND = { "learner-work": "Learner work", mark: "Marking", reading: "Reading time", "field-visit": "Field visit", "form-response": "Form response" };
 const EVENT = {
@@ -75,8 +76,28 @@ function eventsHtml(d) {
     </tr>`).join("")}</tbody></table></div>`;
 }
 
+/* Every staff device, last sync and what's waiting (sync.monitor) — moved here
+   from the Sync center, which is now about the person's own device. */
+function devicesHtml(data, roleFilter) {
+  if (!data) return `<div class="empty-state">Loading the field team…</div>`;
+  const people = data.people.filter((p) => !roleFilter || p.role === roleFilter);
+  if (!people.length) return `<p class="hint">Nobody here yet.</p>`;
+  return `<div class="lms-table-wrap"><table class="lms-table intel-table sc-team">
+    <thead><tr><th class="lms-name">Who</th><th>Device</th><th>Last sync</th><th>Waiting</th><th class="lms-name">Status</th></tr></thead>
+    <tbody>${people.map((p) => {
+      const d = p.devices[0];
+      return `<tr class="${p.attention && p.devices.length ? "sc-attn" : ""}">
+        <td class="lms-name"><b>${esc(p.name)}</b><br><span class="hint-inline">${esc(p.roleLabel)}${p.school ? ` · ${esc(p.school)}` : p.county ? ` · ${esc(p.county)}` : ""}</span></td>
+        <td>${d ? `${esc(d.deviceLabel || "Device")}${p.devices.length > 1 ? ` <span class="hint-inline">+${p.devices.length - 1}</span>` : ""}` : "—"}</td>
+        <td>${p.lastSyncAt ? esc(fmtSyncTime(p.lastSyncAt)) : "—"}</td>
+        <td>${p.pending || "0"}</td>
+        <td class="lms-name">${p.attention ? `<span class="${p.devices.length ? "field-error" : "hint-inline"}">${esc(p.attention)}</span>` : `<span class="pill ok">OK</span>`}</td></tr>`;
+    }).join("")}</tbody></table></div>
+    <p class="field-hint">Each staff device reports after it syncs — counts only, never the work. Someone whose device has work waiting for days may need help getting a connection, or to open the portal once.</p>`;
+}
+
 /** Draws the page into `el`; `hours` is the threshold (48 by default). */
-export async function renderSyncProblems(el, { hours = 48 } = {}) {
+export async function renderSyncProblems(el, { hours = 48, perms = new Set() } = {}) {
   el.innerHTML = `
     <div class="panel">
       <div class="panel-head"><h2>Stuck devices</h2>
@@ -87,6 +108,13 @@ export async function renderSyncProblems(el, { hours = 48 } = {}) {
       <p class="hint" style="margin-top:0">Work done offline waits on the device until it syncs. These devices have had something unsent for longer than this — waiting for a connection, refused by the server, or in conflict with a change made elsewhere. As of each device's last report: one that has gone quiet stays here.</p>
       <div id="spbStuck">${skeleton(3, { avatar: false })}</div>
     </div>
+    ${perms.has("sync.monitor") ? `<div class="panel">
+      <div class="panel-head"><h2>Every device</h2>
+        <span class="dq-head-actions"><label class="hint-inline" for="spbRole">Whose</label>
+          <select id="spbRole">${[["field_officer", "Field officers"], ["teacher", "Teachers"], ["school_leader", "School heads"], ["", "Everyone"]]
+            .map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select></span></div>
+      <div id="spbDevices">${skeleton(3, { avatar: false })}</div>
+    </div>` : ""}
     <div class="panel">
       <div class="panel-head"><h2>Sync failures and conflicts</h2><span class="chart-meta" style="margin:0">Last 7 days</span></div>
       <p class="hint" style="margin-top:0">What the server refused or found in conflict when a device synced, and what the person then chose. Nothing here can be changed or deleted.</p>
@@ -105,7 +133,18 @@ export async function renderSyncProblems(el, { hours = 48 } = {}) {
     el.querySelector("#spbStuck").innerHTML = stuckHtml(d);
     el.querySelector("#spbEvents").innerHTML = eventsHtml(d);
   };
+  let devices = null;
+  const drawDevices = () => { const box = el.querySelector("#spbDevices"); if (box) box.innerHTML = devicesHtml(devices, el.querySelector("#spbRole").value); };
+  const loadDevices = async () => {
+    if (!perms.has("sync.monitor")) return;
+    try { devices = await apiGet("/sync/devices"); } catch (err) {
+      el.querySelector("#spbDevices").innerHTML = errorState(friendlyError(err), loadDevices);
+      return;
+    }
+    drawDevices();
+  };
+  el.querySelector("#spbRole")?.addEventListener("change", drawDevices);
   el.querySelector("#spbHours").addEventListener("change", load);
-  el.querySelector("#spbRefresh").addEventListener("click", load);
-  await load();
+  el.querySelector("#spbRefresh").addEventListener("click", () => { load(); loadDevices(); });
+  await Promise.all([load(), loadDevices()]);
 }

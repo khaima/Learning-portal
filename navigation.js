@@ -150,7 +150,7 @@ export const WORKSPACES = {
         c("schools", { label: "Counties & schools" }), c("calendar"),
       ]),
       entry("field", "Field operations", "pin", [
-        c("field-visits", { label: "Visits" }), c("forms"), c("kobo", { label: "Kobo surveys" }), c("survey-results"), c("sync-problems"),
+        c("field-visits", { label: "Visits" }), c("forms"), c("kobo", { label: "Kobo surveys" }), c("survey-results"), c("sync-problems", { label: "Sync monitor" }),
       ]),
       entry("education", "Education programmes", "cap", [c("assignments"), c("results"), c("content", { label: "Content library" })]),
       entry("data-quality", "Data quality", "check", [c("data-quality")], { badge: "dataQuality" }),

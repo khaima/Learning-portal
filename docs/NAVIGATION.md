@@ -483,3 +483,24 @@ the next starts. Old addresses keep working at every stage.
 - Clearer names: the Education Team's usage tab is **Usage dashboard**, next
   to the library's own per-item usage report. M&E's library tab is **Content
   usage**.
+
+**Stages 6 and 7 — Users, Data & integrations, Audit & security; dashboards
+(released 7 Oct 2026).**
+- **One Sync monitor.** The all-devices table moved out of the Sync center
+  into the Sync monitor page, beside the stuck devices and the week's sync
+  failures:
+  - Super Admin: Data & integrations › Sync monitor;
+  - Admin: Field operations › Sync monitor;
+  - Education Team: Schools & learning › Devices, stuck devices only.
+
+  The Sync center is now about the person's own device, with a link to the
+  Sync monitor for those who may see it.
+- Users (Accounts, Approvals, Permissions & grants, Notifications sent),
+  Data & integrations (Kobo, Form registry, Validation, Sync monitor), and
+  Audit & security (Audit log, Security events, Account activity) are the
+  modules from stage 1, now with their final contents.
+- **Dashboards:** every tile opens what it counts. The field officer's was
+  rebuilt in stage 3. Super Admin's "Learners enrolled" now opens the
+  learners page, in Programme Administration. Admin's tiles and "Needs
+  attention" list, and the school head, teacher and learner dashboards'
+  "View all" links already did.
