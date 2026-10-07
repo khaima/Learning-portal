@@ -1,6 +1,6 @@
 # Navigation: audit and plan
 
-**Date:** 7 October 2026. **Status:** audit and plan approved; being built in
+**Date:** 7 October 2026. **Status:** done — all eight stages of
 the stages of [§11](#11-implementation-plan), with the decisions in
 [§12](#12-decisions-taken-7-october-2026). [`docs/RBAC.md`](RBAC.md) is the access model this builds on;
 none of its server-side rules change here.
@@ -504,3 +504,59 @@ the next starts. Old addresses keep working at every stage.
   learners page, in Programme Administration. Admin's tiles and "Needs
   attention" list, and the school head, teacher and learner dashboards'
   "View all" links already did.
+
+**Stage 8 — all roles checked (7 Oct 2026).** In the browser, as each of
+the 8 roles: every sidebar row and every tab (111 pages in all) opens the
+right page, with the right row highlighted and no errors. Other roles'
+addresses typed in are refused. Old addresses still land somewhere sensible
+(`#school-profiles`, `#reports`, `#classes`, `#users?role=…`). On a phone,
+the drawer works and the tabs scroll on their own, never the page.
+`navigation_test.ts` holds the rules on every push.
+
+---
+
+## 14. Before vs after
+
+### The menus
+
+| Role | Before | After | What changed, and why |
+|---|---|---|---|
+| Super Admin | 39 entries, 9 groups: every page of every workspace, 4 dashboards | **6**: Overview · Users & roles · Organisation setup · Data & integrations · Reports & analytics · Audit & security, plus **Switch workspace** | System controls only. The operational areas are entered on purpose; every right is kept |
+| Admin | 24 entries, 7 groups (Users ×3) | **7**: Dashboard · Schools · Field operations · Education programmes · Data quality · Reports · Users | One row per module. Accounts, Approvals and Notifications sent are tabs of Users |
+| M&E | 26 entries, 8 groups | **6**: M&E overview · Results framework · Reports & analytics · Data quality · Schools · Surveys & forms | Six programme dashboards became tabs of Reports & analytics |
+| Education Team | 18 entries, 7 groups | **6**: Dashboard · Schools & learning · Activities · Assessments · Content & resources · Education reports | The brief's five areas plus the dashboard; still no Kobo, users or settings |
+| Field Officer | 11 entries, 6 groups | **5**: Dashboard · My schools · My visits · Field surveys · Reports | Task-focused; School profiles and Teachers live inside My schools |
+| School Head | 9 | **4**: Dashboard · My school · Learning resources · Reports | The school's visits moved from Reports to My school |
+| Teacher | 9 | **6**: Dashboard · My classes · Assessments · Results · Learning resources · Reports | Exports have their own Reports entry, out of Results |
+| Learner | 8 | **5**: Home · My classes · My assignments · My progress · Library | "My activity" became "Reading activity", under My progress |
+| Everyone | Account group: My profile, Notifications (± Sync center) + a Sign out button in the top bar | Under the person's name: My profile · Notifications · Sync center · Sign out (the bell and the sync chip stay) | One place for account things, not two |
+
+### The functions
+
+| Function | Before | After (one home) | Why |
+|---|---|---|---|
+| Schools | Console Schools & counties, School profiles (dropdown), Classes (dropdown); field My schools (no actions) and School profiles (another dropdown); head's School profile | **Schools**: one list, then one page per school with Overview · Teachers · Learners & classes · Visits · Assessments · Devices. The same module for a field officer (My schools) | The brief's "one Schools module", role-filtered by the API |
+| Teachers | Teachers page, field Teachers, head's Teachers, "School heads" users filter | **All teachers** in Schools, and each school's Teachers tab | Same data, one directory |
+| Visits | The workflow on the field dashboard, "Recent visits" twice, My visits looping back to the dashboard; console Field visits; head's Reports | **My visits** (the workflow and the history); Start visit from Dashboard, My schools and a school page, school pre-filled; Visits tab on every school | One workflow, many entry points |
+| Surveys | Kobo page doing connection, attach, mapping, sync and review for three roles; field Kobo surveys and Visit forms apart | Super Admin: Data & integrations › Kobo (connect, attach, map); Admin: Field operations › Kobo surveys (sync, results); M&E: Data quality › Kobo review; field officer: **Field surveys** (Kobo and forms) | Decisions 1 and 3; Kobo setup is system configuration |
+| Reports | One export centre under five names, in four places | One entry per role (**Reports**, **Education reports**, or **Reports & analytics** with dashboards and M&E reports as tabs) | Same module, filtered per person by the API |
+| Users | `users` three times in Admin's menu | **Users**: Accounts · Approvals · Notifications sent (Super Admin adds Permissions & grants) | Filtered views are tabs, not rows |
+| Sync monitoring | Sync center (chip and menu items) with the all-devices table inside, plus a Stuck devices page | Sync center = this device; **Sync monitor** = stuck devices, every device, the week's failures | One page for everyone's devices |
+| Audit | Audit log and Security events as two rows | **Audit & security**: Audit log · Security events · Account activity | Security events is a filter of the log |
+| Dashboards | Field officer: 3 tiles, none clickable, one about counties | Every tile opens what it counts; the field officer's shows assigned schools, visits this term and this week, forms to finish and waiting to sync, with Start school visit, Resume and My schools | Dashboards lead to work, they don't copy the menu |
+
+### Still the same
+
+The API's permission checks and data scope, every page's own functions,
+offline work and sync, Kobo ingestion, and every role's data. One permission
+changed: `kobo.manage` (decision 1, with the new `kobo.sync` for Admin).
+
+### Left as found, on purpose
+
+- The school head's Teachers and Learners & classes pages: they *manage*
+  their own school (roster, classes, past learners), which the read-only
+  school page doesn't do.
+- The teacher's Class roster: where a teacher manages their own learners.
+- Kobo surveys and the portal's forms: two systems underneath (decision 3),
+  found in one place.
+- No Airtable or System Settings page: neither exists in the portal.
