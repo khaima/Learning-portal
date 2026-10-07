@@ -7,3 +7,6 @@ supabase/.temp/
 # The build (npm run build) and its tools.
 node_modules/
 dist/
+
+# Deno writes this when the API tests run; versions are pinned in deno.json.
+supabase/functions/api/deno.lock
