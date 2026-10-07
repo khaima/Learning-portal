@@ -232,7 +232,7 @@ where [§12](#12-decisions-taken-7-october-2026) decided.
 | Teachers | VIEW | VIEW (scoped) | VIEW (scoped) | VIEW (assigned) | VIEW (scoped) | VIEW (own) | NONE | NONE |
 | Learners | FULL | FULL | VIEW (scoped) | NONE | VIEW (scoped) | CREATE/EDIT (own school) | CREATE/EDIT (own classes) | NONE |
 | Visits | VIEW | VIEW (scoped) | VIEW (scoped) | CREATE/EDIT (own) | VIEW (scoped) | NONE | NONE | NONE |
-| Surveys (Kobo) | FULL (connect) | MANAGE (attach, sync, map) | NONE | FILL | REVIEW | NONE | NONE | NONE |
+| Surveys (Kobo) | FULL (connect, attach, map) | SYNC + results | NONE | FILL | REVIEW | NONE | NONE | NONE |
 | Forms | CREATE/EDIT | CREATE/EDIT | CREATE/EDIT | FILL | VIEW responses | FILL | FILL | NONE |
 | Assessments | VIEW | VIEW (scoped) | VIEW (scoped) | NONE | VIEW (scoped) | VIEW (own school) | CREATE/EDIT (own classes) | DO (own) |
 | Education activities (training) | CREATE/EDIT | NONE | CREATE/EDIT | NONE | NONE | NONE | NONE | NONE |
@@ -240,7 +240,7 @@ where [§12](#12-decisions-taken-7-october-2026) decided.
 | Programme dashboards | FULL | NONE | Learning side | NONE | FULL | Own school | NONE | NONE |
 | M&E framework / results | FULL | NONE | NONE | NONE | FULL | NONE | NONE | NONE |
 | Reports / exports | Programme | Programme | Scoped | Own | Programme | Own school | Own classes | NONE |
-| Field mapping (Kobo) | EDIT | EDIT ← decision 1 | NONE | NONE | NONE | NONE | NONE | NONE |
+| Field mapping (Kobo) | EDIT | NONE (decision 1) | NONE | NONE | NONE | NONE | NONE | NONE |
 | Validation (data quality) | FULL | FULL | NONE | NONE | FULL | NONE | NONE | NONE |
 | Sync monitor | All devices | All devices | Stuck devices | Own device | Own device | Own device | Own device | Own device |
 | Audit logs | VIEW | NONE | NONE | NONE | NONE | NONE | NONE | NONE |
@@ -449,3 +449,21 @@ the next starts. Old addresses keep working at every stage.
   loop from My visits back to the dashboard are gone.
 - Everyone else sees visits in the read-only Visits views and on each
   school's Visits tab: the same visits, from the same API.
+
+**Stage 4 — Kobo split, Surveys & forms (released 7 Oct 2026).**
+- Decision 1 is in place. `kobo.manage` (attach and remove surveys, map their
+  fields) is now the **Super Admin's** alone. A new `kobo.sync` (sync the
+  attached surveys, re-check their data) is what **Admin** holds, beside
+  survey results and review.
+  - On the Kobo page an Admin sees Sync and the data pipeline, without the
+    attach form, archive or field mapping. The API refuses those too.
+  - `authz_test` and `scope_test` hold it.
+- Accepting or excluding a flagged Kobo submission from the Data Quality
+  Center follows `kobo.review`, the permission the review itself uses.
+- One place per role for surveys:
+  - Field Officer: **Field surveys** (Kobo surveys and forms to fill);
+  - Admin: Field operations › Forms, Kobo surveys, Survey results;
+  - M&E: **Surveys & forms** (results, responses), and Data quality › Kobo
+    review;
+  - Education Team: Activities › Education forms;
+  - Super Admin: Data & integrations › Kobo and Form registry.

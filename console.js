@@ -1793,9 +1793,9 @@ async function main() {
     $("#koboFieldEcho").textContent = koboState.officerField || "officer_ref";
     renderAttention();
 
-    // Without survey management (M&E): the surveys and their data pipeline —
-    // reviewing flagged submissions, no connection, attach, sync or push.
-    if (!has("kobo.manage")) {
+    // Without syncing (M&E): the surveys and their data pipeline — reviewing
+    // flagged submissions; no connection, attach, sync or push.
+    if (!has("kobo.manage", "kobo.sync")) {
       koboConnectForm.hidden = true;
       koboManage.hidden = !koboState.configured;
       $("#koboAttachForm").hidden = true;
@@ -1813,11 +1813,13 @@ async function main() {
     koboConnectForm.hidden = true;
     koboManage.hidden = false;
     koboSyncBtn.hidden = false;
+    // Attaching surveys (and mapping their fields) is the Super Admin's; an Admin syncs.
+    $("#koboAttachForm").hidden = !has("kobo.manage");
     $("#koboServerEcho").textContent = (koboState.baseUrl || "").replace(/^https?:\/\//, "");
     $("#koboFieldEcho2").textContent = koboState.officerField || "officer_ref";
 
     renderKoboPush();
-    renderKoboAssets();
+    if (has("kobo.manage")) renderKoboAssets();
     renderKoboForms();
     refreshSurveyPicker();
   }
@@ -1897,7 +1899,7 @@ async function main() {
       const k = await koboUi().catch((err) => { toast("Couldn't open it", friendlyError(err, "Check your connection and try again."), "error"); });
       if (!k) return;
       k.openKoboPipeline(btn.dataset.koboPipeline, {
-        canManage: has("kobo.manage"), canReview: has("kobo.review"), schools: schoolDir.schools,
+        canManage: has("kobo.manage"), canRecheck: has("kobo.manage", "kobo.sync"), canReview: has("kobo.review"), schools: schoolDir.schools,
         onChange: () => { renderKoboForms(); loadSurveyResults(); renderImpact(); },
       });
     }));

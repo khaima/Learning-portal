@@ -276,18 +276,18 @@ const ROUTES: RouteSpec[] = [
   r("GET", "/audit", SA_ONLY),
   r("GET", "/kobo/config", DATA_QUALITY),
   r("PUT", "/kobo/config", SA_ONLY, { apiToken: "test-token", baseUrl: "https://kobo.test" }, undefined, { setup: () => { afterCall.push(stubKobo(() => [])); } }),
-  r("GET", "/kobo/assets", ADMINS, undefined, undefined, { setup: koboConnected }),
+  r("GET", "/kobo/assets", SA_ONLY, undefined, undefined, { setup: koboConnected }),
   r("GET", "/kobo/forms", DATA_QUALITY),
-  r("POST", "/kobo/forms", ADMINS, { assetUid: "aNewSurvey77" }, undefined, { setup: koboConnected }),
-  r("GET", "/kobo/assets/:uid/preview", ADMINS, undefined, undefined, {
+  r("POST", "/kobo/forms", SA_ONLY, { assetUid: "aNewSurvey77" }, undefined, { setup: koboConnected }),
+  r("GET", "/kobo/assets/:uid/preview", SA_ONLY, undefined, undefined, {
     setup: (db) => { connectKobo(db); afterCall.push(stubKobo(() => [], { ...KOBO_ASSET, deployment__links: { url: "https://ee.kobo.test/x/aAbC" } })); },
   }),
-  r("DELETE", "/kobo/forms/:id", ADMINS, undefined, "/kobo/forms/kb_1"),
-  r("POST", "/kobo/forms/:id/restore", ADMINS, {}, "/kobo/forms/kb_1/restore"),
+  r("DELETE", "/kobo/forms/:id", SA_ONLY, undefined, "/kobo/forms/kb_1"),
+  r("POST", "/kobo/forms/:id/restore", SA_ONLY, {}, "/kobo/forms/kb_1/restore"),
   r("POST", "/kobo/sync", ADMINS, {}, undefined, { setup: koboConnected }),
   r("GET", "/kobo/forms/:id/results", DATA_QUALITY, undefined, "/kobo/forms/kb_1/results"),
   r("GET", "/kobo/forms/:id/pipeline", DATA_QUALITY, undefined, "/kobo/forms/kb_1/pipeline"),
-  r("PUT", "/kobo/forms/:id/mapping", ADMINS, { school: null }, "/kobo/forms/kb_1/mapping", { setup: koboSynced }),
+  r("PUT", "/kobo/forms/:id/mapping", SA_ONLY, { school: null }, "/kobo/forms/kb_1/mapping", { setup: koboSynced }),
   r("POST", "/kobo/forms/:id/reprocess", ADMINS, {}, "/kobo/forms/kb_1/reprocess", { setup: koboSynced }),
   r("GET", "/kobo/records", DATA_QUALITY, undefined, "/kobo/records?formId=kb_1"),
   r("GET", "/kobo/records/:id", DATA_QUALITY, undefined, "/kobo/records/{record}", { setup: koboSynced }),
@@ -1359,12 +1359,13 @@ Deno.test("Kobo field mapping: only the survey's own questions; saving re-checks
   connectKobo(db);
   const restore = stubKobo(() => [kRow(1, { school_code: "Nowhere Primary" })]);
   try {
-    assertEquals((await call("PUT", "/kobo/forms/kb_1/mapping", "tok_admin", { school: "school_code" })).status, 409, "not synced yet");
-    await call("POST", "/kobo/sync", "tok_admin");
+    assertEquals((await call("PUT", "/kobo/forms/kb_1/mapping", "tok_super_admin", { school: "school_code" })).status, 409, "not synced yet");
+    assertEquals((await call("POST", "/kobo/sync", "tok_admin")).status, 200, "an Admin syncs…");
     assertEquals(recByKobo(db, 1).status, "invalid");
-    assertEquals((await call("PUT", "/kobo/forms/kb_1/mapping", "tok_admin", { school: "no_such_question" })).status, 400);
+    assertEquals((await call("PUT", "/kobo/forms/kb_1/mapping", "tok_admin", { school: null })).status, 403, "…but mapping fields is the Super Admin's");
+    assertEquals((await call("PUT", "/kobo/forms/kb_1/mapping", "tok_super_admin", { school: "no_such_question" })).status, 400);
     assertEquals((await call("PUT", "/kobo/forms/kb_1/mapping", "tok_me", { school: null })).status, 403, "M&E can look, not change");
-    const saved = await call("PUT", "/kobo/forms/kb_1/mapping", "tok_admin",
+    const saved = await call("PUT", "/kobo/forms/kb_1/mapping", "tok_super_admin",
       { school: null, county: null, officer: "officer_ref", date: "visit_date" });
     assertEquals(saved.status, 200, JSON.stringify(saved.json));
     assertEquals([recByKobo(db, 1).status, recByKobo(db, 1).school_id], ["valid", null], "no school question, no school check");

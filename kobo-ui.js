@@ -48,9 +48,10 @@ const VIEWS = {
 
 /** The data pipeline for one survey. `schools` = the portal's school list
     (for placing unmatched names); `onChange` after anything changes. */
-/* canManage: change the field mapping and re-check (kobo.manage); canReview:
+/* canManage: change the field mapping (kobo.manage); canRecheck: re-check the
+   submissions (kobo.manage or kobo.sync); canReview:
    accept or exclude flagged submissions and match school names (kobo.review). */
-export async function openKoboPipeline(formId, { canManage = false, canReview = canManage, schools = [], onChange = () => {} } = {}) {
+export async function openKoboPipeline(formId, { canManage = false, canRecheck = canManage, canReview = canManage, schools = [], onChange = () => {} } = {}) {
   const panel = openContentPanel({ title: "Data pipeline", html: skeleton(5) });
   const state = { view: "review", rule: "", offset: 0 };
   let p;
@@ -107,7 +108,7 @@ export async function openKoboPipeline(formId, { canManage = false, canReview = 
     const s = p.stats;
     panel.innerHTML = `
       <p class="hint" style="margin-top:0"><b>${esc(p.form.title)}</b> · last synced ${esc(fmt(p.form.syncedAt))} · checked ${esc(fmt(p.form.processedAt))}
-        ${canManage && p.fields.length ? ` · <button type="button" class="intel-link" data-recheck>Re-check now</button>` : ""}</p>
+        ${canRecheck && p.fields.length ? ` · <button type="button" class="intel-link" data-recheck>Re-check now</button>` : ""}</p>
       <div class="chart-stats" style="grid-template-columns:repeat(5,1fr)">
         <div><b>${s.received}</b><span>Received</span></div>
         <div><b>${s.counted}</b><span>On the dashboards</span></div>
@@ -234,7 +235,7 @@ export async function openKoboPipeline(formId, { canManage = false, canReview = 
     const recEl = e.target.closest("[data-rec]");
     if (!recEl) return;
     const id = recEl.dataset.rec;
-    if (e.target.closest("[data-view]")) { openKoboRecord(id, () => openKoboPipeline(formId, { canManage, canReview, schools, onChange })); return; }
+    if (e.target.closest("[data-view]")) { openKoboRecord(id, () => openKoboPipeline(formId, { canManage, canRecheck, canReview, schools, onChange })); return; }
     if (e.target.closest("[data-clear]")) {
       try { await reviewKoboRecord(id, "clear"); onChange(); load(); } catch (err) { toast("Couldn't do that", friendlyError(err), "error"); }
       return;

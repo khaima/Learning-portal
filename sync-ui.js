@@ -131,7 +131,7 @@ function rowsHtml({ st, server, perms, index, busy }) {
   const out = [];
   const role = st.role;
   const k = server?.kobo;
-  const manage = perms.has("kobo.manage");
+  const manage = perms.has("kobo.manage") || perms.has("kobo.sync"); // may press Sync for Kobo
   // Connecting Kobo (and its API token) is the Super Admin's: Platform → Data & integrations → Kobo.
   const configure = perms.has("kobo.configure");
 
@@ -317,7 +317,7 @@ export function openSyncPanel() {
         busy.all = true; await render();
         const st = await sync.sync({ manual: true });
         let koboNote = "";
-        if (perms.has("kobo.manage") && server?.kobo?.connected && sync.isOnline()) {
+        if ((perms.has("kobo.manage") || perms.has("kobo.sync")) && server?.kobo?.connected && sync.isOnline()) {
           busy.kobo = true; await render();
           try {
             const res = await syncKobo();

@@ -284,7 +284,8 @@ Generated from `permissions.ts` (role permissions; explicit grants come on top):
 | See their own field visits <br>`field_reports.view.own` |  |  |  |  | ✓ |  |  |  |
 | File field visits at assigned schools <br>`field_reports.create` |  |  |  |  | ✓ |  |  |  |
 | Connect KoboToolbox (server, API token, live push) <br>`kobo.configure` | ✓ |  |  |  |  |  |  |  |
-| Attach Kobo surveys, sync, map fields <br>`kobo.manage` | ✓ | ✓ |  |  |  |  |  |  |
+| Attach Kobo surveys and map their fields <br>`kobo.manage` (Super Admin only since 7 Oct 2026) | ✓ |  |  |  |  |  |  |  |
+| Sync Kobo surveys and re-check their data <br>`kobo.sync` (added 7 Oct 2026) | ✓ | ✓ |  |  |  |  |  |  |
 | Accept or exclude flagged Kobo submissions <br>`kobo.review` | ✓ | ✓ | ✓ |  |  |  |  |  |
 | See Kobo survey results <br>`kobo.results.view` | ✓ | ✓ | ✓ |  |  |  |  |  |
 | Fill Kobo surveys <br>`kobo.surveys.fill` |  |  |  |  | ✓ |  |  |  |

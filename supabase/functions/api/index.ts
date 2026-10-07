@@ -5160,7 +5160,7 @@ async function dqFixesFor(c: any, i: Record<string, any>): Promise<DqFix[]> {
   if (i.entity_type === "class_teacher" && actorCan(c, "classes.manage.all") && ["inactive_user_active_assignment", "orphaned_record"].includes(i.type)) {
     fixes.push({ action: "end_class_assignment", label: "End this class assignment", description: "Ends the teacher's assignment to the class (kept in history).", params: [] });
   }
-  if (i.entity_type === "kobo_record" && actorCan(c, "kobo.manage")) {
+  if (i.entity_type === "kobo_record" && actorCan(c, "kobo.review")) {
     fixes.push({ action: "kobo_accept", label: "Accept the submission anyway", description: "Counts it on the dashboards despite the check (Kobo data pipeline).", params: [] });
     fixes.push({ action: "kobo_exclude", label: "Exclude the submission", description: "Keeps it off the dashboards (Kobo data pipeline).", params: [] });
   }
@@ -6116,7 +6116,7 @@ app.get("/sync/status", requireActive(), async (c) => {
   const out: Record<string, unknown> = { serverTime: new Date().toISOString() };
 
   // ---- Kobo
-  const manages = actorCan(c, "kobo.manage") || actorCan(c, "kobo.results.view");
+  const manages = actorCan(c, "kobo.manage") || actorCan(c, "kobo.sync") || actorCan(c, "kobo.results.view");
   const fills = actorCan(c, "kobo.surveys.fill");
   if (manages || fills) {
     const cfg = await loadKoboConfig();
@@ -8275,7 +8275,7 @@ async function auditEntries(rows: Record<string, any>[]) {
 // ---- KoboToolbox: education-team config + attached surveys ----
 
 // Whether Kobo is connected, and how — never the token. Results viewers need it too.
-app.get("/kobo/config", requirePermission("kobo.manage", "kobo.results.view"), async (c) => {
+app.get("/kobo/config", requirePermission("kobo.manage", "kobo.sync", "kobo.results.view"), async (c) => {
   const cfg = await loadKoboConfig();
   return c.json({
     configured: !!cfg,
@@ -8626,7 +8626,7 @@ async function processKoboForm(form: Record<string, any>, officerField: string) 
 
 /* Pull every attached survey: refresh its questions, store what Kobo has,
    and run it all through validation. */
-app.post("/kobo/sync", requirePermission("kobo.manage"), async (c) => {
+app.post("/kobo/sync", requirePermission("kobo.manage", "kobo.sync"), async (c) => {
   const cfg = await loadKoboConfig();
   if (!cfg) return c.json({ error: "Connect KoboToolbox first" }, 400);
   const { data: forms } = await admin.from("kobo_forms").select("*").eq("active", true);
@@ -8745,7 +8745,7 @@ app.put("/kobo/forms/:id/mapping", requirePermission("kobo.manage"), async (c) =
   }
 });
 
-app.post("/kobo/forms/:id/reprocess", requirePermission("kobo.manage"), async (c) => {
+app.post("/kobo/forms/:id/reprocess", requirePermission("kobo.manage", "kobo.sync"), async (c) => {
   const form = await loadKoboForm(c.req.param("id"));
   if (!form) return c.json({ error: "Survey not found" }, 404);
   if (!form.schema) return c.json({ error: "Sync this survey first, so the portal knows its questions" }, 409);

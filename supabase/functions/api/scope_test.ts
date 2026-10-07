@@ -78,9 +78,11 @@ Deno.test("permissions: every role's permissions are real permissions", () => {
 Deno.test("permissions: the HPF separation of duties", () => {
   const has = (role: string, p: string) => permissionsFor(role).includes(p as never);
   // Admin is not Super Admin.
-  for (const p of ["platform.view", "permissions.manage", "audit.view", "kobo.configure"]) {
+  for (const p of ["platform.view", "permissions.manage", "audit.view", "kobo.configure", "kobo.manage"]) {
     assert(has("super_admin", p) && !has("admin", p), p);
   }
+  // Admin syncs the Kobo surveys; attaching them and mapping their fields is the Super Admin's (7 Oct 2026).
+  assert(has("admin", "kobo.sync") && has("super_admin", "kobo.sync"));
   // Admin doesn't run the M&E results framework.
   for (const p of ["me.view", "me.framework.manage", "me.actuals.verify", "me.reports.manage"]) assert(!has("admin", p), p);
   // M&E measures; it doesn't manage accounts, settings, integrations or records.

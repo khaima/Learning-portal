@@ -101,7 +101,8 @@ export const PERMISSIONS = [
   "notifications.view.all",   // the notifications log: who was told what, when, and when they read it
   // KoboToolbox
   "kobo.configure",           // the connection itself: server, API token, officer field, live push
-  "kobo.manage",              // attach and remove surveys, sync, field mapping, re-check
+  "kobo.manage",              // attach and remove surveys, and map their fields (Super Admin)
+  "kobo.sync",                // sync the attached surveys and re-check their data
   "kobo.review",              // accept or exclude flagged submissions, school name matches
   "kobo.results.view",
   "kobo.surveys.fill",
@@ -143,7 +144,7 @@ const ADMIN: Permission[] = [
   "forms.manage", "forms.responses.view",
   "assignments.view.all", "field_reports.view.all", "stats.view",
   "data_quality.view", "data_quality.manage",
-  "kobo.manage", "kobo.review", "kobo.results.view",
+  "kobo.sync", "kobo.review", "kobo.results.view",
   "sync.monitor", "sync.problems.view", "notifications.view.all",
   "reports.export", "reports.programme",
   ...USER_ADMIN,
@@ -178,7 +179,7 @@ const EDUCATION_TEAM: Permission[] = [
    Never the working-role permissions (a teacher's roster, filing a field
    visit, answering forms): administrators run the portal, they don't act as
    a teacher or field officer inside it. */
-const PLATFORM: Permission[] = ["platform.view", "permissions.manage", "audit.view", "kobo.configure"];
+const PLATFORM: Permission[] = ["platform.view", "permissions.manage", "audit.view", "kobo.configure", "kobo.manage"];
 
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   super_admin: uniq([...ADMIN, ...ME, ...EDUCATION_TEAM, ...PLATFORM]),
@@ -342,7 +343,8 @@ export const PERMISSION_GROUPS: { group: string; items: [Permission, string][] }
     ["field_reports.view.own", "See their own field visits"],
     ["field_reports.create", "File field visits at assigned schools"],
     ["kobo.configure", "Connect KoboToolbox (server, API token, live push)"],
-    ["kobo.manage", "Attach Kobo surveys, sync, map fields"],
+    ["kobo.manage", "Attach Kobo surveys and map their fields"],
+    ["kobo.sync", "Sync Kobo surveys and re-check their data"],
     ["kobo.review", "Accept or exclude flagged Kobo submissions"],
     ["kobo.results.view", "See Kobo survey results"],
     ["kobo.surveys.fill", "Fill Kobo surveys"],
