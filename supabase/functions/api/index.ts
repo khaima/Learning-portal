@@ -32,6 +32,7 @@ import {
 } from "./lms.ts";
 import { buildIntelligence, VISIT_TYPES as INTEL_VISIT_TYPES } from "./intelligence.ts";
 import { buildImpact, GENDERS } from "./impact.ts";
+import { type Jwk, verifyAccessToken } from "./jwt.ts";
 import { buildNotifications, missingVisitForms } from "./notifications.ts";
 import { type Column, GENDER_TEXT, REPORTS, STATUS_TEXT, reportsFor, rowCount, type Section } from "./reports.ts";
 import {
@@ -450,6 +451,8 @@ type Vars = {
   actor: Actor;
   /** Staff: when this session was signed in (seconds), from the verified token. */
   signedInAt: number;
+  /** For the Server-Timing header: how the sign-in was checked, and how long it took. */
+  authTiming: string;
 };
 
 export const app = new Hono<{ Variables: Vars }>().basePath("/api");
@@ -471,6 +474,18 @@ app.use(
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   }),
 );
+
+/* How long each reply took, and how long checking the sign-in took ("local":
+   against the project's keys; "auth": by asking Supabase Auth). Shown in the
+   browser's developer tools (Network → Timing); durations only, nothing
+   about who is calling. */
+app.use("*", async (c, next) => {
+  const started = performance.now();
+  await next();
+  const total = `total;dur=${Math.round(performance.now() - started)}`;
+  const auth = c.get("authTiming");
+  c.header("Server-Timing", auth ? `${auth}, ${total}` : total, { append: true });
+});
 
 /* ---- error reporting (telemetry.ts) ----
    Every 5xx reply and every exception goes to the error tracker, tagged
@@ -787,10 +802,10 @@ async function quietIdentity(header: string | undefined): Promise<{ tags: Record
       const { data: l } = await admin.from("learners").select("school_id").eq("id", s.learner_id).maybeSingle();
       return { tags: { role: "learner", account: "learner", school: await schoolCode(l?.school_id) }, actorId: s.learner_id };
     }
-    const { data } = await admin.auth.getUser(raw);
-    if (!data?.user) return none;
-    const p = await loadStaffProfile(data.user.id);
-    return { tags: { role: p?.role ?? "no-profile", account: "staff", school: await schoolCode(p?.school_id) }, actorId: data.user.id };
+    const user = await staffFromToken(raw);
+    if (!user) return none;
+    const p = await loadStaffProfile(user.id);
+    return { tags: { role: p?.role ?? "no-profile", account: "staff", school: await schoolCode(p?.school_id) }, actorId: user.id };
   } catch {
     return none;
   }
@@ -841,18 +856,72 @@ app.use("*", async (c, next) => {
     return;
   }
 
-  const { data, error } = await admin.auth.getUser(raw);
-  if (error || !data.user) return c.json({ error: "Invalid session" }, 401);
+  const checking = performance.now();
+  const user = await staffFromToken(raw);
+  c.set("authTiming", `auth;desc="${user?.checkedBy ?? "refused"}";dur=${Math.round(performance.now() - checking)}`);
+  if (!user) return c.json({ error: "Invalid session" }, 401);
   c.set("actorKind", "staff");
-  c.set("userId", data.user.id);
-  c.set("email", data.user.email ?? "");
+  c.set("userId", user.id);
+  c.set("email", user.email);
   c.set("signedInAt", sessionSignedInAt(raw));
   await next();
 });
 
+/* The project's public signing keys, for checking staff tokens here
+   (jwt.ts): the SUPABASE_JWKS secret Supabase gives the function, else the
+   set Auth publishes. Read again — at most once a minute — when a token
+   names a key that isn't in the set (the keys were rotated). */
+const AUTH_ISSUER = `${SUPABASE_URL}/auth/v1`;
+let signingKeys: { keys: Jwk[]; at: number } | null = null;
+async function loadSigningKeys(refresh: boolean): Promise<Jwk[]> {
+  if (signingKeys && (!refresh || Date.now() - signingKeys.at < 60_000)) return signingKeys.keys;
+  const listOf = (v: unknown): Jwk[] => {
+    const keys = Array.isArray(v) ? v : (v as { keys?: unknown })?.keys;
+    return Array.isArray(keys) ? keys as Jwk[] : [];
+  };
+  let keys: Jwk[] = [];
+  if (!signingKeys) {
+    try {
+      keys = listOf(JSON.parse(Deno.env.get("SUPABASE_JWKS") ?? "null"));
+    } catch {
+      keys = [];
+    }
+  }
+  if (!keys.length) {
+    try {
+      const res = await fetch(`${AUTH_ISSUER}/.well-known/jwks.json`, { signal: AbortSignal.timeout(3000) });
+      if (res.ok) keys = listOf(await res.json());
+    } catch {
+      // Auth is asked about each token instead (staffFromToken).
+    }
+  }
+  signingKeys = { keys: keys.length ? keys : signingKeys?.keys ?? [], at: Date.now() };
+  return signingKeys.keys;
+}
+/** Tests only: the signing keys, without the environment or the network. */
+export function __setSigningKeysForTests(keys: Jwk[]) {
+  signingKeys = { keys, at: Date.now() };
+}
+
+/** The staff member a bearer token belongs to. Checked here against the
+    project's public keys when it can be; anything that can't be checked
+    here (another algorithm, a key we don't have, a bad or expired token) is
+    asked of Supabase Auth, as before — so a token Auth would refuse is
+    always refused. */
+async function staffFromToken(raw: string): Promise<{ id: string; email: string; checkedBy: "local" | "auth" } | null> {
+  if (raw.split(".").length === 3) {
+    let v = await verifyAccessToken(raw, await loadSigningKeys(false), AUTH_ISSUER);
+    if (!v.ok && v.reason === "unknown key") v = await verifyAccessToken(raw, await loadSigningKeys(true), AUTH_ISSUER);
+    if (v.ok) return { id: v.claims.sub, email: String(v.claims.email ?? ""), checkedBy: "local" };
+  }
+  const { data, error } = await admin.auth.getUser(raw);
+  if (error || !data.user) return null;
+  return { id: data.user.id, email: data.user.email ?? "", checkedBy: "auth" };
+}
+
 /** When this session was signed in (seconds since 1970), from the `amr`
-    claim of a token Supabase Auth has just verified (getUser above). It
-    survives token refreshes, so it's the sign-in itself, not the refresh. */
+    claim of a token just verified (staffFromToken above). It survives
+    token refreshes, so it's the sign-in itself, not the refresh. */
 function sessionSignedInAt(jwt: string): number {
   try {
     const part = jwt.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
@@ -962,6 +1031,9 @@ async function resolveActor(c: any): Promise<Response | null> {
     });
     return null;
   }
+  // The profile, grants and scope rows in one round trip, not three.
+  const reads = accessReads(c.get("userId"));
+  reads.catch(() => {}); // not awaited when the account is refused below
   const p = await loadStaffProfile(c.get("userId"));
   if (!p) return c.json({ needsOnboarding: true, email: c.get("email") }, 428);
   const status = p.status ?? "active";
@@ -974,7 +1046,13 @@ async function resolveActor(c: any): Promise<Response | null> {
     return c.json({ error: "Choose your own password before carrying on.", mustChangePassword: true }, 403);
   }
   if (!STAFF_ROLES.includes(p.role)) return c.json({ error: "Your account has no valid role." }, 403);
-  const { grants, scope } = await loadAccess(p);
+  let access;
+  try {
+    access = await loadAccess(p, reads);
+  } catch {
+    return c.json({ error: "Could not check your access just now — try again." }, 503);
+  }
+  const { grants, scope } = access;
   c.set("actor", {
     id: p.id, role: p.role, fullName: p.full_name, grade: p.grade, school: p.school, county: p.county, schoolId: p.school_id ?? null,
     permissions: effectivePermissions(p.role, grants), grants, scope,
@@ -982,18 +1060,30 @@ async function resolveActor(c: any): Promise<Response | null> {
   return null;
 }
 
-/** A staff member's open permission grants and data scope, from the database. */
-async function loadAccess(p: Record<string, any>): Promise<{ grants: string[]; scope: PlaceScope; rows: ScopeRow[] }> {
-  const assignable = (ASSIGNABLE_ROLES as readonly string[]).includes(p.role);
-  const [g, sc] = await Promise.all([
-    admin.from("permission_grants").select("permission").eq("profile_id", p.id).is("revoked_at", null),
-    assignable
-      ? admin.from("staff_scopes").select("id, scope_type, county, school_id, ended_at, created_at").eq("profile_id", p.id).is("ended_at", null)
-      : Promise.resolve({ data: [] as ScopeRow[] }),
+/** The reads behind a staff member's access — open grants and scope rows —
+    so they can start alongside the profile read instead of after it. */
+function accessReads(profileId: string) {
+  return Promise.all([
+    admin.from("permission_grants").select("permission").eq("profile_id", profileId).is("revoked_at", null),
+    admin.from("staff_scopes").select("id, scope_type, county, school_id, ended_at, created_at").eq("profile_id", profileId).is("ended_at", null),
   ]);
-  const rows = (sc.data ?? []) as ScopeRow[];
+}
+
+/** A staff member's open permission grants and data scope, from the
+    database. A read that fails throws: an administrator with no scope rows
+    sees everything, so a failed read must never look like "none assigned". */
+async function loadAccess(p: Record<string, any>, reads = accessReads(p.id)): Promise<{ grants: string[]; scope: PlaceScope; rows: ScopeRow[] }> {
+  const assignable = (ASSIGNABLE_ROLES as readonly string[]).includes(p.role);
+  const [g, sc] = await reads;
+  if (g.error || sc.error) throw new Error(`access: ${(g.error ?? sc.error)!.message}`);
+  const rows = assignable ? (sc.data ?? []) as ScopeRow[] : [];
   // The schools list is only needed to turn assigned counties into schools.
-  const schools = rows.length ? (await admin.from("schools").select("id, name, county")).data ?? [] : [];
+  let schools: { id: string; name: string; county: string }[] = [];
+  if (rows.length) {
+    const { data, error } = await admin.from("schools").select("id, name, county");
+    if (error) throw new Error(`access: ${error.message}`);
+    schools = data ?? [];
+  }
   const grants = (g.data ?? []).map((r) => String(r.permission));
   return { grants, rows, scope: placeScopeFor({ role: p.role, schoolId: p.school_id ?? null, school: p.school }, rows, schools) };
 }
@@ -1049,9 +1139,16 @@ app.get("/me", async (c) => {
     ]);
     return c.json({ profile: { ...mapLearnerSelf(l), className: cls.data?.name ?? null, teacherName: teacher.data?.full_name ?? null } });
   }
+  const reads = accessReads(c.get("userId"));
+  reads.catch(() => {}); // not awaited for an account that isn't active
   const profile = await loadStaffProfile(c.get("userId"));
   if (!profile) return c.json({ needsOnboarding: true, email: c.get("email") });
-  const access = (profile.status ?? "active") === "active" && STAFF_ROLES.includes(profile.role) ? await loadAccess(profile) : undefined;
+  let access;
+  try {
+    access = (profile.status ?? "active") === "active" && STAFF_ROLES.includes(profile.role) ? await loadAccess(profile, reads) : undefined;
+  } catch {
+    return c.json({ error: "Could not check your access just now — try again." }, 503);
+  }
   return c.json({ profile: mapProfile(profile, access) });
 });
 
@@ -1327,15 +1424,19 @@ const ilikeExact = (s: string) => s.replace(/[\\%_]/g, "\\$&");
 app.get("/schools", async (c) => {
   // A pending, suspended, rejected or deactivated account is refused here
   // as everywhere else (someone still signing up has no account yet).
-  const me = c.get("actorKind") === "staff" ? await loadStaffProfile(c.get("userId")) : null;
+  // The caller's profile and access, the schools and the counties: all in one round trip.
+  const staff = c.get("actorKind") === "staff";
+  const reads = staff ? accessReads(c.get("userId")) : null;
+  reads?.catch(() => {}); // not awaited when the account is refused below
+  const [me, { data, error }, counties] = await Promise.all([
+    staff ? loadStaffProfile(c.get("userId")) : null,
+    selectAll(() => admin.from("schools").select("*").order("seq").order("id")),
+    loadCounties().catch(() => null),
+  ]);
   const status = me ? me.status ?? "active" : "active";
   if (status !== "active") {
     return c.json({ error: STATUS_MESSAGE[status] ?? "Your account is not active.", accountStatus: status }, 403);
   }
-  const [{ data, error }, counties] = await Promise.all([
-    selectAll(() => admin.from("schools").select("*").order("seq").order("id")),
-    loadCounties().catch(() => null),
-  ]);
   if (error || !counties) return c.json({ error: error?.message || "Could not load counties" }, 500);
   const countyOrder = new Map(counties.map((co, i) => [co.name, i]));
   const schools = (data ?? [])
@@ -1345,7 +1446,12 @@ app.get("/schools", async (c) => {
   // and schools. Everyone else (and anyone still signing up) gets the whole
   // list of names and codes — no people, no records — to pick their school.
   const active = !!me && STAFF_ROLES.includes(me.role);
-  const access = active ? await loadAccess(me!) : null;
+  let access = null;
+  try {
+    access = active ? await loadAccess(me!, reads!) : null;
+  } catch {
+    return c.json({ error: "Could not check your access just now — try again." }, 503);
+  }
   let countyNames = counties.map((co) => co.name);
   let visible = schools;
   if (access && !access.scope.global && (ASSIGNABLE_ROLES as readonly string[]).includes(me!.role)) {

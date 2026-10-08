@@ -13,7 +13,7 @@
 Deno.env.set("SUPABASE_URL", "http://localhost:54321");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "test-service-key");
 Deno.env.set("HPF_API_TEST", "1");
-export const { app, __setAdminClientForTests, __setMailerForTests, __setPwnedCheckForTests } = await import("./index.ts");
+export const { app, __setAdminClientForTests, __setMailerForTests, __setPwnedCheckForTests, __setSigningKeysForTests } = await import("./index.ts");
 /** Passwords the stand-in breach list knows. The real list (pwned.ts) is never called in tests. */
 export const LEAKED_PASSWORDS = new Set(["password123", "qwertyuiop"]);
 __setPwnedCheckForTests((pw: string) => Promise.resolve(LEAKED_PASSWORDS.has(pw) ? 1_000_000 : 0));
@@ -114,9 +114,14 @@ export function fakeAdmin(db: Db, users: Record<string, { id: string; email: str
       ? { data: args.candidate === CRON_SECRET, error: null }
       : { data: null, error: { message: `no function ${name}` } }),
     auth: {
-      getUser: (jwt: string) => Promise.resolve(users[jwt]
-        ? { data: { user: users[jwt] }, error: null }
-        : { data: { user: null }, error: { message: "invalid" } }),
+      // Every token Supabase Auth is asked about (jwt_test.ts: a token
+      // checked in the function never comes here).
+      getUser: (jwt: string) => {
+        (db.auth_lookups ??= []).push({ jwt });
+        return Promise.resolve(users[jwt]
+          ? { data: { user: users[jwt] }, error: null }
+          : { data: { user: null }, error: { message: "invalid" } });
+      },
       // A reset email "sent" through the project's mail settings; a test
       // sets db.auth_mail_error to make the mail server refuse.
       resetPasswordForEmail: (email: string, opts: Row) => {
@@ -289,7 +294,7 @@ export async function call(method: string, path: string, token?: string, body?: 
   });
   let json: Row = {};
   try { json = await res.json(); } catch { /* empty */ }
-  return { status: res.status, json, replay: res.headers.get("idempotent-replay") === "true", cache: res.headers.get("cache-control") };
+  return { status: res.status, json, headers: res.headers, replay: res.headers.get("idempotent-replay") === "true", cache: res.headers.get("cache-control") };
 }
 export const tokenFor = (role: R) => (role === "learner" ? "hpl_learnertoken" : `tok_${role}`);
 
