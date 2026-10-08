@@ -1,8 +1,9 @@
 # HPF Learning Portal — audit and improvement backlog
 
-**Date:** 8 October 2026. **Status:** audit only — nothing was changed to
-write it. Every number below was read from the code, the live site or the
-production database (read-only queries) on this date.
+**Date:** 8 October 2026. The audit itself changed nothing: every number
+in sections 1–4 was read from the code, the live site or the production
+database (read-only queries) on this date. What has been fixed since is in
+[section 5](#5-progress).
 
 Related: [`NAVIGATION.md`](NAVIGATION.md) (menus, done 7 Oct),
 [`RBAC.md`](RBAC.md) (access model), [`OPERATIONS.md`](OPERATIONS.md)
@@ -438,3 +439,38 @@ data.
 Each step goes out the way the navigation stages did: one change at a time,
 tested, released through `staging`, and checked in the browser for the
 affected roles.
+
+---
+
+## 5. Progress
+
+### 8 October
+
+Released through `staging`, with the API deployed by hand (the release
+can't deploy it until the `SUPABASE_ACCESS_TOKEN` secret exists). The test
+suite grew from 359 to 370 tests.
+
+| ID | Status | What changed |
+|---|---|---|
+| P0-1 | **Needs you** | The nightly backup ran on schedule and stopped at its first step: *Add the SUPABASE_ACCESS_TOKEN repository secret*. The Platform overview now shows when the last backup was made. |
+| P0-2 | **Mostly done** | The school question in *Learner Assessment Tool – SUMMA Endline* gives labels like "Aitong primary school". The matcher now links a name whose distinctive words are exactly a school's ("Aitong primary school" = "Aitong Pri"); misspellings are still only suggested. After the first hourly sync: **208 of 358 counted** (was 0). **Needs an admin or M&E decision:** the other 150 are *Ilkerin primary school* (105) and *Ilmonchin primary school* (44), which aren't portal schools — add them, or alias Ilmonchin to Olemoncho (NRK-010) if they're the same school — plus 1 with no school. |
+| P1-1 | Done | `configure-auth.mjs` reads the URL and key from `environments.json` again; `--check` works. |
+| P1-2 | **Needs you** | Run `node --env-file=.env scripts/configure-auth.mjs --apply` with a mail-provider key (or `--signups-only`). The Platform overview shows whether sign-ups are closed and mail is set up. |
+| P1-3 | Done | Staff tokens are checked in the function against the project's public ES256 keys (`jwt.ts`). Anything it can't check goes to Supabase Auth as before. The profile, grants and scope rows are read in one round trip. Measured live: asking Auth costs 350–400 ms per request, and a genuine token now skips it; one database round trip from the function is 150–600 ms, and one fewer is needed. The `Server-Timing` header shows `auth;desc="local"` and the times in the browser's developer tools. A failed grants/scope read now refuses with 503 instead of counting as "nothing assigned", which gave admin, M&E and Education Team every school. **Not done:** (b) a per-isolate actor cache — it would delay a suspension by its lifetime, and the parallel reads already removed that round trip; (d) the region pin. |
+| P1-4 | Done | pg_cron runs `POST /kobo/sync/run` at 37 past every hour (Vault secret, like the notifications job). It's in the audit log only when something arrived, changed or failed. |
+| P1-5 | **Needs you** | Set the `SENTRY_DSN` function secret. |
+| P1-6 | Done | Uptime runs on its schedule now (6 runs on 7–8 Oct, all passing). An outside monitor on `/health` is still worth adding. |
+| P1-7 | **Needs you** | Invite a second Super Admin. |
+| P2-1 | Done | The library's subject pickers (upload and edit) use `GET /subjects`; an item keeps its own subject when edited. |
+| P2-2 | Done, differently | The pages keep their copy of the grades and visit types, because a field officer's visit form must work offline. `lists_test.ts` fails the build if they differ from the API's. Content types exist only in the pages. |
+| P2-3 | Done | New checks: last backup, invitation mail, error tracking, public sign-ups, and Kobo synced in the last three hours. The API release and environment are shown beside them. |
+| P2-9 | Done | CI keeps the API test output and a JUnit report when a test fails, and lists the failing tests in the run summary. |
+| P2-10 | Partly | The `/intelligence` route stays: the tests use it to check the numbers the impact dashboards are built on, and it's guarded and scoped like `/impact`. **Needs you:** OK to drop `assignments_legacy` and the `backup_20261004_rbac` schema, once a backup exists. |
+| P3-2 | Done | School-page sections are a `nav` with `aria-current`. |
+| P3-3 | Done | The survey donut's label reads out each answer, its count and its share. |
+| P3-4 | Done | The demo dictionaries are gone from `data.js`. |
+| P3-5 | Done | CORS allows the production Vercel host, this team's `-hpf1` previews, GitHub Pages and localhost. It used to allow any `learning-portal*.vercel.app`, including `learning-portal.vercel.app`, which is someone else's site. |
+
+Still open: P2-4 SQL aggregates, P2-5 splitting the monoliths, P2-6
+staging, P2-7 invite mail (with P1-2), P2-8 bulk import, P3-1 inline
+styles, P3-6–P3-10.
