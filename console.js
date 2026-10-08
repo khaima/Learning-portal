@@ -870,7 +870,21 @@ async function main() {
   });
 
   /* ------------------------------------------------------------ content library */
-  $("#up_subject").innerHTML = LIBRARY_SUBJECTS.map((s) => `<option>${esc(s)}</option>`).join("");
+  /* The subjects content can be tagged with: the Subjects page's list
+     (GET /subjects), read along with the library. Until it arrives, or if
+     it can't be read, the built-in three. An item being edited keeps its
+     own subject even if that subject has since been archived. */
+  let librarySubjects = [...LIBRARY_SUBJECTS];
+  const subjectOptions = (selected) => [...new Set([...librarySubjects, ...(selected ? [selected] : [])])]
+    .map((s) => `<option${s === selected ? " selected" : ""}>${esc(s)}</option>`).join("");
+  function useSubjects(res) {
+    const names = (res?.subjects || []).map((s) => s.name).filter(Boolean);
+    if (!names.length) return;
+    librarySubjects = names;
+    const picker = $("#up_subject");
+    picker.innerHTML = subjectOptions(names.includes(picker.value) ? picker.value : names[0]);
+  }
+  $("#up_subject").innerHTML = subjectOptions(librarySubjects[0]);
   $("#up_type").innerHTML = CONTENT_TYPES.map((t) => `<option>${esc(t)}</option>`).join("");
   // Short names in the picker ("Digital Library"); the "who sees it"
   // half of each label shows as a hint underneath instead of being
@@ -1016,7 +1030,7 @@ async function main() {
      (the API's own rule) rather than blocking the edit. */
   function editRow(it) {
     const currentAudience = normalizeLibraryAudience(it.audience);
-    const subjOpts = LIBRARY_SUBJECTS.map((s) => `<option${s === it.subject ? " selected" : ""}>${esc(s)}</option>`).join("");
+    const subjOpts = subjectOptions(it.subject);
     const typeOpts = CONTENT_TYPES.map((t) => `<option${t === it.type ? " selected" : ""}>${esc(t)}</option>`).join("");
     const audOpts = LIBRARY_AUDIENCES.map((a) => `<option value="${a.value}"${a.value === currentAudience ? " selected" : ""}>${esc(audienceName(a))}</option>`).join("");
     const folderSelectOpts = (audience, selectedId) => `<option value="">No folder</option>${
@@ -1233,7 +1247,9 @@ async function main() {
   async function renderLibrary() {
     $("#libraryList").innerHTML = skeleton(4);
     try {
-      [cachedItems, allFolders] = await Promise.all([getLibrary(), getLibraryFolders()]);
+      let subjects;
+      [cachedItems, allFolders, subjects] = await Promise.all([getLibrary(), getLibraryFolders(), apiGet("/subjects").catch(() => null)]);
+      useSubjects(subjects);
     } catch (err) {
       console.error("could not load library:", err);
       $("#libraryList").innerHTML = errorState(friendlyError(err), renderLibrary);
@@ -1341,7 +1357,7 @@ async function main() {
     clearPicked();
     setSource("file");
     folderNewRow.hidden = true;
-    $("#up_subject").value = LIBRARY_SUBJECTS[0];
+    $("#up_subject").value = librarySubjects[0];
     $("#up_type").value = CONTENT_TYPES[0];
     $("#up_audience").value = LIBRARY_AUDIENCES[0].value;
     refreshAudienceHint();
@@ -2165,7 +2181,10 @@ async function main() {
 
   function donutChart(data) {
     const rows = (data || []).filter((d) => d.value > 0);
-    const total = sumOf(rows) || 1;
+    const answered = sumOf(rows);
+    const total = answered || 1;
+    // For screen readers, the same numbers as the legend beside it.
+    const said = rows.map((d) => `${d.label}: ${d.value} (${Math.round((d.value / total) * 100)}%)`).join(", ");
     let acc = 0;
     const segs = rows.map((d, i) => {
       const pct = (d.value / total) * 100;
@@ -2176,10 +2195,10 @@ async function main() {
       acc += pct;
       return seg;
     }).join("");
-    return `<svg class="donut" viewBox="0 0 42 42" role="img" aria-label="Response breakdown">
+    return `<svg class="donut" viewBox="0 0 42 42" role="img" aria-label="${esc(said ? `${answered} responses — ${said}` : "No responses yet")}">
       <circle r="15.915" cx="21" cy="21" fill="none" stroke="var(--line)" stroke-width="6"></circle>
       ${segs}
-      <text x="21" y="21" class="donut-total">${total}</text>
+      <text x="21" y="21" class="donut-total" aria-hidden="true">${answered}</text>
     </svg>`;
   }
 

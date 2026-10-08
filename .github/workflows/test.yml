@@ -36,9 +36,31 @@ jobs:
         run: deno task check
       # Every *_test.ts: the role × endpoint access matrix (authz_test.ts),
       # school walls, field officers' schools, PIN lockout and non-active
-      # accounts (isolation_test.ts), and the domain rules.
+      # accounts (isolation_test.ts), and the domain rules. The output is
+      # kept, so a failure that doesn't happen again can still be read.
       - name: Tests
-        run: deno task test
+        shell: bash
+        run: NO_COLOR=1 deno task test --junit-path=test-results.xml 2>&1 | tee test-output.txt
+      - name: Name the failing tests
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "### API tests that failed"
+            echo '```'
+            grep -E "\.\.\. FAILED|^error:|=> " test-output.txt | head -60 || echo "(see the test-output artifact)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Keep the test output
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-test-output-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            supabase/functions/api/test-output.txt
+            supabase/functions/api/test-results.xml
+          retention-days: 30
+          if-no-files-found: ignore
 
   frontend:
     name: Frontend — build, CSP agrees, sign-in page within budget

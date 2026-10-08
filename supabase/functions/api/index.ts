@@ -464,9 +464,12 @@ app.use(
       if (!origin) return origin;
       if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return origin;
       if (origin === "https://khaima.github.io") return origin;
-      // The Vercel mirror of this same site, plus its preview deployments
-      // (e.g. learning-portal-<hash>-<user>.vercel.app for each branch/PR).
-      if (/^https:\/\/learning-portal[\w-]*\.vercel\.app$/.test(origin)) return origin;
+      // The Vercel mirror of this same site, and this team's (hpf1) preview
+      // deployments: learning-portal-<hash>-hpf1.vercel.app and
+      // learning-portal-git-<branch>-hpf1.vercel.app. Not any
+      // learning-portal*.vercel.app — those can be anyone's project.
+      if (origin === "https://learning-portal-mu-two.vercel.app") return origin;
+      if (/^https:\/\/learning-portal-[a-z0-9-]+-hpf1\.vercel\.app$/.test(origin)) return origin;
       return null;
     },
     allowHeaders: ["authorization", "content-type", "idempotency-key"],

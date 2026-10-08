@@ -314,8 +314,8 @@ export async function renderSchoolsModule(el, { params = new URLSearchParams(), 
         <span class="chart-meta" style="margin:0"><span class="code-chip">${esc(school.code)}</span> · ${esc(school.county)} County</span></div>
       <div class="school-actions">${actions(school)}</div>
     </div>
-    <div class="school-tabs" role="tablist" aria-label="${esc(school.name)}">${tabs.map(([t, label]) =>
-      `<a class="module-tab${t === tab ? " active" : ""}" href="${esc(at(t))}" role="tab"${t === tab ? ' aria-selected="true" aria-current="page"' : ' aria-selected="false"'}>${esc(label)}</a>`).join("")}</div>
+    <nav class="school-tabs" aria-label="${esc(school.name)} — sections">${tabs.map(([t, label]) =>
+      `<a class="module-tab${t === tab ? " active" : ""}" href="${esc(at(t))}"${t === tab ? ' aria-current="page"' : ""}>${esc(label)}</a>`).join("")}</nav>
     <div class="school-tab-body"></div>`;
   extendTrail([{ label: school.name, href: at("overview") }, ...(tab === "overview" ? [] : [{ label: tabs.find(([t]) => t === tab)[1] }])]);
   const body = el.querySelector(".school-tab-body");

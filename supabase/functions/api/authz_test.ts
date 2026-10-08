@@ -2265,6 +2265,20 @@ Deno.test("grants: a Super Admin gives one person one extra permission, with a r
   assertEquals(model.roles.find((x: Row) => x.role === "admin").workspace.title, "Programme Administration");
 });
 
+Deno.test("CORS: the portal's own sites and this team's Vercel previews — not anyone's learning-portal*.vercel.app", async () => {
+  const allowed = async (origin: string) =>
+    (await app.request("/api/health", { method: "OPTIONS", headers: { Origin: origin, "Access-Control-Request-Method": "GET" } }))
+      .headers.get("access-control-allow-origin") === origin;
+  for (const o of ["https://khaima.github.io", "https://learning-portal-mu-two.vercel.app", "https://learning-portal-bx26untap-hpf1.vercel.app",
+    "https://learning-portal-git-staging-hpf1.vercel.app", "http://localhost:5173", "http://127.0.0.1:8080"]) {
+    assert(await allowed(o), o);
+  }
+  for (const o of ["https://learning-portal.vercel.app", "https://learning-portal-evil.vercel.app", "https://learning-portal-x-hpf1.vercel.app.evil.com",
+    "https://learning-portal-x-other.vercel.app", "https://evil.github.io", "http://localhost.evil.com"]) {
+    assert(!await allowed(o), o);
+  }
+});
+
 Deno.test("platform overview: backups, mail, error tracking and sign-ups are checked", async () => {
   const db = freshWorld();
   const realFetch = globalThis.fetch;
