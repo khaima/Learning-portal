@@ -13,6 +13,7 @@ import { apiGet, apiSend } from "./api.js";
 import { openContentPanel, closeViewer } from "./viewer.js";
 import { resultsTableHtml } from "./assignments-ui.js";
 import { extendTrail } from "./nav.js";
+import { ICON } from "./navigation.js";
 
 const fmtDay = (v) => (v ? new Date(v).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—");
 const fmtWhen = (v) => (v ? new Date(v).toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
@@ -43,58 +44,333 @@ async function load(el, path, render, retry) {
   }
 }
 
-/* ------------------------------------------------------------------ Platform overview (Super Admin) */
-export function renderPlatformOverview(el) {
-  return load(el, "/platform/overview", (d) => {
-    const k = d.integrations.kobo;
-    const n = d.integrations.notifications;
-    return `
-      <div class="panel-head" style="margin-bottom:.6rem"><h2 style="margin:0">Platform overview</h2>
-        <span class="chart-meta" style="margin:0">Is the platform secure, healthy and correctly configured?</span></div>
-      <div class="stat-row">
-        ${tile("Staff accounts", d.accounts.active, `${d.accounts.pending} waiting for approval`, "#users")}
-        ${tile("Signed in this week", d.accounts.signedIn7d, `${d.accounts.neverSignedIn} active accounts have never signed in`, "#account-activity")}
-        ${tile("Learners enrolled", d.learners.enrolled, d.learners.lockedNow ? `${d.learners.lockedNow} locked out right now` : "None locked out", "admin.html#learners")}
-        ${tile("Schools", d.organisation.schools, `${d.organisation.counties} counties`, "#schools")}
-        ${tile("Data quality", d.dataQuality.score == null ? "—" : `${d.dataQuality.score}%`, `${d.dataQuality.high} high-severity issues open`, "#data-quality")}
-        ${tile("Access exceptions", d.access.grants, `explicit grants · ${d.access.scopedStaff} staff with a narrowed scope`, "#permissions")}
+/* ------------------------------------------------------------------ Platform overview (Super Admin)
+   Is the platform healthy, in use, and is anything waiting on someone?
+   Everything here comes from existing API replies: /platform/overview
+   first (the page draws as soon as it arrives), then — filling in their
+   own spaces as they come — the data-quality score history, the audit log
+   (activity per day, recent changes), sign-in recency, and Kobo's counted
+   submissions. Nothing is estimated: a figure that can't be read says so. */
+const icon = (name) =>
+  `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${ICON[name] ?? ICON.dashboard}</svg>`;
+const num = (n) => (n == null || Number.isNaN(Number(n)) ? "—" : Number(n).toLocaleString());
+const plural = (n, one, many = `${one}s`) => `${num(n)} ${n === 1 ? one : many}`;
+const pct = (part, whole) => (whole ? Math.round((part / whole) * 100) : 0);
+const DAY = 864e5;
+const dayKey = (t) => new Date(t).toLocaleDateString("en-CA"); // YYYY-MM-DD, local time
+const since = (v) => {
+  if (!v) return "never";
+  const mins = Math.round((Date.now() - new Date(v).getTime()) / 60e3);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  if (mins < 24 * 60) return `${Math.round(mins / 60)} h ago`;
+  if (mins < 48 * 60) return "yesterday";
+  return fmtDay(v);
+};
+
+/** A change since last time: ▲ / ▼ / no change, with words for screen readers. */
+function delta(diff, { unit = "", better = "up", what = "" } = {}) {
+  if (diff == null || Number.isNaN(diff)) return "";
+  const r = Math.round(diff * 10) / 10;
+  if (!r) return `<span class="pov-delta flat">No change${what ? ` ${what}` : ""}</span>`;
+  const good = better === "up" ? r > 0 : r < 0;
+  const text = `${r > 0 ? "+" : "−"}${Math.abs(r)}${unit}`;
+  return `<span class="pov-delta ${good ? "good" : "bad"}"><span aria-hidden="true">${r > 0 ? "▲" : "▼"}</span>
+    <span class="sr-only">${r > 0 ? "Up" : "Down"} </span>${esc(text)}${what ? ` <span class="pov-delta-what">${esc(what)}</span>` : ""}</span>`;
+}
+
+/** A thin bar showing part of a whole. */
+const meter = (part, whole, label) =>
+  `<div class="pov-meter" role="img" aria-label="${esc(label)}"><span style="width:${Math.min(100, pct(part, whole))}%"></span></div>`;
+
+/** The data-quality score over its last scans. */
+function scoreSpark(history) {
+  const pts = history.filter((h) => h.score != null);
+  if (pts.length < 2) return "";
+  const w = 120, h = 34, pad = 3;
+  const lo = Math.min(...pts.map((p) => p.score)), hi = Math.max(...pts.map((p) => p.score));
+  const span = hi - lo || 1;
+  const xy = pts.map((p, i) => [pad + (i * (w - 2 * pad)) / (pts.length - 1), h - pad - ((p.score - lo) / span) * (h - 2 * pad)]);
+  const line = xy.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  return `<svg class="pov-spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img"
+      aria-label="Score over the last ${pts.length} scans: ${esc(pts.map((p) => `${p.score}%`).join(", "))}">
+    <polyline points="${pad},${h - pad} ${line} ${w - pad},${h - pad}" class="pov-spark-fill"/>
+    <polyline points="${line}" class="pov-spark-line"/></svg>`;
+}
+
+/** Changes per day for the last `days` days, oldest first, from audit entries. */
+function perDay(entries, days) {
+  const counts = new Map();
+  for (const e of entries) counts.set(dayKey(e.at), (counts.get(dayKey(e.at)) ?? 0) + 1);
+  const out = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(Date.now() - i * DAY);
+    out.push({ day: d, n: counts.get(dayKey(d)) ?? 0 });
+  }
+  return out;
+}
+
+function activityChart(series) {
+  const max = Math.max(1, ...series.map((s) => s.n));
+  const w = 100 / series.length;
+  const fmt = (d) => d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+  const bars = series.map((s, i) => {
+    const hgt = s.n ? Math.max(4, (s.n / max) * 100) : 0;
+    return `<rect x="${(i * w + w * 0.16).toFixed(2)}" y="${(100 - hgt).toFixed(2)}" width="${(w * 0.68).toFixed(2)}" height="${hgt.toFixed(2)}" rx="1.2"
+      class="${i >= series.length - 7 ? "pov-bar now" : "pov-bar"}"><title>${esc(fmt(s.day))}: ${plural(s.n, "change")}</title></rect>`;
+  }).join("");
+  return `<svg class="pov-bars" viewBox="0 0 100 100" preserveAspectRatio="none" role="img"
+      aria-label="Changes per day, ${esc(fmt(series[0].day))} to today: ${esc(series.map((s) => s.n).join(", "))}">
+    <line x1="0" y1="100" x2="100" y2="100" class="pov-axis"/>${bars}</svg>
+    <div class="pov-bars-axis"><span>${esc(fmt(series[0].day))}</span><span>Today</span></div>`;
+}
+
+/** How recently each active staff member last signed in. */
+const RECENCY = [
+  ["Last 24 hours", (ms) => ms != null && ms <= DAY, "pov-r1"],
+  ["2–7 days ago", (ms) => ms != null && ms > DAY && ms <= 7 * DAY, "pov-r2"],
+  ["8–30 days ago", (ms) => ms != null && ms > 7 * DAY && ms <= 30 * DAY, "pov-r3"],
+  ["Over 30 days", (ms) => ms != null && ms > 30 * DAY, "pov-r4"],
+  ["Never signed in", (ms) => ms == null, "pov-r5"],
+];
+function recencyBlock(act) {
+  const staff = (act.staff || []).filter((s) => s.status === "active");
+  const now = Date.now();
+  const groups = RECENCY.map(([label, test, cls]) => ({ label, cls,
+    n: staff.filter((s) => test(s.lastSignInAt ? now - new Date(s.lastSignInAt).getTime() : null)).length }));
+  const L = act.learners || {};
+  return `
+    <div class="pov-stack" role="img" aria-label="${esc(`Active staff by last sign-in: ${groups.map((g) => `${g.label} ${g.n}`).join(", ")}`)}">
+      ${groups.filter((g) => g.n).map((g) => `<span class="${g.cls}" style="flex:${g.n}" title="${esc(`${g.label}: ${g.n}`)}"></span>`).join("") || `<span class="pov-r5" style="flex:1"></span>`}
+    </div>
+    <ul class="pov-legend">${groups.map((g) => `<li><i class="${g.cls}" aria-hidden="true"></i>${esc(g.label)} <b>${num(g.n)}</b></li>`).join("")}</ul>
+    <p class="pov-note">Learners: <b>${num(L.signedIn7d)}</b> of ${plural(L.enrolled, "enrolled learner")} signed in this week${L.lockedNow ? ` · <b>${num(L.lockedNow)}</b> locked out now` : ""}.</p>`;
+}
+
+/** A key figure: label and icon, the number, then (each optional) the
+    change since last time, a line of context, and a small chart. */
+function kpi({ id, name, label, value, unit = "", trend = "", sub = "", viz = "", href = "", warn = false }) {
+  const tag = href ? `a href="${esc(href)}"` : "div";
+  return `<${tag} class="pov-kpi${warn ? " warn" : ""}"${id ? ` id="${id}"` : ""}>
+    <div class="pov-kpi-top"><span class="pov-kpi-label">${esc(label)}</span><span class="pov-kpi-icon">${icon(name)}</span></div>
+    <div class="pov-kpi-value"><span data-part="value">${value}${unit ? `<span class="pov-kpi-unit">${esc(unit)}</span>` : ""}</span><span class="pov-kpi-trend" data-part="trend">${trend}</span></div>
+    <div class="pov-kpi-sub" data-part="sub">${sub}</div>
+    <div class="pov-kpi-viz" data-part="viz">${viz}</div>
+  </${href ? "a" : "div"}>`;
+}
+const pending = (label) => `<span class="skeleton-block pov-skel" aria-hidden="true"></span><span class="sr-only">${esc(label)} loading</span>`;
+
+/** Checks that need someone, then the ones that pass (folded away). */
+function attentionPanel(checks) {
+  const failing = checks.filter((x) => !x.ok);
+  const passing = checks.filter((x) => x.ok);
+  return `
+    <div class="pov-panel-head"><h3 id="pov-attention-title" tabindex="-1">Needs attention</h3>
+      ${failing.length ? `<span class="pov-count warn">${failing.length}</span>` : ""}</div>
+    ${failing.length ? `<p class="pov-note pov-lead">Health checks that aren't met yet:</p>` : ""}
+    ${failing.length ? `<ul class="pov-alerts">${failing.map((x) => `
+      <li class="pov-alert"><span class="pov-alert-icon" aria-hidden="true">${icon("alert")}</span>
+        <div class="pov-alert-text"><b>${esc(x.label)}</b><span>${esc(x.detail)}</span></div>
+        ${x.link ? `<a class="btn btn-outline pov-alert-go" href="${esc(x.link)}">Open<span class="sr-only">: ${esc(x.label)}</span></a>` : ""}
+      </li>`).join("")}</ul>`
+      : `<div class="pov-allgood">${icon("check")}<div><b>Nothing needs attention.</b><span>All ${checks.length} checks pass.</span></div></div>`}
+    ${passing.length && failing.length ? `<details class="pov-passing"><summary>${icon("check")} ${plural(passing.length, "check")} passing</summary>
+      <ul>${passing.map((x) => `<li><b>${esc(x.label)}</b><span>${esc(x.detail)}</span></li>`).join("")}</ul></details>` : ""}`;
+}
+
+function recentList(entries, describe, securityIds) {
+  if (!entries.length) return `<div class="empty-state">Nothing recorded yet.</div>`;
+  const key = entries.some((e) => securityIds.has(e.id))
+    ? `<p class="pov-note"><i class="pov-key-security" aria-hidden="true"></i>Orange: a change to who can sign in or what they can reach.</p>` : "";
+  return `<ol class="pov-feed">${entries.map((e) => {
+    const said = describe ? describe(e) : { what: e.action, detail: "" };
+    const who = e.actorName || (e.actorKind === "system" ? "System" : "Someone");
+    const target = e.targetName && e.targetId !== e.actorId ? ` — ${e.targetName}` : "";
+    return `<li class="pov-feed-item${securityIds.has(e.id) ? " security" : ""}">
+      <span class="pov-feed-dot" aria-hidden="true"></span>
+      <div class="pov-feed-text"><span><b>${esc(who)}</b> ${esc(said.what)}${esc(target)}</span>
+        ${said.detail ? `<span class="pov-feed-detail">${esc(said.detail)}</span>` : ""}</div>
+      <time datetime="${esc(e.at)}" title="${esc(fmtWhen(e.at))}">${esc(since(e.at))}</time>
+    </li>`;
+  }).join("")}</ol>${key}`;
+}
+
+export function renderPlatformOverview(el, { describe } = {}) {
+  const draw = async () => {
+    const gen = (el.povGen = (el.povGen || 0) + 1);
+    const current = () => el.povGen === gen;
+    el.innerHTML = skeleton(3, { avatar: false });
+    let d;
+    try {
+      d = await apiGet("/platform/overview");
+    } catch (err) {
+      if (current()) el.innerHTML = errorState(navigator.onLine ? friendlyError(err) : "This page needs a connection.", draw);
+      return;
+    }
+    if (!current()) return;
+    const a = d.accounts, k = d.integrations.kobo, n = d.integrations.notifications;
+    const failing = d.checks.filter((x) => !x.ok).length;
+    const passing = d.checks.length - failing;
+    const updated = new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    const roles = d.accounts.byRole;
+    el.innerHTML = `
+    <div class="pov">
+      <header class="pov-head">
+        <div>
+          <h2 class="pov-title">Platform overview</h2>
+          <p class="pov-status ${failing ? "warn" : "ok"}">
+            <span class="pov-status-dot" aria-hidden="true"></span>
+            ${failing ? `<button type="button" class="pov-status-link" data-pov-jump><b>${plural(failing, "check needs", "checks need")} attention</b></button>`
+              : `<b>All systems normal</b>`}
+            <span class="pov-status-more">· ${plural(passing, "check")} passing</span>
+          </p>
+        </div>
+        <div class="pov-head-side">
+          <span class="pov-meta">${d.platform ? `API ${esc(String(d.platform.release).slice(0, 7))} · ${esc(d.platform.environment)} · ` : ""}Updated ${esc(updated)}</span>
+          <button type="button" class="btn btn-outline pov-refresh" data-pov-refresh>${icon("sync")}<span>Refresh</span></button>
+        </div>
+      </header>
+
+      <section class="pov-kpis" aria-label="Key figures">
+        ${kpi({ name: "users", label: "Staff accounts", value: num(a.active), href: "#users", warn: a.pending > 0,
+          sub: a.pending ? `<b class="pov-warn-text">${plural(a.pending, "account")} waiting for approval</b>` : `Active · ${num(a.total)} accounts in all` })}
+        ${kpi({ name: "activity", label: "Active this week", value: num(a.signedIn7d), href: "#account-activity",
+          sub: `${pct(a.signedIn7d, a.active)}% of active staff${a.neverSignedIn ? ` · ${num(a.neverSignedIn)} never signed in` : ""}`,
+          viz: meter(a.signedIn7d, a.active, `${a.signedIn7d} of ${a.active} active staff signed in this week`) })}
+        ${kpi({ id: "pov-k-learners", name: "cap", label: "Learners enrolled", value: num(d.learners.enrolled), href: "admin.html#learners", warn: d.learners.lockedNow > 0,
+          sub: d.learners.lockedNow ? `<b class="pov-warn-text">${num(d.learners.lockedNow)} locked out right now</b>` : "None locked out" })}
+        ${kpi({ name: "school", label: "Schools", value: num(d.organisation.schools), href: "#schools", sub: `In ${plural(d.organisation.counties, "county", "counties")}` })}
+        ${kpi({ id: "pov-k-dq", name: "data-quality", label: "Data quality", value: d.dataQuality.score == null ? "—" : num(d.dataQuality.score), unit: d.dataQuality.score == null ? "" : "%", href: "#data-quality",
+          warn: d.dataQuality.high > 0,
+          sub: d.dataQuality.high ? `<b class="pov-warn-text">${plural(d.dataQuality.high, "high-severity issue")} open</b>` : `${plural(d.dataQuality.open, "open issue")}` })}
+        ${kpi({ id: "pov-k-kobo", name: "kobo", label: "Field data counted", value: k.connected ? pending("Field data") : "—", href: "#kobo",
+          sub: k.connected ? "" : "KoboToolbox isn't connected" })}
+      </section>
+
+      <div class="pov-grid">
+        <section class="pov-panel pov-activity" aria-labelledby="pov-activity-title">
+          <div class="pov-panel-head"><h3 id="pov-activity-title">Platform activity</h3><a href="#audit">Audit log</a></div>
+          <div data-slot="activity">${pending("Activity")}</div>
+          <h4 class="pov-subhead">Who's signing in</h4>
+          <div data-slot="recency">${pending("Sign-ins")}</div>
+        </section>
+        <section class="pov-panel pov-attention" aria-labelledby="pov-attention-title">${attentionPanel(d.checks)}</section>
       </div>
-      <div class="panel">
-        <div class="panel-head"><h2>Health checks</h2>${d.platform ? `<span class="chart-meta" style="margin:0">API release ${esc(d.platform.release)} · ${esc(d.platform.environment)}</span>` : ""}</div>
-        <div class="checks">${d.checks.map((x) => `
-          <div class="check-row ${x.ok ? "ok" : "warn"}"><span class="check-mark" aria-hidden="true">${x.ok ? "✓" : "!"}</span>
-            <div><b>${esc(x.label)}</b><span>${esc(x.detail)}</span></div>
-            ${!x.ok && x.link ? `<a class="intel-link" href="${esc(x.link)}">Open</a>` : ""}</div>`).join("")}</div>
-      </div>
-      <div class="body-grid">
-        <div class="panel">
-          <div class="panel-head"><h2>Integrations</h2><a href="#kobo">KoboToolbox</a></div>
-          <dl class="profile-facts">
-            <div><dt>KoboToolbox</dt><dd>${k.connected ? `Connected to ${esc(String(k.server || "").replace(/^https?:\/\//, ""))} · ${k.surveys} survey(s) · last sync ${esc(fmtWhen(k.lastSync))}` : "Not connected"}</dd></div>
-            <div><dt>Live push from Kobo</dt><dd>${k.pushConfigured ? "Set up" : "Not set up"}</dd></div>
-            ${k.failing.map((f) => `<div><dt>Failing</dt><dd>${esc(f.title)} — ${esc(f.error || "")}</dd></div>`).join("")}
-            <div><dt>Hourly notifications</dt><dd>${n ? `Last run ${esc(fmtWhen(n.lastRunAt))} (${esc(n.trigger)}) · ${n.created} created${n.error ? " · failed" : ""}` : "Never run"}</dd></div>
-            <div><dt>Field devices</dt><dd>${d.devices.reporting} reporting · ${d.devices.needAttention} need attention</dd></div>
+
+      <div class="pov-grid">
+        <section class="pov-panel" aria-labelledby="pov-recent-title">
+          <div class="pov-panel-head"><h3 id="pov-recent-title">Recent activity</h3>
+            <span class="pov-head-links"><a href="#audit?kind=security">Security events</a><a href="#audit">All</a></span></div>
+          <div data-slot="recent">${pending("Recent activity")}</div>
+        </section>
+        <section class="pov-panel pov-quiet" aria-labelledby="pov-systems-title">
+          <div class="pov-panel-head"><h3 id="pov-systems-title">Integrations</h3><a href="#kobo">KoboToolbox</a></div>
+          <dl class="pov-facts">
+            <div><dt>${icon("kobo")}KoboToolbox</dt><dd>${k.connected
+              ? `Connected to ${esc(String(k.server || "").replace(/^https?:\/\//, ""))} · ${plural(k.surveys, "survey")} · synced ${esc(since(k.lastSync))}`
+              : "Not connected"}${k.failing.length ? `<br><b class="pov-warn-text">${plural(k.failing.length, "survey")} failing to sync</b>` : ""}</dd></div>
+            <div><dt>${icon("plug")}Live push from Kobo</dt><dd>${k.pushConfigured ? "Set up" : "Not set up"}</dd></div>
+            <div><dt>${icon("bell")}Hourly notifications</dt><dd>${n ? `Ran ${esc(since(n.lastRunAt))} · ${plural(n.created, "notification")} created${n.error ? ` · <b class="pov-warn-text">failed</b>` : ""}` : "Never run"}</dd></div>
+            <div><dt>${icon("sync")}Field devices</dt><dd>${plural(d.devices.reporting, "device")} reporting${d.devices.needAttention ? ` · <b class="pov-warn-text">${num(d.devices.needAttention)} need attention</b>` : " · all fine"}</dd></div>
+            <div><dt>${icon("shield")}Access exceptions</dt><dd>${plural(d.access.grants, "extra permission")} granted · ${plural(d.access.scopedStaff, "person", "people")} with a narrowed scope · <a href="#permissions">Permissions</a></dd></div>
           </dl>
-        </div>
-        <div class="panel">
-          <div class="panel-head"><h2>Recent security events</h2><a href="#audit?kind=security">All</a></div>
-          ${d.recentSecurity.length ? d.recentSecurity.map((e) => `<div class="result-row" style="align-items:flex-start">
-            <span><b>${esc(e.actorName || "System")}</b> ${esc(e.action)}${e.targetName ? ` — ${esc(e.targetName)}` : ""}</span>
-            <span class="hint-inline" style="white-space:nowrap">${esc(fmtWhen(e.at))}</span></div>`).join("") : `<div class="empty-state">Nothing yet.</div>`}
-        </div>
+        </section>
       </div>
-      <div class="panel">
-        <div class="panel-head"><h2>Accounts by role</h2></div>
-        ${table(["Role", "Active", "Waiting", "Suspended", "Deactivated", "Not approved"],
-          d.accounts.byRole.map((r) => [esc(r.label), r.active, r.pending, r.suspended, r.deactivated, r.rejected]))}
-      </div>
-      ${d.access.fieldOfficersWithoutSchools.length ? `<div class="panel">
-        <div class="panel-head"><h2>Field officers without assigned schools</h2></div>
-        <p class="hint" style="margin-top:0">They can't file visits until they're given a county or schools — open them on Users &amp; roles, then <b>View</b>.</p>
-        ${d.access.fieldOfficersWithoutSchools.map((p) => `<div class="task-row"><div style="flex:1"><b>${esc(p.name)}</b><span>Profile county: ${esc(p.county || "none")}</span></div></div>`).join("")}
-      </div>` : ""}`;
-  }, () => renderPlatformOverview(el));
+
+      <section class="pov-support" aria-labelledby="pov-roles-title">
+        <div class="pov-panel-head"><h3 id="pov-roles-title">Accounts by role</h3><a href="#users">Users &amp; roles</a></div>
+        <div class="lms-table-wrap" tabindex="0" role="region" aria-labelledby="pov-roles-title">
+          <table class="lms-table pov-roles"><thead><tr><th class="lms-name">Role</th><th>Active</th><th>Waiting</th><th>Suspended</th><th>Deactivated</th><th>Not approved</th></tr></thead>
+          <tbody>${roles.map((r) => `<tr><td class="lms-name">${esc(r.label)}</td>${[r.active, r.pending, r.suspended, r.deactivated, r.rejected]
+            .map((v) => `<td class="${v ? "" : "pov-zero"}">${num(v)}</td>`).join("")}</tr>`).join("")}</tbody></table>
+        </div>
+        ${d.access.fieldOfficersWithoutSchools.length ? `
+          <h4 class="pov-subhead">Field officers without assigned schools</h4>
+          <p class="pov-note">They can't file visits until they're given a county or schools — open them on <a href="#users">Users &amp; roles</a>, then <b>View</b>.</p>
+          <ul class="pov-plain">${d.access.fieldOfficersWithoutSchools.map((p) => `<li><b>${esc(p.name)}</b> · profile county: ${esc(p.county || "none")}</li>`).join("")}</ul>` : ""}
+      </section>
+    </div>`;
+
+    const slot = (name) => el.querySelector(`[data-slot="${name}"]`);
+    const fill = (name, html) => { const s = current() && slot(name); if (s) s.innerHTML = html; };
+    const part = (card, name) => (current() && el.querySelector(`#${card} [data-part="${name}"]`)) || null;
+    const retryLink = `<button type="button" class="intel-link" data-pov-refresh>Try again</button>`;
+
+    // The rest fills in as it arrives; one slow or failed reply doesn't hold up the others.
+    apiGet("/data-quality/summary").then((s) => {
+      const hist = (s.history || []).filter((h) => h.score != null);
+      const viz = part("pov-k-dq", "viz");
+      if (viz) viz.innerHTML = scoreSpark(hist);
+      const trend = part("pov-k-dq", "trend");
+      if (trend && hist.length >= 2) {
+        trend.innerHTML = delta(hist.at(-1).score - hist.at(-2).score, { unit: " pts" });
+        part("pov-k-dq", "sub")?.insertAdjacentHTML("afterbegin", "vs the last scan · ");
+      }
+    }).catch(() => {});
+
+    apiGet("/audit?limit=200").then((res) => {
+      const entries = (res.entries || []).slice().sort((x, y) => String(y.at).localeCompare(String(x.at)));
+      const series = perDay(entries, 14);
+      const thisWeek = series.slice(7).reduce((t, s) => t + s.n, 0);
+      const lastWeek = series.slice(0, 7).reduce((t, s) => t + s.n, 0);
+      // 200 entries may not reach back 14 days on a busy platform: then the oldest days are incomplete.
+      const partial = res.nextBefore && entries.length && Date.now() - new Date(entries.at(-1).at).getTime() < 14 * DAY;
+      fill("activity", `
+        <div class="pov-activity-sum"><span class="pov-big">${num(thisWeek)}</span>
+          <span>${thisWeek === 1 ? "change" : "changes"} recorded in the last 7 days ${partial ? "" : delta(thisWeek - lastWeek, { what: "on the week before" })}</span></div>
+        ${activityChart(series)}
+        <ul class="pov-legend"><li><i class="pov-key-now" aria-hidden="true"></i>Last 7 days</li><li><i class="pov-key-before" aria-hidden="true"></i>The week before</li></ul>
+        <p class="pov-note">Accounts, access, exports, Kobo and other changes, from the audit log${partial ? " (only the latest 200 — earlier days are incomplete)" : ""}.</p>`);
+      const securityIds = new Set((d.recentSecurity || []).map((e) => e.id));
+      fill("recent", recentList(entries.slice(0, 7), describe, securityIds));
+    }).catch(() => {
+      fill("activity", `<p class="pov-note">The activity history couldn't be read just now. ${retryLink}</p>`);
+      fill("recent", recentList(d.recentSecurity || [], describe, new Set((d.recentSecurity || []).map((e) => e.id))));
+    });
+
+    apiGet("/security/activity").then((act) => {
+      fill("recency", recencyBlock(act));
+      const L = act.learners || {};
+      const sub = part("pov-k-learners", "sub");
+      if (sub && L.enrolled != null) {
+        sub.insertAdjacentHTML("afterbegin", `${num(L.signedIn7d)} signed in this week · `);
+        part("pov-k-learners", "viz").innerHTML = meter(L.signedIn7d, L.enrolled, `${L.signedIn7d} of ${L.enrolled} enrolled learners signed in this week`);
+      }
+    }).catch(() => fill("recency", `<p class="pov-note">Sign-ins couldn't be read just now. ${retryLink}</p>`));
+
+    if (k.connected) {
+      apiGet("/kobo/forms").then((res) => {
+        const live = (res.forms || []).filter((f) => f.active !== false);
+        const got = live.reduce((t, f) => t + (f.pipeline?.received ?? 0), 0);
+        const counted = live.reduce((t, f) => t + (f.pipeline?.counted ?? 0), 0);
+        const review = live.reduce((t, f) => t + (f.pipeline?.needsReview ?? 0), 0);
+        const value = part("pov-k-kobo", "value");
+        if (!value) return;
+        value.innerHTML = `${num(counted)}<span class="pov-kpi-unit">of ${num(got)}</span>`;
+        part("pov-k-kobo", "sub").innerHTML = review
+          ? `<b class="pov-warn-text">${plural(review, "submission")} ${review === 1 ? "needs" : "need"} review</b>` : "Nothing waiting for review";
+        part("pov-k-kobo", "viz").innerHTML = meter(counted, got, `${counted} of ${got} Kobo submissions counted on the dashboards`);
+        if (review) el.querySelector("#pov-k-kobo").classList.add("warn");
+      }).catch(() => {
+        const value = part("pov-k-kobo", "value");
+        if (value) { value.textContent = "—"; part("pov-k-kobo", "sub").textContent = "Couldn't be read just now."; }
+      });
+    }
+  };
+  // One handler for the element, whichever draw is current.
+  el.povDraw = draw;
+  if (!el.povBound) {
+    el.povBound = true;
+    el.addEventListener("click", (e) => {
+      if (e.target.closest("[data-pov-refresh]")) el.povDraw();
+      else if (e.target.closest("[data-pov-jump]")) {
+        const h = el.querySelector("#pov-attention-title");
+        h?.scrollIntoView({ behavior: "smooth", block: "start" });
+        h?.focus({ preventScroll: true });
+      }
+    });
+  }
+  return draw();
 }
 
 /* ------------------------------------------------------------------ Administration overview */

@@ -2890,6 +2890,57 @@ async function main() {
     "kobo.webhook_secret_created": "set up Kobo's live push",
     "kobo.webhook_secret_removed": "turned off Kobo's live push",
     "report.exported": "exported a report",
+    "subject.created": "added a subject",
+    "calendar.year_created": "added an academic year",
+    "calendar.year_made_current": "made an academic year the current one",
+    "class.created": "created a class",
+    "class.subject_added": "added a subject to a class",
+    "class.subject_removed": "removed a subject from a class",
+    "class.teacher_assigned": "assigned a teacher to a class",
+    "class.teacher_removed": "took a teacher off a class",
+    "learner.archived": "archived a learner",
+    "learner.class_changed": "moved a learner to another class",
+    "learner.enrollment_opened": "enrolled a learner",
+    "learner.enrollment_closed": "closed a learner's enrolment",
+    "learner.promoted": "promoted a learner",
+    "learner.reactivated": "reactivated a learner",
+    "learner.transferred": "transferred a learner",
+    "assignment.created": "created an assignment",
+    "assignment.updated": "edited an assignment",
+    "assignment.deleted": "deleted an assignment",
+    "assignment.published": "published an assignment",
+    "assignment.closed": "closed an assignment",
+    "assignment.unpublished": "moved an assignment back to draft",
+    "submission.submitted": "handed in an assignment",
+    "form.due_date_set": "set a form's due date",
+    "visit.form_completed": "completed a visit form",
+    "training.created": "added a training session",
+    "training.attendance_changed": "updated who attended a training session",
+    "dq.status_changed": "changed a data-quality issue's status",
+    "dq.corrected": "corrected a data-quality issue",
+    "kobo.synced": "synced KoboToolbox",
+    "kobo.record_accepted": "accepted a Kobo submission",
+    "kobo.record_excluded": "excluded a Kobo submission",
+    "kobo.record_review_cleared": "cleared a Kobo submission's review",
+    "kobo.mapping_changed": "changed a Kobo survey's field mapping",
+    "kobo.school_alias_saved": "linked a Kobo school name to a school",
+    "kobo.school_alias_removed": "removed a Kobo school name",
+    "notifications.run": "ran the notifications",
+    "me.programme_created": "created a programme",
+    "me.programme_updated": "edited a programme",
+    "me.outcome_created": "added an outcome",
+    "me.outcome_updated": "edited an outcome",
+    "me.indicator_created": "added an indicator",
+    "me.indicator_updated": "edited an indicator",
+    "me.target_set": "set a target",
+    "me.target_cleared": "cleared a target",
+    "me.actual_recorded": "recorded an indicator result",
+    "me.actual_verified": "verified an indicator result",
+    "me.actual_rejected": "rejected an indicator result",
+    "me.evidence_added": "added evidence",
+    "me.report_generated": "generated an M&E report",
+    "me.report_refreshed": "refreshed an M&E report",
+    "me.report_finalized": "finalised an M&E report",
   };
   const roleName = (r) => ROLE_LABEL[r] || r || "—";
   function auditDetail(e) {
@@ -3220,7 +3271,10 @@ async function main() {
     const first = !openedOnce.has(page);
     openedOnce.add(page);
     switch (page) {
-      case "platform-overview": A.renderPlatformOverview($("#pfBody")); break;
+      case "platform-overview":
+        // Recent activity in the Audit log's own words.
+        A.renderPlatformOverview($("#pfBody"), { describe: (e) => ({ what: AUDIT_ACTION[e.action] || e.action, detail: auditDetail(e) }) });
+        break;
       case "admin-overview": A.renderAdminOverview($("#aoBody")); break;
       case "permissions": A.renderPermissions($("#permBody"), { onRevoke: () => canOpen("users") && renderUsers() }); break;
       case "account-activity": A.renderAccountActivity($("#activityBody")); break;

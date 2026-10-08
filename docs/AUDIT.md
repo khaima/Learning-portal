@@ -594,3 +594,35 @@ P3-11 (the roster's native prompts), P3-12 (sign-out token window), P3-13
 P2-8 (a teacher CSV import already exists; improve and extend it rather
 than build a second one). No code was changed for the audit.
 
+### 8 October, night — Platform overview redesign
+
+Presentation only: the same API replies, no backend, database or route
+changes, and no new metrics.
+
+- **Layout:**
+  - a status line ("5 checks need attention · 7 passing") with the API
+    release and a Refresh button;
+  - six key figures with icons, comparisons and small charts;
+  - activity beside what needs attention;
+  - recent activity, then integrations and accounts by role.
+- **Data used:**
+  - `/platform/overview` first;
+  - then, each filling its own space as it arrives: the data-quality score
+    history (`/data-quality/summary`), changes per day and recent activity
+    (`/audit`), sign-in recency (`/security/activity`), and Kobo counted
+    vs received (`/kobo/forms`).
+  - A figure that can't be read says so, with Try again.
+- **Fixed on the way:**
+  - recent activity showed raw codes (`account.approved`);
+  - 43 of the 70 audited actions had no wording on the Audit page either,
+    and now all have.
+- **Responsive:** three key figures per row on laptops, six where there's
+  room, two on phones (container queries, with a screen-width fallback).
+  "Needs attention" moves above the charts on narrow screens.
+- **Checked:**
+  - at 390, 820, 1180, 1440 and 1920 px, in light and dark, with no
+    sideways scroll;
+  - axe-core: no WCAG 2.1 AA violations on the page;
+  - its status colours use darker shades than the shared pills (P2-11
+    still applies elsewhere).
+
