@@ -796,6 +796,23 @@ async function quietIdentity(header: string | undefined): Promise<{ tags: Record
   }
 }
 
+/* ---- KoboToolbox: the hourly sync ----
+   Called by pg_cron (the kobo_sync_schedule migration) with the same
+   Vault-kept secret as the notifications run, so field submissions reach
+   the dashboards without anyone pressing Sync. In the audit log only when
+   something arrived, changed or failed. */
+app.post("/kobo/sync/run", async (c) => {
+  const secret = c.req.header("X-Cron-Secret") ?? "";
+  if (secret.length < 32) return c.json({ error: "Not allowed" }, 401);
+  const { data: ok, error } = await admin.rpc("notify_cron_secret_ok", { candidate: secret });
+  if (error || ok !== true) return c.json({ error: "Not allowed" }, 401);
+  const res = await runKoboSync();
+  if ("error" in res) return c.json({ ok: true, skipped: res.error }); // not connected: nothing to do
+  const moved = res.forms.some((f) => Number(f.added) || Number(f.changed) || Number(f.removed));
+  if (moved || res.failed.length) await audit(c, "kobo.synced", "kobo_forms", null, { forms: res.forms.length, failed: res.failed, trigger: "schedule" });
+  return c.json(res);
+});
+
 // ---- authentication ----
 
 app.use("*", async (c, next) => {
@@ -8627,8 +8644,19 @@ async function processKoboForm(form: Record<string, any>, officerField: string) 
 /* Pull every attached survey: refresh its questions, store what Kobo has,
    and run it all through validation. */
 app.post("/kobo/sync", requirePermission("kobo.manage", "kobo.sync"), async (c) => {
+  const res = await runKoboSync();
+  if ("error" in res) return c.json(res, 400);
+  await audit(c, "kobo.synced", "kobo_forms", null, { forms: res.forms.length, failed: res.failed });
+  return c.json(res);
+});
+
+/** Every active survey: its questions and submissions from KoboToolbox,
+    what's new or changed stored as received, then every submission
+    checked again with today's rules. Sync now and the hourly job both run
+    this; a survey that fails keeps its error for the Sync center. */
+async function runKoboSync(): Promise<{ ok: true; forms: Record<string, unknown>[]; failed: string[] } | { error: string }> {
   const cfg = await loadKoboConfig();
-  if (!cfg) return c.json({ error: "Connect KoboToolbox first" }, 400);
+  if (!cfg) return { error: "Connect KoboToolbox first" };
   const { data: forms } = await admin.from("kobo_forms").select("*").eq("active", true);
   const done: Record<string, unknown>[] = [];
   const failed: string[] = [];
@@ -8650,9 +8678,8 @@ app.post("/kobo/sync", requirePermission("kobo.manage", "kobo.sync"), async (c) 
       }).eq("id", f0.id);
     }
   }
-  await audit(c, "kobo.synced", "kobo_forms", null, { forms: done.length, failed });
-  return c.json({ ok: true, forms: done, failed });
-});
+  return { ok: true, forms: done, failed };
+}
 
 /** What the pipeline made of one survey: counts, issues by rule, school
     values it couldn't match, and the field mapping. */

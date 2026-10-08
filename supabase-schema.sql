@@ -1808,3 +1808,15 @@ revoke all on sequence public.sync_events_id_seq from anon, authenticated;
 insert into storage.buckets (id, name, public)
 values ('backups', 'backups', false)
 on conflict (id) do nothing;
+
+-- ---------------------------------------------------------------- Kobo: hourly sync
+-- Also shipped as supabase/migrations/20261008090000_kobo_sync_schedule.sql.
+select cron.schedule('hpf-kobo-sync-hourly', '37 * * * *', $job$
+  select net.http_post(
+    url := 'https://fwpqytrdlmxymvegvgji.supabase.co/functions/v1/api/kobo/sync/run',
+    headers := jsonb_build_object('Content-Type', 'application/json',
+      'X-Cron-Secret', (select decrypted_secret from vault.decrypted_secrets where name = 'notify_cron_secret')),
+    body := '{}'::jsonb,
+    timeout_milliseconds := 120000
+  );
+$job$);

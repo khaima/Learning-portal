@@ -239,7 +239,11 @@ export type PipelineContext = {
   now: Date;
 };
 
-/** A school from a code, a known alias, or an exact (normalized) name. */
+/** A school from a code, a known alias, or a name: the exact (normalized)
+    name first, then the same name without the words that only say what kind
+    of school it is — "Aitong primary school" is Aitong, "Olesere Pri." is
+    Olesere. Both are exact word-for-word matches; anything looser (a
+    misspelling) is only ever suggested (suggestSchool), never linked. */
 export function resolveSchool(value: string, ctx: Pick<PipelineContext, "schools" | "aliases">, county: string | null = null):
   { school: School; via: "code" | "alias" | "name" } | { ambiguous: School[] } | null {
   const byCode = ctx.schools.find((s) => codeKey(s.code) === codeKey(value));
@@ -247,8 +251,16 @@ export function resolveSchool(value: string, ctx: Pick<PipelineContext, "schools
   const aliasId = ctx.aliases[nameKey(value)];
   const alias = aliasId ? ctx.schools.find((s) => s.id === aliasId) : undefined;
   if (alias) return { school: alias, via: "alias" };
-  let named = ctx.schools.filter((s) => nameKey(s.name) === nameKey(value));
-  if (named.length > 1 && county) named = named.filter((s) => s.county === county);
+  const pick = (match: (s: School) => boolean) => {
+    let named = ctx.schools.filter(match);
+    if (named.length > 1 && county) named = named.filter((s) => s.county === county);
+    return named;
+  };
+  let named = pick((s) => nameKey(s.name) === nameKey(value));
+  if (!named.length) {
+    const core = distinctive(value).join(" ");
+    if (core) named = pick((s) => distinctive(s.name).join(" ") === core);
+  }
   if (named.length === 1) return { school: named[0], via: "name" };
   if (named.length > 1) return { ambiguous: named };
   return null;

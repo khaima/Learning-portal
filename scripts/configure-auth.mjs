@@ -73,12 +73,15 @@ function fail(msg) {
   throw new Stop(msg);
 }
 
-/** Public, unauthenticated settings — what the sign-in page reads. */
+/** Public, unauthenticated settings — what the sign-in page reads. The
+    project's address and publishable key come from environments.json (the
+    same file the build uses): the entry for SUPABASE_PROJECT_REF. */
 async function publicSettings() {
-  const cfg = readFileSync(join(ROOT, "config.js"), "utf8");
-  const url = cfg.match(/SUPABASE_URL\s*=\s*"([^"]+)"/)?.[1];
-  const key = cfg.match(/SUPABASE_PUBLISHABLE_KEY\s*=\s*"([^"]+)"/)?.[1];
-  if (!url || !key) throw new Error("Couldn't read SUPABASE_URL / SUPABASE_PUBLISHABLE_KEY from config.js.");
+  const environments = JSON.parse(readFileSync(join(ROOT, "environments.json"), "utf8"));
+  const env = Object.values(environments).find((e) => e?.supabaseUrl?.includes(`//${REF}.`));
+  const url = env?.supabaseUrl;
+  const key = env?.publishableKey;
+  if (!url || !key) throw new Error(`environments.json has no project ${REF} (with its publishable key).`);
   const res = await fetch(`${url}/auth/v1/settings`, { headers: { apikey: key } });
   if (!res.ok) throw new Error(`${url}/auth/v1/settings answered ${res.status}.`);
   return res.json();

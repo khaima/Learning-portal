@@ -135,6 +135,11 @@ Deno.test("school code: code, alias and name all link; unknown and ambiguous don
   assertEquals((resolveSchool("  KIANJAI primary ", c) as { via: string }).via, "name");
   assert("ambiguous" in (resolveSchool("Twin Primary", c) as object));
   assertEquals((resolveSchool("Twin Primary", c, "Meru") as { school: { id: string } }).school.id, "s4", "the county settles it");
+  // The same name without "primary school" and the like, word for word (Kobo's choice labels).
+  assertEquals((resolveSchool("Aitong primary school", c) as { school: { id: string } }).school.id, "s1");
+  assertEquals((resolveSchool("AITONG", c) as { via: string }).via, "name");
+  assert("ambiguous" in (resolveSchool("Twin school", c) as object), "two schools, same words: not linked");
+  assertEquals(resolveSchool("Aitongg primary school", c), null, "a misspelling is only ever a suggestion");
   const unknown = processOne(raw(good({ "school_info/school_code": "Aitong Primery School", "school_info/county": "" })), c);
   const school = unknown.issues.find((i) => i.rule === "school")!;
   assertEquals(school.severity, "error");

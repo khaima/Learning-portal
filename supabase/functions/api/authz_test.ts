@@ -318,7 +318,7 @@ const ROUTES: RouteSpec[] = [
 ];
 /** Need a sign-in but no particular permission (sign-up, own profile, school list). */
 const SIGNED_IN_ONLY = ["GET /me", "POST /me", "POST /me/accept-invite", "GET /schools", "POST /me/password"];
-const PUBLIC = ["GET /health", "POST /auth/register", "POST /learner/login", "POST /learner/logout", "GET /invitations/:token", "POST /kobo/hook", "POST /notifications/run", "POST /telemetry/error"];
+const PUBLIC = ["GET /health", "POST /auth/register", "POST /learner/login", "POST /learner/logout", "GET /invitations/:token", "POST /kobo/hook", "POST /notifications/run", "POST /telemetry/error", "POST /kobo/sync/run"];
 
 const denied = (s: number) => s === 401 || s === 403;
 
@@ -1245,7 +1245,7 @@ Deno.test("Kobo pipeline: sync stores raw, validates, normalizes; dashboards cou
   connectKobo(db);
   let rows = [
     kRow(1),                                                    // valid
-    kRow(2, { school_code: "Aitong Pri" }),                      // school not recognised
+    kRow(2, { school_code: "Aitongg Pri" }),                      // school not recognised
     { ...kRow(1), _id: 3, _uuid: "u3", "meta/instanceID": "uuid:3" }, // the same submission sent twice
     kRow(4, { _validation_status: { uid: "validation_status_not_approved" } }),
     kRow(5, { learners_present: "thirty" }),                     // not a number
@@ -1274,11 +1274,11 @@ Deno.test("Kobo pipeline: sync stores raw, validates, normalizes; dashboards cou
     // What needs looking at, by rule; the school it couldn't place, with a suggestion.
     const pipe = await call("GET", "/kobo/forms/kb_1/pipeline", "tok_admin");
     assertEquals(pipe.json.stats.needsReview, 3);
-    assertEquals(pipe.json.unknownSchools, [{ value: "Aitong Pri", count: 1, suggestion: { id: "sch_1", name: "Aitong Primary", code: "NRK-001" } }]);
+    assertEquals(pipe.json.unknownSchools, [{ value: "Aitongg Pri", count: 1, suggestion: { id: "sch_1", name: "Aitong Primary", code: "NRK-001" } }]);
     assertEquals((await call("GET", "/kobo/records?formId=kb_1&rule=type", "tok_me")).json.records.map((r: Row) => r.koboId), [5]);
 
     // Normalization: teach it the alias once; every survey is re-checked.
-    assertEquals((await call("POST", "/kobo/school-aliases", "tok_me", { value: "Aitong Pri", schoolId: "sch_1" })).status, 200);
+    assertEquals((await call("POST", "/kobo/school-aliases", "tok_me", { value: "Aitongg Pri", schoolId: "sch_1" })).status, 200);
     assertEquals([recByKobo(db, 2).status, recByKobo(db, 2).school_id], ["valid", "sch_1"]);
 
     // A person's decision: accepted with a reason, and audited.
@@ -1349,6 +1349,26 @@ Deno.test("Kobo push: only with the right secret; stored and validated; repeats 
     // Revoking the password stops the push.
     await call("DELETE", "/kobo/webhook", "tok_super_admin");
     assertEquals((await hook(kRow(3), basic(pw))).status, 401);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("Kobo hourly sync: only pg_cron's secret runs it; it syncs like Sync now and is audited only when something moved", async () => {
+  const db = freshWorld();
+  const run = (secret?: string) => app.request("/api/kobo/sync/run", { method: "POST", headers: secret ? { "X-Cron-Secret": secret } : {} });
+  assertEquals((await run()).status, 401);
+  assertEquals((await run("d".repeat(64))).status, 401);
+  assertEquals((await (await run(CRON_SECRET)).json()).skipped, "Connect KoboToolbox first", "not connected: nothing to do");
+  connectKobo(db);
+  const restore = stubKobo(() => [kRow(1), kRow(2)]);
+  try {
+    const first = await run(CRON_SECRET);
+    assertEquals(first.status, 200);
+    assertEquals(db.kobo_records.length, 2);
+    assertEquals(db.audit_log.filter((a) => a.action === "kobo.synced").length, 1, "two new submissions: audited");
+    assertEquals((await run(CRON_SECRET)).status, 200);
+    assertEquals(db.audit_log.filter((a) => a.action === "kobo.synced").length, 1, "nothing new: not audited again");
   } finally {
     restore();
   }
@@ -1818,7 +1838,7 @@ Deno.test("sync center: Kobo connection, last sync and each survey's error; what
   let status = (await call("GET", "/sync/status", "tok_field_officer")).json;
   assertEquals([status.kobo.connected, status.kobo.lastSyncedAt], [false, null], "not connected yet");
   connectKobo(db);
-  const restore = stubKobo(() => [kRow(1), kRow(2, { school_code: "Aitong Pri" })]);
+  const restore = stubKobo(() => [kRow(1), kRow(2, { school_code: "Aitongg Pri" })]);
   try {
     assertEquals((await call("POST", "/kobo/sync", "tok_admin")).status, 200);
   } finally { restore(); }
