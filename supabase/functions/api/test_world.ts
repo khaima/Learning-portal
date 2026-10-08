@@ -142,7 +142,12 @@ export function fakeAdmin(db: Db, users: Record<string, { id: string; email: str
       },
     },
     storage: {
-      from: () => ({
+      // db.storage_files: { bucket, folder, name } — what list() finds.
+      from: (bucket: string) => ({
+        list: (folder: string) => Promise.resolve({
+          data: (db.storage_files ?? []).filter((f) => f.bucket === bucket && f.folder === folder).map((f) => ({ name: f.name })),
+          error: null,
+        }),
         createSignedUrl: () => Promise.resolve({ data: { signedUrl: "https://signed" }, error: null }),
         createSignedUploadUrl: () => Promise.resolve({ data: { token: "t", signedUrl: "https://up" }, error: null }),
         remove: () => Promise.resolve({ data: [], error: null }),

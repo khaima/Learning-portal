@@ -7943,7 +7943,7 @@ app.get("/nav/badges", requireActive(), async (c) => {
 app.get("/platform/overview", requirePermission("platform.view"), async (c) => {
   const now = Date.now();
   const ago = (days: number) => new Date(now - days * 864e5).toISOString();
-  const [profs, learners, schools, counties, koboCfg, koboForms, runs, devices, dqScans, dqOpen, signIns, grants, scopes, security] = await Promise.all([
+  const [profs, learners, schools, counties, koboCfg, koboForms, runs, devices, dqScans, dqOpen, signIns, grants, scopes, security, backupDay, signupsOpen] = await Promise.all([
     selectAll(() => admin.from("profiles").select("id, full_name, email, role, status, school_id, county").order("id")),
     selectAll(() => admin.from("learners").select("id, enrollment_status, locked_until").order("id")),
     selectAll(() => admin.from("schools").select("id, name, county").order("id")),
@@ -7958,6 +7958,8 @@ app.get("/platform/overview", requirePermission("platform.view"), async (c) => {
     admin.from("permission_grants").select("id, profile_id, permission").is("revoked_at", null),
     admin.from("staff_scopes").select("profile_id").is("ended_at", null),
     admin.from("audit_log").select("*").in("action", SECURITY_ACTIONS).order("id", { ascending: false }).limit(8),
+    lastBackupDay(),
+    publicSignupsOpen(),
   ]);
   const staff = profs.data ?? [];
   const byRole = Object.fromEntries(STAFF_ROLES.map((r) => [r, Object.fromEntries(ACCOUNT_STATUSES.map((s) => [s, 0]))]));
@@ -7977,7 +7979,11 @@ app.get("/platform/overview", requirePermission("platform.view"), async (c) => {
   const open = dqOpen.data ?? [];
   const pending = staff.filter((p) => p.status === "pending").length;
   const check = (label: string, ok: boolean, detail: string, link = "") => ({ label, ok, detail, link });
+  const when = (iso: string) => String(iso).slice(0, 16).replace("T", " ");
+  const koboStale = !!lastSync && now - new Date(lastSync).getTime() > 3 * 3600e3;
+  const backupAge = backupDay ? Math.floor((now - Date.parse(`${backupDay}T00:00:00Z`)) / 864e5) : null;
   return c.json({
+    platform: { release: RELEASE, environment: environment() },
     accounts: {
       byRole: STAFF_ROLES.map((r) => ({ role: r, label: ROLE_LABEL[r], ...byRole[r] })),
       total: staff.length, active: active.length, pending,
@@ -8008,17 +8014,51 @@ app.get("/platform/overview", requirePermission("platform.view"), async (c) => {
       check("Every school head is linked to a school", !headless.length,
         headless.length ? `${headless.length} not linked yet (they pick it at next sign-in)` : "All linked", "#users"),
       check("No accounts waiting for approval", !pending, pending ? `${pending} waiting` : "None waiting", "#users"),
-      check("KoboToolbox connected and syncing", !!koboCfg && !failing.length,
-        !koboCfg ? "Not connected" : failing.length ? `${failing.length} survey(s) failing to sync` : lastSync ? `Last sync ${String(lastSync).slice(0, 16).replace("T", " ")}` : "Connected, not synced yet", "#kobo"),
+      check("KoboToolbox connected and syncing every hour", !!koboCfg && !failing.length && !!lastSync && !koboStale,
+        !koboCfg ? "Not connected" : failing.length ? `${failing.length} survey(s) failing to sync`
+          : !lastSync ? "Connected, not synced yet"
+          : `Last sync ${when(lastSync)}${koboStale ? " — the hourly sync hasn't run since" : ""}`, "#kobo"),
       check("Hourly notifications running", !!run && now - new Date(run.started_at).getTime() < 3 * 3600e3 && !run.error,
         run ? `Last run ${String(run.started_at).slice(0, 16).replace("T", " ")}${run.error ? " — failed" : ""}` : "Never run", "#notifications"),
       check("Data quality scanned this week", !!scan && now - new Date(scan.started_at).getTime() < 7 * 864e5,
         scan ? `Last scan ${String(scan.started_at).slice(0, 10)}` : "Never scanned", "#data-quality"),
       check("No devices needing attention", !attention.length, attention.length ? `${attention.length} device(s)` : "All fine", ""),
+      check("Database backed up in the last two days", backupAge != null && backupAge <= 2,
+        backupDay ? `Last backup ${backupDay}${backupAge! > 2 ? ` — ${backupAge} days ago` : ""}`
+          : "No backup yet — the nightly backup needs the SUPABASE_ACCESS_TOKEN repository secret (RESTORE.md)"),
+      check("Invitation emails can be sent", mailReady(),
+        mailReady() ? "A mail provider is set up" : "Not set up — invitations give a link to pass on instead (scripts/configure-auth.mjs)"),
+      check("Errors are reported to the error tracker", telemetryOn(),
+        telemetryOn() ? "On" : "Off — set the SENTRY_DSN secret (docs/OPERATIONS.md)"),
+      check("Public sign-ups are closed", signupsOpen === false,
+        signupsOpen === false ? "Accounts are made only through the portal"
+          : signupsOpen ? "Open — anyone can create a Supabase account directly (scripts/configure-auth.mjs --signups-only)"
+          : "Couldn't ask Supabase Auth just now"),
     ],
     recentSecurity: await auditEntries(security.data ?? []),
   });
 });
+
+/** The newest nightly backup's day (backup.yml keeps them as
+    backups/daily/hpf-db-YYYY-MM-DD.tar.gz), or null when there's none. */
+async function lastBackupDay(): Promise<string | null> {
+  const { data, error } = await admin.storage.from("backups").list("daily", { limit: 1000 });
+  if (error || !data) return null;
+  return data.map((f) => /^hpf-db-(\d{4}-\d{2}-\d{2})\.tar\.gz$/.exec(f.name)?.[1]).filter(Boolean).sort().at(-1) ?? null;
+}
+
+/** Whether Supabase Auth still lets anyone create an account directly
+    (null: it couldn't be asked). Accounts should come only from the portal. */
+async function publicSignupsOpen(): Promise<boolean | null> {
+  try {
+    const res = await fetch(`${AUTH_ISSUER}/settings`, { headers: { apikey: SERVICE_KEY }, signal: AbortSignal.timeout(3000) });
+    if (!res.ok) return null;
+    const s = await res.json();
+    return typeof s?.disable_signup === "boolean" ? !s.disable_signup : null;
+  } catch {
+    return null;
+  }
+}
 
 /* Administration overview (Admin, and Super Admin): the programme's
    organisation and operations, within the caller's area. */

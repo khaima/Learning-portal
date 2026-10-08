@@ -60,7 +60,7 @@ export function renderPlatformOverview(el) {
         ${tile("Access exceptions", d.access.grants, `explicit grants · ${d.access.scopedStaff} staff with a narrowed scope`, "#permissions")}
       </div>
       <div class="panel">
-        <div class="panel-head"><h2>Health checks</h2></div>
+        <div class="panel-head"><h2>Health checks</h2>${d.platform ? `<span class="chart-meta" style="margin:0">API release ${esc(d.platform.release)} · ${esc(d.platform.environment)}</span>` : ""}</div>
         <div class="checks">${d.checks.map((x) => `
           <div class="check-row ${x.ok ? "ok" : "warn"}"><span class="check-mark" aria-hidden="true">${x.ok ? "✓" : "!"}</span>
             <div><b>${esc(x.label)}</b><span>${esc(x.detail)}</span></div>

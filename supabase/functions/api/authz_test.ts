@@ -2265,6 +2265,45 @@ Deno.test("grants: a Super Admin gives one person one extra permission, with a r
   assertEquals(model.roles.find((x: Row) => x.role === "admin").workspace.title, "Programme Administration");
 });
 
+Deno.test("platform overview: backups, mail, error tracking and sign-ups are checked", async () => {
+  const db = freshWorld();
+  const realFetch = globalThis.fetch;
+  let signups: boolean | "down" = true;
+  globalThis.fetch = ((url: string | URL | Request) => {
+    if (String(url).endsWith("/auth/v1/settings")) {
+      return Promise.resolve(signups === "down" ? new Response("", { status: 503 }) : Response.json({ disable_signup: !signups, external: {} }));
+    }
+    return realFetch(url);
+  }) as typeof fetch;
+  try {
+    const checks = async () => Object.fromEntries(((await call("GET", "/platform/overview", "tok_super_admin")).json.checks as Row[]).map((x) => [x.label, x]));
+    let cs = await checks();
+    assertEquals(cs["Database backed up in the last two days"].ok, false);
+    assert(cs["Database backed up in the last two days"].detail.includes("SUPABASE_ACCESS_TOKEN"));
+    assertEquals(cs["Invitation emails can be sent"].ok, false);
+    assertEquals(cs["Errors are reported to the error tracker"].ok, false);
+    assertEquals([cs["Public sign-ups are closed"].ok, cs["Public sign-ups are closed"].detail.startsWith("Open")], [false, true]);
+    const day = (ago: number) => new Date(Date.now() - ago * 864e5).toISOString().slice(0, 10);
+    db.storage_files = [
+      { bucket: "backups", folder: "daily", name: `hpf-db-${day(9)}.tar.gz` },
+      { bucket: "backups", folder: "daily", name: `hpf-db-${day(1)}.tar.gz` },
+      { bucket: "backups", folder: "monthly", name: `hpf-db-${day(0)}.tar.gz` },
+      { bucket: "other", folder: "daily", name: `hpf-db-${day(0)}.tar.gz` },
+    ];
+    signups = false;
+    cs = await checks();
+    assertEquals([cs["Database backed up in the last two days"].ok, cs["Database backed up in the last two days"].detail], [true, `Last backup ${day(1)}`]);
+    assertEquals(cs["Public sign-ups are closed"].ok, true);
+    db.storage_files = [{ bucket: "backups", folder: "daily", name: `hpf-db-${day(5)}.tar.gz` }];
+    signups = "down";
+    cs = await checks();
+    assertEquals([cs["Database backed up in the last two days"].ok, cs["Database backed up in the last two days"].detail], [false, `Last backup ${day(5)} — 5 days ago`]);
+    assertEquals([cs["Public sign-ups are closed"].ok, cs["Public sign-ups are closed"].detail], [false, "Couldn't ask Supabase Auth just now"]);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 Deno.test("access: overviews, badges, the users list and account activity", async () => {
   freshWorld();
   const pf = (await call("GET", "/platform/overview", "tok_super_admin")).json;
@@ -2272,6 +2311,7 @@ Deno.test("access: overviews, badges, the users list and account activity", asyn
   assert(pf.checks.some((x: Row) => x.label === "More than one active Super Admin" && !x.ok), "one Super Admin is a risk");
   assert(pf.checks.some((x: Row) => x.label === "Every field officer has assigned schools" && x.ok));
   const ad = (await call("GET", "/admin/overview", "tok_admin")).json;
+  assertEquals(pf.platform.environment, "development");
   assertEquals([ad.organisation.schools, ad.people.learners, ad.people.pending], [2, 2, 1]);
   assertEquals((await call("GET", "/nav/badges", "tok_admin")).json.badges.approvals, 1);
   assertEquals((await call("GET", "/nav/badges", "tok_education_team")).json.badges.approvals, undefined, "only badges they may see");
