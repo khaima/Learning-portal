@@ -10,6 +10,11 @@ import { openLearnerAssignment, completionPill, markPill, fmtWhen, resultsTableH
 import { getMyAssignment } from "./store.js";
 import { viewableKind } from "./viewer.js";
 import * as sync from "./sync.js";
+import { freshness } from "./api.js";
+import { liveStatus, redraw } from "./live.js";
+
+// Coming back to the page reads it again if what's shown is older than this.
+const RETURN_MS = 5 * 60_000;
 
 /* Offline: at every sync, this learner's assignments (and the reading they
    point to, if it's small) are downloaded, so they can be opened, answered
@@ -360,11 +365,33 @@ async function main() {
     lastWaiting = st.items.length;
   });
 
+  /* When this page was read — or that it's the copy saved on this device —
+     with a Refresh. A refresh keeps the page as it is and marks what
+     changed; coming back to the page after a while reads again. */
+  const homeLive = liveStatus($("#homeLive"), {
+    onReturn: RETURN_MS,
+    refresh: async () => {
+      const was = [assignmentsFailed, libraryFailed, usageFailed];
+      const [a, [lib, folders], u] = await Promise.all([loadAssignments(), Promise.all([loadLibrary(), loadFolders()]), loadUsage()]);
+      if (assignmentsFailed || libraryFailed) {
+        // What's shown stays; the freshness line says it couldn't refresh.
+        [assignmentsFailed, libraryFailed, usageFailed] = was;
+        throw new Error("Couldn't refresh");
+      }
+      assignments = a; library = lib; libraryFolders = folders;
+      if (u) usage = u; else usageFailed = was[2];
+      redraw(["#assignmentList", "#homeAssignments", "#libraryStrip", "#homeResources", "#usageSummary", "#homeActivity", "#continueCard"].map((sel) => $(sel)), renderAll);
+      renderMarks();
+      return freshness("/learner/assignments") ?? undefined;
+    },
+  });
+  homeLive.start();
   [assignments, [library, libraryFolders], usage] = await Promise.all([
     loadAssignments(), Promise.all([loadLibrary(), loadFolders()]), loadUsage(),
   ]);
   renderAll();
   renderMarks();
+  if (assignmentsFailed) homeLive.fail(); else homeLive.ok(freshness("/learner/assignments") ?? undefined);
 }
 main();
 

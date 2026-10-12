@@ -124,28 +124,49 @@ const KEEP_OFFLINE = [
 ];
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/* Where what a page shows came from, and when: read from the server just
+   now, or the copy kept on this device (and when that was saved). Pages
+   show it beside their Refresh control (live.js), so a saved copy is never
+   taken for the latest. */
+const readFrom = new Map();
+const fromServer = (path, data) => { readFrom.set(path, { at: Date.now(), saved: false }); return data; };
+const fromDevice = (path, cached) => { readFrom.set(path, { at: Date.parse(cached.savedAt) || Date.now(), saved: true }); return cached.data; };
+/** The freshness of the last read of `path` (or of every read under it, the
+    least fresh — a saved copy before a server read, then the oldest). */
+export function freshness(path) {
+  let worst = null;
+  for (const [p, f] of readFrom) {
+    if (p !== path && !p.startsWith(`${path}?`)) continue;
+    if (!worst || (f.saved && !worst.saved) || (f.saved === worst.saved && f.at < worst.at)) worst = f;
+  }
+  return worst;
+}
+
 export async function apiGet(path) {
   const owner = currentOwner();
-  if (!owner || !KEEP_OFFLINE.some((re) => re.test(path))) return request("GET", path);
+  if (!owner || !KEEP_OFFLINE.some((re) => re.test(path))) return fromServer(path, await request("GET", path));
   const cached = await getCached(owner, path);
   // Changes made here that haven't synced yet are part of the page: keep showing them.
-  if (cached && isDirty(path)) return cached.data;
+  if (cached && isDirty(path)) return fromDevice(path, cached);
   if (!navigator.onLine) {
-    if (cached) return cached.data;
+    if (cached) return fromDevice(path, cached);
     throw new OfflineError("You're offline, and this wasn't saved on this device yet. Open it once while online to have it offline.");
   }
   const fresh = request("GET", path).then(async (data) => {
     if (!isDirty(path)) await putCached(owner, path, data);
     return data;
   });
-  if (!cached) return fresh;
+  if (!cached) return fromServer(path, await fresh);
   fresh.catch(() => {});
   // A slow connection shouldn't hold the page up: after a few seconds show the
   // copy on this device; the fresh one still lands in it for next time.
-  return Promise.race([
-    fresh.catch((err) => { if (isNetworkError(err)) return cached.data; throw err; }),
-    wait(8000).then(() => cached.data),
+  // (Only what's handed to the page is recorded as shown: a server reply that
+  // lands after the saved copy was given doesn't make that copy fresh.)
+  const won = await Promise.race([
+    fresh.then((data) => ({ data }), (err) => { if (isNetworkError(err)) return null; throw err; }),
+    wait(8000).then(() => null),
   ]);
+  return won ? fromServer(path, won.data) : fromDevice(path, cached);
 }
 
 /** Server copy of a page, written into this device's offline copy (sync.js handlers). */

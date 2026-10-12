@@ -14,6 +14,7 @@ import { openContentPanel, closeViewer } from "./viewer.js";
 import { resultsTableHtml } from "./assignments-ui.js";
 import { extendTrail } from "./nav.js";
 import { ICON } from "./navigation.js";
+import { agoTag, liveStatus, swap } from "./live.js";
 
 const fmtDay = (v) => (v ? new Date(v).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—");
 const fmtWhen = (v) => (v ? new Date(v).toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
@@ -44,13 +45,40 @@ async function load(el, path, render, retry) {
   }
 }
 
+/** A dashboard that stays current: drawn from `path` by `render`, with a
+    freshness line where the render leaves `<span data-live-host></span>`.
+    Every `every` ms while it's open it's read again and changed in place
+    (live.js); opening the page again keeps what's there and reads again
+    only if it has aged. */
+function liveLoad(el, path, render, { every = 0 } = {}) {
+  if (el.liveFor === path && el.querySelector("[data-live-host] .live")) { el.live.refreshIfStale(); return Promise.resolve(); }
+  const refresh = async () => { swap(el, render(await apiGet(path))); };
+  const first = async () => {
+    el.innerHTML = skeleton(3, { avatar: false });
+    let d;
+    try {
+      d = await apiGet(path);
+    } catch (err) {
+      el.innerHTML = errorState(navigator.onLine ? friendlyError(err) : "This page needs a connection.", first);
+      return;
+    }
+    swap(el, render(d), { replace: true });
+    el.liveFor = path;
+    el.live = liveStatus(el.querySelector("[data-live-host]"), { refresh, every });
+    el.live.ok();
+  };
+  return first();
+}
+
 /* ------------------------------------------------------------------ Platform overview (Super Admin)
    Is the platform healthy, in use, and is anything waiting on someone?
    Everything here comes from existing API replies: /platform/overview
-   first (the page draws as soon as it arrives), then — filling in their
-   own spaces as they come — the data-quality score history, the audit log
-   (activity per day, recent changes), sign-in recency, and Kobo's counted
-   submissions. Nothing is estimated: a figure that can't be read says so. */
+   first (the page draws as soon as it arrives), then — filling in as they
+   come — the data-quality score history, the audit log (activity per day,
+   recent changes), sign-in recency, and Kobo's counted submissions.
+   Nothing is estimated: a figure that can't be read says so. The page
+   reads everything again every five minutes while it's open (live.js),
+   and changes only what's different. */
 const icon = (name) =>
   `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${ICON[name] ?? ICON.dashboard}</svg>`;
 const num = (n) => (n == null || Number.isNaN(Number(n)) ? "—" : Number(n).toLocaleString());
@@ -169,13 +197,13 @@ function attentionPanel(checks) {
       ${failing.length ? `<span class="pov-count warn">${failing.length}</span>` : ""}</div>
     ${failing.length ? `<p class="pov-note pov-lead">Health checks that aren't met yet:</p>` : ""}
     ${failing.length ? `<ul class="pov-alerts">${failing.map((x) => `
-      <li class="pov-alert"><span class="pov-alert-icon" aria-hidden="true">${icon("alert")}</span>
+      <li class="pov-alert" data-key="${esc(x.label)}"><span class="pov-alert-icon" aria-hidden="true">${icon("alert")}</span>
         <div class="pov-alert-text"><b>${esc(x.label)}</b><span>${esc(x.detail)}</span></div>
         ${x.link ? `<a class="btn btn-outline pov-alert-go" href="${esc(x.link)}">Open<span class="sr-only">: ${esc(x.label)}</span></a>` : ""}
       </li>`).join("")}</ul>`
       : `<div class="pov-allgood">${icon("check")}<div><b>Nothing needs attention.</b><span>All ${checks.length} checks pass.</span></div></div>`}
     ${passing.length && failing.length ? `<details class="pov-passing"><summary>${icon("check")} ${plural(passing.length, "check")} passing</summary>
-      <ul>${passing.map((x) => `<li><b>${esc(x.label)}</b><span>${esc(x.detail)}</span></li>`).join("")}</ul></details>` : ""}`;
+      <ul>${passing.map((x) => `<li data-key="${esc(x.label)}"><b>${esc(x.label)}</b><span>${esc(x.detail)}</span></li>`).join("")}</ul></details>` : ""}`;
 }
 
 function recentList(entries, describe, securityIds) {
@@ -186,7 +214,7 @@ function recentList(entries, describe, securityIds) {
     const said = describe ? describe(e) : { what: e.action, detail: "" };
     const who = e.actorName || (e.actorKind === "system" ? "System" : "Someone");
     const target = e.targetName && e.targetId !== e.actorId ? ` — ${e.targetName}` : "";
-    return `<li class="pov-feed-item${securityIds.has(e.id) ? " security" : ""}">
+    return `<li class="pov-feed-item${securityIds.has(e.id) ? " security" : ""}" data-key="${esc(String(e.id))}">
       <span class="pov-feed-dot" aria-hidden="true"></span>
       <div class="pov-feed-text"><span><b>${esc(who)}</b> ${esc(said.what)}${esc(target)}</span>
         ${said.detail ? `<span class="pov-feed-detail">${esc(said.detail)}</span>` : ""}</div>
@@ -195,25 +223,69 @@ function recentList(entries, describe, securityIds) {
   }).join("")}</ol>${key}`;
 }
 
-export function renderPlatformOverview(el, { describe } = {}) {
-  const draw = async () => {
-    const gen = (el.povGen = (el.povGen || 0) + 1);
-    const current = () => el.povGen === gen;
-    el.innerHTML = skeleton(3, { avatar: false });
-    let d;
-    try {
-      d = await apiGet("/platform/overview");
-    } catch (err) {
-      if (current()) el.innerHTML = errorState(navigator.onLine ? friendlyError(err) : "This page needs a connection.", draw);
-      return;
-    }
-    if (!current()) return;
-    const a = d.accounts, k = d.integrations.kobo, n = d.integrations.notifications;
-    const failing = d.checks.filter((x) => !x.ok).length;
-    const passing = d.checks.length - failing;
-    const updated = new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-    const roles = d.accounts.byRole;
-    el.innerHTML = `
+/** The whole page from what has arrived so far. `x` holds the four later
+    replies — each `undefined` while it's on its way and `null` if it
+    couldn't be read — so the page can be drawn at any moment, and drawn
+    again (in place: live.js swap) as each one lands or changes. */
+function overviewHtml(d, x, describe) {
+  const a = d.accounts, k = d.integrations.kobo, n = d.integrations.notifications;
+  const failing = d.checks.filter((c) => !c.ok).length;
+  const passing = d.checks.length - failing;
+  const roles = d.accounts.byRole;
+  const retryLink = `<button type="button" class="intel-link" data-pov-refresh>Try again</button>`;
+  const securityIds = new Set((d.recentSecurity || []).map((e) => e.id));
+
+  // Data quality: the score's history, once it's in.
+  const hist = (x.dq?.history || []).filter((h) => h.score != null);
+  const dqTrend = hist.length >= 2 ? delta(hist.at(-1).score - hist.at(-2).score, { unit: " pts" }) : "";
+  const dqSub = d.dataQuality.score == null ? "Not scanned yet"
+    : `${dqTrend ? "vs the last scan · " : ""}${d.dataQuality.high ? `<b class="pov-warn-text">${plural(d.dataQuality.high, "high-severity issue")} open</b>` : plural(d.dataQuality.open, "open issue")}`;
+
+  // Learners: who signed in this week, once it's in.
+  const L = x.act?.learners;
+  const learnersSub = `${L?.enrolled != null ? `${num(L.signedIn7d)} signed in this week · ` : ""}${d.learners.lockedNow ? `<b class="pov-warn-text">${num(d.learners.lockedNow)} locked out right now</b>` : "None locked out"}`;
+
+  // Kobo: counted against received.
+  let kobo = { value: "—", sub: "KoboToolbox isn't connected", viz: "", warn: false };
+  if (k.connected && x.kobo === undefined) kobo = { value: pending("Field data"), sub: "", viz: "", warn: false };
+  else if (k.connected && x.kobo === null) kobo = { value: "—", sub: "Couldn't be read just now.", viz: "", warn: false };
+  else if (k.connected) {
+    const live = (x.kobo.forms || []).filter((f) => f.active !== false);
+    const got = live.reduce((t, f) => t + (f.pipeline?.received ?? 0), 0);
+    const counted = live.reduce((t, f) => t + (f.pipeline?.counted ?? 0), 0);
+    const review = live.reduce((t, f) => t + (f.pipeline?.needsReview ?? 0), 0);
+    kobo = {
+      value: `${num(counted)}<span class="pov-kpi-unit">of ${num(got)}</span>`, warn: review > 0,
+      sub: !got ? "No submissions yet" : review ? `<b class="pov-warn-text">${plural(review, "submission")} ${review === 1 ? "needs" : "need"} review</b>` : "Nothing waiting for review",
+      viz: got ? meter(counted, got, `${counted} of ${got} Kobo submissions counted on the dashboards`) : "",
+    };
+  }
+
+  // Activity and the latest changes, from the audit log.
+  let activity = pending("Activity"), recent = pending("Recent activity");
+  if (x.audit === null) {
+    activity = `<p class="pov-note">The activity history couldn't be read just now. ${retryLink}</p>`;
+    recent = recentList(d.recentSecurity || [], describe, securityIds);
+  } else if (x.audit) {
+    const entries = (x.audit.entries || []).slice().sort((p, q) => String(q.at).localeCompare(String(p.at)));
+    const series = perDay(entries, 14);
+    const thisWeek = series.slice(7).reduce((t, s) => t + s.n, 0);
+    const lastWeek = series.slice(0, 7).reduce((t, s) => t + s.n, 0);
+    // 200 entries may not reach back 14 days on a busy platform: then the oldest days are incomplete.
+    const partial = x.audit.nextBefore && entries.length && Date.now() - new Date(entries.at(-1).at).getTime() < 14 * DAY;
+    activity = thisWeek + lastWeek === 0
+      ? `<div class="empty-state"><b>No recent data</b><div>Nothing has been recorded in the audit log in the last 14 days.</div></div>`
+      : `<div class="pov-activity-sum"><span class="pov-big">${num(thisWeek)}</span>
+          <span>${thisWeek === 1 ? "change" : "changes"} recorded in the last 7 days ${partial ? "" : delta(thisWeek - lastWeek, { what: "on the week before" })}</span></div>
+        ${activityChart(series)}
+        <ul class="pov-legend"><li><i class="pov-key-now" aria-hidden="true"></i>Last 7 days</li><li><i class="pov-key-before" aria-hidden="true"></i>The week before</li></ul>
+        <p class="pov-note">Accounts, access, exports, Kobo and other changes, from the audit log${partial ? " (only the latest 200 — earlier days are incomplete)" : ""}.</p>`;
+    recent = recentList(entries.slice(0, 7), describe, securityIds);
+  }
+  const recency = x.act === undefined ? pending("Sign-ins")
+    : x.act === null ? `<p class="pov-note">Sign-ins couldn't be read just now. ${retryLink}</p>` : recencyBlock(x.act);
+
+  return `
     <div class="pov">
       <header class="pov-head">
         <div>
@@ -226,8 +298,8 @@ export function renderPlatformOverview(el, { describe } = {}) {
           </p>
         </div>
         <div class="pov-head-side">
-          <span class="pov-meta">${d.platform ? `API ${esc(String(d.platform.release).slice(0, 7))} · ${esc(d.platform.environment)} · ` : ""}Updated ${esc(updated)}</span>
-          <button type="button" class="btn btn-outline pov-refresh" data-pov-refresh>${icon("sync")}<span>Refresh</span></button>
+          ${d.platform ? `<span class="pov-meta">API ${esc(String(d.platform.release).slice(0, 7))} · ${esc(d.platform.environment)}</span>` : ""}
+          <span data-live-host></span>
         </div>
       </header>
 
@@ -237,22 +309,20 @@ export function renderPlatformOverview(el, { describe } = {}) {
         ${kpi({ name: "activity", label: "Active this week", value: num(a.signedIn7d), href: "#account-activity",
           sub: `${pct(a.signedIn7d, a.active)}% of active staff${a.neverSignedIn ? ` · ${num(a.neverSignedIn)} never signed in` : ""}`,
           viz: meter(a.signedIn7d, a.active, `${a.signedIn7d} of ${a.active} active staff signed in this week`) })}
-        ${kpi({ id: "pov-k-learners", name: "cap", label: "Learners enrolled", value: num(d.learners.enrolled), href: "admin.html#learners", warn: d.learners.lockedNow > 0,
-          sub: d.learners.lockedNow ? `<b class="pov-warn-text">${num(d.learners.lockedNow)} locked out right now</b>` : "None locked out" })}
+        ${kpi({ name: "cap", label: "Learners enrolled", value: num(d.learners.enrolled), href: "admin.html#learners", warn: d.learners.lockedNow > 0,
+          sub: learnersSub, viz: L?.enrolled ? meter(L.signedIn7d, L.enrolled, `${L.signedIn7d} of ${L.enrolled} enrolled learners signed in this week`) : "" })}
         ${kpi({ name: "school", label: "Schools", value: num(d.organisation.schools), href: "#schools", sub: `In ${plural(d.organisation.counties, "county", "counties")}` })}
-        ${kpi({ id: "pov-k-dq", name: "data-quality", label: "Data quality", value: d.dataQuality.score == null ? "—" : num(d.dataQuality.score), unit: d.dataQuality.score == null ? "" : "%", href: "#data-quality",
-          warn: d.dataQuality.high > 0,
-          sub: d.dataQuality.high ? `<b class="pov-warn-text">${plural(d.dataQuality.high, "high-severity issue")} open</b>` : `${plural(d.dataQuality.open, "open issue")}` })}
-        ${kpi({ id: "pov-k-kobo", name: "kobo", label: "Field data counted", value: k.connected ? pending("Field data") : "—", href: "#kobo",
-          sub: k.connected ? "" : "KoboToolbox isn't connected" })}
+        ${kpi({ name: "data-quality", label: "Data quality", value: d.dataQuality.score == null ? "—" : num(d.dataQuality.score), unit: d.dataQuality.score == null ? "" : "%",
+          href: "#data-quality", warn: d.dataQuality.high > 0, trend: dqTrend, sub: dqSub, viz: scoreSpark(hist) })}
+        ${kpi({ name: "kobo", label: "Field data counted", value: kobo.value, href: "#kobo", warn: kobo.warn, sub: kobo.sub, viz: kobo.viz })}
       </section>
 
       <div class="pov-grid">
         <section class="pov-panel pov-activity" aria-labelledby="pov-activity-title">
           <div class="pov-panel-head"><h3 id="pov-activity-title">Platform activity</h3><a href="#audit">Audit log</a></div>
-          <div data-slot="activity">${pending("Activity")}</div>
+          <div>${activity}</div>
           <h4 class="pov-subhead">Who's signing in</h4>
-          <div data-slot="recency">${pending("Sign-ins")}</div>
+          <div>${recency}</div>
         </section>
         <section class="pov-panel pov-attention" aria-labelledby="pov-attention-title">${attentionPanel(d.checks)}</section>
       </div>
@@ -261,17 +331,17 @@ export function renderPlatformOverview(el, { describe } = {}) {
         <section class="pov-panel" aria-labelledby="pov-recent-title">
           <div class="pov-panel-head"><h3 id="pov-recent-title">Recent activity</h3>
             <span class="pov-head-links"><a href="#audit?kind=security">Security events</a><a href="#audit">All</a></span></div>
-          <div data-slot="recent">${pending("Recent activity")}</div>
+          <div>${recent}</div>
         </section>
         <section class="pov-panel pov-quiet" aria-labelledby="pov-systems-title">
           <div class="pov-panel-head"><h3 id="pov-systems-title">Integrations</h3><a href="#kobo">KoboToolbox</a></div>
           <dl class="pov-facts">
             <div><dt>${icon("kobo")}KoboToolbox</dt><dd>${k.connected
-              ? `Connected to ${esc(String(k.server || "").replace(/^https?:\/\//, ""))} · ${plural(k.surveys, "survey")} · synced ${esc(since(k.lastSync))}`
+              ? `Connected to ${esc(String(k.server || "").replace(/^https?:\/\//, ""))} · ${plural(k.surveys, "survey")} · synced ${agoTag(k.lastSync, since(k.lastSync))}`
               : "Not connected"}${k.failing.length ? `<br><b class="pov-warn-text">${plural(k.failing.length, "survey")} failing to sync</b>` : ""}</dd></div>
             <div><dt>${icon("plug")}Live push from Kobo</dt><dd>${k.pushConfigured ? "Set up" : "Not set up"}</dd></div>
-            <div><dt>${icon("bell")}Hourly notifications</dt><dd>${n ? `Ran ${esc(since(n.lastRunAt))} · ${plural(n.created, "notification")} created${n.error ? ` · <b class="pov-warn-text">failed</b>` : ""}` : "Never run"}</dd></div>
-            <div><dt>${icon("sync")}Field devices</dt><dd>${plural(d.devices.reporting, "device")} reporting${d.devices.needAttention ? ` · <b class="pov-warn-text">${num(d.devices.needAttention)} need attention</b>` : " · all fine"}</dd></div>
+            <div><dt>${icon("bell")}Hourly notifications</dt><dd>${n ? `Ran ${agoTag(n.lastRunAt, since(n.lastRunAt))} · ${plural(n.created, "notification")} created${n.error ? ` · <b class="pov-warn-text">failed</b>` : ""}` : "Never run"}</dd></div>
+            <div><dt>${icon("sync")}Field devices</dt><dd>${d.devices.reporting ? `${plural(d.devices.reporting, "device")} reporting${d.devices.needAttention ? ` · <b class="pov-warn-text">${num(d.devices.needAttention)} need attention</b>` : " · all fine"}` : "No device has reported yet"}</dd></div>
             <div><dt>${icon("shield")}Access exceptions</dt><dd>${plural(d.access.grants, "extra permission")} granted · ${plural(d.access.scopedStaff, "person", "people")} with a narrowed scope · <a href="#permissions">Permissions</a></dd></div>
           </dl>
         </section>
@@ -290,79 +360,73 @@ export function renderPlatformOverview(el, { describe } = {}) {
           <ul class="pov-plain">${d.access.fieldOfficersWithoutSchools.map((p) => `<li><b>${esc(p.name)}</b> · profile county: ${esc(p.county || "none")}</li>`).join("")}</ul>` : ""}
       </section>
     </div>`;
+}
 
-    const slot = (name) => el.querySelector(`[data-slot="${name}"]`);
-    const fill = (name, html) => { const s = current() && slot(name); if (s) s.innerHTML = html; };
-    const part = (card, name) => (current() && el.querySelector(`#${card} [data-part="${name}"]`)) || null;
-    const retryLink = `<button type="button" class="intel-link" data-pov-refresh>Try again</button>`;
+/** The page's shape while the first read is on its way. */
+const overviewSkeleton = () => `
+  <div class="pov" aria-hidden="true">
+    <div class="pov-kpis">${`<div class="pov-kpi"><span class="skeleton-block pov-skel-line" style="width:55%"></span>
+      <span class="skeleton-block pov-skel"></span><span class="skeleton-block pov-skel-line" style="width:80%"></span></div>`.repeat(6)}</div>
+    <div class="pov-grid"><div class="pov-panel">${skeleton(4, { avatar: false })}</div><div class="pov-panel">${skeleton(4, { avatar: false })}</div></div>
+  </div><span class="sr-only" role="status">Loading the platform overview</span>`;
 
-    // The rest fills in as it arrives; one slow or failed reply doesn't hold up the others.
-    apiGet("/data-quality/summary").then((s) => {
-      const hist = (s.history || []).filter((h) => h.score != null);
-      const viz = part("pov-k-dq", "viz");
-      if (viz) viz.innerHTML = scoreSpark(hist);
-      const trend = part("pov-k-dq", "trend");
-      if (trend && hist.length >= 2) {
-        trend.innerHTML = delta(hist.at(-1).score - hist.at(-2).score, { unit: " pts" });
-        part("pov-k-dq", "sub")?.insertAdjacentHTML("afterbegin", "vs the last scan · ");
-      }
-    }).catch(() => {});
+const OVERVIEW_EVERY_MS = 5 * 60_000; // as often as the menu's badges and the notifications
 
-    apiGet("/audit?limit=200").then((res) => {
-      const entries = (res.entries || []).slice().sort((x, y) => String(y.at).localeCompare(String(x.at)));
-      const series = perDay(entries, 14);
-      const thisWeek = series.slice(7).reduce((t, s) => t + s.n, 0);
-      const lastWeek = series.slice(0, 7).reduce((t, s) => t + s.n, 0);
-      // 200 entries may not reach back 14 days on a busy platform: then the oldest days are incomplete.
-      const partial = res.nextBefore && entries.length && Date.now() - new Date(entries.at(-1).at).getTime() < 14 * DAY;
-      fill("activity", `
-        <div class="pov-activity-sum"><span class="pov-big">${num(thisWeek)}</span>
-          <span>${thisWeek === 1 ? "change" : "changes"} recorded in the last 7 days ${partial ? "" : delta(thisWeek - lastWeek, { what: "on the week before" })}</span></div>
-        ${activityChart(series)}
-        <ul class="pov-legend"><li><i class="pov-key-now" aria-hidden="true"></i>Last 7 days</li><li><i class="pov-key-before" aria-hidden="true"></i>The week before</li></ul>
-        <p class="pov-note">Accounts, access, exports, Kobo and other changes, from the audit log${partial ? " (only the latest 200 — earlier days are incomplete)" : ""}.</p>`);
-      const securityIds = new Set((d.recentSecurity || []).map((e) => e.id));
-      fill("recent", recentList(entries.slice(0, 7), describe, securityIds));
-    }).catch(() => {
-      fill("activity", `<p class="pov-note">The activity history couldn't be read just now. ${retryLink}</p>`);
-      fill("recent", recentList(d.recentSecurity || [], describe, new Set((d.recentSecurity || []).map((e) => e.id))));
-    });
+export function renderPlatformOverview(el, { describe } = {}) {
+  // Already on screen (coming back to this page): keep it, and read again if it has aged.
+  if (el.povLive && el.querySelector(".pov-head")) { el.povLive.refreshIfStale(); return Promise.resolve(); }
+  const gen = (el.povGen = (el.povGen || 0) + 1);
+  const state = { d: null, x: {} };
+  const paint = (opts) => (el.povGen === gen ? swap(el, overviewHtml(state.d, state.x, describe), opts) : 0);
+  // The four later reads; a failed one is `null`.
+  const extras = (d) => ({
+    dq: apiGet("/data-quality/summary").catch(() => null),
+    audit: apiGet("/audit?limit=200").catch(() => null),
+    act: apiGet("/security/activity").catch(() => null),
+    kobo: d.integrations.kobo.connected ? apiGet("/kobo/forms").catch(() => null) : Promise.resolve(null),
+  });
 
-    apiGet("/security/activity").then((act) => {
-      fill("recency", recencyBlock(act));
-      const L = act.learners || {};
-      const sub = part("pov-k-learners", "sub");
-      if (sub && L.enrolled != null) {
-        sub.insertAdjacentHTML("afterbegin", `${num(L.signedIn7d)} signed in this week · `);
-        part("pov-k-learners", "viz").innerHTML = meter(L.signedIn7d, L.enrolled, `${L.signedIn7d} of ${L.enrolled} enrolled learners signed in this week`);
-      }
-    }).catch(() => fill("recency", `<p class="pov-note">Sign-ins couldn't be read just now. ${retryLink}</p>`));
-
-    if (k.connected) {
-      apiGet("/kobo/forms").then((res) => {
-        const live = (res.forms || []).filter((f) => f.active !== false);
-        const got = live.reduce((t, f) => t + (f.pipeline?.received ?? 0), 0);
-        const counted = live.reduce((t, f) => t + (f.pipeline?.counted ?? 0), 0);
-        const review = live.reduce((t, f) => t + (f.pipeline?.needsReview ?? 0), 0);
-        const value = part("pov-k-kobo", "value");
-        if (!value) return;
-        value.innerHTML = `${num(counted)}<span class="pov-kpi-unit">of ${num(got)}</span>`;
-        part("pov-k-kobo", "sub").innerHTML = review
-          ? `<b class="pov-warn-text">${plural(review, "submission")} ${review === 1 ? "needs" : "need"} review</b>` : "Nothing waiting for review";
-        part("pov-k-kobo", "viz").innerHTML = meter(counted, got, `${counted} of ${got} Kobo submissions counted on the dashboards`);
-        if (review) el.querySelector("#pov-k-kobo").classList.add("warn");
-      }).catch(() => {
-        const value = part("pov-k-kobo", "value");
-        if (value) { value.textContent = "—"; part("pov-k-kobo", "sub").textContent = "Couldn't be read just now."; }
-      });
-    }
+  /* Refresh (the button, or by itself): everything is read first, with the
+     page left as it is; then it's redrawn once, in place, and what changed
+     is marked. A part that can't be read this time keeps what it showed. */
+  const refresh = async () => {
+    const d = await apiGet("/platform/overview");
+    const reads = extras(d);
+    const x = {};
+    for (const key of Object.keys(reads)) x[key] = (await reads[key]) ?? state.x[key] ?? null;
+    Object.assign(state, { d, x });
+    paint();
   };
-  // One handler for the element, whichever draw is current.
-  el.povDraw = draw;
+
+  const first = async () => {
+    el.innerHTML = overviewSkeleton();
+    delete el.dataset.liveDrawn;
+    let d;
+    try {
+      d = await apiGet("/platform/overview");
+    } catch (err) {
+      if (el.povGen === gen) el.innerHTML = errorState(navigator.onLine ? friendlyError(err) : "This page needs a connection.", first);
+      return;
+    }
+    if (el.povGen !== gen) return;
+    Object.assign(state, { d, x: { kobo: d.integrations.kobo.connected ? undefined : null } });
+    paint({ highlight: false });
+    el.povLive = liveStatus(el.querySelector("[data-live-host]"), { refresh, every: OVERVIEW_EVERY_MS });
+    el.povLive.ok();
+    // The rest fills in as it arrives; one slow or failed reply doesn't hold up the others.
+    const reads = extras(d);
+    await Promise.all(Object.keys(reads).map(async (key) => {
+      const value = await reads[key];
+      if (state.d !== d) return; // refreshed meanwhile
+      state.x[key] = value;
+      paint({ highlight: false });
+    }));
+  };
+
   if (!el.povBound) {
     el.povBound = true;
     el.addEventListener("click", (e) => {
-      if (e.target.closest("[data-pov-refresh]")) el.povDraw();
+      if (e.target.closest("[data-pov-refresh]")) el.povLive?.refresh({ asked: true });
       else if (e.target.closest("[data-pov-jump]")) {
         const h = el.querySelector("#pov-attention-title");
         h?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -370,12 +434,12 @@ export function renderPlatformOverview(el, { describe } = {}) {
       }
     });
   }
-  return draw();
+  return first();
 }
 
 /* ------------------------------------------------------------------ Administration overview */
 export function renderAdminOverview(el) {
-  return load(el, "/admin/overview", (d) => {
+  return liveLoad(el, "/admin/overview", (d) => {
     const o = d.organisation, p = d.people, ops = d.operations;
     const attention = [
       p.pending && [`${p.pending} account(s) waiting for approval`, "#users?status=pending"],
@@ -388,7 +452,7 @@ export function renderAdminOverview(el) {
     ].filter(Boolean);
     return `
       <div class="panel-head" style="margin-bottom:.6rem"><h2 style="margin:0">Administration overview</h2>
-        <span class="chart-meta" style="margin:0">${esc(d.scope.label)}${d.currentTerm ? ` · ${esc(String(d.currentTerm).replace(/^(\d{4})-T(\d)$/, "$1 Term $2"))}` : ""}</span></div>
+        <span class="live-head"><span class="chart-meta" style="margin:0">${esc(d.scope.label)}${d.currentTerm ? ` · ${esc(String(d.currentTerm).replace(/^(\d{4})-T(\d)$/, "$1 Term $2"))}` : ""}</span><span data-live-host></span></span></div>
       <div class="stat-row">
         ${tile("Schools", o.schools, `${o.counties} counties · ${o.classes} classes this year`, "#schools")}
         ${tile("Teachers", p.teachers, `${p.heads} school heads`, "#teachers")}
@@ -399,11 +463,11 @@ export function renderAdminOverview(el) {
       </div>
       <div class="panel">
         <div class="panel-head"><h2>Needs attention</h2></div>
-        ${attention.length ? attention.map(([t, link]) => `<div class="task-row"><div style="flex:1"><b>${esc(t)}</b></div>
-          <div class="roster-actions"><a class="intel-link" href="${esc(link)}">Open</a></div></div>`).join("")
+        ${attention.length ? `<div>${attention.map(([t, link]) => `<div class="task-row" data-key="${esc(link)}"><div style="flex:1"><b>${esc(t)}</b></div>
+          <div class="roster-actions"><a class="intel-link" href="${esc(link)}">Open</a></div></div>`).join("")}</div>`
           : `<div class="empty-state">Nothing needs attention right now.</div>`}
       </div>`;
-  }, () => renderAdminOverview(el));
+  }, { every: OVERVIEW_EVERY_MS });
 }
 
 /* ------------------------------------------------------------------ Permissions (Super Admin) */

@@ -18,6 +18,11 @@ import {
 import { openContentPanel } from "./viewer.js";
 import { mountFormList } from "./forms.js";
 import * as sync from "./sync.js";
+import { freshness } from "./api.js";
+import { liveStatus, redraw } from "./live.js";
+
+// Coming back to the page reads it again if what's shown is older than this.
+const RETURN_MS = 5 * 60_000;
 
 /* Offline: at every sync, the work waiting to be marked is downloaded
    (the list and each piece), so it can be marked without a connection. */
@@ -266,16 +271,28 @@ async function main() {
     renderKpis();
   }
 
-  async function loadSubmissions() {
+  /* When the work to mark was read — or that it's the copy saved on this
+     device — with a Refresh. A refresh keeps the page as it is and marks
+     what changed; coming back to the page after a while reads again. */
+  const homeLive = liveStatus($("#homeLive"), { refresh: () => loadSubmissions({ quiet: true }), onReturn: RETURN_MS });
+  async function loadSubmissions({ quiet = false } = {}) {
+    if (!quiet) homeLive.start();
     try {
       submissionCache = await getSubmissions({ limit: 500 });
       submissionsFailed = false;
     } catch (err) {
+      console.error("could not load submissions:", err);
+      if (quiet) throw err; // what's shown stays; the freshness line says it couldn't refresh
       submissionsFailed = true;
       submissionCache = [];
-      console.error("could not load submissions:", err);
+    }
+    const from = freshness("/submissions") ?? undefined;
+    if (quiet) {
+      redraw(["#gradingQueue", "#taskList", "#resultList", "#homeResultList", "#statRow"].map((sel) => $(sel)), renderAllAssignmentViews);
+      return from;
     }
     renderAllAssignmentViews();
+    if (submissionsFailed) homeLive.fail(); else homeLive.ok(from);
   }
   /** After anything changes: the lists, the queue and the results. */
   function refreshWork() {

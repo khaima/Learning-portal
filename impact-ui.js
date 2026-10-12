@@ -245,7 +245,7 @@ export function executiveHtml(d) {
         [num(S.opens), "openings"],
         [S.top[0] ? esc(S.top[0].title) : "—", "most used"],
       ]),
-      `<a class="intel-area" href="#me-dashboard" data-exec-mel>
+      `<a class="intel-area" href="#me-dashboard" data-live-keep data-exec-mel>
         <b>M&amp;E</b><span>Indicator targets and actuals</span><em>Open M&amp;E →</em>
       </a>`,
     ].join(""),
@@ -288,7 +288,7 @@ export function reachHtml(d) {
       ${card("Teachers by employment type", "BOM or TSC, as each teacher declared", bars(R.teachersByType))}
       ${card("Learner growth", "learners on roll each term · +N joined that term",
         bars(R.growth.map((t) => ({ label: t.label, value: t.learners, j: t.joined })), { note: (r) => `+${r.j}` }))}
-      <div class="intel-wide" data-mel-theme="reach"></div>
+      <div class="intel-wide" data-live-keep data-mel-theme="reach"></div>
     </div>`;
 }
 
@@ -325,7 +325,7 @@ export function learningHtml(d) {
         L.schools.map((s) => [schoolLink(s.school), esc(s.county), num(s.learners),
           s.assigned ? pct(s.completionRate) : "—",
           s.marked ? `${pct(s.averagePercent)}${s.band ? ` · ${esc(s.band)}` : ""}` : "—", mins(s.libraryMinutes)])), { wide: true })}
-      <div class="intel-wide" data-mel-theme="learning"></div>
+      <div class="intel-wide" data-live-keep data-mel-theme="learning"></div>
     </div>`;
 }
 
@@ -343,7 +343,7 @@ export function teachersHtml(d) {
       ${tile("Teacher support visits", num(T.activity.supportVisits.visits), plural(T.activity.supportVisits.schools, "school"))}
     </div>
     <div class="chart-grid">
-      <div class="intel-wide" data-mel-theme="teacher_development"></div>
+      <div class="intel-wide" data-live-keep data-mel-theme="teacher_development"></div>
       ${card("Training by county", "share of teachers who attended a session",
         bars(Tr.byCounty.map((c) => ({ label: c.label, value: c.share ?? 0, t: c.trained, n: c.teachers })), { suffix: "%", max: 100, note: (r) => `${r.t}/${r.n}` }))}
       ${card("Sessions by kind", plural(Tr.sessions, "session"), bars(Tr.byKind.map((k) => ({ label: KIND_LABEL[k.label] || k.label, value: k.value }))))}
@@ -408,7 +408,7 @@ export function fieldOpsHtml(d) {
         bars(K.issuesByRule.map((r) => ({ label: KOBO_RULE_LABEL[r.rule] || r.rule, value: r.errors, w: r.warnings })), { note: (r) => r.w ? `+${r.w} warning${r.w === 1 ? "" : "s"}` : "", none: "No submissions are failing a check." })
         + `<p class="field-hint">Submissions failing each check — review them on Kobo Surveys → Data pipeline, or in the <a href="#data-quality">Data Quality Center</a>.</p>`)}
       ${card("Forms by audience", "", bars(Fm.byAudience.map((a) => ({ ...a, label: audience(a.label) }))))}
-      <div class="intel-wide" data-mel-theme="field_operations"></div>
+      <div class="intel-wide" data-live-keep data-mel-theme="field_operations"></div>
     </div>`;
 }
 
@@ -436,7 +436,7 @@ export function resourcesHtml(d) {
       ${card("Resources by shelf", "", bars(S.items.byDestination))}
       ${card("Resources by subject", "", bars(S.items.bySubject))}
       ${card("Resources by type", "", bars(S.items.byType))}
-      <div class="intel-wide" data-mel-theme="digital_resources"></div>
+      <div class="intel-wide" data-live-keep data-mel-theme="digital_resources"></div>
     </div>
     <p class="field-hint">Time is how long a resource stayed open in the portal — an honest measure of attention, not proof of reading.</p>`;
 }

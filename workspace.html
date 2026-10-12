@@ -176,7 +176,7 @@
         <div class="panel" id="surveyResultsPanel">
           <div class="panel-head">
             <h2>Survey results</h2>
-            <button type="button" class="btn btn-outline" id="srRefresh" hidden>Refresh</button>
+            <span id="srLive" hidden></span>
           </div>
           <div class="field" id="srPickerField" hidden style="margin-bottom:.6rem">
             <label for="srPicker">Survey / questionnaire</label>
@@ -206,7 +206,7 @@
       </section>
 
       <section class="dash-page" data-page="overview" hidden>
-        <div class="panel-head" style="margin-bottom:.6rem"><h2 style="margin:0">Executive overview</h2><span class="chart-meta" data-imp-meta style="margin:0"></span></div>
+        <div class="panel-head" style="margin-bottom:.6rem"><h2 style="margin:0">Executive overview</h2><span class="live-head"><span class="chart-meta" data-imp-meta style="margin:0"></span><span data-live-impact></span></span></div>
         <div class="stat-row exec-row" id="statRow"></div>
         <div class="stat-row" id="statRow2"></div>
         <div class="intel-areas" id="intelAreas"></div>
@@ -218,7 +218,7 @@
 
       <section class="dash-page" data-page="reach" hidden>
         <div class="panel">
-          <div class="panel-head"><h2>Reach</h2><span class="chart-meta" data-imp-meta style="margin:0"></span></div>
+          <div class="panel-head"><h2>Reach</h2><span class="live-head"><span class="chart-meta" data-imp-meta style="margin:0"></span><span data-live-impact></span></span></div>
           <p class="hint" style="margin-top:0">Where the programme is: schools, learners and teachers by county, grades, and gender where it has been recorded (optional, shown only as totals). Learner growth term by term.</p>
           <div id="imp-reach"><div class="empty-state">Loading…</div></div>
         </div>
@@ -226,7 +226,7 @@
 
       <section class="dash-page" data-page="learning" hidden>
         <div class="panel">
-          <div class="panel-head"><h2>Learning</h2><span class="chart-meta" data-imp-meta style="margin:0"></span></div>
+          <div class="panel-head"><h2>Learning</h2><span class="live-head"><span class="chart-meta" data-imp-meta style="margin:0"></span><span data-live-impact></span></span></div>
           <p class="hint" style="margin-top:0">Work set and handed in (<b>completion</b>), the marks on marked work (<b>results</b>), by grade and subject, and how learners progress from term to term. Completion and results are separate measures — handing work in isn't the same as doing well.</p>
           <div id="imp-learning"><div class="empty-state">Loading…</div></div>
         </div>
@@ -234,7 +234,7 @@
 
       <section class="dash-page" data-page="teacher-development" hidden>
         <div class="panel">
-          <div class="panel-head"><h2>Teacher development</h2><span class="chart-meta" data-imp-meta style="margin:0"></span></div>
+          <div class="panel-head"><h2>Teacher development</h2><span class="live-head"><span class="chart-meta" data-imp-meta style="margin:0"></span><span data-live-impact></span></span></div>
           <p class="hint" style="margin-top:0">Training (from the register below), ICT integration and other M&amp;E indicators shown here, teachers' own use of digital resources, and what teachers do in the portal.</p>
           <div id="imp-teacher-development"><div class="empty-state">Loading…</div></div>
         </div>
@@ -242,7 +242,7 @@
 
       <section class="dash-page" data-page="field-operations" hidden>
         <div class="panel">
-          <div class="panel-head"><h2>Field operations</h2><span class="chart-meta" data-imp-meta style="margin:0"></span></div>
+          <div class="panel-head"><h2>Field operations</h2><span class="live-head"><span class="chart-meta" data-imp-meta style="margin:0"></span><span data-live-impact></span></span></div>
           <p class="hint" style="margin-top:0">Field visits by type, month, county and term; schools not yet visited; completed visit forms and form response rates; Kobo submissions and their checks. The date filter applies to visit and submission dates.</p>
           <div id="imp-field-operations"><div class="empty-state">Loading…</div></div>
         </div>
@@ -250,7 +250,7 @@
 
       <section class="dash-page" data-page="digital-resources" hidden>
         <div class="panel">
-          <div class="panel-head"><h2>Digital resources</h2><span class="chart-meta" data-imp-meta style="margin:0"></span></div>
+          <div class="panel-head"><h2>Digital resources</h2><span class="live-head"><span class="chart-meta" data-imp-meta style="margin:0"></span><span data-live-impact></span></span></div>
           <p class="hint" style="margin-top:0">What's on the shelves, how often it's opened and for how long, who uses it, and the most-used content.</p>
           <div id="imp-digital-resources"><div class="empty-state">Loading…</div></div>
         </div>
@@ -258,7 +258,7 @@
 
       <section class="dash-page" data-page="me-dashboard" hidden>
         <div class="panel">
-          <div class="panel-head"><h2>M&amp;E — target against actual</h2><span class="chart-meta" id="melDashMeta" style="margin:0"></span></div>
+          <div class="panel-head"><h2>M&amp;E — target against actual</h2><span class="live-head"><span class="chart-meta" id="melDashMeta" style="margin:0"></span><span id="melDashLive"></span></span></div>
           <p class="hint" style="margin-top:0">Every indicator in the active programmes, for the period below and the county / school picked at the top. The line on each bar is the target. Pick an indicator for its trend over time and how counties and schools compare. Record and verify actuals on <a href="#mel-results">Indicator results</a>.</p>
           <div class="filter-bar-row" style="margin-bottom:.8rem">
             <div class="field"><label for="melDashPeriod">Period</label><select id="melDashPeriod"></select></div>
@@ -273,7 +273,7 @@
         <div class="panel">
           <div class="panel-head">
             <h2>Data Quality Center</h2>
-            <span class="dq-head-actions"><span class="chart-meta" id="dqMeta" style="margin:0"></span>
+            <span class="dq-head-actions"><span class="chart-meta" id="dqMeta" style="margin:0"></span><span id="dqLive"></span>
               <button type="button" class="btn btn-outline q-small" id="dqScanBtn">Scan now</button></span>
           </div>
           <p class="hint" style="margin-top:0">Problems in the portal's records — duplicates, missing or contradictory schools, counties and grades, Kobo submissions that failed checks, orphaned links, bad dates, and work or classes left with nobody active behind them. The county, school and date filters at the top apply (date = when an issue was first found). Nothing is ever deleted, and every change is recorded in the issue's history and the audit log.</p>

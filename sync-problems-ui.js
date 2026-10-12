@@ -13,6 +13,7 @@
    time the page opens (console.js).
    ============================================================ */
 import { apiGet } from "./api.js";
+import { liveStatus, swap } from "./live.js";
 import { esc, skeleton, errorState, friendlyError } from "./util.js";
 import { fmtSyncTime } from "./sync-ui.js";
 
@@ -104,7 +105,7 @@ export async function renderSyncProblems(el, { hours = 48, perms = new Set() } =
         <span class="dq-head-actions">
           <label class="hint-inline" for="spbHours">Unsent for</label>
           <select id="spbHours">${HOURS.map(([h, l]) => `<option value="${h}"${h === hours ? " selected" : ""}>${l} or more</option>`).join("")}</select>
-          <button type="button" class="btn btn-outline q-small" id="spbRefresh">Refresh</button></span></div>
+          <span id="spbLive"></span></span></div>
       <p class="hint" style="margin-top:0">Work done offline waits on the device until it syncs. These devices have had something unsent for longer than this — waiting for a connection, refused by the server, or in conflict with a change made elsewhere. As of each device's last report: one that has gone quiet stays here.</p>
       <div id="spbStuck">${skeleton(3, { avatar: false })}</div>
     </div>
@@ -120,31 +121,43 @@ export async function renderSyncProblems(el, { hours = 48, perms = new Set() } =
       <p class="hint" style="margin-top:0">What the server refused or found in conflict when a device synced, and what the person then chose. Nothing here can be changed or deleted.</p>
       <div id="spbEvents">${skeleton(3, { avatar: false })}</div>
     </div>`;
-  const load = async () => {
-    const h = Number(el.querySelector("#spbHours").value) || 48;
-    let d;
-    try {
-      d = await apiGet(`/sync/problems?hours=${h}`);
-    } catch (err) {
-      el.querySelector("#spbStuck").innerHTML = errorState(friendlyError(err), load);
-      el.querySelector("#spbEvents").innerHTML = "";
-      return;
-    }
-    el.querySelector("#spbStuck").innerHTML = stuckHtml(d);
-    el.querySelector("#spbEvents").innerHTML = eventsHtml(d);
-  };
+  /* Read when the page opens, on Refresh, when the threshold changes, and by
+     itself every five minutes while the page is open (live.js). After the
+     first read, what's on screen changes in place; `mark` is off while the
+     person is changing what they're looking at rather than watching it. */
   let devices = null;
-  const drawDevices = () => { const box = el.querySelector("#spbDevices"); if (box) box.innerHTML = devicesHtml(devices, el.querySelector("#spbRole").value); };
-  const loadDevices = async () => {
-    if (!perms.has("sync.monitor")) return;
-    try { devices = await apiGet("/sync/devices"); } catch (err) {
-      el.querySelector("#spbDevices").innerHTML = errorState(friendlyError(err), loadDevices);
-      return;
-    }
-    drawDevices();
+  let drawn = false;
+  let mark = true;
+  const drawDevices = ({ replace = false } = {}) => {
+    const box = el.querySelector("#spbDevices");
+    if (box && devices) swap(box, devicesHtml(devices, el.querySelector("#spbRole").value), { replace, highlight: mark });
   };
-  el.querySelector("#spbRole")?.addEventListener("change", drawDevices);
-  el.querySelector("#spbHours").addEventListener("change", load);
-  el.querySelector("#spbRefresh").addEventListener("click", () => { load(); loadDevices(); });
-  await Promise.all([load(), loadDevices()]);
+  const live = liveStatus(el.querySelector("#spbLive"), {
+    every: 5 * 60_000,
+    refresh: async () => {
+      const h = Number(el.querySelector("#spbHours").value) || 48;
+      const again = () => live.refresh({ asked: true });
+      const [d, dev] = await Promise.allSettled([apiGet(`/sync/problems?hours=${h}`), perms.has("sync.monitor") ? apiGet("/sync/devices") : null]);
+      if (dev.status === "fulfilled") { devices = dev.value; drawDevices(); }
+      else if (!devices) el.querySelector("#spbDevices").innerHTML = errorState(friendlyError(dev.reason), again);
+      if (d.status === "rejected") {
+        // Nothing shown yet: say so here. Otherwise what's shown stays, and the freshness line says it couldn't refresh.
+        if (!drawn) {
+          el.querySelector("#spbStuck").innerHTML = errorState(friendlyError(d.reason), again);
+          el.querySelector("#spbEvents").innerHTML = "";
+        }
+        throw d.reason;
+      }
+      swap(el.querySelector("#spbStuck"), stuckHtml(d.value), { highlight: mark });
+      swap(el.querySelector("#spbEvents"), eventsHtml(d.value), { highlight: mark });
+      drawn = true;
+    },
+  });
+  el.querySelector("#spbRole")?.addEventListener("change", () => drawDevices({ replace: true }));
+  el.querySelector("#spbHours").addEventListener("change", async () => {
+    mark = false;
+    await live.refresh({ asked: true });
+    mark = true;
+  });
+  await live.refresh();
 }

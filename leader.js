@@ -14,6 +14,11 @@ import { resultsTableHtml, openAssignmentDetail, assignmentStatusPill, fmtWhen }
 import { openContentPanel, closeViewer } from "./viewer.js";
 import { statusPill, openArchiveDialog, openHistoryPanel } from "./learners-ui.js";
 import { mountFormList } from "./forms.js";
+import { freshness } from "./api.js";
+import { liveStatus, redraw } from "./live.js";
+
+// Coming back to the page reads it again if what's shown is older than this.
+const RETURN_MS = 5 * 60_000;
 // The school profile and teachers pages (admin-ui.js) load when first opened.
 const adminUi = () => import("./admin-ui.js");
 const pageFailed = (el) => (err) => { el.innerHTML = errorState(friendlyError(err, "Couldn't load this page — check your connection.")); };
@@ -196,16 +201,30 @@ async function main() {
   $("#reportingStatus").innerHTML = skeleton(1, { avatar: false });
   $("#attentionList").innerHTML = skeleton(2, { avatar: false });
 
-  async function loadOverview() {
-    OVERVIEW_TARGETS.forEach((sel) => { const el = $(sel); if (el) el.innerHTML = skeleton(3); });
+  /* When the school's figures were read — or that they're the copy saved on
+     this device — with a Refresh. A refresh keeps the page as it is and
+     marks what changed; coming back to the page after a while reads again. */
+  const homeLive = liveStatus($("#homeLive"), { refresh: () => loadOverview({ quiet: true }), onReturn: RETURN_MS });
+  async function loadOverview({ quiet = false } = {}) {
+    if (!quiet) {
+      homeLive.start();
+      OVERVIEW_TARGETS.forEach((sel) => { const el = $(sel); if (el) el.innerHTML = skeleton(3); });
+    }
     try {
       overview = await getSchoolOverview();
       overviewFailed = false;
     } catch (err) {
-      overviewFailed = true;
       console.error("could not load school overview:", err);
+      if (quiet) throw err; // what's shown stays; the freshness line says it couldn't refresh
+      overviewFailed = true;
+    }
+    const from = freshness("/school/overview") ?? undefined;
+    if (quiet) {
+      redraw([...OVERVIEW_TARGETS, "#reportingStatus", "#attentionList"].map((sel) => $(sel)), renderAllOverview);
+      return from;
     }
     renderAllOverview();
+    if (overviewFailed) homeLive.fail(); else homeLive.ok(from);
   }
   loadOverview();
 

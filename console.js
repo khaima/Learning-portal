@@ -8,6 +8,7 @@ import { mountNavigation } from "./nav.js";
 import "./supabase-auth.js";
 import { menuFor, WORKSPACES } from "./navigation.js";
 import { apiGet } from "./api.js";
+import { liveStatus, swap } from "./live.js";
 import { $, $$, esc, initials, toast, formatDuration, skeleton, errorState, friendlyError, confirmDialog } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import {
@@ -284,72 +285,104 @@ async function main() {
      /mel/dashboard. */
   let lastImpact = null;
   let lastMelDash = null;
+  /* These dashboards read again by themselves while one of them is open —
+     as often as the menu's badges do — and whenever someone comes back to
+     one that has aged (live.js). A refresh changes only what's different;
+     a first load or new filters draw the page afresh ("quiet" tells which). */
+  const DASH_EVERY_MS = 5 * 60_000;
+  let impactLive = null;
+  let impactRun = 0;
   const IMP_PAGES = { reach: "reachHtml", learning: "learningHtml", "teacher-development": "teachersHtml", "field-operations": "fieldOpsHtml", "digital-resources": "resourcesHtml" };
-  async function renderImpact() {
+  async function renderImpact({ quiet = false } = {}) {
     // The programme dashboards, or (Education Team) only their learning side.
     const pagesHere = Object.keys(IMP_PAGES).filter((p) => canOpen(p));
     if (!pagesHere.length && !canOpen("overview")) return;
-    $("#statRow").innerHTML = skeleton(4, { avatar: false });
-    $("#statRow2").innerHTML = "";
-    for (const p of pagesHere) $(`#imp-${p}`).innerHTML = skeleton(4);
+    // One freshness line, shown on each of these pages.
+    impactLive ||= liveStatus($$("[data-live-impact]"), { refresh: () => renderImpact({ quiet: true }), every: DASH_EVERY_MS });
+    const run = ++impactRun;
+    if (!quiet) {
+      impactLive.start();
+      $("#statRow").innerHTML = skeleton(4, { avatar: false });
+      $("#statRow2").innerHTML = "";
+      for (const p of pagesHere) $(`#imp-${p}`).innerHTML = skeleton(4);
+    }
     let d, imp;
     try {
       [d, imp] = await Promise.all([getImpact({ county: gf.county, school: gf.school, from: gf.from, to: gf.to }), impactUi()]);
     } catch (err) {
+      if (quiet) throw err; // what's on screen stays; the freshness line says it couldn't refresh
+      if (run !== impactRun) return;
       console.error("could not load the impact dashboards:", err);
+      impactLive.fail(err);
       const msg = errorState(friendlyError(err, "Couldn't load this data."), renderImpact);
       $("#statRow").innerHTML = msg;
       $("#intelAreas").innerHTML = "";
       for (const p of pagesHere) $(`#imp-${p}`).innerHTML = msg;
       return;
     }
+    if (run !== impactRun) return; // the filters changed while this was being read
     lastImpact = d;
+    const put = (el, html) => swap(el, html, { replace: !quiet });
     if (canOpen("overview") && !d.learningOnly) {
       const o = imp.executiveHtml(d);
-      $("#statRow").innerHTML = o.headline;
-      $("#statRow2").innerHTML = o.secondary + (lastDq?.score ? dqTile(lastDq) : "");
-      $("#intelAreas").innerHTML = o.areas;
+      put($("#statRow"), o.headline);
+      put($("#statRow2"), o.secondary + (lastDq?.score ? dqTile(lastDq) : ""));
+      put($("#intelAreas"), o.areas);
     }
-    for (const p of pagesHere) $(`#imp-${p}`).innerHTML = imp[IMP_PAGES[p]](d);
+    for (const p of pagesHere) put($(`#imp-${p}`), imp[IMP_PAGES[p]](d));
     const scope = d.scope.school || (d.scope.county ? `${d.scope.county} County` : "every school");
-    for (const m of $$("[data-imp-meta]")) m.textContent = `${scope} · updated ${new Date(d.generatedAt).toLocaleTimeString()}`;
+    for (const m of $$("[data-imp-meta]")) m.textContent = scope;
     if (d.currentTerm) $("#topSub").textContent = `${ws.question} · ${d.currentTerm}`;
-    fillMelSlots();
+    fillMelSlots({ quiet });
     renderAttention();
+    if (!quiet) impactLive.ok();
   }
 
   /* M&E: the dashboard page, the indicators shown on each dashboard, and
      the executive overview's M&E card — all from one /mel/dashboard read
      for the period picked on the M&E page (default: the current term). */
   let melDashPick = null; // the indicator open on the M&E page
-  async function renderMelDash() {
+  let melLive = null;
+  let melRun = 0;
+  async function renderMelDash({ quiet = false } = {}) {
     if (!has("me.view")) return;
-    $("#melDash").innerHTML = skeleton(4, { avatar: false });
-    let imp;
+    melLive ||= liveStatus($("#melDashLive"), { refresh: () => renderMelDash({ quiet: true }), every: DASH_EVERY_MS });
+    const run = ++melRun;
+    if (!quiet) {
+      melLive.start();
+      $("#melDash").innerHTML = skeleton(4, { avatar: false });
+    }
+    let dash, imp;
     try {
-      [lastMelDash, imp] = await Promise.all([melDashboard({ period: $("#melDashPeriod").value, county: gf.county, school: gf.school }), impactUi()]);
+      [dash, imp] = await Promise.all([melDashboard({ period: $("#melDashPeriod").value, county: gf.county, school: gf.school }), impactUi()]);
     } catch (err) {
+      if (quiet) throw err;
+      if (run !== melRun) return;
+      melLive.fail(err);
       $("#melDash").innerHTML = errorState(friendlyError(err), renderMelDash);
       return;
     }
-    const d = lastMelDash;
+    if (run !== melRun) return;
+    const d = lastMelDash = dash;
     if (!$("#melDashPeriod").options.length) {
       $("#melDashPeriod").innerHTML = d.periods.map((p) => `<option value="${esc(p.id)}">${esc(p.label)}</option>`).join("");
     }
     if (d.period) $("#melDashPeriod").value = d.period.id;
     $("#melDashMeta").textContent = d.period ? `${d.period.label} · ${d.scope.label}` : "";
-    $("#melDash").innerHTML = imp.melDashHtml(d, { canManage: has("me.framework.manage") });
-    fillMelSlots();
-    if (melDashPick && d.indicators.some((i) => i.id === melDashPick)) openMelDashIndicator(melDashPick, { scroll: false });
+    swap($("#melDash"), imp.melDashHtml(d, { canManage: has("me.framework.manage") }), { replace: !quiet });
+    fillMelSlots({ quiet });
+    // An indicator that's open stays as it is through a refresh.
+    if (melDashPick && d.indicators.some((i) => i.id === melDashPick)) { if (!quiet) openMelDashIndicator(melDashPick, { scroll: false }); }
     else { melDashPick = null; $("#melDashDetailPanel").hidden = true; }
+    if (!quiet) melLive.ok();
   }
-  async function fillMelSlots() {
+  async function fillMelSlots({ quiet = false } = {}) {
     if (!lastMelDash) return;
     const imp = await impactUi().catch(() => null);
     if (!imp) return;
-    for (const slot of $$("[data-mel-theme]")) slot.innerHTML = imp.themeIndicatorsHtml(lastMelDash, slot.dataset.melTheme, { canManage: has("me.framework.manage") });
+    for (const slot of $$("[data-mel-theme]")) swap(slot, imp.themeIndicatorsHtml(lastMelDash, slot.dataset.melTheme, { canManage: has("me.framework.manage") }), { replace: !quiet });
     const area = $("[data-exec-mel]");
-    if (area) area.innerHTML = imp.execMelArea(lastMelDash);
+    if (area) swap(area, imp.execMelArea(lastMelDash), { replace: !quiet });
   }
   async function openMelDashIndicator(id, { scroll = true } = {}) {
     const ind = lastMelDash?.indicators.find((i) => i.id === id);
@@ -431,9 +464,17 @@ async function main() {
 
   /** The score, counts and checks — scanning first when the last scan is
       stale (or on "Scan now"). Also feeds the Overview tile and "Needs attention". */
-  async function renderDq({ scan = false } = {}) {
+  /* No automatic refresh on this page: reading it can start a scan (when
+     the last one is over 15 minutes old). The freshness line says when it
+     was read, and Refresh reads it again. */
+  let dqLive = null;
+  async function renderDq({ scan = false, quiet = false } = {}) {
     if (!has("data_quality.view")) return;
-    $("#dqTop").innerHTML = skeleton(3, { avatar: false });
+    dqLive ||= liveStatus($("#dqLive"), { refresh: () => renderDq({ quiet: true }) });
+    if (!quiet) {
+      dqLive.start();
+      $("#dqTop").innerHTML = skeleton(3, { avatar: false });
+    }
     let s, dq;
     try {
       const loading = dqUi(); // the page's code downloads while the data is fetched
@@ -445,20 +486,23 @@ async function main() {
       }
       dq = await loading;
     } catch (err) {
+      if (quiet) throw err;
+      dqLive.fail(err);
       $("#dqTop").innerHTML = errorState(friendlyError(err), () => renderDq());
       return;
     }
     lastDq = s;
     $("#dqMeta").textContent = s.lastScan ? `last scan ${new Date(s.lastScan.at).toLocaleString()}` : "not scanned yet";
-    $("#dqTop").innerHTML = dq.dqTopHtml(s);
-    $("#dqTypes").innerHTML = dq.dqTypesHtml(s);
+    swap($("#dqTop"), dq.dqTopHtml(s), { replace: !quiet });
+    swap($("#dqTypes"), dq.dqTypesHtml(s), { replace: !quiet });
     if (lastImpact && s.score && !$("#statRow2 .dq-tile-link")) $("#statRow2").insertAdjacentHTML("beforeend", dqTile(s));
     renderAttention();
-    renderDqList();
+    renderDqList({ quiet });
+    if (!quiet) dqLive.ok();
   }
 
-  async function renderDqList() {
-    $("#dqList").innerHTML = skeleton(4);
+  async function renderDqList({ quiet = false } = {}) {
+    if (!quiet) $("#dqList").innerHTML = skeleton(4);
     let res, dq;
     try {
       [res, dq] = await Promise.all([dqIssues({ ...dqFilters(true), limit: DQ_PAGE, offset: dqOffset }), dqUi()]);
@@ -468,7 +512,7 @@ async function main() {
     }
     const canManage = has("data_quality.manage");
     $("#dqCount").textContent = `${res.total} issue${res.total === 1 ? "" : "s"}`;
-    $("#dqList").innerHTML = dq.dqListHtml(res.issues, dqSelected, canManage);
+    swap($("#dqList"), dq.dqListHtml(res.issues, dqSelected, canManage), { replace: !quiet });
     $("#dqPager").innerHTML = res.total > DQ_PAGE ? `
       <span>${dqOffset + 1}–${Math.min(res.total, dqOffset + DQ_PAGE)} of ${res.total}</span>
       <span><button type="button" class="btn btn-outline q-small" data-dq-page="-1" ${dqOffset ? "" : "disabled"}>← Previous</button>
@@ -2042,24 +2086,25 @@ async function main() {
      Picks one attached Kobo survey and draws a chart per question from the
      portal's own validated records (Postgres, not a live Kobo call): only
      submissions that pass the checks, or that someone accepted. Narrowed by
-     the county / school filters. Re-runs on survey change, Refresh, focus,
-     and every couple of minutes while the tab is visible. */
+     the county / school filters. Re-runs on survey change and Refresh, and
+     by itself every couple of minutes while this page is open and in view
+     (live.js) — the charts change in place. */
   const srPicker = $("#srPicker");
   const srBody = $("#srBody");
   const srMeta = $("#srMeta");
-  const srRefresh = $("#srRefresh");
+  const srLiveHost = $("#srLive");
   let srCurrent = "";
   let srBusy = false;
-  let srTimer = null;
+  // Every 2 minutes: the counts come from the portal's own records, kept current by the hourly Kobo sync.
+  const srLive = liveStatus(srLiveHost, { refresh: () => loadSurveyResults({ quiet: true }), every: 2 * 60_000 });
 
   function srIdle(message) {
     srPicker.innerHTML = "";
     $("#srPickerField").hidden = true;
-    srRefresh.hidden = true;
+    srLiveHost.hidden = true;
     srMeta.textContent = "";
     srBody.innerHTML = `<div class="empty-state">${message}</div>`;
     srCurrent = "";
-    stopSrPolling();
   }
 
   async function refreshSurveyPicker() {
@@ -2074,7 +2119,7 @@ async function main() {
       return;
     }
     $("#srPickerField").hidden = forms.length === 1;
-    srRefresh.hidden = false;
+    srLiveHost.hidden = false;
     const prev = srCurrent;
     srPicker.innerHTML = forms
       .map((f) => `<option value="${esc(f.id)}">${esc(f.title)}${f.active ? "" : " (archived)"} — ${f.pipeline.counted} counted</option>`)
@@ -2083,33 +2128,40 @@ async function main() {
     srPicker.value = srCurrent;
     srBody.dataset.for = "";
     loadSurveyResults();
-    startSrPolling();
   }
 
-  async function loadSurveyResults({ fresh = false } = {}) {
+  async function loadSurveyResults({ quiet = false } = {}) {
     if (!srCurrent || srBusy) return;
     srBusy = true;
     const wanted = srCurrent;
     const firstView = srBody.dataset.for !== wanted;
     if (firstView) srBody.innerHTML = skeleton(3);
+    if (!quiet) srLive.start();
     try {
       const res = await koboResults(wanted, { county: gf.county, school: gf.school });
-      if (res.id !== srCurrent) return; // survey switched mid-flight
+      if (res.id !== srCurrent) return; // survey switched mid-flight: read below
       srBody.dataset.for = srCurrent;
-      renderSurveyResults(res);
+      renderSurveyResults(res, { fresh: firstView });
+      if (!quiet) srLive.ok();
     } catch (err) {
       console.error("could not load survey results:", err);
-      if (firstView) srBody.innerHTML = errorState(friendlyError(err, "Couldn't load results."), loadSurveyResults);
+      if (firstView) srBody.innerHTML = errorState(friendlyError(err, "Couldn't load results."), () => loadSurveyResults());
+      if (quiet) throw err;
+      srLive.fail(err);
     } finally {
       srBusy = false;
+      // Another survey was picked while this one was being read: read that one now.
+      if (srCurrent && srCurrent !== wanted) loadSurveyResults();
     }
   }
 
-  function renderSurveyResults(res) {
+  /** `fresh`: a survey being shown for the first time is drawn; after that its charts change in place. */
+  function renderSurveyResults(res, { fresh = false } = {}) {
     const bits = [];
+    const show = (html) => swap(srBody, html, { replace: fresh });
     if (res.needsSync) {
       srMeta.textContent = "";
-      srBody.innerHTML = `<div class="empty-state">“${esc(res.title)}” hasn't been checked yet — press “Sync now” on Kobo Surveys.</div>`;
+      show(`<div class="empty-state">“${esc(res.title)}” hasn't been checked yet — press “Sync now” on Kobo Surveys.</div>`);
       return;
     }
     bits.push(`${res.submissionCount} of ${res.received} submission${res.received === 1 ? "" : "s"} counted${res.filtered ? " (filtered)" : ""}`);
@@ -2120,18 +2172,17 @@ async function main() {
     ].filter(Boolean);
     if (left.length) bits.push(`left out: ${left.join(", ")}`);
     if (res.lastSubmission) bits.push(`last ${new Date(res.lastSubmission).toLocaleString()}`);
-    bits.push(`updated ${new Date().toLocaleTimeString()}`);
     srMeta.textContent = bits.join(" · ");
 
     if (!res.submissionCount) {
-      srBody.innerHTML = `<div class="empty-state">No submissions yet for “${esc(res.title)}”.</div>`;
+      show(`<div class="empty-state">No submissions yet for “${esc(res.title)}”.</div>`);
       return;
     }
     if (!res.questions.length) {
-      srBody.innerHTML = `<div class="empty-state">This survey has no chartable questions.</div>`;
+      show(`<div class="empty-state">This survey has no chartable questions.</div>`);
       return;
     }
-    srBody.innerHTML = `<div class="chart-grid">${res.questions.map(chartCard).join("")}</div>`;
+    show(`<div class="chart-grid">${res.questions.map(chartCard).join("")}</div>`);
   }
 
   const sumOf = (data) => (data || []).reduce((s, d) => s + (d.value || 0), 0);
@@ -2207,31 +2258,10 @@ async function main() {
       `<span><i style="background:var(--chart-${(i % 6) + 1})"></i>${esc(d.label)} · ${d.value}</span>`).join("")}</div>`;
   }
 
-  function startSrPolling() {
-    stopSrPolling();
-    // Every 2 minutes: each refresh can mean a full download from Kobo.
-    srTimer = setInterval(() => {
-      if (document.visibilityState === "visible" && srCurrent) loadSurveyResults();
-    }, 120000);
-  }
-  function stopSrPolling() {
-    if (srTimer) { clearInterval(srTimer); srTimer = null; }
-  }
-
   srPicker.addEventListener("change", () => {
     srCurrent = srPicker.value;
     srBody.dataset.for = "";
     loadSurveyResults();
-  });
-  srRefresh.addEventListener("click", async () => {
-    srRefresh.disabled = true;
-    srRefresh.textContent = "Refreshing…";
-    await loadSurveyResults({ fresh: true });
-    srRefresh.disabled = false;
-    srRefresh.textContent = "Refresh";
-  });
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && srCurrent) loadSurveyResults();
   });
 
   /* ------------------------------------------------------------ school list
@@ -3270,6 +3300,10 @@ async function main() {
     }
     const first = !openedOnce.has(page);
     openedOnce.add(page);
+    // A dashboard opened again reads again if what it shows has aged.
+    if (page === "overview" || page in IMP_PAGES) impactLive?.refreshIfStale();
+    else if (page === "me-dashboard") melLive?.refreshIfStale();
+    else if (page === "survey-results") srLive.refreshIfStale();
     switch (page) {
       case "platform-overview":
         // Recent activity in the Audit log's own words.

@@ -12,6 +12,11 @@ import { mountFormList, renderVisitForms, unfilledVisitForms, collectVisitRespon
 import { addResponse } from "./store.js";
 import { openContentPanel, closeViewer } from "./viewer.js";
 import * as sync from "./sync.js";
+import { freshness } from "./api.js";
+import { liveStatus, redraw } from "./live.js";
+
+// Coming back to the page reads it again if what's shown is older than this.
+const RETURN_MS = 5 * 60_000;
 const { waiting } = sync;
 // The school profile and teachers pages (admin-ui.js) load when first opened.
 const adminUi = () => import("./admin-ui.js");
@@ -163,9 +168,16 @@ async function main() {
       : `<p class="hint" style="margin:0">Nothing waiting: every visit's forms are in. <a href="#visits">My visits</a></p>`;
   }
 
-  async function refreshReports() {
-    $("#reportList").innerHTML = skeleton(3, { avatar: false });
-    $("#homeTasks").innerHTML = skeleton(1, { avatar: false });
+  /* When the visits were read — or that they're the copy saved on this
+     device — with a Refresh. A refresh keeps the page as it is and marks
+     what changed; coming back to the page after a while reads again. */
+  const homeLive = liveStatus($("#homeLive"), { refresh: () => refreshReports({ quiet: true }), onReturn: RETURN_MS });
+  async function refreshReports({ quiet = false } = {}) {
+    if (!quiet) {
+      homeLive.start();
+      $("#reportList").innerHTML = skeleton(3, { avatar: false });
+      $("#homeTasks").innerHTML = skeleton(1, { avatar: false });
+    }
     try {
       const reports = await getFieldReports();
       reportsCache = reports.map((r) => ({
@@ -175,11 +187,18 @@ async function main() {
       reportsFailed = false;
     } catch (err) {
       console.error("could not load field reports:", err);
+      if (quiet) throw err; // what's shown stays; the freshness line says it couldn't refresh
       reportsFailed = true;
       reportsCache = [];
     }
-    renderReports();
-    renderKpis();
+    const from = freshness("/field-reports") ?? undefined;
+    const draw = () => { renderReports(); renderKpis(); };
+    if (quiet) {
+      redraw([$("#reportList"), $("#homeTasks"), $("#statRow")], draw);
+      return from;
+    }
+    draw();
+    if (reportsFailed) homeLive.fail(); else homeLive.ok(from);
   }
 
   renderKpis();

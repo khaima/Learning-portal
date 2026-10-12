@@ -626,3 +626,52 @@ changes, and no new metrics.
   - its status colours use darker shades than the shared pills (P2-11
     still applies elsewhere).
 
+### 12 October — dashboards that stay current
+
+Presentation and behaviour only, in the pages (`live.js`): no backend,
+database, route or integration changes, and no new data.
+
+- **A freshness line with a Refresh control** on every dashboard. What it
+  says is what's true:
+
+  | It says | When |
+  |---|---|
+  | **Live · updated just now** | The dashboard refreshes by itself, and is doing so: the page is open and in view, the device is online, and the last read worked |
+  | **Updated 5 minutes ago** | Read once; Refresh reads it again |
+  | **Refreshing…** | Being read |
+  | **Couldn't refresh · updated 6 minutes ago** | The last read failed; what's shown is older. It tries again when the connection or the tab comes back |
+  | **Offline · updated…** | No connection |
+  | **Saved copy · 2 hours ago** | The copy kept on this device, not the latest from the server |
+
+- **Which dashboards refresh by themselves:**
+
+  | Dashboard | Refreshes |
+  |---|---|
+  | Survey results | Every 2 minutes (as before, but now only while its page is open) |
+  | Platform overview, Administration overview, Executive overview and the five programme dashboards, M&E dashboard, Sync monitor | Every 5 minutes while open, the cadence the menu badges and notifications already use; and on coming back to one that has aged |
+  | Data Quality Center | Only on Refresh — reading it can start a scan |
+  | Head, teacher, learner and field officer home pages | Not on a timer (school connections). They read again on coming back after 5 minutes, and at once when a connection returns to a saved copy |
+
+- **Updates in place.** A refresh changes only what's different: no
+  skeletons, no jump, open sections and scroll position kept. A figure that
+  changed, or a new row in a list, is marked for about two seconds (a soft
+  highlight; a static underline with reduced motion). Changing filters draws
+  the page afresh, with nothing marked.
+- **Honest about saved copies.** `api.js` now records whether a read came
+  from the server or from the copy kept on the device, and when that copy
+  was saved. Role pages used to show a saved copy with nothing to say so.
+- **States:**
+  - a page-shaped skeleton on the Platform overview's first load;
+  - "No recent data" where the activity chart would be empty;
+  - a failed refresh never replaces good data with an error.
+- **Fixed on the way:** picking another survey while one was loading left
+  the page on the old one until the next refresh.
+- **Cost:** about 2.5 KB more JavaScript (gzipped) on the role pages; one
+  extra read per open dashboard every 5 minutes.
+- **Checked:**
+  - all eight roles;
+  - forced failures, offline and reconnect;
+  - a clock moved forward to exercise the schedule: it refreshed the open
+    dashboard, and not one that wasn't on screen;
+  - axe-core: no violations in any state, light or dark.
+

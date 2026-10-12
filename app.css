@@ -1406,8 +1406,6 @@ a.stat-tile.stat-link:hover{ border-color:color-mix(in srgb, var(--brand) 35%, v
 .pov-status-more{ color:var(--ink-soft); }
 .pov-head-side{ display:flex; align-items:center; flex-wrap:wrap; gap:.6rem 1rem; }
 .pov-meta{ font-size:.78rem; color:var(--ink-soft); }
-.pov-refresh{ display:inline-flex; align-items:center; gap:.4rem; padding:.42rem .85rem; font-size:.82rem; }
-.pov-refresh .icon{ width:1rem; height:1rem; }
 
 .pov-kpis{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.9rem; }
 @media (max-width:620px){ .pov-kpis{ grid-template-columns:repeat(2,minmax(0,1fr)); gap:.6rem; } }
@@ -1527,3 +1525,39 @@ a.pov-kpi:focus-visible{ outline:3px solid var(--focus); outline-offset:2px; }
 .pov-zero{ color:var(--ink-soft); }
 .pov-plain{ list-style:none; margin:.5rem 0 0; padding:0; font-size:.82rem; }
 .pov-plain li{ padding:.35rem 0; border-bottom:1px solid var(--line); }
+
+/* ---------------------------------------------------------------- Live dashboards (live.js)
+   How fresh a dashboard is, a Refresh control, and a brief mark on a
+   figure that has just changed. The dot pulses only where the dashboard
+   really refreshes by itself. */
+.live{ display:inline-flex; align-items:center; flex-wrap:wrap; gap:.3rem .5rem; max-width:100%; padding:.26rem .32rem .26rem .7rem; border:1px solid var(--line); border-radius:999px;
+  background:var(--paper-raised); font-size:.78rem; line-height:1.3; color:var(--ink-soft); vertical-align:middle; }
+.live[hidden]{ display:none; }
+.live-dot{ width:.5rem; height:.5rem; border-radius:50%; background:var(--ink-soft); opacity:.5; flex:none; }
+.live-text b{ font-weight:700; color:var(--ink); }
+.live[data-state="live"] .live-dot{ background:var(--success); opacity:1; animation:live-pulse 2.6s ease-out infinite; }
+.live[data-state="busy"] .live-dot{ background:var(--brand); opacity:1; }
+.live[data-state="error"] .live-dot{ background:var(--danger); opacity:1; }
+.live[data-state="offline"] .live-dot, .live[data-state="saved"] .live-dot{ background:var(--accent); opacity:1; }
+.live-btn{ display:inline-flex; align-items:center; gap:.3rem; padding:.2rem .62rem; border:0; border-radius:999px; background:var(--brand-soft); color:var(--brand-fg);
+  font:inherit; font-weight:600; cursor:pointer; }
+.live-btn:hover:not(:disabled){ background:var(--paper-sunk); }
+.live-btn:focus-visible{ outline:3px solid var(--focus); outline-offset:2px; }
+.live-btn:disabled{ opacity:.6; cursor:default; }
+.live-btn .icon{ width:.9rem; height:.9rem; }
+.live[data-state="busy"] .live-btn .icon{ animation:live-spin .9s linear infinite; }
+.live-head{ display:inline-flex; align-items:center; flex-wrap:wrap; justify-content:flex-end; gap:.4rem .8rem; }
+@keyframes live-pulse{ 0%{ box-shadow:0 0 0 0 rgba(62,156,110,.5); } 70%{ box-shadow:0 0 0 6px rgba(62,156,110,0); } 100%{ box-shadow:0 0 0 0 rgba(62,156,110,0); } }
+@keyframes live-spin{ to{ transform:rotate(360deg); } }
+.live-changed{ border-radius:6px; animation:live-flash 2.2s ease-out; }
+@keyframes live-flash{ 0%, 25%{ background-color:var(--accent-soft); box-shadow:0 0 0 4px var(--accent-soft); } 100%{ background-color:transparent; box-shadow:0 0 0 4px transparent; } }
+@media (prefers-reduced-motion: reduce){
+  .live-dot, .live-btn .icon{ animation:none !important; }
+  .live-changed{ animation:none; box-shadow:inset 0 -2px 0 var(--accent); }
+}
+.pov-skel-line{ display:block; height:.75rem; border-radius:6px; }
+.pov-bar{ transition:height .5s ease, y .5s ease; }
+.pov-meter span{ transition:width .5s ease; }
+@media (prefers-reduced-motion: reduce){ .pov-bar, .pov-meter span{ transition:none; } }
+.live-row{ display:flex; justify-content:flex-end; margin:-.3rem 0 .7rem; min-height:0; }
+.live-row:has(.live[hidden]){ display:none; }
