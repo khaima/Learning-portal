@@ -675,3 +675,53 @@ database, route or integration changes, and no new data.
     dashboard, and not one that wasn't on screen;
   - axe-core: no violations in any state, light or dark.
 
+### 12 October — visual upgrade of the dashboards
+
+Styles only (`base.css`, `app.css`), plus icons on the executive tiles.
+No data, link, button or behaviour changed.
+
+- **Surfaces:**
+  - cards go from 20 px to 12 px corners (10 px for tiles and chart cards)
+    with a much lighter shadow;
+  - a card inside a card has no shadow of its own.
+- **Type:**
+  - the display face (Baloo 2) stays on the brand, the page title and the
+    sign-in page;
+  - section headings and figures use the text face (Work Sans);
+  - descriptions (`.hint`) had no style at all and rendered at body size;
+    they're now smaller and softer.
+- **Colour for meaning:** each status has a fill, a tint and a darker text
+  colour that passes 4.5:1. **This closes P2-11:** axe-core finds no
+  contrast failures on the pages that had them (users, account activity,
+  data quality, schools, Kobo, reports, profile).
+  - Pills: "Active" was 2.94:1.
+  - Solid buttons: white on orange was 3.09:1; they use a deeper orange and
+    10 px corners.
+  - Error text now uses the darker red.
+- **Charts:**
+  - bars are one colour per measure (they cycled six), thinner, with
+    labels shown in full;
+  - target-met / close / not-met and the donut keep their colours;
+  - chart cards fill their row instead of leaving holes;
+  - a month with nothing is a tick on the baseline.
+- **Messages:** "Needs attention" rows are a quiet surface with the colour
+  on the edge and the title, not solid orange and blue blocks. Errors keep
+  their tint.
+- **Layout:**
+  - key figures sit six to a row inside a section, and two to a row on
+    phones (they stacked one by one);
+  - the filter bar is more compact;
+  - a lone dropdown no longer spans the page;
+  - table headers are lighter.
+- **Icons:** the executive tiles and area cards carry the same icons as the
+  menu. Two Platform overview cards that showed a generic icon now show
+  their own.
+- **Checked:**
+  - 18 dashboards before and after, at laptop and phone width, in light
+    and dark;
+  - the sign-in page, a form-heavy page, the content library and a
+    teacher's roster;
+  - no sideways scroll anywhere.
+- **Still open from the audit:** P2-12, the scrolling tables that can't be
+  reached by keyboard.
+

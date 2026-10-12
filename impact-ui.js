@@ -15,6 +15,7 @@
 
 import { esc, formatDuration } from "./util.js";
 import { fmtValue, ragPill } from "./mel-format.js";
+import { ICON } from "./navigation.js";
 
 const pct = (v) => (v == null ? "—" : `${Math.round(v)}%`);
 const num = (v) => (v == null ? "—" : Number(v).toLocaleString());
@@ -35,8 +36,9 @@ export const THEMES = {
 
 /* ------------------------------------------------------------ building blocks */
 
-function tile(label, value, sub = "", tone = "") {
-  return `<div class="stat-tile${tone ? ` intel-${tone}` : ""}"><div class="s-label">${esc(label)}</div><div class="s-num">${value}</div><div class="s-sub">${sub}</div></div>`;
+const icon = (name) => (ICON[name] ? `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${ICON[name]}</svg>` : "");
+function tile(label, value, sub = "", tone = "", iconName = "") {
+  return `<div class="stat-tile${tone ? ` intel-${tone}` : ""}"><div class="s-label">${icon(iconName)}${esc(label)}</div><div class="s-num">${value}</div><div class="s-sub">${sub}</div></div>`;
 }
 function card(title, meta, body, { wide = false } = {}) {
   return `<div class="chart-card${wide ? " intel-wide" : ""}">
@@ -198,26 +200,27 @@ export function themeIndicatorsHtml(dash, theme, { canManage = false } = {}) {
 
 export function executiveHtml(d) {
   const E = d.executive, R = d.reach, L = d.learning, T = d.teachers, F = d.fieldOps, S = d.resources;
+  const AREA_ICON = { reach: "globe", learning: "results", "teacher-development": "teacher", "field-operations": "pin", "digital-resources": "book" };
   const area = (page, title, lines) => `
     <a class="intel-area" href="#${page}">
-      <b>${esc(title)}</b>
+      <b>${icon(AREA_ICON[page])}${esc(title)}</b>
       ${lines.map(([v, l]) => `<span><strong>${v}</strong> ${esc(l)}</span>`).join("")}
       <em>Open ${esc(title.toLowerCase())} →</em>
     </a>`;
   const c = E.completion;
   return {
     headline: [
-      tile("Schools", num(E.schools), `${E.schoolsVisited.visited} visited · ${pct(E.schoolsVisited.coverage)} coverage`),
-      tile("Learners", num(E.learners), `active · ${pct(E.activeUsers.learnerShare)} used the portal ${esc(E.activeUsers.window)}`),
-      tile("Teachers", num(E.teachers), `${pct(T.training.share)} trained · ${pct(T.activity.participation.active.rate)} active`),
-      tile("Active users", num(E.activeUsers.total), `${num(E.activeUsers.learners)} learners · ${num(E.activeUsers.staff)} staff · ${esc(E.activeUsers.window)}`),
-      tile("Completion", pct(c.rate), c.assigned ? `${num(c.submitted)}/${num(c.assigned)} pieces of work handed in` : "no work set yet"),
-      tile("Library use", `${num(Math.round((E.libraryHours || 0) * 10) / 10)}<small class="s-unit"> hrs</small>`, `${plural(S.opens, "opening")} · ${plural(S.activeUsers.total, "reader")}`),
+      tile("Schools", num(E.schools), `${E.schoolsVisited.visited} visited · ${pct(E.schoolsVisited.coverage)} coverage`, "", "school"),
+      tile("Learners", num(E.learners), `active · ${pct(E.activeUsers.learnerShare)} used the portal ${esc(E.activeUsers.window)}`, "", "cap"),
+      tile("Teachers", num(E.teachers), `${pct(T.training.share)} trained · ${pct(T.activity.participation.active.rate)} active`, "", "teacher"),
+      tile("Active users", num(E.activeUsers.total), `${num(E.activeUsers.learners)} learners · ${num(E.activeUsers.staff)} staff · ${esc(E.activeUsers.window)}`, "", "activity"),
+      tile("Completion", pct(c.rate), c.assigned ? `${num(c.submitted)}/${num(c.assigned)} pieces of work handed in` : "no work set yet", "", "assignment"),
+      tile("Library use", `${num(Math.round((E.libraryHours || 0) * 10) / 10)}<small class="s-unit"> hrs</small>`, `${plural(S.opens, "opening")} · ${plural(S.activeUsers.total, "reader")}`, "", "book"),
     ].join(""),
     secondary: [
-      tile("Average mark", pct(E.averageMark), L.results.marked ? `${plural(L.results.marked, "piece")} marked${L.results.band ? ` · ${esc(L.results.band)}` : ""} — achievement` : "nothing marked yet"),
-      tile("Field visits", num(F.visits.visits), `${F.visits.officersReporting}/${F.visits.officers} officers reporting`),
-      tile("Kobo submissions", num(F.kobo.counted), `counted · ${num(F.kobo.totalSubmissions)} received`),
+      tile("Average mark", pct(E.averageMark), L.results.marked ? `${plural(L.results.marked, "piece")} marked${L.results.band ? ` · ${esc(L.results.band)}` : ""} — achievement` : "nothing marked yet", "", "results"),
+      tile("Field visits", num(F.visits.visits), `${F.visits.officersReporting}/${F.visits.officers} officers reporting`, "", "pin"),
+      tile("Kobo submissions", num(F.kobo.counted), `counted · ${num(F.kobo.totalSubmissions)} received`, "", "survey"),
     ].join(""),
     areas: [
       area("reach", "Reach", [
@@ -246,7 +249,7 @@ export function executiveHtml(d) {
         [S.top[0] ? esc(S.top[0].title) : "—", "most used"],
       ]),
       `<a class="intel-area" href="#me-dashboard" data-live-keep data-exec-mel>
-        <b>M&amp;E</b><span>Indicator targets and actuals</span><em>Open M&amp;E →</em>
+        <b>${icon("target")}M&amp;E</b><span>Indicator targets and actuals</span><em>Open M&amp;E →</em>
       </a>`,
     ].join(""),
   };
@@ -256,7 +259,7 @@ export function executiveHtml(d) {
 export function execMelArea(dash) {
   const s = dash.summary;
   const n = dash.indicators.length;
-  return `<b>M&amp;E</b>
+  return `<b>${icon("target")}M&amp;E</b>
     ${n ? `<span><strong>${s.met}</strong> of ${n} indicators met${dash.period ? ` · ${esc(dash.period.label)}` : ""}</span>
       <span><strong>${s.close}</strong> close · <strong>${s.not_met}</strong> not met</span>
       <span><strong>${s.no_data}</strong> without data</span>` : `<span>No indicators set up yet</span>`}

@@ -20,11 +20,22 @@
    existing class before inventing a new one.
 
    ---- type scale ----
-   Baloo 2 (display/headings) + Work Sans (everything else, incl. all
-   UI chrome). Sizes step down with how much a reader scans vs. reads:
+   Baloo 2 for the brand, the page title and the sign-in page; Work Sans
+   for everything else — on the dashboards that includes section headings
+   and figures (app.css), so a page reads as one voice and looks the same
+   while the fonts are still arriving. Sizes step down with how much a
+   reader scans vs. reads:
      1.5rem   .app-top h1 / .login-inner h2   page title
      1.15rem  .hero-progress h2               hero/callout heading
-     1.05rem  .panel-head h2                  section heading
+     1.02rem  .panel-head h2                  section heading
+
+   ---- colour ----
+   Colour is for meaning, not decoration: success, warning (the accent),
+   danger, and neutral ink. Each status has a fill (--success, --accent,
+   --danger), a tint (-soft) and a darker text colour (--success-fg,
+   --accent-fg, --danger-fg) that reads at 4.5:1 on white and on its tint.
+   Solid buttons use --accent-strong for the same reason. Bars in a chart
+   are one colour unless the colour itself says something.
      .92rem   .form-card h3                   card sub-heading
      .86-.9rem  body copy inside cards/rows
      .74-.8rem  meta/caption text (timestamps, counts, hints)
@@ -51,9 +62,9 @@
   --paper:#FAF6EF; --paper-raised:#FFFFFF; --paper-sunk:#F1EAE0;
   --line:#E4DACB;
   --brand:#1E4C8A; --brand-soft:#E7EEF7; --brand-fg:#16386A;
-  --accent-soft:#FBE7D4; --accent-fg:#B05F22;
-  --success:#3E9C6E; --success-soft:#E1F3EA;
-  --danger:#D64545; --danger-soft:#FBE4E2;
+  --accent-soft:#FBE7D4; --accent-fg:#9C4F17;
+  --success:#3E9C6E; --success-soft:#E1F3EA; --success-fg:#2B6E4D;
+  --danger:#D64545; --danger-soft:#FBE4E2; --danger-fg:#B42318;
   --focus:#1E4C8A;
   --chart-1:#1E4C8A; --chart-2:#D97A34; --chart-3:#3E9C6E;
   --chart-4:#8A5CB0; --chart-5:#C6534E; --chart-6:#2E8FA8;
@@ -61,9 +72,9 @@
      solid buttons keep one brand look regardless of theme (the same
      reason a real logo never recolors itself) — never redefined below. */
   --panel:#1E4C8A; --panel-deep:#0F2C52;
-  --accent:#D97A34; --accent-hover:#B05F22;
-  --shadow: 0 1px 2px rgba(20,33,61,.06), 0 8px 24px -12px rgba(20,33,61,.18);
-  --radius-lg:20px; --radius-md:14px; --radius-sm:9px;
+  --accent:#D97A34; --accent-strong:#B5571A; --accent-hover:#984813;
+  --shadow: 0 1px 2px rgba(20,33,61,.05), 0 4px 14px -10px rgba(20,33,61,.16);
+  --radius-lg:12px; --radius-md:10px; --radius-sm:8px;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark){
@@ -73,8 +84,8 @@
     --line:#293659;
     --brand:#8FB4E3; --brand-soft:#1C2C4E; --brand-fg:#B7D0EF;
     --accent-soft:#3A2A19; --accent-fg:#F0B27E;
-    --success:#5FC28C; --success-soft:#123527;
-    --danger:#F0797A; --danger-soft:#3B1C1E;
+    --success:#5FC28C; --success-soft:#123527; --success-fg:#5FC28C;
+    --danger:#F0797A; --danger-soft:#3B1C1E; --danger-fg:#F0797A;
     --focus:#8FB4E3;
     --chart-1:#8FB4E3; --chart-2:#F0B27E; --chart-3:#5FC28C;
     --chart-4:#BFA0DC; --chart-5:#F0797A; --chart-6:#79C6D8;
@@ -87,8 +98,8 @@
   --line:#293659;
   --brand:#8FB4E3; --brand-soft:#1C2C4E; --brand-fg:#B7D0EF;
   --accent-soft:#3A2A19; --accent-fg:#F0B27E;
-  --success:#5FC28C; --success-soft:#123527;
-  --danger:#F0797A; --danger-soft:#3B1C1E;
+  --success:#5FC28C; --success-soft:#123527; --success-fg:#5FC28C;
+  --danger:#F0797A; --danger-soft:#3B1C1E; --danger-fg:#F0797A;
   --focus:#8FB4E3;
   --chart-1:#8FB4E3; --chart-2:#F0B27E; --chart-3:#5FC28C;
   --chart-4:#BFA0DC; --chart-5:#F0797A; --chart-6:#79C6D8;
@@ -125,15 +136,15 @@ a{ color:inherit; }
   font-size:.76rem; font-weight:600; background:var(--brand-soft); color:var(--brand-fg);
 }
 .pill.warm{ background:var(--accent-soft); color:var(--accent-fg); }
-.pill.ok{ background:var(--success-soft); color:var(--success); }
-.pill.danger{ background:var(--danger-soft); color:var(--danger); }
+.pill.ok{ background:var(--success-soft); color:var(--success-fg); }
+.pill.danger{ background:var(--danger-soft); color:var(--danger-fg); }
 .icon{ width:1em; height:1em; display:inline-block; vertical-align:-.14em; }
 .btn{
-  border:0; border-radius:999px; font-weight:700; font-size:.92rem; cursor:pointer; font-family:inherit;
+  border:0; border-radius:var(--radius-md); font-weight:700; font-size:.92rem; cursor:pointer; font-family:inherit;
   padding:.72rem 1.3rem; display:inline-flex; align-items:center; justify-content:center; gap:.4rem;
 }
 .btn-block{ width:100%; }
-.btn-primary{ background:var(--accent); color:#fff; }
+.btn-primary{ background:var(--accent-strong); color:#fff; }
 .btn-primary:hover{ background:var(--accent-hover); }
 .btn-outline{ background:var(--paper-raised); color:var(--ink); border:1.5px solid var(--line); }
 .btn-ghost{ background:transparent; color:var(--brand); }
@@ -278,7 +289,7 @@ a{ color:inherit; }
   border-radius:var(--radius-sm); padding:.5rem .75rem; font-size:.86rem; font-family:inherit;
 }
 .panel-search input:focus{ border-color:var(--brand); }
-.field .field-error{ color:var(--danger); font-size:.78rem; margin-top:.3rem; }
+.field .field-error{ color:var(--danger-fg); font-size:.78rem; margin-top:.3rem; }
 .login-foot{ display:flex; justify-content:space-between; margin-top:.8rem; font-size:.8rem; }
 .login-foot button{ background:none; border:0; color:var(--ink-soft); cursor:pointer; font-size:.8rem; text-decoration:underline; text-underline-offset:2px; }
 .link-btn{
@@ -338,7 +349,7 @@ a{ color:inherit; }
 /* A staging build (pwa.js) says so on every page. */
 .env-ribbon{
   position:fixed; top:0; left:50%; transform:translateX(-50%); z-index:200; pointer-events:none;
-  background:var(--accent); color:#fff; font-size:.72rem; font-weight:600; line-height:1.6; letter-spacing:.04em;
+  background:var(--accent-strong); color:#fff; font-size:.72rem; font-weight:600; line-height:1.6; letter-spacing:.04em;
   padding:.05rem .8rem; border-radius:0 0 .5rem .5rem; text-transform:uppercase;
 }
 .env-ribbon.live{ background:var(--danger); }

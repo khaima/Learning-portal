@@ -6,7 +6,7 @@
 import { mountNavigation } from "./nav.js";
 // Staff dashboards always need Supabase Auth: fetched with the page, not after it.
 import "./supabase-auth.js";
-import { menuFor, WORKSPACES } from "./navigation.js";
+import { ICON as NAV_ICON, menuFor, WORKSPACES } from "./navigation.js";
 import { apiGet } from "./api.js";
 import { liveStatus, swap } from "./live.js";
 import { $, $$, esc, initials, toast, formatDuration, skeleton, errorState, friendlyError, confirmDialog } from "./util.js";
@@ -448,7 +448,7 @@ async function main() {
   let dqOffset = 0;
   const dqSelected = new Set();
   const DQ_PAGE = 40;
-  const dqTile = (s) => `<a class="stat-tile dq-tile-link" href="#data-quality"><div class="s-label">Data quality</div><div class="s-num">${s.score.value}</div><div class="s-sub">${esc(s.score.label)} · ${s.totals.byStatus.OPEN + s.totals.byStatus.UNDER_REVIEW} open issue${s.totals.byStatus.OPEN + s.totals.byStatus.UNDER_REVIEW === 1 ? "" : "s"}</div></a>`;
+  const dqTile = (s) => `<a class="stat-tile dq-tile-link" href="#data-quality"><div class="s-label"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${NAV_ICON.check}</svg>Data quality</div><div class="s-num">${s.score.value}</div><div class="s-sub">${esc(s.score.label)} · ${s.totals.byStatus.OPEN + s.totals.byStatus.UNDER_REVIEW} open issue${s.totals.byStatus.OPEN + s.totals.byStatus.UNDER_REVIEW === 1 ? "" : "s"}</div></a>`;
   const dqFilters = (withList = false) => ({
     county: gf.county, school: gf.school, from: gf.from, to: gf.to,
     ...(withList ? { type: $("#dq_type").value, severity: $("#dq_severity").value, status: $("#dq_status").value, q: $("#dq_q").value.trim() } : {}),

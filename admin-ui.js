@@ -312,9 +312,9 @@ function overviewHtml(d, x, describe) {
         ${kpi({ name: "cap", label: "Learners enrolled", value: num(d.learners.enrolled), href: "admin.html#learners", warn: d.learners.lockedNow > 0,
           sub: learnersSub, viz: L?.enrolled ? meter(L.signedIn7d, L.enrolled, `${L.signedIn7d} of ${L.enrolled} enrolled learners signed in this week`) : "" })}
         ${kpi({ name: "school", label: "Schools", value: num(d.organisation.schools), href: "#schools", sub: `In ${plural(d.organisation.counties, "county", "counties")}` })}
-        ${kpi({ name: "data-quality", label: "Data quality", value: d.dataQuality.score == null ? "—" : num(d.dataQuality.score), unit: d.dataQuality.score == null ? "" : "%",
+        ${kpi({ name: "check", label: "Data quality", value: d.dataQuality.score == null ? "—" : num(d.dataQuality.score), unit: d.dataQuality.score == null ? "" : "%",
           href: "#data-quality", warn: d.dataQuality.high > 0, trend: dqTrend, sub: dqSub, viz: scoreSpark(hist) })}
-        ${kpi({ name: "kobo", label: "Field data counted", value: kobo.value, href: "#kobo", warn: kobo.warn, sub: kobo.sub, viz: kobo.viz })}
+        ${kpi({ name: "survey", label: "Field data counted", value: kobo.value, href: "#kobo", warn: kobo.warn, sub: kobo.sub, viz: kobo.viz })}
       </section>
 
       <div class="pov-grid">
@@ -336,7 +336,7 @@ function overviewHtml(d, x, describe) {
         <section class="pov-panel pov-quiet" aria-labelledby="pov-systems-title">
           <div class="pov-panel-head"><h3 id="pov-systems-title">Integrations</h3><a href="#kobo">KoboToolbox</a></div>
           <dl class="pov-facts">
-            <div><dt>${icon("kobo")}KoboToolbox</dt><dd>${k.connected
+            <div><dt>${icon("survey")}KoboToolbox</dt><dd>${k.connected
               ? `Connected to ${esc(String(k.server || "").replace(/^https?:\/\//, ""))} · ${plural(k.surveys, "survey")} · synced ${agoTag(k.lastSync, since(k.lastSync))}`
               : "Not connected"}${k.failing.length ? `<br><b class="pov-warn-text">${plural(k.failing.length, "survey")} failing to sync</b>` : ""}</dd></div>
             <div><dt>${icon("plug")}Live push from Kobo</dt><dd>${k.pushConfigured ? "Set up" : "Not set up"}</dd></div>
