@@ -9,6 +9,7 @@ import "./supabase-auth.js";
 import { ICON as NAV_ICON, menuFor, WORKSPACES } from "./navigation.js";
 import { apiGet } from "./api.js";
 import { liveStatus, swap } from "./live.js";
+import { barList, proportion } from "./charts.js";
 import { $, $$, esc, initials, toast, formatDuration, skeleton, errorState, friendlyError, confirmDialog } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import {
@@ -165,11 +166,22 @@ async function main() {
     if (gf.school) parts.push(gf.school);
     if (gf.from || gf.to) parts.push(termLabelFor(gf.from, gf.to) || dateRangeLabel(gf.from, gf.to));
     if (gf.role) parts.push(ROLE_LABEL[gf.role] || gf.role);
+    for (const [id, on] of [["gfCounty", gf.county], ["gfSchool", gf.school], ["gfTerm", gf.from || gf.to], ["gfFrom", gf.from], ["gfTo", gf.to], ["gfRole", gf.role]]) {
+      $(`#${id}`).classList.toggle("is-set", !!on);
+    }
+    $("#gfClear").disabled = !parts.length;
     const el = $("#gfSummary");
     if (!parts.length) { el.hidden = true; el.textContent = ""; return; }
     el.hidden = false;
-    el.textContent = `Showing data for: ${parts.join(" / ")}`;
+    el.innerHTML = `<span>Showing data for</span>${parts.map((p) => `<span class="pill">${esc(p)}</span>`).join("")}`;
   }
+  /* The other narrowing controls on a page (issue type, severity, a search)
+     look set when they are, the same way. */
+  document.addEventListener("change", (e) => {
+    const c = e.target instanceof Element && e.target.closest(".filter-bar-row select[data-default], .filter-bar-row input[type=search]");
+    if (c) c.classList.toggle("is-set", c.value !== (c.dataset.default ?? ""));
+  });
+  updateFilterSummary(); // nothing is set yet: "Clear filters" starts out idle
 
   async function applyFilters() {
     updateFilterSummary();
@@ -1358,16 +1370,6 @@ async function main() {
      Every "Open to read" click is timed (see nav.js) and rolls up here —
      scoped to one school or every school combined, same county/school
      filter pattern as the Portal impact dashboard above. */
-  function durationBarChart(rows) {
-    const max = Math.max(1, ...rows.map((d) => d.seconds || 0));
-    return `<div class="bar-chart">${rows.map((d) => `
-      <div class="bar-row">
-        <span class="bar-label" title="${esc(d.label)}">${esc(d.label)}</span>
-        <span class="bar-track"><span class="bar-fill" style="width:${((d.seconds || 0) / max) * 100}%"></span></span>
-        <span class="bar-num">${formatDuration(d.seconds)}</span>
-      </div>`).join("")}</div>`;
-  }
-
   function schoolUsageRows(rows) {
     return rows.map((r) => `
       <div class="task-row">
@@ -1388,7 +1390,7 @@ async function main() {
     }
     $("#usageMeta").textContent = u.school ? `Scoped to ${u.school}` : "All schools";
 
-    const topResources = (u.byResource || []).slice(0, 8).map((r) => ({ label: r.title, seconds: r.totalSeconds }));
+    const topResources = (u.byResource || []).slice(0, 8).map((r) => ({ label: r.title, value: r.totalSeconds || 0 }));
 
     $("#usageBody").innerHTML = `
       <div class="chart-stats">
@@ -1398,9 +1400,9 @@ async function main() {
         <div><b>${u.totals.users}</b><span>Active users</span></div>
       </div>
       <div class="chart-grid">
-        ${impactCard("Most-visited resources", `${(u.byResource || []).length} resources`,
-          topResources.length ? durationBarChart(topResources) : `<div class="chart-empty">${emptyMsg("Nothing opened yet.")}</div>`)}
-        ${impactCard("By school", u.school ? "1 school (filtered)" : `${(u.bySchool || []).length} schools`,
+        ${impactCard("Most-visited resources", `Time spent in the ${topResources.length} most-read of ${(u.byResource || []).length} resources`,
+          barList(topResources, { sort: true, noun: "open", text: (r) => formatDuration(r.value), empty: emptyMsg("Nothing opened yet.") }))}
+        ${impactCard("By school", u.school ? "1 school (filtered) · people, sessions and time" : `${(u.bySchool || []).length} schools · people, sessions and time`,
           (u.bySchool || []).length ? schoolUsageRows(u.bySchool) : `<div class="chart-empty">${emptyMsg("Nothing tracked yet.")}</div>`)}
       </div>
     `;
@@ -2233,74 +2235,40 @@ async function main() {
   const sumOf = (data) => (data || []).reduce((s, d) => s + (d.value || 0), 0);
   const miniEmpty = () => `<div class="chart-empty">${emptyMsg("No answers yet.")}</div>`;
 
+  /* One question, one picture (charts.js) — and a line saying how to read it:
+       a choice of up to four answers   a donut: the share choosing each
+       a longer choice, or tick-all     bars, in the order the form asks them, each with its share
+       a number                         the average and range, then how the answers are spread
+       free text                        the answers themselves */
   function chartCard(q) {
-    let body;
+    let body, how;
+    const answered = `${q.answered} answered`;
     if (q.chart === "list") {
+      how = `${answered} · what people wrote`;
       body = q.data.length
         ? `<div class="chart-list">${q.data.map((a) => `<div class="chart-list-row">${esc(a)}</div>`).join("")}</div>`
         : miniEmpty();
     } else if (q.chart === "number") {
+      how = `${answered} · the average, the range and how the answers are spread`;
       body = q.data
         ? `<div class="chart-stats">
-             <div><b>${q.data.count}</b><span>responses</span></div>
              <div><b>${q.data.mean}</b><span>average</span></div>
              <div><b>${q.data.min}</b><span>lowest</span></div>
              <div><b>${q.data.max}</b><span>highest</span></div>
-           </div>${barChart(q.data.histogram)}`
+           </div>${barList(q.data.histogram, { noun: "answers", shareOf: q.data.count })}`
         : miniEmpty();
     } else if (q.chart === "donut") {
-      body = sumOf(q.data)
-        ? `<div class="chart-donut-wrap">${donutChart(q.data)}${legend(q.data)}</div>`
-        : miniEmpty();
+      how = `${answered} · the share choosing each answer`;
+      body = sumOf(q.data) ? proportion(q.data, { noun: "answers", sort: false, zeros: "Chosen by nobody" }) : miniEmpty();
     } else {
-      body = sumOf(q.data) ? barChart(q.data) : miniEmpty();
+      // People may tick more than one, so each share is of those who answered — they needn't add up to 100%.
+      how = `${answered} · how many chose each answer, and their share of everyone who answered`;
+      body = sumOf(q.data) ? barList(q.data, { noun: "answers", shareOf: q.answered, shareWord: "who answered", zeros: "Chosen by nobody" }) : miniEmpty();
     }
     return `<div class="chart-card">
-      <div class="chart-card-head"><b>${esc(q.label)}</b><span>${q.answered} answered</span></div>
+      <div class="chart-card-head"><b>${esc(q.label)}</b><span>${how}</span></div>
       ${body}
     </div>`;
-  }
-
-  function barChart(data, opts = {}) {
-    const rows = data || [];
-    const max = Math.max(1, ...rows.map((d) => d.value || 0));
-    return `<div class="bar-chart">${rows.map((d) => `
-      <div class="bar-row">
-        <span class="bar-label" title="${esc(d.label)}">${opts.drillSchool
-          ? `<button type="button" data-drill-school="${esc(d.label)}"
-               style="background:none;border:0;padding:0;color:var(--brand);font-weight:600;cursor:pointer;font-family:inherit;font-size:inherit;text-align:left">${esc(d.label)}</button>`
-          : esc(d.label)}</span>
-        <span class="bar-track"><span class="bar-fill" style="width:${((d.value || 0) / max) * 100}%"></span></span>
-        <span class="bar-num">${d.value || 0}</span>
-      </div>`).join("")}</div>`;
-  }
-
-  function donutChart(data) {
-    const rows = (data || []).filter((d) => d.value > 0);
-    const answered = sumOf(rows);
-    const total = answered || 1;
-    // For screen readers, the same numbers as the legend beside it.
-    const said = rows.map((d) => `${d.label}: ${d.value} (${Math.round((d.value / total) * 100)}%)`).join(", ");
-    let acc = 0;
-    const segs = rows.map((d, i) => {
-      const pct = (d.value / total) * 100;
-      const seg = `<circle class="donut-seg" r="15.915" cx="21" cy="21" fill="none"
-        stroke="var(--chart-${(i % 6) + 1})" stroke-width="6" pathLength="100"
-        stroke-dasharray="${pct.toFixed(2)} ${(100 - pct).toFixed(2)}"
-        stroke-dashoffset="${(-acc).toFixed(2)}"></circle>`;
-      acc += pct;
-      return seg;
-    }).join("");
-    return `<svg class="donut" viewBox="0 0 42 42" role="img" aria-label="${esc(said ? `${answered} responses — ${said}` : "No responses yet")}">
-      <circle r="15.915" cx="21" cy="21" fill="none" stroke="var(--line)" stroke-width="6"></circle>
-      ${segs}
-      <text x="21" y="21" class="donut-total" aria-hidden="true">${answered}</text>
-    </svg>`;
-  }
-
-  function legend(data) {
-    return `<div class="chart-legend">${(data || []).filter((d) => d.value > 0).map((d, i) =>
-      `<span><i style="background:var(--chart-${(i % 6) + 1})"></i>${esc(d.label)} · ${d.value}</span>`).join("")}</div>`;
   }
 
   srPicker.addEventListener("change", () => {

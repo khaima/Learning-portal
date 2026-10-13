@@ -59,7 +59,7 @@
           </div>
           <button type="button" id="gfClear" class="btn btn-ghost">Clear filters</button>
         </div>
-        <p class="hint" id="gfSummary" hidden style="margin:.6rem 0 0"></p>
+        <p class="filter-summary" id="gfSummary" hidden aria-live="polite"></p>
       </div>
 
       <section class="dash-page" data-page="platform-overview" hidden>
@@ -287,11 +287,11 @@
         <div class="panel">
           <div class="panel-head"><h2>Issues</h2><span class="chart-meta" id="dqCount" style="margin:0"></span></div>
           <div class="filter-bar-row" style="margin-bottom:.8rem">
-            <div class="field"><label for="dq_type">Issue type</label><select id="dq_type"><option value="">All types</option></select></div>
+            <div class="field"><label for="dq_type">Issue type</label><select id="dq_type" data-default=""><option value="">All types</option></select></div>
             <div class="field"><label for="dq_severity">Severity</label>
-              <select id="dq_severity"><option value="">Any</option><option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option></select></div>
+              <select id="dq_severity" data-default=""><option value="">Any</option><option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option></select></div>
             <div class="field"><label for="dq_status">Status</label>
-              <select id="dq_status"><option value="active">Open and under review</option><option value="OPEN">Open</option><option value="UNDER_REVIEW">Under review</option><option value="RESOLVED">Resolved</option><option value="IGNORED">Ignored</option><option value="">All</option></select></div>
+              <select id="dq_status" data-default="active"><option value="active">Open and under review</option><option value="OPEN">Open</option><option value="UNDER_REVIEW">Under review</option><option value="RESOLVED">Resolved</option><option value="IGNORED">Ignored</option><option value="">All</option></select></div>
             <div class="field"><label for="dq_q">Search</label><input type="search" id="dq_q" placeholder="Name, school, code…"></div>
           </div>
           <div class="dq-bulk" id="dqBulk" hidden>

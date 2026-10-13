@@ -835,19 +835,7 @@ body.print-page .lms-table-wrap{ overflow:visible; }
 .chart-card-head span{ font-size:.72rem; color:var(--ink-soft); flex:1 1 auto; min-width:0; }
 .chart-empty{ font-size:.8rem; color:var(--ink-soft); padding:.5rem 0; }
 
-.bar-chart{ display:flex; flex-direction:column; gap:.6rem; }
-.bar-row{ display:grid; grid-template-columns:minmax(0,40%) 1fr auto; align-items:center; gap:.7rem; padding:0; border:0; }
-.bar-label{ font-size:.8rem; line-height:1.3; color:var(--ink); font-weight:500; overflow-wrap:anywhere; }
-.bar-track{ height:8px; border-radius:4px; background:var(--paper-sunk); overflow:hidden; }
-/* One colour for one measure: the rows of a bar chart are the same thing
-   counted for different groups, so length is what tells them apart. Colour
-   is kept for meaning (target met / close / not met) and for the parts of
-   a whole (the donut). */
-.bar-fill{
-  display:block; height:100%; border-radius:4px; background:var(--chart-1);
-  min-width:3px; transition:width .5s cubic-bezier(.22,.72,.27,1);
-}
-.bar-fill[style="width:0%"]{ min-width:0; }
+/* A value at the end of a row (charts themselves are further down: "Charts"). */
 .bar-num{ min-width:1.4rem; font-size:.8rem; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; text-align:right; }
 
 .chart-stats{
@@ -857,16 +845,8 @@ body.print-page .lms-table-wrap{ overflow:visible; }
 .chart-stats b{ display:block; font-size:1.15rem; font-weight:700; letter-spacing:-.01em; line-height:1.2; color:var(--ink); font-variant-numeric:tabular-nums; }
 .chart-stats span{ display:block; font-size:.62rem; font-weight:600; line-height:1.3; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.02em; overflow-wrap:anywhere; }
 
-.chart-donut-wrap{ display:flex; align-items:center; gap:1.3rem; flex-wrap:wrap; }
-.donut{ width:128px; height:128px; flex:none; transform:rotate(-90deg); }
-.donut-seg{ transition:stroke-dasharray .5s cubic-bezier(.22,.72,.27,1); }
-.donut-total{
-  transform:rotate(90deg); transform-origin:21px 21px; text-anchor:middle;
-  dominant-baseline:central; font-size:9px; font-weight:700; fill:var(--ink);
-}
-.chart-legend{ display:flex; flex-direction:column; gap:.45rem; font-size:.78rem; color:var(--ink); min-width:0; flex:1 1 8rem; }
-.chart-legend span{ display:flex; align-items:center; gap:.55rem; padding:.15rem 0; }
-.chart-legend i{ width:11px; height:11px; border-radius:3px; flex:none; }
+.chart-donut-wrap{ display:flex; align-items:center; flex-wrap:wrap; }
+.donut{ flex:none; }
 
 .chart-list{ max-height:220px; overflow-y:auto; display:flex; flex-direction:column; gap:.35rem; }
 .chart-list-row{
@@ -878,7 +858,7 @@ body.print-page .lms-table-wrap{ overflow:visible; }
   color:var(--ink-soft); margin:.7rem 0 .35rem;
 }
 .chart-subhead:first-child{ margin-top:0; }
-@media (prefers-reduced-motion: reduce){ .donut-seg{ transition:none; } .bar-fill{ transition:none; } .chart-card{ transition:none; } }
+@media (prefers-reduced-motion: reduce){ .chart-card{ transition:none; } }
 
 /* ---------------------------------------------------------------- forms: kinds, targeting, visit forms
    Tags say what kind of form it is, which county it reaches and which
@@ -991,7 +971,6 @@ a.btn.form-open{ margin-bottom:.2rem; }
 .intel-area span strong{ color:var(--ink); font-size:.95rem; }
 .intel-area em{ font-style:normal; font-size:.78rem; font-weight:600; color:var(--brand-fg); margin-top:.3rem; }
 .chart-grid .intel-wide{ flex-basis:100%; }
-.intel-bands{ display:flex; flex-wrap:wrap; gap:.35rem; margin-top:.7rem; }
 .intel-chips{ display:flex; flex-wrap:wrap; gap:.4rem; }
 .intel-chips .pill{ border:0; cursor:pointer; font:inherit; font-size:.78rem; }
 .intel-link{ background:none; border:0; padding:0; font:inherit; color:var(--brand-fg); font-weight:600; cursor:pointer; text-align:left; }
@@ -1054,7 +1033,8 @@ a.btn.form-open{ margin-bottom:.2rem; }
 .dq-score.ok{ box-shadow:inset 3px 0 0 var(--success); } .dq-score.ok b{ color:var(--success-fg); }
 .dq-score.warm{ box-shadow:inset 3px 0 0 var(--accent); } .dq-score.warm b{ color:var(--accent-fg); }
 .dq-score.danger{ box-shadow:inset 3px 0 0 var(--danger); } .dq-score.danger b{ color:var(--danger-fg); }
-.dq-spark{ width:100%; height:36px; margin-top:.4rem; }
+.dq-spark{ display:block; width:100%; height:44px; margin-top:.4rem; }
+.dq-score .dq-spark-note{ display:block; margin-top:.15rem; font-size:.72rem; font-weight:500; color:var(--ink-soft); }
 .dq-tiles{ margin:0; }
 .dq-sevnums{ font-size:1.3rem; }
 .dq-high{ color:var(--danger-fg); } .dq-medium{ color:var(--accent-fg); } .dq-low{ color:var(--ink-soft); }
@@ -1115,35 +1095,6 @@ a.stat-tile.dq-tile-link:hover{ border-color:var(--brand); }
 @media (min-width:700px){ .exec-row{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
 @media (min-width:1280px){ .exec-row{ grid-template-columns:repeat(6,minmax(0,1fr)); } }
 .chart-grid > [data-mel-theme]:empty{ display:none; }
-/* columns over time (visits, Kobo submissions, opens by month) */
-.col-chart{ display:grid; grid-auto-flow:column; grid-auto-columns:minmax(0,1fr); gap:.3rem; height:150px; padding-top:.3rem; }
-.col{ display:flex; flex-direction:column; align-items:center; min-width:0; }
-.col-num{ font-size:.64rem; font-weight:700; color:var(--ink-soft); min-height:1rem; font-variant-numeric:tabular-nums; }
-.col-track{ position:relative; flex:1; width:100%; max-width:24px; }
-.col-bar{ position:absolute; left:0; right:0; bottom:0; min-height:2px; border-radius:3px 3px 0 0; background:var(--chart-1); transition:height .5s cubic-bezier(.22,.72,.27,1); }
-.col-lbl{ font-size:.62rem; color:var(--ink-soft); margin-top:.3rem; white-space:nowrap; overflow:hidden; max-width:100%; }
-/* actual against target: the bar is the actual, the line the target */
-.cmp-chart .cmp-track{ position:relative; overflow:visible; }
-.cmp-chart .bar-row .bar-fill.cmp-met{ background:var(--success); }
-.cmp-chart .bar-row .bar-fill.cmp-close{ background:var(--accent); }
-.cmp-chart .bar-row .bar-fill.cmp-not_met{ background:var(--danger); }
-.cmp-chart .bar-row .bar-fill.cmp-no_data{ background:var(--chart-1); }
-.cmp-target{ position:absolute; top:-4px; bottom:-4px; width:3px; margin-left:-1.5px; border-radius:2px; background:var(--ink); }
-.cmp-chart .bar-label .intel-link{ max-width:100%; overflow-wrap:anywhere; }
-.cmp-key{ display:flex; flex-wrap:wrap; align-items:center; gap:.35rem; }
-.cmp-key-target{ display:inline-block; width:3px; height:14px; border-radius:2px; background:var(--ink); }
-/* trend over time */
-.trend-svg{ width:100%; height:auto; display:block; overflow:visible; }
-.trend-svg .t-grid{ stroke:var(--line); stroke-width:1; }
-.trend-svg .t-lbl{ fill:var(--ink-soft); font-size:12px; font-family:"Work Sans",sans-serif; }
-@media (max-width:640px){ .trend-svg .t-lbl{ font-size:17px; } }
-.trend-svg .t-val{ fill:none; stroke:var(--chart-1); stroke-width:2.5; stroke-linejoin:round; stroke-linecap:round; }
-.trend-svg .t-tgt{ fill:none; stroke:var(--chart-2); stroke-width:2; stroke-dasharray:6 5; }
-.trend-svg .t-dot{ fill:var(--chart-1); stroke:var(--paper-raised); stroke-width:2; }
-.trend-svg .t-tgt-dot{ fill:var(--chart-2); }
-.trend-key{ display:flex; align-items:center; gap:.4rem; }
-.trend-key i{ display:inline-block; width:18px; height:0; border-top:3px solid var(--chart-1); }
-.trend-key i.trend-key-tgt{ border-top:2px dashed var(--chart-2); margin-left:.6rem; }
 /* training register: who attended */
 .training-people{ max-height:16rem; overflow-y:auto; display:grid; grid-template-columns:repeat(auto-fill,minmax(15rem,1fr)); gap:.15rem .9rem; }
 .training-person{ margin:0; align-items:flex-start; }
@@ -1473,26 +1424,7 @@ a.pov-kpi:focus-visible{ outline:3px solid var(--focus); outline-offset:2px; }
 
 .pov-activity-sum{ display:flex; align-items:baseline; flex-wrap:wrap; gap:.3rem .6rem; margin-bottom:.85rem; font-size:.84rem; color:var(--ink-soft); }
 .pov-big{ font-size:2rem; font-weight:700; line-height:1; color:var(--ink); }
-.pov-bars{ display:block; width:100%; height:110px; }
-.pov-bar{ fill:var(--chart-1); opacity:.32; }
-.pov-bar.now{ opacity:1; }
-.pov-axis{ stroke:var(--line); stroke-width:1; vector-effect:non-scaling-stroke; }
-.pov-bars-axis{ display:flex; justify-content:space-between; margin-top:.35rem; font-size:.72rem; color:var(--ink-soft); }
-.pov-stack{ display:flex; gap:2px; height:12px; border-radius:99px; overflow:hidden; background:var(--paper-sunk); }
-.pov-stack span{ display:block; min-width:4px; }
-.pov-r1{ background:var(--chart-3); }
-.pov-r2{ background:var(--chart-1); }
-.pov-r3{ background:var(--chart-6); }
-.pov-r4{ background:var(--chart-2); }
-.pov-r5{ background:var(--line); }
-.pov-legend{ list-style:none; display:flex; flex-wrap:wrap; gap:.4rem 1.1rem; margin:.75rem 0 0; padding:0; font-size:.78rem; color:var(--ink-soft); }
-.pov-legend li{ display:flex; align-items:center; gap:.38rem; }
-.pov-legend i{ display:inline-block; width:.68rem; height:.68rem; border-radius:3px; }
-.pov-legend b{ color:var(--ink); }
-.pov-key-now, .pov-key-before, .pov-key-security{ display:inline-block; width:.68rem; height:.68rem; margin-right:.38rem; border-radius:3px; vertical-align:-.05rem; }
-.pov-key-now{ background:var(--chart-1); }
-.pov-key-before{ background:var(--chart-1); opacity:.32; }
-.pov-key-security{ border-radius:50%; background:var(--accent); }
+.pov-key-security{ display:inline-block; width:.68rem; height:.68rem; margin-right:.38rem; border-radius:50%; background:var(--accent); vertical-align:-.05rem; }
 
 .pov-alerts{ list-style:none; display:flex; flex-direction:column; gap:.6rem; margin:0; padding:0; }
 .pov-alert{ display:flex; align-items:flex-start; gap:.7rem; padding:.75rem .8rem .75rem .75rem; border:1px solid var(--line); border-left:4px solid var(--accent); border-radius:12px; background:var(--paper); }
@@ -1566,9 +1498,8 @@ a.pov-kpi:focus-visible{ outline:3px solid var(--focus); outline-offset:2px; }
   .live-changed{ animation:none; box-shadow:inset 0 -2px 0 var(--accent); }
 }
 .pov-skel-line{ display:block; height:.75rem; border-radius:6px; }
-.pov-bar{ transition:height .5s ease, y .5s ease; }
 .pov-meter span{ transition:width .5s ease; }
-@media (prefers-reduced-motion: reduce){ .pov-bar, .pov-meter span{ transition:none; } }
+@media (prefers-reduced-motion: reduce){ .pov-meter span{ transition:none; } }
 .live-row{ display:flex; justify-content:flex-end; margin:-.3rem 0 .7rem; min-height:0; }
 .live-row:has(.live[hidden]){ display:none; }
 
@@ -1605,9 +1536,7 @@ h2,h3{ font-family:inherit; letter-spacing:-.01em; }
   .filter-bar .filter-bar-row{ gap:.55rem .6rem; }
   .filter-bar .filter-bar-row .field{ flex-basis:7.5rem; min-width:7rem; }
 }
-/* A month with nothing is a tick on the baseline, not a bar. */
-.col-bar[style="height:0%"]{ background:var(--line); }
-.chart-empty{ padding:1.2rem .5rem; text-align:center; }
+
 
 /* ---------------------------------------------------------------- Dashboards: what's read first
    Every dashboard is laid out in three levels (docs/DASHBOARD-HIERARCHY.md):
@@ -1676,3 +1605,133 @@ h2,h3{ font-family:inherit; letter-spacing:-.01em; }
 /* A role's home page: two short lists under one heading. */
 .panel .chart-subhead + div > .empty-state{ padding:.4rem 0 .3rem; text-align:left; }
 .panel > .more-detail > .more-body > .field-hint{ margin-top:.7rem; }
+
+/* ---------------------------------------------------------------- Charts (charts.js)
+   One set of pictures for every dashboard: a line for change over time,
+   bars for comparing groups, a bar filling towards a line for progress to a
+   target, a donut for a simple share, and one split bar for an ordered
+   scale. Marks are thin and one colour unless the colour means something;
+   the grid is two hairlines; every value is printed, so nothing depends on
+   hovering. */
+
+/* A card: what it is, then one line on how to read it. */
+.chart-card-head{ display:block; }
+.chart-card-head b{ display:block; }
+.chart-card-head span{ display:block; margin-top:.2rem; font-size:.74rem; line-height:1.4; }
+.chart-note{ margin:.75rem 0 0; font-size:.74rem; line-height:1.4; color:var(--ink-soft); }
+.chart-empty{ padding:1.2rem .5rem; text-align:center; }
+/* Small figures above a chart wrap as words, never mid-word. */
+.chart-stats{ grid-template-columns:repeat(auto-fit,minmax(4.6rem,1fr)); }
+.chart-stats span{ overflow-wrap:normal; }
+
+/* Bars: the name and its value on one line, the bar full width beneath. */
+.bars,.tg{ display:flex; flex-direction:column; gap:.75rem; }
+.bars-head{ display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:.1rem .8rem; margin-bottom:.32rem; }
+.bars-label{ min-width:0; font-size:.82rem; font-weight:500; line-height:1.3; color:var(--ink); overflow-wrap:anywhere; }
+.bars-val{ display:inline-flex; align-items:baseline; gap:.45rem; margin-left:auto; font-size:.82rem; white-space:nowrap; }
+.bars-val b{ font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums; }
+.bars-val small{ font-size:.72rem; color:var(--ink-soft); font-variant-numeric:tabular-nums; }
+.bars-track{ height:8px; border-radius:4px; background:var(--paper-sunk); overflow:hidden; }
+.bars-fill{ display:block; height:100%; min-width:3px; border-radius:4px; background:var(--chart-1); transition:width .5s cubic-bezier(.22,.72,.27,1); }
+.bars-row.is-zero .bars-fill{ min-width:0; }
+.bars-row.is-zero .bars-val b{ font-weight:600; color:var(--ink-soft); }
+.bars-row.is-on .bars-fill,.tg-row.is-on .tg-fill{ filter:brightness(1.18); }
+.bars-label .intel-link,.bars-label button{ text-align:left; overflow-wrap:anywhere; }
+
+/* Progress to a target: every bar fills towards the same line. */
+.tg{ gap:.9rem; }
+.tg-track{ position:relative; height:10px; border-radius:5px; background:var(--paper-sunk); }
+.tg-fill{ position:absolute; left:0; top:0; bottom:0; border-radius:5px; background:var(--chart-1); transition:width .5s cubic-bezier(.22,.72,.27,1); }
+.tg-met{ background:var(--success); }
+.tg-close{ background:var(--accent); }
+.tg-not_met{ background:var(--danger); }
+.tg-line{ position:absolute; top:-4px; bottom:-4px; width:2px; margin-left:-1px; border-radius:1px; background:var(--ink); }
+.tg-key{ display:inline-block; width:2px; height:.95em; margin:0 .45rem 0 .1rem; border-radius:1px; background:var(--ink); vertical-align:-.12em; }
+.tg .bars-val .pill{ padding:.05rem .5rem; font-size:.68rem; }
+
+/* A line over time. The plot is an SVG stretched to the card; the labels
+   are ordinary text, so they stay the same size on a phone. */
+.lc{ display:grid; grid-template-columns:auto minmax(0,1fr); grid-template-rows:var(--lc-h,150px) auto; column-gap:.5rem; margin-top:1.35rem; border-radius:6px; outline-offset:6px; container:lc / inline-size; }
+.lc:focus-visible{ outline:3px solid var(--focus); }
+.lc-y{ position:relative; font-size:.68rem; color:var(--ink-soft); font-variant-numeric:tabular-nums; }
+.lc-y span{ position:absolute; right:0; line-height:1; transform:translateY(50%); }
+.lc-plot{ position:relative; border-bottom:1px solid color-mix(in srgb, var(--ink-soft) 40%, var(--line)); }
+.lc-grid{ position:absolute; left:0; right:0; height:0; border-top:1px solid var(--line); }
+.lc-band{ position:absolute; top:0; bottom:0; right:0; border-left:1px solid var(--line); background:color-mix(in srgb, var(--chart-1) 6%, transparent); }
+.lc-band em{ position:absolute; top:-1.15rem; left:.35rem; font-style:normal; font-size:.66rem; font-weight:600; color:var(--ink-soft); white-space:nowrap; }
+.lc-plot svg{ position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+.lc-line{ fill:none; stroke:var(--chart-1); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; vector-effect:non-scaling-stroke; }
+.lc-line-t{ stroke:var(--chart-2); stroke-dasharray:5 4; }
+.lc-area{ fill:var(--chart-1); stroke:none; opacity:.1; }
+/* Each point owns a full-height strip: pointing anywhere in it picks the point. */
+.lc-pt{ position:absolute; top:0; bottom:0; }
+.lc-pt::before{ content:""; position:absolute; left:50%; top:0; bottom:0; width:1px; margin-left:-.5px; background:var(--ink-soft); opacity:0; }
+.lc-pt:hover::before,.lc-pt.is-on::before{ opacity:.4; }
+.lc-dot{ position:absolute; left:50%; width:8px; height:8px; margin:0 0 -4px -4px; border-radius:50%; background:var(--chart-1); box-shadow:0 0 0 2px var(--paper-raised); opacity:0; }
+.lc-dot-t{ width:6px; height:6px; margin:0 0 -3px -3px; background:var(--chart-2); }
+.lc-pt.is-marked .lc-dot,.lc-pt:hover .lc-dot,.lc-pt.is-on .lc-dot{ opacity:1; }
+.lc-pt:hover .lc-dot:not(.lc-dot-t),.lc-pt.is-on .lc-dot:not(.lc-dot-t){ width:10px; height:10px; margin:0 0 -5px -5px; }
+.lc-val{ position:absolute; left:50%; transform:translate(-50%,-10px); font-size:.7rem; font-weight:700; line-height:1; color:var(--ink); white-space:nowrap; pointer-events:none;
+  text-shadow:0 0 3px var(--paper-raised),0 0 3px var(--paper-raised),0 0 3px var(--paper-raised); }
+.lc-x{ grid-column:2; display:grid; grid-auto-flow:column; grid-auto-columns:minmax(0,1fr); padding-top:.4rem; font-size:.68rem; line-height:1.25; color:var(--ink-soft); }
+.lc-x span{ display:flex; flex-direction:column; align-items:center; min-width:0; white-space:nowrap; }
+.lc-x small{ font-size:.62rem; opacity:.85; }
+@container lc (max-width:330px){ .lc-x{ font-size:.6rem; } }
+
+/* The key: what each colour or line is, with its numbers where it's a share. */
+.chart-key{ list-style:none; display:flex; flex-wrap:wrap; gap:.3rem 1.1rem; margin:.7rem 0 0; padding:0; font-size:.76rem; color:var(--ink-soft); }
+.chart-key li{ display:flex; align-items:center; gap:.45rem; }
+.chart-key i{ flex:none; width:10px; height:10px; border-radius:3px; }
+.chart-key .key-line{ width:18px; height:0; border-radius:0; border-top:2px solid var(--chart-1); }
+.chart-key .key-dash{ border-top:2px dashed var(--chart-2); }
+.chart-key-rows{ flex-direction:column; flex-wrap:nowrap; gap:.05rem; flex:1 1 9.5rem; min-width:0; margin:0; }
+.chart-key-rows li{ padding:.24rem .35rem; border-radius:6px; color:var(--ink); }
+.chart-key-rows li span{ flex:1; min-width:0; overflow-wrap:anywhere; }
+.chart-key-rows li b{ font-variant-numeric:tabular-nums; }
+.chart-key-rows li small{ min-width:2.4rem; text-align:right; color:var(--ink-soft); font-variant-numeric:tabular-nums; }
+.chart-key-rows li.is-on{ background:var(--paper-sunk); }
+
+/* A donut: a simple share only (four parts at most). */
+.chart-donut-wrap{ gap:.9rem 1.4rem; }
+.donut{ width:124px; height:124px; transform:none; }
+.donut-seg{ transition:stroke-dasharray .5s cubic-bezier(.22,.72,.27,1), stroke-width .15s ease; }
+.donut-seg.is-on{ stroke-width:6.8; }
+.donut-total,.donut-noun{ transform:none; text-anchor:middle; dominant-baseline:central; fill:var(--ink); }
+.donut-total{ font-size:8px; font-weight:700; }
+.donut-noun{ font-size:3.1px; font-weight:500; fill:var(--ink-soft); }
+
+/* One bar split in order (bands, how recently, better or worse). */
+.stack{ display:flex; gap:2px; height:14px; border-radius:7px; overflow:hidden; background:var(--paper-sunk); }
+.stack span{ display:block; min-width:4px; }
+.stack span.is-on{ filter:brightness(1.15); }
+.stack + .chart-key-rows{ margin-top:.55rem; }
+.chart-subhead + .stack{ margin-top:.5rem; }
+
+/* The tooltip: the value first, then what it is. */
+.chart-tip{ position:fixed; z-index:80; max-width:17rem; padding:.5rem .7rem .55rem; border:1px solid var(--line); border-radius:8px; background:var(--paper-raised); color:var(--ink);
+  font-size:.76rem; line-height:1.35; box-shadow:0 8px 24px -10px rgba(20,33,61,.35); pointer-events:none; }
+.chart-tip[hidden]{ display:none; }
+.ct-title{ margin-bottom:.15rem; font-weight:600; color:var(--ink-soft); }
+.ct-row{ display:flex; align-items:baseline; gap:.4rem; }
+.ct-row i{ align-self:center; flex:none; width:12px; height:2px; border-radius:1px; }
+.ct-row b{ font-size:.88rem; font-weight:700; font-variant-numeric:tabular-nums; }
+.ct-row span{ color:var(--ink-soft); }
+.ct-note{ margin-top:.15rem; color:var(--ink-soft); }
+@media (prefers-reduced-motion: reduce){ .bars-fill,.tg-fill,.donut-seg{ transition:none; } }
+
+/* A percentage in a table, with a thin bar so a column can be scanned. */
+.cell-rate{ display:inline-flex; align-items:center; justify-content:flex-end; gap:.5rem; }
+.cell-rate i{ flex:none; width:3.2rem; height:6px; border-radius:3px; background:var(--paper-sunk); overflow:hidden; }
+.cell-rate i::before{ content:""; display:block; width:var(--w,0%); height:100%; border-radius:3px; background:var(--chart-1); }
+abbr.band-abbr{ text-decoration:none; border-bottom:1px dotted var(--ink-soft); cursor:help; }
+
+/* ---------------------------------------------------------------- Filters
+   The same look wherever a page can be narrowed: a small quiet label over
+   the control, and a control that is set looks set — so what a chart is
+   showing is never a surprise. */
+.filter-bar-row .field label{ margin-bottom:.25rem; font-size:.72rem; font-weight:600; color:var(--ink-soft); }
+.filter-bar-row .field input,.filter-bar-row .field select{ padding:.48rem .65rem; font-size:.86rem; }
+.filter-bar-row .is-set{ border-color:var(--brand); background-color:var(--brand-soft); color:var(--brand-fg); font-weight:600; }
+#gfClear:disabled{ opacity:.45; cursor:default; }
+.filter-summary{ display:flex; flex-wrap:wrap; align-items:center; gap:.35rem .45rem; margin:.65rem 0 0; font-size:.8rem; color:var(--ink-soft); }
+.filter-summary .pill{ background:var(--brand-soft); color:var(--brand-fg); font-weight:600; }

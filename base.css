@@ -54,7 +54,7 @@
    Feedback  .empty-state (.is-error) .toast (.success) .badge-toast
    States    .skeleton-row .state-error/.state-retry .offline-banner .btn.is-saving
              — see util.js: skeleton()/emptyState()/errorState()/friendlyError()
-   Charts    .chart-stats .bar-chart .donut .chart-legend
+   Charts    charts.js: .bars .tg .lc .donut .stack .chart-key .chart-tip
    ============================================================ */
 
 :root{
@@ -68,6 +68,14 @@
   --focus:#1E4C8A;
   --chart-1:#1E4C8A; --chart-2:#D97A34; --chart-3:#3E9C6E;
   --chart-4:#8A5CB0; --chart-5:#C6534E; --chart-6:#2E8FA8;
+  /* Charts that split one whole into parts (charts.js). Checked for
+     colour-blind separation and contrast on the card surface:
+       --cat-*   up to four unordered parts (a donut), always in this order
+       --band-*  the four achievement bands, best to weakest
+       --seq-*   one hue, strongest to weakest, for an ordered scale */
+  --cat-1:#24589C; --cat-2:#D97A34; --cat-3:#8A5CB0; --cat-4:#3E9C6E;
+  --band-1:#3E9C6E; --band-2:#24589C; --band-3:#D97A34; --band-4:#B3261E;
+  --seq-1:#1E4C8A; --seq-2:#4370B2; --seq-3:#6A91C9; --seq-4:#94B2DC; --neutral:#9AA3B5;
   /* Fixed brand-identity tokens: the logo mark, hero/sidebar panels and
      solid buttons keep one brand look regardless of theme (the same
      reason a real logo never recolors itself) — never redefined below. */
@@ -89,6 +97,9 @@
     --focus:#8FB4E3;
     --chart-1:#8FB4E3; --chart-2:#F0B27E; --chart-3:#5FC28C;
     --chart-4:#BFA0DC; --chart-5:#F0797A; --chart-6:#79C6D8;
+    --cat-1:#4F93E0; --cat-2:#D27634; --cat-3:#A274D6; --cat-4:#35A873;
+    --band-1:#35A873; --band-2:#4F93E0; --band-3:#B8892A; --band-4:#CF4B41;
+    --seq-1:#ABC8EE; --seq-2:#7DA3DA; --seq-3:#5A80BC; --seq-4:#3D5F96; --neutral:#6B7896;
     color-scheme: dark;
   }
 }
@@ -103,6 +114,9 @@
   --focus:#8FB4E3;
   --chart-1:#8FB4E3; --chart-2:#F0B27E; --chart-3:#5FC28C;
   --chart-4:#BFA0DC; --chart-5:#F0797A; --chart-6:#79C6D8;
+  --cat-1:#4F93E0; --cat-2:#D27634; --cat-3:#A274D6; --cat-4:#35A873;
+  --band-1:#35A873; --band-2:#4F93E0; --band-3:#B8892A; --band-4:#CF4B41;
+  --seq-1:#ABC8EE; --seq-2:#7DA3DA; --seq-3:#5A80BC; --seq-4:#3D5F96; --neutral:#6B7896;
   color-scheme: dark;
 }
 

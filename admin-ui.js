@@ -15,6 +15,7 @@ import { resultsTableHtml } from "./assignments-ui.js";
 import { extendTrail } from "./nav.js";
 import { ICON } from "./navigation.js";
 import { agoTag, liveStatus, swap } from "./live.js";
+import { lineChart, stackBar } from "./charts.js";
 
 const fmtDay = (v) => (v ? new Date(v).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—");
 const fmtWhen = (v) => (v ? new Date(v).toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
@@ -138,40 +139,38 @@ function perDay(entries, days) {
   return out;
 }
 
+/** Changes per day over the fortnight: a line (charts.js), with the last
+    seven days — the ones the headline counts — marked off from the week before. */
 function activityChart(series) {
-  const max = Math.max(1, ...series.map((s) => s.n));
-  const w = 100 / series.length;
-  const fmt = (d) => d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
-  const bars = series.map((s, i) => {
-    const hgt = s.n ? Math.max(4, (s.n / max) * 100) : 0;
-    return `<rect x="${(i * w + w * 0.16).toFixed(2)}" y="${(100 - hgt).toFixed(2)}" width="${(w * 0.68).toFixed(2)}" height="${hgt.toFixed(2)}" rx="1.2"
-      class="${i >= series.length - 7 ? "pov-bar now" : "pov-bar"}"><title>${esc(fmt(s.day))}: ${plural(s.n, "change")}</title></rect>`;
-  }).join("");
-  return `<svg class="pov-bars" viewBox="0 0 100 100" preserveAspectRatio="none" role="img"
-      aria-label="Changes per day, ${esc(fmt(series[0].day))} to today: ${esc(series.map((s) => s.n).join(", "))}">
-    <line x1="0" y1="100" x2="100" y2="100" class="pov-axis"/>${bars}</svg>
-    <div class="pov-bars-axis"><span>${esc(fmt(series[0].day))}</span><span>Today</span></div>`;
+  const last = series.length - 1, week = series.length - 7;
+  const short = (d) => d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  const full = (d) => d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
+  return lineChart(series.map((s, i) => ({ label: i === last ? "Today" : short(s.day), full: i === last ? `Today, ${full(s.day)}` : full(s.day), value: s.n })), {
+    noun: "changes", height: 120, title: "Changes recorded per day",
+    band: { from: week, label: "Last 7 days" }, ticks: [0, week, last],
+  });
 }
 
 /** How recently each active staff member last signed in. */
+/* One hue, strongest for the most recent — it's a scale, not five different
+   things. "Never signed in" is the one that asks for something, so it alone
+   takes the attention colour. */
 const RECENCY = [
-  ["Last 24 hours", (ms) => ms != null && ms <= DAY, "pov-r1"],
-  ["2–7 days ago", (ms) => ms != null && ms > DAY && ms <= 7 * DAY, "pov-r2"],
-  ["8–30 days ago", (ms) => ms != null && ms > 7 * DAY && ms <= 30 * DAY, "pov-r3"],
-  ["Over 30 days", (ms) => ms != null && ms > 30 * DAY, "pov-r4"],
-  ["Never signed in", (ms) => ms == null, "pov-r5"],
+  ["Last 24 hours", (ms) => ms != null && ms <= DAY, "var(--seq-1)"],
+  ["2–7 days ago", (ms) => ms != null && ms > DAY && ms <= 7 * DAY, "var(--seq-2)"],
+  ["8–30 days ago", (ms) => ms != null && ms > 7 * DAY && ms <= 30 * DAY, "var(--seq-3)"],
+  ["Over 30 days ago", (ms) => ms != null && ms > 30 * DAY, "var(--seq-4)"],
+  ["Never signed in", (ms) => ms == null, "var(--accent)"],
 ];
 function recencyBlock(act) {
   const staff = (act.staff || []).filter((s) => s.status === "active");
   const now = Date.now();
-  const groups = RECENCY.map(([label, test, cls]) => ({ label, cls,
-    n: staff.filter((s) => test(s.lastSignInAt ? now - new Date(s.lastSignInAt).getTime() : null)).length }));
+  const groups = RECENCY.map(([label, test, colour]) => ({ label, colour,
+    value: staff.filter((s) => test(s.lastSignInAt ? now - new Date(s.lastSignInAt).getTime() : null)).length }));
   const L = act.learners || {};
   return `
-    <div class="pov-stack" role="img" aria-label="${esc(`Active staff by last sign-in: ${groups.map((g) => `${g.label} ${g.n}`).join(", ")}`)}">
-      ${groups.filter((g) => g.n).map((g) => `<span class="${g.cls}" style="flex:${g.n}" title="${esc(`${g.label}: ${g.n}`)}"></span>`).join("") || `<span class="pov-r5" style="flex:1"></span>`}
-    </div>
-    <ul class="pov-legend">${groups.map((g) => `<li><i class="${g.cls}" aria-hidden="true"></i>${esc(g.label)} <b>${num(g.n)}</b></li>`).join("")}</ul>
+    <p class="pov-note pov-lead">The ${plural(staff.length, "active staff account")}, by when each last signed in.</p>
+    ${stackBar(groups, { noun: "staff", title: "Active staff by last sign-in", empty: "No active staff accounts." })}
     <p class="pov-note">Learners: <b>${num(L.signedIn7d)}</b> of ${plural(L.enrolled, "enrolled learner")} signed in this week${L.lockedNow ? ` · <b>${num(L.lockedNow)}</b> locked out now` : ""}.</p>`;
 }
 
@@ -278,8 +277,7 @@ function overviewHtml(d, x, describe) {
       : `<div class="pov-activity-sum"><span class="pov-big">${num(thisWeek)}</span>
           <span>${thisWeek === 1 ? "change" : "changes"} recorded in the last 7 days ${partial ? "" : delta(thisWeek - lastWeek, { what: "on the week before" })}</span></div>
         ${activityChart(series)}
-        <ul class="pov-legend"><li><i class="pov-key-now" aria-hidden="true"></i>Last 7 days</li><li><i class="pov-key-before" aria-hidden="true"></i>The week before</li></ul>
-        <p class="pov-note">Accounts, access, exports, Kobo and other changes, from the audit log${partial ? " (only the latest 200 — earlier days are incomplete)" : ""}.</p>`;
+        <p class="pov-note">Changes recorded each day — accounts, access, exports, Kobo and others — from the audit log${partial ? " (only the latest 200 — earlier days are incomplete)" : ""}.</p>`;
     recent = recentList(entries.slice(0, 7), describe, securityIds);
   }
   const recency = x.act === undefined ? pending("Sign-ins")

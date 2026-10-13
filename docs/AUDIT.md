@@ -779,3 +779,40 @@ were.
   - axe-core: no WCAG 2.1 AA violations on 15 page states, including dark
     mode, phone width and every closed section opened.
 
+### 14 October — the charts
+
+Every chart now comes from one module, `charts.js`, so the same kind of
+question gets the same kind of picture. `docs/CHARTS.md` lists which
+picture is used for what, and what each chart was and is. Presentation
+only: the same figures from the same API; nothing was invented.
+
+- **Change over time is a line:** visits, Kobo submissions and resource
+  openings by month; learner growth, average mark, visits and library use
+  by term; platform changes per day; an indicator against its target. Two
+  gridlines, round numbers on the axis, only the latest and the highest
+  point labelled.
+- **Comparing groups is bars:** one colour, largest first, the name and
+  value above a full-width bar (the name used to be squeezed beside it),
+  whole percentages, and each row's share of the total where the rows add
+  up to one.
+- **Progress to a target fills towards one line:** on the M&E pages every
+  row's target sits in the same place, so rows in different units can be
+  read down the page; value, target and "Met / Close / Not met" are in
+  words, not colour alone.
+- **Shares:** a donut only for two to four parts of one whole (a survey
+  question with five or six answers is now bars); the achievement bands
+  and "improved / steady / declined" are one split bar with a key.
+- **Tables** keep the detail; their percentage columns carry a thin bar,
+  and band codes show their full name.
+- **Tooltips** on every mark — by hover, tap, or the arrow keys on a line
+  chart — repeating what is printed, never the only place a value is.
+- **Descriptions:** every chart card says in one line what it shows.
+- **Colour:** the four-part sequence, the band colours and the one-hue
+  scale were checked for colour-blind separation and contrast in both
+  themes; orange and green are no longer neighbours.
+- **Filters:** one look for the filter bar and the filters inside pages; a
+  filter that is set looks set; "Clear filters" is idle until needed.
+- **Checked:** 16 chart pages before and after with a year of test
+  history, laptop and phone, light and dark; tooltips by mouse and
+  keyboard; refresh-in-place; axe-core clean on 12 page states.
+
