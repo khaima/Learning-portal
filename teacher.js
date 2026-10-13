@@ -241,6 +241,8 @@ async function main() {
     const queue = submissionCache.filter((x) => x.status === "submitted")
       .sort((x, y) => String(x.submittedAt).localeCompare(String(y.submittedAt))); // oldest first
     const filtered = filterSubs(queue, ($(searchInputId)?.value || "").trim());
+    const search = $(searchInputId)?.closest(".panel-search");
+    if (search) search.hidden = !queue.length; // nothing to search
     el.innerHTML = filtered.length
       ? filtered.map(queueRow).join("")
       : queue.length
@@ -493,8 +495,13 @@ async function main() {
     const filtered = q
       ? learnerCache.filter((l) => `${l.fullName} ${l.username} ${l.grade || ""} ${l.userCode || ""}`.toLowerCase().includes(q))
       : learnerCache;
+    const search = $("#learnerActivitySearch")?.closest(".panel-search");
+    if (search) search.hidden = !learnerCache.length;
+    // The home page is a place to look a learner up, not the whole register.
+    const shown = q ? filtered : filtered.slice(0, 6);
     el.innerHTML = filtered.length
-      ? filtered.map(learnerActivityRow).join("")
+      ? shown.map(learnerActivityRow).join("")
+        + (filtered.length > shown.length ? `<p class="hint" style="margin:.6rem 0 0">Showing ${shown.length} of ${filtered.length} learners — search for a name, or see them all on <a href="#my-learners">My learners</a>.</p>` : "")
       : learnerCache.length
         ? `<div class="empty-state">No matches for that search.</div>`
         : `<div class="empty-state">No learners yet. Add one from My Learners.</div>`;

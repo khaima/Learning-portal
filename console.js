@@ -107,6 +107,7 @@ async function main() {
   let formsCache = [];
   let responsesCache = [];
   let koboState = { configured: false };
+  let koboKnown = false; // false until the settings have been read: "not connected" is a claim
 
   // Local calendar date, not toISOString() — that converts through UTC and
   // silently shifts a term boundary by a day in timezones ahead of UTC.
@@ -269,6 +270,7 @@ async function main() {
       console.error("could not load stats:", err);
       const msg = errorState(friendlyError(err, "Couldn't load this data."), renderStats);
       $("#schoolsBody").innerHTML = msg;
+      if (!lastStats) $("#attentionList").innerHTML = msg;
       return;
     }
     lastStats = s;
@@ -292,6 +294,13 @@ async function main() {
   const DASH_EVERY_MS = 5 * 60_000;
   let impactLive = null;
   let impactRun = 0;
+  /* "More detail" on a dashboard stays as it was left — open, if it was
+     opened — through a change of filters too, which draws the page afresh. */
+  const moreOpen = new Set();
+  document.addEventListener("toggle", (e) => {
+    const key = e.target.dataset?.more;
+    if (key) moreOpen[e.target.open ? "add" : "delete"](key);
+  }, true);
   const IMP_PAGES = { reach: "reachHtml", learning: "learningHtml", "teacher-development": "teachersHtml", "field-operations": "fieldOpsHtml", "digital-resources": "resourcesHtml" };
   async function renderImpact({ quiet = false } = {}) {
     // The programme dashboards, or (Education Team) only their learning side.
@@ -303,7 +312,6 @@ async function main() {
     if (!quiet) {
       impactLive.start();
       $("#statRow").innerHTML = skeleton(4, { avatar: false });
-      $("#statRow2").innerHTML = "";
       for (const p of pagesHere) $(`#imp-${p}`).innerHTML = skeleton(4);
     }
     let d, imp;
@@ -325,11 +333,11 @@ async function main() {
     const put = (el, html) => swap(el, html, { replace: !quiet });
     if (canOpen("overview") && !d.learningOnly) {
       const o = imp.executiveHtml(d);
-      put($("#statRow"), o.headline);
-      put($("#statRow2"), o.secondary + (lastDq?.score ? dqTile(lastDq) : ""));
+      put($("#statRow"), o.headline + dqSlot());
       put($("#intelAreas"), o.areas);
     }
     for (const p of pagesHere) put($(`#imp-${p}`), imp[IMP_PAGES[p]](d));
+    for (const m of $$("details[data-more]")) m.open = moreOpen.has(m.dataset.more);
     const scope = d.scope.school || (d.scope.county ? `${d.scope.county} County` : "every school");
     for (const m of $$("[data-imp-meta]")) m.textContent = scope;
     if (d.currentTerm) $("#topSub").textContent = `${ws.question} · ${d.currentTerm}`;
@@ -380,7 +388,12 @@ async function main() {
     if (!lastMelDash) return;
     const imp = await impactUi().catch(() => null);
     if (!imp) return;
-    for (const slot of $$("[data-mel-theme]")) swap(slot, imp.themeIndicatorsHtml(lastMelDash, slot.dataset.melTheme, { canManage: has("me.framework.manage") }), { replace: !quiet });
+    for (const slot of $$("[data-mel-theme]")) {
+      const any = lastMelDash.indicators.some((i) => i.dashboardTheme === slot.dataset.melTheme);
+      const here = (slot.dataset.melWhen === "some") === any;
+      slot.hidden = !here;
+      swap(slot, here ? imp.themeIndicatorsHtml(lastMelDash, slot.dataset.melTheme, { canManage: has("me.framework.manage") }) : "", { replace: !quiet });
+    }
     const area = $("[data-exec-mel]");
     if (area) swap(area, imp.execMelArea(lastMelDash), { replace: !quiet });
   }
@@ -449,6 +462,9 @@ async function main() {
   const dqSelected = new Set();
   const DQ_PAGE = 40;
   const dqTile = (s) => `<a class="stat-tile dq-tile-link" href="#data-quality"><div class="s-label"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${NAV_ICON.check}</svg>Data quality</div><div class="s-num">${s.score.value}</div><div class="s-sub">${esc(s.score.label)} · ${s.totals.byStatus.OPEN + s.totals.byStatus.UNDER_REVIEW} open issue${s.totals.byStatus.OPEN + s.totals.byStatus.UNDER_REVIEW === 1 ? "" : "s"}</div></a>`;
+  /* On the executive overview: a place is kept for it while the first scan is read. */
+  const dqSlot = () => !canOpen("data-quality") ? "" : lastDq?.score ? dqTile(lastDq)
+    : `<a class="stat-tile dq-tile-link" href="#data-quality"><div class="s-label"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${NAV_ICON.check}</svg>Data quality</div><div class="s-num">—</div><div class="s-sub">${lastDq ? "Not scanned yet" : "Checking…"}</div></a>`;
   const dqFilters = (withList = false) => ({
     county: gf.county, school: gf.school, from: gf.from, to: gf.to,
     ...(withList ? { type: $("#dq_type").value, severity: $("#dq_severity").value, status: $("#dq_status").value, q: $("#dq_q").value.trim() } : {}),
@@ -489,13 +505,16 @@ async function main() {
       if (quiet) throw err;
       dqLive.fail(err);
       $("#dqTop").innerHTML = errorState(friendlyError(err), () => renderDq());
+      const waiting = $("#statRow .dq-tile-link .s-sub");
+      if (waiting && !lastDq) waiting.textContent = "Couldn't be read just now";
       return;
     }
     lastDq = s;
     $("#dqMeta").textContent = s.lastScan ? `last scan ${new Date(s.lastScan.at).toLocaleString()}` : "not scanned yet";
     swap($("#dqTop"), dq.dqTopHtml(s), { replace: !quiet });
     swap($("#dqTypes"), dq.dqTypesHtml(s), { replace: !quiet });
-    if (lastImpact && s.score && !$("#statRow2 .dq-tile-link")) $("#statRow2").insertAdjacentHTML("beforeend", dqTile(s));
+    const tile = $("#statRow .dq-tile-link");
+    if (tile && tile.outerHTML !== dqSlot()) tile.outerHTML = dqSlot();
     renderAttention();
     renderDqList({ quiet });
     if (!quiet) dqLive.ok();
@@ -810,38 +829,63 @@ async function main() {
     });
   }
 
-  /* "Needs attention" — the one actionable panel on the otherwise-light
-     Overview page. Every item here is a real, already-fetched signal
-     (never a manufactured "task"): forms nobody has responded to yet,
-     KoboToolbox not connected, schools with no field visit on record.
-     Called again as each of those three sources resolves, so it's
-     correct as soon as all three are in, regardless of load order. */
+  /* "Needs attention" — what to act on, straight under the Overview's key
+     figures. Every item is a real, already-fetched signal (never a
+     manufactured "task"): open data problems, forms nobody has responded
+     to yet, schools with no field visit on record, KoboToolbox not
+     connected. One line per kind of problem — how many, which ones, and
+     where to deal with it — the pressing ones first. Called again as each
+     source resolves, so it's correct as soon as all are in, in any order. */
   function renderAttention() {
     if (!lastStats) return;
     const s = lastStats;
     const items = [];
-    for (const f of formsCache.filter((f) => !f.archivedAt && !responsesCache.some((r) => r.formId === f.id)).slice(0, 5)) {
-      items.push({ tone: "warn", title: "Form with no responses yet", detail: `"${f.title}" (sent to ${AUDIENCE_LABEL[f.audience] || f.audience}) has no responses yet.` });
-    }
+    const some = (names, max) => names.slice(0, max).join(", ") + (names.length > max ? ` and ${names.length - max} more` : "");
     // Data problems: from the Data Quality Center (open and under review).
     const sevRank = { HIGH: 0, MEDIUM: 1, LOW: 2 };
-    for (const t of (lastDq?.byType || []).filter((t) => t.OPEN + t.UNDER_REVIEW).sort((a, b) => sevRank[a.severity] - sevRank[b.severity]).slice(0, 6)) {
-      items.push({ tone: t.severity === "HIGH" ? "warn" : "info", title: t.label, detail: `${t.OPEN + t.UNDER_REVIEW} open — see Data quality.` });
+    const types = (lastDq?.byType || []).filter((t) => t.OPEN + t.UNDER_REVIEW).sort((a, b) => sevRank[a.severity] - sevRank[b.severity]);
+    if (types.length) {
+      const open = types.reduce((n, t) => n + t.OPEN + t.UNDER_REVIEW, 0);
+      const high = types.filter((t) => t.severity === "HIGH").reduce((n, t) => n + t.OPEN + t.UNDER_REVIEW, 0);
+      items.push({
+        tone: high ? "warn" : "info", page: "data-quality", go: "Review",
+        title: `${open} data quality ${open === 1 ? "issue" : "issues"} open${high ? ` · ${high} high severity` : ""}`,
+        detail: some(types.map((t) => `${t.label} (${t.OPEN + t.UNDER_REVIEW})`), 5),
+      });
     }
-    if (!koboState.configured) {
-      items.push({ tone: "info", title: "KoboToolbox not connected", detail: "Connect a KoboToolbox account to attach field surveys — see Kobo Surveys." });
+    const silent = formsCache.filter((f) => !f.archivedAt && !responsesCache.some((r) => r.formId === f.id));
+    if (silent.length) {
+      items.push({
+        tone: "warn", page: "forms", go: "Open forms",
+        title: `${silent.length} ${silent.length === 1 ? "form has" : "forms have"} no responses yet`,
+        detail: some(silent.map((f) => `“${f.title}” (sent to ${AUDIENCE_LABEL[f.audience] || f.audience})`), 3),
+      });
     }
     if (!s.school) {
       const visited = new Set((s.fieldReportsBySchool || []).map((d) => d.label));
-      for (const name of (s.schools || []).filter((n) => !visited.has(n)).slice(0, 5)) {
-        items.push({ tone: "warn", title: "No field visits recorded", detail: `${name} has no field visit on record${s.county ? " in " + esc(s.county) : ""}.` });
+      const unseen = (s.schools || []).filter((n) => !visited.has(n));
+      if (unseen.length) {
+        items.push({
+          tone: "warn", page: "field-operations", go: "Field operations",
+          title: `${unseen.length} ${unseen.length === 1 ? "school has" : "schools have"} no field visit on record${s.county ? ` in ${s.county}` : ""}`,
+          detail: some(unseen, 5),
+        });
       }
     }
-    // Details are plain text (form titles and school names come from users)
-    // — escaped here, once, so nothing in them can run as HTML.
+    if (koboKnown && !koboState.configured) {
+      items.push({ tone: "info", page: "kobo", go: "Kobo Surveys", title: "KoboToolbox not connected", detail: "Connect a KoboToolbox account to attach field surveys." });
+    }
+    items.sort((a, b) => (a.tone === "warn" ? 0 : 1) - (b.tone === "warn" ? 0 : 1));
+    const count = $("#attentionCount");
+    count.hidden = !items.length;
+    count.textContent = items.length;
+    // Titles and details are plain text (form titles and school names come
+    // from users) — escaped here, once, so nothing in them can run as HTML.
     $("#attentionList").innerHTML = items.length
-      ? items.map((it) => `<div class="alert alert-${it.tone}"><div><b>${esc(it.title)}</b>${esc(it.detail)}</div></div>`).join("")
-      : `<div class="empty-state">${emptyMsg("Nothing needs attention right now.")}</div>`;
+      ? items.map((it) => `<div class="alert alert-${it.tone} alert-act"><div><b>${esc(it.title)}</b>${esc(it.detail)}</div>${canOpen(it.page)
+        ? `<a class="btn btn-outline q-small" href="#${it.page}">${esc(it.go)}<span class="sr-only">: ${esc(it.title)}</span></a>` : ""}</div>`).join("")
+      : emptyMsg("") ? `<div class="empty-state">${emptyMsg("")}</div>`
+        : `<div class="alert alert-ok"><div><b>Nothing needs attention right now.</b></div></div>`;
   }
 
   /* ------------------------------------------------------------ Schools
@@ -1848,6 +1892,7 @@ async function main() {
       $("#koboFormList").innerHTML = errorState(friendlyError(err, "Couldn't load KoboToolbox settings."), renderKobo);
       return;
     }
+    koboKnown = true;
     $("#kb_url").value = koboState.baseUrl || "https://eu.kobotoolbox.org";
     $("#kb_field").value = koboState.officerField || "officer_ref";
     $("#koboFieldEcho").textContent = koboState.officerField || "officer_ref";

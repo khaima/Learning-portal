@@ -45,16 +45,18 @@
 
       <section class="dash-page" data-page="overview">
         <div class="live-row"><span id="homeLive"></span></div>
+        <!-- Read top to bottom: the school's figures (learning among them), what needs the head's
+             attention, the forms to file, then visits and resources (docs/DASHBOARD-HIERARCHY.md). -->
         <div class="stat-row" id="statRow"></div>
 
         <div class="panel">
-          <div class="panel-head"><h2>Learning activity</h2><a href="#learning">View all</a></div>
-          <div id="learningActivity"></div>
+          <div class="panel-head"><h2>Attention required</h2><span class="count-badge" id="attentionCount" hidden></span></div>
+          <div id="attentionList"></div>
         </div>
 
         <div class="panel">
-          <div class="panel-head"><h2>School reporting status</h2></div>
-          <div id="reportingStatus"></div>
+          <div class="panel-head"><h2>Education Team forms</h2><span class="chart-meta" id="reportingStatus" style="margin:0"></span></div>
+          <div id="formsList"></div>
         </div>
 
         <div class="panel">
@@ -63,18 +65,8 @@
         </div>
 
         <div class="panel">
-          <div class="panel-head"><h2>Education Team forms</h2></div>
-          <div id="formsList"></div>
-        </div>
-
-        <div class="panel">
           <div class="panel-head"><h2>Resources for school leadership</h2><a href="#resources">View all</a></div>
           <div id="leadershipResources"></div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-head"><h2>Attention required</h2></div>
-          <div id="attentionList"></div>
         </div>
       </section>
 

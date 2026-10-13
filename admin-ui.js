@@ -285,6 +285,20 @@ function overviewHtml(d, x, describe) {
   const recency = x.act === undefined ? pending("Sign-ins")
     : x.act === null ? `<p class="pov-note">Sign-ins couldn't be read just now. ${retryLink}</p>` : recencyBlock(x.act);
 
+  // The two closed sections say what's in them — and whether it's worth opening.
+  const warnText = (t) => `<b class="pov-warn-text">${t}</b>`;
+  const systems = [
+    !k.connected ? "KoboToolbox not connected" : k.failing.length ? warnText(`${plural(k.failing.length, "survey")} failing to sync`) : `KoboToolbox connected · ${plural(k.surveys, "survey")}`,
+    !n ? "notifications never run" : n.error ? warnText("notifications failed") : "notifications running",
+    d.devices.needAttention ? warnText(`${plural(d.devices.needAttention, "device")} need attention`) : `${plural(d.devices.reporting, "device")} reporting`,
+  ].join(" · ");
+  const unplaced = d.access.fieldOfficersWithoutSchools.length;
+  const accounts = [
+    `${num(a.active)} active in ${plural(roles.filter((r) => r.active).length, "role")}`,
+    a.pending ? warnText(`${num(a.pending)} waiting for approval`) : "",
+    unplaced ? warnText(`${plural(unplaced, "field officer")} without schools`) : "",
+  ].filter(Boolean).join(" · ");
+
   return `
     <div class="pov">
       <header class="pov-head">
@@ -303,6 +317,10 @@ function overviewHtml(d, x, describe) {
         </div>
       </header>
 
+      <!-- Two columns: the figures, then how busy the platform is; beside them what needs attention,
+           then what just happened. On a narrow screen: figures, attention, activity, the feed. -->
+      <div class="pov-cols">
+      <div class="pov-col">
       <section class="pov-kpis" aria-label="Key figures">
         ${kpi({ name: "users", label: "Staff accounts", value: num(a.active), href: "#users", warn: a.pending > 0,
           sub: a.pending ? `<b class="pov-warn-text">${plural(a.pending, "account")} waiting for approval</b>` : `Active · ${num(a.total)} accounts in all` })}
@@ -317,24 +335,26 @@ function overviewHtml(d, x, describe) {
         ${kpi({ name: "survey", label: "Field data counted", value: kobo.value, href: "#kobo", warn: kobo.warn, sub: kobo.sub, viz: kobo.viz })}
       </section>
 
-      <div class="pov-grid">
         <section class="pov-panel pov-activity" aria-labelledby="pov-activity-title">
           <div class="pov-panel-head"><h3 id="pov-activity-title">Platform activity</h3><a href="#audit">Audit log</a></div>
           <div>${activity}</div>
           <h4 class="pov-subhead">Who's signing in</h4>
           <div>${recency}</div>
         </section>
-        <section class="pov-panel pov-attention" aria-labelledby="pov-attention-title">${attentionPanel(d.checks)}</section>
       </div>
-
-      <div class="pov-grid">
-        <section class="pov-panel" aria-labelledby="pov-recent-title">
+      <div class="pov-col">
+        <section class="pov-panel pov-attention" aria-labelledby="pov-attention-title">${attentionPanel(d.checks)}</section>
+        <section class="pov-panel pov-recent" aria-labelledby="pov-recent-title">
           <div class="pov-panel-head"><h3 id="pov-recent-title">Recent activity</h3>
             <span class="pov-head-links"><a href="#audit?kind=security">Security events</a><a href="#audit">All</a></span></div>
           <div>${recent}</div>
         </section>
-        <section class="pov-panel pov-quiet" aria-labelledby="pov-systems-title">
-          <div class="pov-panel-head"><h3 id="pov-systems-title">Integrations</h3><a href="#kobo">KoboToolbox</a></div>
+      </div>
+      </div>
+
+      <details class="more-detail" data-more="pov-systems">
+        <summary><b>Integrations</b><span>${systems}</span></summary>
+        <div class="more-body">
           <dl class="pov-facts">
             <div><dt>${icon("survey")}KoboToolbox</dt><dd>${k.connected
               ? `Connected to ${esc(String(k.server || "").replace(/^https?:\/\//, ""))} · ${plural(k.surveys, "survey")} · synced ${agoTag(k.lastSync, since(k.lastSync))}`
@@ -344,11 +364,13 @@ function overviewHtml(d, x, describe) {
             <div><dt>${icon("sync")}Field devices</dt><dd>${d.devices.reporting ? `${plural(d.devices.reporting, "device")} reporting${d.devices.needAttention ? ` · <b class="pov-warn-text">${num(d.devices.needAttention)} need attention</b>` : " · all fine"}` : "No device has reported yet"}</dd></div>
             <div><dt>${icon("shield")}Access exceptions</dt><dd>${plural(d.access.grants, "extra permission")} granted · ${plural(d.access.scopedStaff, "person", "people")} with a narrowed scope · <a href="#permissions">Permissions</a></dd></div>
           </dl>
-        </section>
-      </div>
+          <p class="pov-note"><a href="#kobo">Open KoboToolbox</a></p>
+        </div>
+      </details>
 
-      <section class="pov-support" aria-labelledby="pov-roles-title">
-        <div class="pov-panel-head"><h3 id="pov-roles-title">Accounts by role</h3><a href="#users">Users &amp; roles</a></div>
+      <details class="more-detail" data-more="pov-roles">
+        <summary><b id="pov-roles-title">Accounts by role</b><span>${accounts}</span></summary>
+        <div class="more-body">
         <div class="lms-table-wrap" tabindex="0" role="region" aria-labelledby="pov-roles-title">
           <table class="lms-table pov-roles"><thead><tr><th class="lms-name">Role</th><th>Active</th><th>Waiting</th><th>Suspended</th><th>Deactivated</th><th>Not approved</th></tr></thead>
           <tbody>${roles.map((r) => `<tr><td class="lms-name">${esc(r.label)}</td>${[r.active, r.pending, r.suspended, r.deactivated, r.rejected]
@@ -358,7 +380,9 @@ function overviewHtml(d, x, describe) {
           <h4 class="pov-subhead">Field officers without assigned schools</h4>
           <p class="pov-note">They can't file visits until they're given a county or schools — open them on <a href="#users">Users &amp; roles</a>, then <b>View</b>.</p>
           <ul class="pov-plain">${d.access.fieldOfficersWithoutSchools.map((p) => `<li><b>${esc(p.name)}</b> · profile county: ${esc(p.county || "none")}</li>`).join("")}</ul>` : ""}
-      </section>
+        <p class="pov-note"><a href="#users">Open Users &amp; roles</a></p>
+        </div>
+      </details>
     </div>`;
 }
 
@@ -367,7 +391,7 @@ const overviewSkeleton = () => `
   <div class="pov" aria-hidden="true">
     <div class="pov-kpis">${`<div class="pov-kpi"><span class="skeleton-block pov-skel-line" style="width:55%"></span>
       <span class="skeleton-block pov-skel"></span><span class="skeleton-block pov-skel-line" style="width:80%"></span></div>`.repeat(6)}</div>
-    <div class="pov-grid"><div class="pov-panel">${skeleton(4, { avatar: false })}</div><div class="pov-panel">${skeleton(4, { avatar: false })}</div></div>
+    <div class="pov-panel">${skeleton(4, { avatar: false })}</div>
   </div><span class="sr-only" role="status">Loading the platform overview</span>`;
 
 const OVERVIEW_EVERY_MS = 5 * 60_000; // as often as the menu's badges and the notifications
@@ -453,7 +477,7 @@ export function renderAdminOverview(el) {
     return `
       <div class="panel-head" style="margin-bottom:.6rem"><h2 style="margin:0">Administration overview</h2>
         <span class="live-head"><span class="chart-meta" style="margin:0">${esc(d.scope.label)}${d.currentTerm ? ` · ${esc(String(d.currentTerm).replace(/^(\d{4})-T(\d)$/, "$1 Term $2"))}` : ""}</span><span data-live-host></span></span></div>
-      <div class="stat-row">
+      <div class="stat-row exec-row">
         ${tile("Schools", o.schools, `${o.counties} counties · ${o.classes} classes this year`, "#schools")}
         ${tile("Teachers", p.teachers, `${p.heads} school heads`, "#teachers")}
         ${tile("Learners", p.learners, p.learnersWithoutClass ? `${p.learnersWithoutClass} not in a class` : "All in a class", "#learners")}
@@ -462,7 +486,7 @@ export function renderAdminOverview(el) {
         ${tile("Open forms", ops.openForms, "", "#forms")}
       </div>
       <div class="panel">
-        <div class="panel-head"><h2>Needs attention</h2></div>
+        <div class="panel-head"><h2>Needs attention</h2>${attention.length ? `<span class="count-badge">${attention.length}</span>` : ""}</div>
         ${attention.length ? `<div>${attention.map(([t, link]) => `<div class="task-row" data-key="${esc(link)}"><div style="flex:1"><b>${esc(t)}</b></div>
           <div class="roster-actions"><a class="intel-link" href="${esc(link)}">Open</a></div></div>`).join("")}</div>`
           : `<div class="empty-state">Nothing needs attention right now.</div>`}

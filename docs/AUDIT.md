@@ -725,3 +725,57 @@ No data, link, button or behaviour changed.
 - **Still open from the audit:** P2-12, the scrolling tables that can't be
   reached by keyboard.
 
+### 13 October — information hierarchy of the dashboards
+
+Every dashboard component was classed as primary, secondary or detail and
+the pages re-ordered to match. The classification, page by page, is in
+`docs/DASHBOARD-HIERARCHY.md`. Layout and wording only: the API, the
+database, sign-in, routes and every figure, link and button are as they
+were.
+
+- **Executive overview:**
+  - one row of six figures (there were ten tiles in two rows);
+  - "Needs attention" straight under them (it was last, a screen and a
+    half down);
+  - the four demoted figures sit once, in their programme-area card;
+  - the areas sit three to a row under their own heading.
+- **Needs attention (executive overview and school head):**
+  - one line per kind of problem, with how many and which ones, instead of
+    one line per school, form or check (up to 17 lines became at most 4);
+  - the pressing ones first, a count beside the heading, and a link to
+    where each is dealt with;
+  - "KoboToolbox not connected" shows only once the settings have been
+    read; a failed read of the statistics says so instead of "Loading…".
+- **Programme dashboards (Reach, Learning, Teacher development, Field
+  operations, Digital resources):**
+  - figures, then the M&E indicators tagged for the page, then the main
+    charts;
+  - long tables and narrower breakdowns are under "More detail", which
+    says what's inside and stays open once opened;
+  - three summary cards that repeated a tile are gone; what only they
+    showed is on the tile or the neighbouring chart;
+  - each page's paragraph of explanation is under "About this page".
+- **Platform overview:** the figures and "Needs attention" side by side, so
+  every failing check is on the first screen; Integrations and Accounts by
+  role are closed sections with a one-line status.
+- **Administration overview:** the six figures in one row; a count on
+  "Needs attention".
+- **School head:** learning figures join the top row; "Attention required"
+  is second instead of last; the reporting status sits beside the forms it
+  describes.
+- **Teacher:** resources are one panel instead of three; the home page
+  lists six learners, with the rest a search away; no search box over an
+  empty marking list.
+- **Learner:** "Assignments to do" comes before progress.
+- **Page top:** the sync status stays beside the greeting instead of
+  dropping under a long line.
+- **Checked:**
+  - first screens and full pages before and after, laptop and phone, light
+    and dark;
+  - most pages are a tenth to a third shorter (Field operations 2,112 px
+    to 1,365; Learning 1,758 to 1,200; Platform overview 1,961 to 1,463);
+  - refresh-in-place still updates only what changed, with "More detail"
+    open or closed;
+  - axe-core: no WCAG 2.1 AA violations on 15 page states, including dark
+    mode, phone width and every closed section opened.
+

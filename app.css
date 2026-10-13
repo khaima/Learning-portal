@@ -1437,17 +1437,29 @@ a.pov-kpi:focus-visible{ outline:3px solid var(--focus); outline-offset:2px; }
 .pov-spark-line{ fill:none; stroke:var(--brand); stroke-width:2; stroke-linejoin:round; vector-effect:non-scaling-stroke; }
 .pov-spark-fill{ fill:var(--brand-soft); stroke:none; }
 
-.pov-grid{ display:grid; grid-template-columns:minmax(0,1.45fr) minmax(0,1fr); gap:1.25rem; align-items:start; }
-@media (max-width:1100px){ .pov-grid{ grid-template-columns:minmax(0,1fr); } .pov-attention{ order:-1; } }
+/* Two columns: the figures and how busy the platform is; beside them what
+   needs attention and what just happened. In one column the two are
+   interleaved — figures, attention, activity, the feed — by `order`. */
+.pov-cols{ display:grid; grid-template-columns:minmax(0,1.5fr) minmax(0,1fr); gap:1.25rem; align-items:start; }
+.pov-col{ display:flex; flex-direction:column; gap:1.25rem; min-width:0; }
+@media (max-width:1100px){
+  .pov-cols{ display:flex; flex-direction:column; }
+  .pov-col{ display:contents; }
+  .pov-kpis{ order:1; } .pov-attention{ order:2; } .pov-activity{ order:3; } .pov-recent{ order:4; }
+}
 /* Where container queries work, the layout follows the space the page has
    (the sidebar and the content's maximum width change it), not the screen. */
 @container pov (max-width:560px){ .pov-kpis{ grid-template-columns:repeat(2,minmax(0,1fr)); gap:.6rem; } }
-@container pov (min-width:561px) and (max-width:1299px){ .pov-kpis{ grid-template-columns:repeat(3,minmax(0,1fr)); gap:.9rem; } }
-@container pov (min-width:1300px){ .pov-kpis{ grid-template-columns:repeat(6,minmax(0,1fr)); } }
-@container pov (max-width:879px){ .pov-grid{ grid-template-columns:minmax(0,1fr); } .pov-attention{ order:-1; } }
-@container pov (min-width:880px){ .pov-grid{ grid-template-columns:minmax(0,1.45fr) minmax(0,1fr); } .pov-attention{ order:0; } }
+@container pov (max-width:879px){
+  .pov-cols{ display:flex; flex-direction:column; }
+  .pov-col{ display:contents; }
+  .pov-kpis{ order:1; } .pov-attention{ order:2; } .pov-activity{ order:3; } .pov-recent{ order:4; }
+}
+@container pov (min-width:880px){
+  .pov-cols{ display:grid; }
+  .pov-col{ display:flex; }
+}
 .pov-panel{ min-width:0; padding:1.25rem 1.35rem; background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius-lg); box-shadow:var(--shadow); }
-.pov-quiet{ background:transparent; box-shadow:none; }
 .pov-lead{ margin:-.45rem 0 .8rem; }
 .pov-panel-head{ display:flex; align-items:center; justify-content:space-between; gap:.75rem; margin-bottom:.95rem; }
 .pov-panel-head h3{ margin:0; font-size:1.02rem; }
@@ -1519,7 +1531,6 @@ a.pov-kpi:focus-visible{ outline:3px solid var(--focus); outline-offset:2px; }
 .pov-facts dt .icon{ width:1rem; height:1rem; color:var(--brand-fg); flex:none; }
 .pov-facts dd{ margin:0; color:var(--ink-soft); overflow-wrap:anywhere; }
 @media (max-width:520px){ .pov-facts > div{ grid-template-columns:minmax(0,1fr); } .pov-head-links{ gap:.75rem; } }
-.pov-support{ padding-top:.2rem; }
 .pov-roles td:not(.lms-name), .pov-roles th:not(.lms-name){ text-align:right; font-variant-numeric:tabular-nums; }
 .pov-zero{ color:var(--ink-soft); }
 .pov-plain{ list-style:none; margin:.5rem 0 0; padding:0; font-size:.82rem; }
@@ -1597,3 +1608,71 @@ h2,h3{ font-family:inherit; letter-spacing:-.01em; }
 /* A month with nothing is a tick on the baseline, not a bar. */
 .col-bar[style="height:0%"]{ background:var(--line); }
 .chart-empty{ padding:1.2rem .5rem; text-align:center; }
+
+/* ---------------------------------------------------------------- Dashboards: what's read first
+   Every dashboard is laid out in three levels (docs/DASHBOARD-HIERARCHY.md):
+   the key figures and what needs doing; then the few charts and lists that
+   explain them; then the detail — long tables, narrower breakdowns, a page's
+   own explanation — one click away, closed until it's wanted. */
+
+/* The greeting keeps to its side, so the sync status sits beside it, not under it. */
+.app-top > div:first-child{ flex:1 1 18rem; min-width:0; }
+
+/* Something closed until it's wanted: a quiet line with a chevron. */
+.more-detail > summary,.page-about > summary{ cursor:pointer; list-style:none; }
+.more-detail > summary::-webkit-details-marker,.page-about > summary::-webkit-details-marker{ display:none; }
+.more-detail > summary::before,.page-about > summary::before{
+  content:""; flex:none; align-self:center; width:.42rem; height:.42rem; margin:0 .2rem 0 .1rem;
+  border-right:2px solid currentColor; border-bottom:2px solid currentColor; transform:rotate(-45deg); transition:transform .15s ease;
+}
+.more-detail[open] > summary::before,.page-about[open] > summary::before{ transform:rotate(45deg); }
+.more-detail > summary:focus-visible,.page-about > summary:focus-visible{ outline:3px solid var(--focus); outline-offset:3px; border-radius:6px; }
+@media (prefers-reduced-motion: reduce){ .more-detail > summary::before,.page-about > summary::before{ transition:none; } }
+
+/* "More detail" at the foot of a dashboard — it says what's inside. */
+.more-detail{ margin-top:1.15rem; border-top:1px solid var(--line); }
+.more-detail > summary{ display:flex; align-items:baseline; flex-wrap:wrap; gap:.15rem .55rem; padding:.85rem 0 .1rem; font-size:.86rem; color:var(--brand-fg); }
+.more-detail > summary > b{ font-weight:600; }
+.more-detail > summary > span{ color:var(--ink-soft); font-size:.8rem; }
+.more-detail > summary:hover > b{ text-decoration:underline; text-underline-offset:3px; }
+.more-detail > .chart-grid,.more-detail > .more-body{ margin-top:.9rem; }
+.mel-foot{ margin-top:1rem; }
+.field-hint + .more-detail{ margin-top:.9rem; }
+
+/* What a page shows, for whoever is new to it. */
+.page-about{ margin:-.5rem 0 .9rem; font-size:.8rem; }
+.page-about > summary{ display:inline-flex; align-items:center; gap:.2rem; font-weight:600; color:var(--ink-soft); }
+.page-about > summary:hover{ color:var(--brand-fg); }
+.page-about .hint{ margin:.5rem 0 0; }
+
+/* How many things need attention, beside the heading. */
+.count-badge{ display:inline-grid; place-items:center; min-width:1.65rem; height:1.65rem; padding:0 .45rem; border-radius:99px; font-size:.8rem; font-weight:700; background:var(--accent-soft); color:var(--accent-fg); }
+/* A message with the place to deal with it. */
+.alert-act{ align-items:center; }
+.alert-act > div{ flex:1; min-width:0; overflow-wrap:anywhere; }
+.alert-act > .btn{ flex:none; }
+@media (max-width:560px){ .alert-act{ flex-wrap:wrap; } .alert-act > div{ flex-basis:100%; } }
+
+/* The executive overview: five or six figures in one row, then the areas three to a row. */
+@media (min-width:1280px){ .exec-row:not(:has(> :nth-child(6))){ grid-template-columns:repeat(5,minmax(0,1fr)); } }
+.section-head{ margin:1.7rem 0 .8rem; }
+.intel-areas{ grid-template-columns:repeat(auto-fill,minmax(min(100%,17rem),1fr)); }
+/* Four charts sit two and two, not three and one. */
+.chart-pairs > *{ flex-basis:max(260px,calc(50% - .5rem)); }
+
+/* The platform overview's key figures: three to a row from a tablet up (two on a phone). */
+@container pov (min-width:561px){ .pov-kpis{ grid-template-columns:repeat(3,minmax(0,1fr)); gap:.9rem; } }
+@container pov (min-width:880px){
+  .pov-kpi{ padding:.85rem .9rem .9rem; }
+  .pov-kpi-value{ font-size:1.85rem; }
+}
+/* Its two closed sections, one under the other at the foot. */
+.pov .more-detail{ margin-top:0; }
+.pov .more-detail + .more-detail{ margin-top:-1.4rem; }
+.pov .more-detail:last-child{ border-bottom:1px solid var(--line); }
+.pov .more-detail > summary{ padding:.8rem 0; }
+.pov .more-detail > .more-body{ margin:.1rem 0 1.1rem; }
+
+/* A role's home page: two short lists under one heading. */
+.panel .chart-subhead + div > .empty-state{ padding:.4rem 0 .3rem; text-align:left; }
+.panel > .more-detail > .more-body > .field-hint{ margin-top:.7rem; }

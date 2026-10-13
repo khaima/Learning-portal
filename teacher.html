@@ -59,29 +59,30 @@
         </div>
 
         <div class="panel">
-          <div class="panel-head"><h2>Learner activity</h2><a href="#my-learners">Manage learners</a></div>
-          <div class="panel-search"><input type="search" id="learnerActivitySearch" placeholder="Search learners…"></div>
-          <div id="learnerActivityList"></div>
-        </div>
-
-        <div class="panel">
           <div class="panel-head"><h2>Recently marked</h2><a href="#results">All results</a></div>
           <div id="homeResultList"></div>
         </div>
 
         <div class="panel">
-          <div class="panel-head"><h2>Teacher resources</h2><a href="#resources">View all</a></div>
+          <div class="panel-head"><h2>Learner activity</h2><a href="#my-learners">Manage learners</a></div>
+          <div class="panel-search"><input type="search" id="learnerActivitySearch" placeholder="Search learners…"></div>
+          <div id="learnerActivityList"></div>
+        </div>
+
+        <!-- The two shelves under one heading (both open the same page); the teacher's own reading is a click away. -->
+        <div class="panel">
+          <div class="panel-head"><h2>Learning resources</h2><a href="#resources">View all</a></div>
+          <h3 class="chart-subhead">Teacher resources</h3>
           <div id="homeTeacherResources"></div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-head"><h2>Digital Library</h2><a href="#resources">View all</a></div>
+          <h3 class="chart-subhead">Digital Library</h3>
           <div id="homeLibrary"></div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-head"><h2>My learning activity</h2><a href="#activity">Full activity</a></div>
-          <div id="homeUsageSummary"></div>
+          <details class="more-detail">
+            <summary><b>My learning activity</b><span>Time spent, resources opened, badges earned</span></summary>
+            <div class="more-body">
+              <div id="homeUsageSummary"></div>
+              <p class="field-hint"><a href="#activity">Full activity</a></p>
+            </div>
+          </details>
         </div>
       </section>
 

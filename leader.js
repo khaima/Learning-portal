@@ -27,6 +27,8 @@ const ICON = {
   learners: '<path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/>',
   teachers: '<path d="M4 19V6a2 2 0 0 1 2-2h13v14H6a2 2 0 0 0-2 2Zm0 0a2 2 0 0 0 2 2h13"/><path d="M9 8h7M9 11h7"/>',
   grades: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/>',
+  handedIn: '<path d="M4 19V5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M9 13l2 2 4-4"/>',
+  marks: '<path d="M12 20V10M18 20V4M6 20v-6"/>',
 };
 const svg = (paths) => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${paths}</svg>`;
 
@@ -69,24 +71,18 @@ async function main() {
   let formsCache = [];
   let responsesCache = [];
 
+  /* The school at a glance: who's in it, and how learning is going.
+     Completion (work handed in) and achievement (marks on marked work) sit
+     side by side and are never combined; each opens the Learning page. */
   function renderKpis() {
+    const { assignmentsTotal: total, assignmentsDone: done, achievement } = overview;
     $("#statRow").innerHTML = `
       <div class="stat-tile"><div class="s-label">${svg(ICON.learners)}Learners</div><div class="s-num">${overview.learnerCount}</div><div class="s-sub">enrolled</div></div>
       <div class="stat-tile"><div class="s-label">${svg(ICON.teachers)}Teachers</div><div class="s-num">${overview.teacherCount}</div><div class="s-sub">on staff</div></div>
       <div class="stat-tile"><div class="s-label">${svg(ICON.grades)}Grades running</div><div class="s-num">${overview.gradeBreakdown.length}</div><div class="s-sub">this term</div></div>
+      <a class="stat-tile stat-link" href="#learning"><div class="s-label">${svg(ICON.handedIn)}Work handed in</div><div class="s-num">${total ? `${Math.round((done / total) * 100)}%` : "—"}</div><div class="s-sub">${total ? `${done} of ${total} pieces of work` : "no assignments set yet"}</div></a>
+      <a class="stat-tile stat-link" href="#learning"><div class="s-label">${svg(ICON.marks)}Average mark</div><div class="s-num">${achievement?.averagePercent != null ? `${Math.round(achievement.averagePercent)}%` : "—"}</div><div class="s-sub">${achievement?.marked ? `${achievement.marked} marked${achievement.band ? ` · ${esc(achievement.band)}` : ""}` : "nothing marked yet"}</div></a>
     `;
-  }
-
-  /* Completion (work handed in) and achievement (marks on marked work),
-     side by side and never combined. */
-  function renderLearningActivity() {
-    const { assignmentsTotal: total, assignmentsDone: done, achievement } = overview;
-    $("#learningActivity").innerHTML = total
-      ? `<div class="chart-stats" style="grid-template-columns:repeat(2,1fr)">
-           <div><b>${Math.round((done / total) * 100)}%</b><span>Work handed in (${done}/${total})</span></div>
-           <div><b>${achievement?.averagePercent != null ? Math.round(achievement.averagePercent) + "%" : "—"}</b><span>${achievement?.marked ? `Average mark, ${achievement.marked} marked${achievement.band ? ` · ${esc(achievement.band)}` : ""}` : "Average mark — nothing marked yet"}</span></div>
-         </div>`
-      : `<div class="empty-state">No assignments set yet.</div>`;
   }
 
   function gradeRow({ grade, learners, assignmentsTotal, assignmentsDone, marked, averagePercent, band }, withWork) {
@@ -136,41 +132,58 @@ async function main() {
       : `<div class="empty-state">No field visits recorded yet.</div>`;
   }
 
+  /* School reporting status: how many of the Education Team's forms the
+     school has filed — beside the heading of the forms themselves. (With no
+     forms there's nothing to report; the list below says so, once.) */
   function renderReportingStatus() {
     const el = $("#reportingStatus");
     const total = formsCache.length;
     if (!total) {
-      el.innerHTML = `<div class="empty-state">No forms from the Education Team yet.</div>`;
+      el.innerHTML = "";
       return;
     }
     const answeredIds = new Set(responsesCache.filter((r) => r.respondentId === user.id).map((r) => r.formId));
     const pending = formsCache.filter((f) => !answeredIds.has(f.id));
-    el.innerHTML = pending.length
-      ? `<div class="alert alert-warn"><div><b>${pending.length} form${pending.length === 1 ? "" : "s"} awaiting response</b>${total - pending.length} of ${total} filed so far.</div></div>`
-      : `<div class="alert alert-ok"><div><b>All caught up</b>${total} of ${total} form${total === 1 ? "" : "s"} from the Education Team ${total === 1 ? "is" : "are"} filed.</div></div>`;
+    el.innerHTML = `<span class="sr-only">School reporting status: </span>${pending.length
+      ? `<span class="pill warm">${pending.length} awaiting response</span> ${total - pending.length} of ${total} filed so far`
+      : `<span class="pill ok">All caught up</span> ${total} of ${total} filed`}`;
   }
 
   /* Plain-language, real signals only — no manufactured "tasks." Each item
      here is derived straight from data already on the page, so nothing
-     shows up here that isn't also visible (and explainable) elsewhere. */
+     shows up here that isn't also visible (and explainable) elsewhere.
+     One line per kind of thing, the pressing ones first, straight under
+     the school's figures. */
   function renderAttention() {
     const items = [];
     const answeredIds = new Set(responsesCache.filter((r) => r.respondentId === user.id).map((r) => r.formId));
-    for (const f of formsCache.filter((f) => !answeredIds.has(f.id))) {
-      items.push({ tone: "warn", title: "Form awaiting response", detail: `"${f.title}" from the Education Team hasn't been filled in yet.` });
+    const waiting = formsCache.filter((f) => !answeredIds.has(f.id));
+    if (waiting.length) {
+      const names = waiting.slice(0, 3).map((f) => `“${f.title}”`).join(", ") + (waiting.length > 3 ? ` and ${waiting.length - 3} more` : "");
+      items.push({
+        tone: "warn", title: `${waiting.length} ${waiting.length === 1 ? "form" : "forms"} awaiting response`,
+        detail: `${names} from the Education Team ${waiting.length === 1 ? "hasn't" : "haven't"} been filled in yet — ${waiting.length === 1 ? "it's" : "they're"} just below.`,
+      });
     }
-    if (overview.assignmentsTotal > 0) {
-      const rate = overview.assignmentsDone / overview.assignmentsTotal;
-      if (rate < 0.5) {
-        items.push({ tone: "warn", title: "Work not being handed in", detail: `Only ${Math.round(rate * 100)}% of the work set across the school has been handed in so far.` });
+    // Only from figures that were actually read: a failed read isn't "no visits".
+    if (!overviewFailed) {
+      if (overview.assignmentsTotal > 0) {
+        const rate = overview.assignmentsDone / overview.assignmentsTotal;
+        if (rate < 0.5) {
+          items.push({ tone: "warn", href: "#learning", go: "View learning", title: "Work not being handed in", detail: `Only ${Math.round(rate * 100)}% of the work set across the school has been handed in so far.` });
+        }
+      }
+      if (!overview.visitedThisTerm) {
+        items.push({ tone: "info", title: "Outstanding school task", detail: "No field visit has been recorded for the school this term." });
       }
     }
-    if (!overview.visitedThisTerm) {
-      items.push({ tone: "info", title: "Outstanding school task", detail: "No field visit has been recorded for the school this term." });
-    }
+    const count = $("#attentionCount");
+    count.hidden = !items.length;
+    count.textContent = items.length;
     $("#attentionList").innerHTML = items.length
-      ? items.map((it) => `<div class="alert alert-${it.tone}"><div><b>${esc(it.title)}</b>${esc(it.detail)}</div></div>`).join("")
-      : `<div class="empty-state">Nothing needs your attention right now.</div>`;
+      ? items.map((it) => `<div class="alert alert-${it.tone} alert-act"><div><b>${esc(it.title)}</b>${esc(it.detail)}</div>${it.href
+        ? `<a class="btn btn-outline q-small" href="${it.href}">${esc(it.go)}</a>` : ""}</div>`).join("")
+      : `<div class="alert alert-ok"><div><b>Nothing needs your attention right now.</b></div></div>`;
   }
 
   // Every panel below reads from the one `overview` object, so a single
@@ -180,7 +193,7 @@ async function main() {
   // overview-driven panel with the same error+retry when that happens;
   // reporting status/attention (forms-derived) still render normally.
   let overviewFailed = false;
-  const OVERVIEW_TARGETS = ["#statRow", "#learningActivity", "#learningByGrade", "#learnersByGrade", "#teacherStatRow", "#teacherTypeList", "#visitSummary", "#visitList"];
+  const OVERVIEW_TARGETS = ["#statRow", "#learningByGrade", "#learnersByGrade", "#teacherStatRow", "#teacherTypeList", "#visitSummary", "#visitList"];
 
   function renderAllOverview() {
     if (overviewFailed) {
@@ -188,7 +201,6 @@ async function main() {
       OVERVIEW_TARGETS.forEach((sel) => { const el = $(sel); if (el) el.innerHTML = msg; });
     } else {
       renderKpis();
-      renderLearningActivity();
       renderLearningByGrade();
       renderLearnersByGrade();
       renderTeachers();
@@ -198,7 +210,6 @@ async function main() {
     renderAttention();
   }
   OVERVIEW_TARGETS.forEach((sel) => { const el = $(sel); if (el) el.innerHTML = skeleton(3); });
-  $("#reportingStatus").innerHTML = skeleton(1, { avatar: false });
   $("#attentionList").innerHTML = skeleton(2, { avatar: false });
 
   /* When the school's figures were read — or that they're the copy saved on
