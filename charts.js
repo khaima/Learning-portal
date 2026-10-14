@@ -222,7 +222,10 @@ export function trendOrBars(points, opts = {}) {
 
 const CAT = ["var(--cat-1)", "var(--cat-2)", "var(--cat-3)", "var(--cat-4)"];
 
-function keyList(parts, total, { colours, noun }) {
+function keyList(parts, total, { colours, noun, compact = false }) {
+  if (compact) {
+    return `<ul class="chart-key">${parts.map((p, i) => `<li${tip(p.label, [[num(p.value), noun], [`${share(p.value, total)}%`, `of ${num(total)}`]])}><i style="background:${p.colour || colours[i]}"></i>${esc(p.label)} <b>${num(p.value)}</b></li>`).join("")}</ul>`;
+  }
   return `<ul class="chart-key chart-key-rows">${parts.map((p, i) => `
     <li${tip(p.label, [[num(p.value), noun], [`${share(p.value, total)}%`, `of ${num(total)}`]])}><i style="background:${p.colour || colours[i]}"></i><span>${esc(p.label)}</span><b>${num(p.value)}</b><small>${share(p.value, total)}%</small></li>`).join("")}</ul>`;
 }
@@ -273,8 +276,9 @@ export function proportion(parts, { noun = "", empty, sort = true, zeros = "" } 
 /** One bar split into the parts of a whole that come in an order — bands,
     how recently, better/same/worse. Each part carries its own colour
     (`colour`, a CSS value) because here colour is the scale.
-      parts  [{ label, short?, value, colour }] */
-export function stackBar(parts, { noun = "", empty = "Nothing recorded yet.", title = "" } = {}) {
+      parts    [{ label, short?, value, colour }]
+      compact  the key on one wrapping line, without shares (a summary card) */
+export function stackBar(parts, { noun = "", empty = "Nothing recorded yet.", title = "", compact = false } = {}) {
   const list = parts || [];
   const total = list.reduce((t, p) => t + (p.value || 0), 0);
   if (!total) return none(empty);
@@ -282,7 +286,7 @@ export function stackBar(parts, { noun = "", empty = "Nothing recorded yet.", ti
   // No figures inside the bar: on a narrow part they'd be clipped, and the key beneath has every one.
   return `<div class="stack" role="img" aria-label="${esc(`${title ? `${title} — ` : ""}${said}`)}">${list.filter((p) => p.value > 0).map((p) =>
     `<span style="flex:${p.value};background:${p.colour}"${tip(p.label, [[num(p.value), noun], [`${share(p.value, total)}%`, `of ${num(total)}`]])}></span>`).join("")}</div>
-  ${keyList(list.map((p) => ({ ...p, label: p.short ? `${p.short} — ${p.label}` : p.label })), total, { colours: [], noun })}`;
+  ${keyList(list.map((p) => ({ ...p, label: p.short ? `${p.short} — ${p.label}` : p.label })), total, { colours: [], noun, compact })}`;
 }
 
 /* ------------------------------------------------------------ tooltips

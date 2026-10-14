@@ -72,7 +72,10 @@ function liveLoad(el, path, render, { every = 0 } = {}) {
 }
 
 /* ------------------------------------------------------------------ Platform overview (Super Admin)
-   Is the platform healthy, in use, and is anything waiting on someone?
+   The command centre: is the platform healthy, is it in use, is the data
+   coming in, is the system working — and is anything waiting on someone?
+   A summary of each with a link to where the detail lives, never the full
+   lists (those have their own pages).
    Everything here comes from existing API replies: /platform/overview
    first (the page draws as soon as it arrives), then — filling in as they
    come — the data-quality score history, the audit log (activity per day,
@@ -146,7 +149,7 @@ function activityChart(series) {
   const short = (d) => d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
   const full = (d) => d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
   return lineChart(series.map((s, i) => ({ label: i === last ? "Today" : short(s.day), full: i === last ? `Today, ${full(s.day)}` : full(s.day), value: s.n })), {
-    noun: "changes", height: 120, title: "Changes recorded per day",
+    noun: "changes", height: 100, title: "Changes recorded per day",
     band: { from: week, label: "Last 7 days" }, ticks: [0, week, last],
   });
 }
@@ -167,41 +170,46 @@ function recencyBlock(act) {
   const now = Date.now();
   const groups = RECENCY.map(([label, test, colour]) => ({ label, colour,
     value: staff.filter((s) => test(s.lastSignInAt ? now - new Date(s.lastSignInAt).getTime() : null)).length }));
-  const L = act.learners || {};
-  return `
-    <p class="pov-note pov-lead">The ${plural(staff.length, "active staff account")}, by when each last signed in.</p>
-    ${stackBar(groups, { noun: "staff", title: "Active staff by last sign-in", empty: "No active staff accounts." })}
-    <p class="pov-note">Learners: <b>${num(L.signedIn7d)}</b> of ${plural(L.enrolled, "enrolled learner")} signed in this week${L.lockedNow ? ` · <b>${num(L.lockedNow)}</b> locked out now` : ""}.</p>`;
+  return stackBar(groups, { noun: "staff", title: `The ${plural(staff.length, "active staff account")} by when each last signed in`, empty: "No active staff accounts.", compact: true });
 }
 
-/** A key figure: label and icon, the number, then (each optional) the
-    change since last time, a line of context, and a small chart. */
-function kpi({ id, name, label, value, unit = "", trend = "", sub = "", viz = "", href = "", warn = false }) {
-  const tag = href ? `a href="${esc(href)}"` : "div";
-  return `<${tag} class="pov-kpi${warn ? " warn" : ""}"${id ? ` id="${id}"` : ""}>
-    <div class="pov-kpi-top"><span class="pov-kpi-label">${esc(label)}</span><span class="pov-kpi-icon">${icon(name)}</span></div>
-    <div class="pov-kpi-value"><span data-part="value">${value}${unit ? `<span class="pov-kpi-unit">${esc(unit)}</span>` : ""}</span><span class="pov-kpi-trend" data-part="trend">${trend}</span></div>
-    <div class="pov-kpi-sub" data-part="sub">${sub}</div>
-    <div class="pov-kpi-viz" data-part="viz">${viz}</div>
-  </${href ? "a" : "div"}>`;
-}
 const pending = (label) => `<span class="skeleton-block pov-skel" aria-hidden="true"></span><span class="sr-only">${esc(label)} loading</span>`;
 
-/** Checks that need someone, then the ones that pass (folded away). */
-function attentionPanel(checks) {
-  const failing = checks.filter((x) => !x.ok);
-  const passing = checks.filter((x) => x.ok);
+/** One figure on the command centre: the number, what it is, a line of
+    context (and a small chart), and where to see all of it. */
+function stat({ value, unit = "", label, sub = "", viz = "", href = "", go = "", warn = false }) {
+  return `<div class="cc-stat${warn ? " warn" : ""}">
+    <div class="cc-num">${value}${unit ? `<small>${esc(unit)}</small>` : ""}</div>
+    <div class="cc-text"><b>${esc(label)}</b>${sub ? `<span class="cc-sub">${sub}</span>` : ""}${viz}
+      ${href ? `<a class="cc-go" href="${esc(href)}">${esc(go)}<span aria-hidden="true"> →</span></a>` : ""}</div>
+  </div>`;
+}
+/** One part of the system: a light for its state, what it's doing, and its page. */
+function sysRow({ name, state, tone = "ok", href = "", go = "" }) {
+  const said = { ok: "Working", warn: "Needs attention", off: "Not in use" }[tone];
+  return `<div class="cc-sys ${tone}">
+    <span class="cc-light" role="img" aria-label="${said}"></span>
+    <div class="cc-text"><b>${esc(name)}</b><span class="cc-sub">${state}</span></div>
+    ${href ? `<a class="cc-go" href="${esc(href)}">${esc(go)}<span aria-hidden="true"> →</span><span class="sr-only">: ${esc(name)}</span></a>` : ""}
+  </div>`;
+}
+
+/** Things waiting on someone: the health checks that aren't met, then the
+    queues that have something in them; the passing checks folded away. */
+function actionsPanel(checks, queue) {
+  const failing = checks.filter((c) => !c.ok);
+  const passing = checks.filter((c) => c.ok);
+  const items = [...failing, ...queue];
   return `
-    <div class="pov-panel-head"><h3 id="pov-attention-title" tabindex="-1">Needs attention</h3>
-      ${failing.length ? `<span class="pov-count warn">${failing.length}</span>` : ""}</div>
-    ${failing.length ? `<p class="pov-note pov-lead">Health checks that aren't met yet:</p>` : ""}
-    ${failing.length ? `<ul class="pov-alerts">${failing.map((x) => `
+    <div class="pov-panel-head"><h3 id="pov-attention-title" tabindex="-1">${icon("alert")}Important actions</h3>
+      ${items.length ? `<span class="pov-count warn">${items.length}</span>` : ""}</div>
+    ${items.length ? `<ul class="pov-alerts">${items.map((x) => `
       <li class="pov-alert" data-key="${esc(x.label)}"><span class="pov-alert-icon" aria-hidden="true">${icon("alert")}</span>
         <div class="pov-alert-text"><b>${esc(x.label)}</b><span>${esc(x.detail)}</span></div>
         ${x.link ? `<a class="btn btn-outline pov-alert-go" href="${esc(x.link)}">Open<span class="sr-only">: ${esc(x.label)}</span></a>` : ""}
       </li>`).join("")}</ul>`
-      : `<div class="pov-allgood">${icon("check")}<div><b>Nothing needs attention.</b><span>All ${checks.length} checks pass.</span></div></div>`}
-    ${passing.length && failing.length ? `<details class="pov-passing"><summary>${icon("check")} ${plural(passing.length, "check")} passing</summary>
+      : `<div class="pov-allgood">${icon("check")}<div><b>Nothing is waiting.</b><span>All ${checks.length} health checks pass and no queue has anything in it.</span></div></div>`}
+    ${passing.length && items.length ? `<details class="pov-passing"><summary>${icon("check")} ${plural(passing.length, "health check")} passing</summary>
       <ul>${passing.map((x) => `<li data-key="${esc(x.label)}"><b>${esc(x.label)}</b><span>${esc(x.detail)}</span></li>`).join("")}</ul></details>` : ""}`;
 }
 
@@ -225,46 +233,51 @@ function recentList(entries, describe, securityIds) {
 /** The whole page from what has arrived so far. `x` holds the four later
     replies — each `undefined` while it's on its way and `null` if it
     couldn't be read — so the page can be drawn at any moment, and drawn
-    again (in place: live.js swap) as each one lands or changes. */
+    again (in place: live.js swap) as each one lands or changes.
+
+    A command centre, not another management page: the platform's state,
+    then a summary of each part — people, data, the system — with a link
+    to where the detail lives, then what is waiting on someone and what
+    changed last. Nothing here is the full list; every list has a page. */
 function overviewHtml(d, x, describe) {
   const a = d.accounts, k = d.integrations.kobo, n = d.integrations.notifications;
   const failing = d.checks.filter((c) => !c.ok).length;
   const passing = d.checks.length - failing;
-  const roles = d.accounts.byRole;
   const retryLink = `<button type="button" class="intel-link" data-pov-refresh>Try again</button>`;
   const securityIds = new Set((d.recentSecurity || []).map((e) => e.id));
+  const warnText = (t) => `<b class="pov-warn-text">${t}</b>`;
 
   // Data quality: the score's history, once it's in.
   const hist = (x.dq?.history || []).filter((h) => h.score != null);
-  const dqTrend = hist.length >= 2 ? delta(hist.at(-1).score - hist.at(-2).score, { unit: " pts" }) : "";
+  const dqTrend = hist.length >= 2 ? delta(hist.at(-1).score - hist.at(-2).score, { unit: " pts", what: "since the last scan" }) : "";
   const dqSub = d.dataQuality.score == null ? "Not scanned yet"
-    : `${dqTrend ? "vs the last scan · " : ""}${d.dataQuality.high ? `<b class="pov-warn-text">${plural(d.dataQuality.high, "high-severity issue")} open</b>` : plural(d.dataQuality.open, "open issue")}`;
+    : `${d.dataQuality.high ? warnText(plural(d.dataQuality.high, "high-severity issue") + " open") : plural(d.dataQuality.open, "open issue")}${dqTrend ? `<br>${dqTrend}` : ""}`;
 
   // Learners: who signed in this week, once it's in.
   const L = x.act?.learners;
-  const learnersSub = `${L?.enrolled != null ? `${num(L.signedIn7d)} signed in this week · ` : ""}${d.learners.lockedNow ? `<b class="pov-warn-text">${num(d.learners.lockedNow)} locked out right now</b>` : "None locked out"}`;
+  const learnersSub = `${L?.enrolled != null ? `${num(L.signedIn7d)} signed in this week · ` : ""}${d.learners.lockedNow ? warnText(`${num(d.learners.lockedNow)} locked out right now`) : "none locked out"}`;
 
-  // Kobo: counted against received.
-  let kobo = { value: "—", sub: "KoboToolbox isn't connected", viz: "", warn: false };
-  if (k.connected && x.kobo === undefined) kobo = { value: pending("Field data"), sub: "", viz: "", warn: false };
-  else if (k.connected && x.kobo === null) kobo = { value: "—", sub: "Couldn't be read just now.", viz: "", warn: false };
+  // Kobo: counted against received, and what's waiting for review.
+  let kobo = { value: "—", unit: "", sub: "KoboToolbox isn't connected", viz: "", go: "Connect KoboToolbox", warn: false, review: 0 };
+  if (k.connected && x.kobo === undefined) kobo = { ...kobo, value: pending("Field data"), sub: "", go: "View Kobo data" };
+  else if (k.connected && x.kobo === null) kobo = { ...kobo, sub: "Couldn't be read just now.", go: "View Kobo data" };
   else if (k.connected) {
     const live = (x.kobo.forms || []).filter((f) => f.active !== false);
     const got = live.reduce((t, f) => t + (f.pipeline?.received ?? 0), 0);
     const counted = live.reduce((t, f) => t + (f.pipeline?.counted ?? 0), 0);
     const review = live.reduce((t, f) => t + (f.pipeline?.needsReview ?? 0), 0);
     kobo = {
-      value: `${num(counted)}<span class="pov-kpi-unit">of ${num(got)}</span>`, warn: review > 0,
-      sub: !got ? "No submissions yet" : review ? `<b class="pov-warn-text">${plural(review, "submission")} ${review === 1 ? "needs" : "need"} review</b>` : "Nothing waiting for review",
+      value: num(counted), unit: `of ${num(got)}`, warn: review > 0, review, go: "View Kobo data",
+      sub: !got ? "No submissions yet" : review ? warnText(`${plural(review, "submission")} ${review === 1 ? "needs" : "need"} review`) : "Nothing waiting for review",
       viz: got ? meter(counted, got, `${counted} of ${got} Kobo submissions counted on the dashboards`) : "",
     };
   }
 
-  // Activity and the latest changes, from the audit log.
-  let activity = pending("Activity"), recent = pending("Recent activity");
+  // What changed: activity per day and the latest changes, from the audit log.
+  let changes = pending("Changes"), recent = "";
   if (x.audit === null) {
-    activity = `<p class="pov-note">The activity history couldn't be read just now. ${retryLink}</p>`;
-    recent = recentList(d.recentSecurity || [], describe, securityIds);
+    changes = `<p class="pov-note">The change history couldn't be read just now. ${retryLink}</p>`;
+    recent = recentList((d.recentSecurity || []).slice(0, 5), describe, securityIds);
   } else if (x.audit) {
     const entries = (x.audit.entries || []).slice().sort((p, q) => String(q.at).localeCompare(String(p.at)));
     const series = perDay(entries, 14);
@@ -272,124 +285,102 @@ function overviewHtml(d, x, describe) {
     const lastWeek = series.slice(0, 7).reduce((t, s) => t + s.n, 0);
     // 200 entries may not reach back 14 days on a busy platform: then the oldest days are incomplete.
     const partial = x.audit.nextBefore && entries.length && Date.now() - new Date(entries.at(-1).at).getTime() < 14 * DAY;
-    activity = thisWeek + lastWeek === 0
-      ? `<div class="empty-state"><b>No recent data</b><div>Nothing has been recorded in the audit log in the last 14 days.</div></div>`
+    changes = thisWeek + lastWeek === 0
+      ? `<div class="empty-state"><b>No recent changes</b><div>Nothing has been recorded in the audit log in the last 14 days.</div></div>`
       : `<div class="pov-activity-sum"><span class="pov-big">${num(thisWeek)}</span>
-          <span>${thisWeek === 1 ? "change" : "changes"} recorded in the last 7 days ${partial ? "" : delta(thisWeek - lastWeek, { what: "on the week before" })}</span></div>
-        ${activityChart(series)}
-        <p class="pov-note">Changes recorded each day — accounts, access, exports, Kobo and others — from the audit log${partial ? " (only the latest 200 — earlier days are incomplete)" : ""}.</p>`;
-    recent = recentList(entries.slice(0, 7), describe, securityIds);
+          <span>${thisWeek === 1 ? "change" : "changes"} in the last 7 days ${partial ? "" : delta(thisWeek - lastWeek, { what: "on the week before" })}</span></div>
+        ${activityChart(series)}`;
+    recent = recentList(entries.slice(0, 5), describe, securityIds);
   }
   const recency = x.act === undefined ? pending("Sign-ins")
     : x.act === null ? `<p class="pov-note">Sign-ins couldn't be read just now. ${retryLink}</p>` : recencyBlock(x.act);
 
-  // The two closed sections say what's in them — and whether it's worth opening.
-  const warnText = (t) => `<b class="pov-warn-text">${t}</b>`;
-  const systems = [
-    !k.connected ? "KoboToolbox not connected" : k.failing.length ? warnText(`${plural(k.failing.length, "survey")} failing to sync`) : `KoboToolbox connected · ${plural(k.surveys, "survey")}`,
-    !n ? "notifications never run" : n.error ? warnText("notifications failed") : "notifications running",
-    d.devices.needAttention ? warnText(`${plural(d.devices.needAttention, "device")} need attention`) : `${plural(d.devices.reporting, "device")} reporting`,
-  ].join(" · ");
-  const unplaced = d.access.fieldOfficersWithoutSchools.length;
-  const accounts = [
-    `${num(a.active)} active in ${plural(roles.filter((r) => r.active).length, "role")}`,
-    a.pending ? warnText(`${num(a.pending)} waiting for approval`) : "",
-    unplaced ? warnText(`${plural(unplaced, "field officer")} without schools`) : "",
-  ].filter(Boolean).join(" · ");
+  // Queues with something in them — waiting on a person, not on a setting.
+  const queue = [
+    kobo.review && { label: `${plural(kobo.review, "Kobo submission")} ${kobo.review === 1 ? "needs" : "need"} review`, detail: "Submissions that failed a check wait for someone to accept, correct or reject them.", link: "#kobo" },
+    d.dataQuality.high && { label: `${plural(d.dataQuality.high, "high-severity data issue")} open`, detail: "Found by the Data Quality Center's last scan.", link: "#data-quality" },
+    d.learners.lockedNow && { label: `${plural(d.learners.lockedNow, "learner")} locked out`, detail: "Too many wrong PINs — a teacher or an administrator can unlock them.", link: "admin.html#learners" },
+  ].filter(Boolean);
+  const waiting = failing + queue.length;
+
+  const roles = a.byRole.filter((r) => r.active).map((r) => `${esc(r.label)} <b>${num(r.active)}</b>`).join(" · ");
 
   return `
     <div class="pov">
       <header class="pov-head">
-        <div>
-          <h2 class="pov-title">Platform overview</h2>
-          <p class="pov-status ${failing ? "warn" : "ok"}">
-            <span class="pov-status-dot" aria-hidden="true"></span>
-            ${failing ? `<button type="button" class="pov-status-link" data-pov-jump><b>${plural(failing, "check needs", "checks need")} attention</b></button>`
-              : `<b>All systems normal</b>`}
-            <span class="pov-status-more">· ${plural(passing, "check")} passing</span>
-          </p>
-        </div>
-        <div class="pov-head-side">
-          ${d.platform ? `<span class="pov-meta">API ${esc(String(d.platform.release).slice(0, 7))} · ${esc(d.platform.environment)}</span>` : ""}
-          <span data-live-host></span>
-        </div>
+        <h2 class="pov-title">Platform overview</h2>
+        <span data-live-host></span>
       </header>
 
-      <!-- Two columns: the figures, then how busy the platform is; beside them what needs attention,
-           then what just happened. On a narrow screen: figures, attention, activity, the feed. -->
-      <div class="pov-cols">
-      <div class="pov-col">
-      <section class="pov-kpis" aria-label="Key figures">
-        ${kpi({ name: "users", label: "Staff accounts", value: num(a.active), href: "#users", warn: a.pending > 0,
-          sub: a.pending ? `<b class="pov-warn-text">${plural(a.pending, "account")} waiting for approval</b>` : `Active · ${num(a.total)} accounts in all` })}
-        ${kpi({ name: "activity", label: "Active this week", value: num(a.signedIn7d), href: "#account-activity",
-          sub: `${pct(a.signedIn7d, a.active)}% of active staff${a.neverSignedIn ? ` · ${num(a.neverSignedIn)} never signed in` : ""}`,
-          viz: meter(a.signedIn7d, a.active, `${a.signedIn7d} of ${a.active} active staff signed in this week`) })}
-        ${kpi({ name: "cap", label: "Learners enrolled", value: num(d.learners.enrolled), href: "admin.html#learners", warn: d.learners.lockedNow > 0,
-          sub: learnersSub, viz: L?.enrolled ? meter(L.signedIn7d, L.enrolled, `${L.signedIn7d} of ${L.enrolled} enrolled learners signed in this week`) : "" })}
-        ${kpi({ name: "school", label: "Schools", value: num(d.organisation.schools), href: "#schools", sub: `In ${plural(d.organisation.counties, "county", "counties")}` })}
-        ${kpi({ name: "check", label: "Data quality", value: d.dataQuality.score == null ? "—" : num(d.dataQuality.score), unit: d.dataQuality.score == null ? "" : "%",
-          href: "#data-quality", warn: d.dataQuality.high > 0, trend: dqTrend, sub: dqSub, viz: scoreSpark(hist) })}
-        ${kpi({ name: "survey", label: "Field data counted", value: kobo.value, href: "#kobo", warn: kobo.warn, sub: kobo.sub, viz: kobo.viz })}
+      <section class="pov-state ${failing ? "warn" : "ok"}" aria-labelledby="pov-state-title">
+        <span class="pov-state-icon" aria-hidden="true">${icon(failing ? "alert" : "check")}</span>
+        <div class="pov-state-text">
+          <h3 id="pov-state-title">${failing ? `${plural(failing, "health check needs", "health checks need")} attention` : "All systems normal"}</h3>
+          <p>${num(passing)} of ${plural(d.checks.length, "health check")} pass${queue.length ? ` · ${plural(queue.length, "queue")} waiting for someone` : ""}${d.platform
+            ? ` · API ${esc(String(d.platform.release).slice(0, 7))}, ${esc(d.platform.environment)}` : ""}</p>
+        </div>
+        ${waiting ? `<button type="button" class="btn btn-outline pov-state-go" data-pov-jump>Review ${plural(waiting, "action")}</button>` : ""}
       </section>
 
-        <section class="pov-panel pov-activity" aria-labelledby="pov-activity-title">
-          <div class="pov-panel-head"><h3 id="pov-activity-title">Platform activity</h3><a href="#audit">Audit log</a></div>
-          <div>${activity}</div>
-          <h4 class="pov-subhead">Who's signing in</h4>
-          <div>${recency}</div>
+      <div class="cc-grid">
+        <section class="pov-panel cc-users" aria-labelledby="cc-users-title">
+          <div class="pov-panel-head"><h3 id="cc-users-title">${icon("users")}User activity</h3></div>
+          ${stat({ value: num(a.active), label: "Staff accounts", warn: a.pending > 0,
+            sub: a.pending ? warnText(`${plural(a.pending, "account")} waiting for approval`) : `active · ${num(a.total)} in all`,
+            href: a.pending ? "#users?status=pending" : "#users", go: a.pending ? "Review approvals" : "View users" })}
+          ${stat({ value: num(a.signedIn7d), label: "Signed in this week",
+            sub: `${pct(a.signedIn7d, a.active)}% of active staff${a.neverSignedIn ? ` · ${num(a.neverSignedIn)} never` : ""}`,
+            viz: meter(a.signedIn7d, a.active, `${a.signedIn7d} of ${a.active} active staff signed in this week`), href: "#account-activity", go: "View account activity" })}
+          ${stat({ value: num(d.learners.enrolled), label: "Learners enrolled", warn: d.learners.lockedNow > 0, sub: learnersSub,
+            viz: L?.enrolled ? meter(L.signedIn7d, L.enrolled, `${L.signedIn7d} of ${L.enrolled} enrolled learners signed in this week`) : "",
+            href: "admin.html#learners", go: "View learners" })}
+          <div class="cc-more"><h4 class="pov-subhead">When staff last signed in</h4>${recency}</div>
+          ${roles ? `<p class="pov-note cc-roles">By role: ${roles}</p>` : ""}
+        </section>
+
+        <section class="pov-panel cc-data" aria-labelledby="cc-data-title">
+          <div class="pov-panel-head"><h3 id="cc-data-title">${icon("survey")}Data activity</h3></div>
+          ${stat({ value: kobo.value, unit: kobo.unit, label: "Field submissions counted", sub: kobo.sub, viz: kobo.viz, warn: kobo.warn, href: "#kobo", go: kobo.go })}
+          ${stat({ value: d.dataQuality.score == null ? "—" : `${num(d.dataQuality.score)}%`, label: "Data quality score",
+            warn: d.dataQuality.high > 0, sub: dqSub, viz: scoreSpark(hist), href: "#data-quality", go: "View data quality" })}
+          ${stat({ value: num(d.organisation.schools), label: "Schools", sub: `in ${plural(d.organisation.counties, "county", "counties")}`, href: "#schools", go: "View schools" })}
+        </section>
+
+        <section class="pov-panel cc-system" aria-labelledby="cc-system-title">
+          <div class="pov-panel-head"><h3 id="cc-system-title">${icon("plug")}System activity</h3></div>
+          ${sysRow({ name: "KoboToolbox sync", href: "#kobo", go: "KoboToolbox",
+            tone: !k.connected ? "off" : k.failing.length ? "warn" : "ok",
+            state: k.connected ? `Synced ${agoTag(k.lastSync, since(k.lastSync))} · ${plural(k.surveys, "survey")}${k.failing.length ? ` · ${warnText(`${plural(k.failing.length, "survey")} failing`)}` : ""}` : "Not connected" })}
+          ${sysRow({ name: "Live push from Kobo", tone: k.pushConfigured ? "ok" : "off",
+            state: k.pushConfigured ? "Set up — submissions arrive as they're sent" : "Not set up — submissions arrive with the hourly sync" })}
+          ${sysRow({ name: "Hourly notifications", href: "#notifications", go: "Notifications sent",
+            tone: !n ? "off" : n.error ? "warn" : "ok",
+            state: n ? `Ran ${agoTag(n.lastRunAt, since(n.lastRunAt))} · ${plural(n.created, "notification")} created${n.error ? ` · ${warnText("failed")}` : ""}` : "Never run" })}
+          ${sysRow({ name: "Field devices", href: "#sync-problems", go: "Device sync",
+            tone: d.devices.needAttention ? "warn" : d.devices.reporting ? "ok" : "off",
+            state: d.devices.reporting ? `${plural(d.devices.reporting, "device")} reporting${d.devices.needAttention ? ` · ${warnText(`${num(d.devices.needAttention)} need attention`)}` : " · all fine"}` : "No device has reported yet" })}
+          ${sysRow({ name: "Access exceptions", href: "#permissions", go: "Permissions", tone: d.access.grants || d.access.scopedStaff ? "ok" : "off",
+            state: `${plural(d.access.grants, "extra permission")} · ${plural(d.access.scopedStaff, "person", "people")} with a narrowed scope` })}
+        </section>
+
+        <section class="pov-panel pov-attention cc-actions" aria-labelledby="pov-attention-title">${actionsPanel(d.checks, queue)}</section>
+
+        <section class="pov-panel cc-changes" aria-labelledby="cc-changes-title">
+          <div class="pov-panel-head"><h3 id="cc-changes-title">${icon("log")}Recent changes</h3></div>
+          <div>${changes}</div>
+          ${recent ? `<h4 class="pov-subhead">Latest</h4>${recent}` : ""}
+          <p class="cc-links"><a class="cc-go" href="#audit">View audit log<span aria-hidden="true"> →</span></a>
+            <a class="cc-go" href="#audit?kind=security">Security events<span aria-hidden="true"> →</span></a></p>
         </section>
       </div>
-      <div class="pov-col">
-        <section class="pov-panel pov-attention" aria-labelledby="pov-attention-title">${attentionPanel(d.checks)}</section>
-        <section class="pov-panel pov-recent" aria-labelledby="pov-recent-title">
-          <div class="pov-panel-head"><h3 id="pov-recent-title">Recent activity</h3>
-            <span class="pov-head-links"><a href="#audit?kind=security">Security events</a><a href="#audit">All</a></span></div>
-          <div>${recent}</div>
-        </section>
-      </div>
-      </div>
-
-      <details class="more-detail" data-more="pov-systems">
-        <summary><b>Integrations</b><span>${systems}</span></summary>
-        <div class="more-body">
-          <dl class="pov-facts">
-            <div><dt>${icon("survey")}KoboToolbox</dt><dd>${k.connected
-              ? `Connected to ${esc(String(k.server || "").replace(/^https?:\/\//, ""))} · ${plural(k.surveys, "survey")} · synced ${agoTag(k.lastSync, since(k.lastSync))}`
-              : "Not connected"}${k.failing.length ? `<br><b class="pov-warn-text">${plural(k.failing.length, "survey")} failing to sync</b>` : ""}</dd></div>
-            <div><dt>${icon("plug")}Live push from Kobo</dt><dd>${k.pushConfigured ? "Set up" : "Not set up"}</dd></div>
-            <div><dt>${icon("bell")}Hourly notifications</dt><dd>${n ? `Ran ${agoTag(n.lastRunAt, since(n.lastRunAt))} · ${plural(n.created, "notification")} created${n.error ? ` · <b class="pov-warn-text">failed</b>` : ""}` : "Never run"}</dd></div>
-            <div><dt>${icon("sync")}Field devices</dt><dd>${d.devices.reporting ? `${plural(d.devices.reporting, "device")} reporting${d.devices.needAttention ? ` · <b class="pov-warn-text">${num(d.devices.needAttention)} need attention</b>` : " · all fine"}` : "No device has reported yet"}</dd></div>
-            <div><dt>${icon("shield")}Access exceptions</dt><dd>${plural(d.access.grants, "extra permission")} granted · ${plural(d.access.scopedStaff, "person", "people")} with a narrowed scope · <a href="#permissions">Permissions</a></dd></div>
-          </dl>
-          <p class="pov-note"><a href="#kobo">Open KoboToolbox</a></p>
-        </div>
-      </details>
-
-      <details class="more-detail" data-more="pov-roles">
-        <summary><b id="pov-roles-title">Accounts by role</b><span>${accounts}</span></summary>
-        <div class="more-body">
-        <div class="lms-table-wrap" tabindex="0" role="region" aria-labelledby="pov-roles-title">
-          <table class="lms-table pov-roles"><thead><tr><th class="lms-name">Role</th><th>Active</th><th>Waiting</th><th>Suspended</th><th>Deactivated</th><th>Not approved</th></tr></thead>
-          <tbody>${roles.map((r) => `<tr><td class="lms-name">${esc(r.label)}</td>${[r.active, r.pending, r.suspended, r.deactivated, r.rejected]
-            .map((v) => `<td class="${v ? "" : "pov-zero"}">${num(v)}</td>`).join("")}</tr>`).join("")}</tbody></table>
-        </div>
-        ${d.access.fieldOfficersWithoutSchools.length ? `
-          <h4 class="pov-subhead">Field officers without assigned schools</h4>
-          <p class="pov-note">They can't file visits until they're given a county or schools — open them on <a href="#users">Users &amp; roles</a>, then <b>View</b>.</p>
-          <ul class="pov-plain">${d.access.fieldOfficersWithoutSchools.map((p) => `<li><b>${esc(p.name)}</b> · profile county: ${esc(p.county || "none")}</li>`).join("")}</ul>` : ""}
-        <p class="pov-note"><a href="#users">Open Users &amp; roles</a></p>
-        </div>
-      </details>
     </div>`;
 }
 
 /** The page's shape while the first read is on its way. */
 const overviewSkeleton = () => `
   <div class="pov" aria-hidden="true">
-    <div class="pov-kpis">${`<div class="pov-kpi"><span class="skeleton-block pov-skel-line" style="width:55%"></span>
-      <span class="skeleton-block pov-skel"></span><span class="skeleton-block pov-skel-line" style="width:80%"></span></div>`.repeat(6)}</div>
-    <div class="pov-panel">${skeleton(4, { avatar: false })}</div>
+    <div class="pov-state"><span class="skeleton-block pov-skel-line" style="width:45%"></span></div>
+    <div class="cc-grid">${`<div class="pov-panel cc-users">${skeleton(3, { avatar: false })}</div>`.repeat(3)}</div>
   </div><span class="sr-only" role="status">Loading the platform overview</span>`;
 
 const OVERVIEW_EVERY_MS = 5 * 60_000; // as often as the menu's badges and the notifications

@@ -110,18 +110,23 @@ explanation is under **About this page**.
 
 ## Platform overview (`#platform-overview`)
 
-Two columns on a laptop: the figures beside what needs attention. On a
-phone, in one column: figures, attention, activity, recent activity.
+The Super Admin's command centre (14 October): one line on the platform's
+state, a summary of each part with a link to where the detail lives, then
+what is waiting on someone beside what changed last. No full lists — every
+list has its own page. On a laptop: the status line, three summary cards,
+then Important actions (wide) beside Recent changes. Narrower: two cards to
+a row, then one column.
 
 | Component | Level | Now |
 | --- | --- | --- |
-| Status line ("N checks need attention") | Primary | Header, unchanged. |
-| Staff accounts, Active this week, Learners enrolled, Schools, Data quality, Field data counted | Primary | Left column, three to a row. |
-| Needs attention (failing health checks) | Primary | Right column, beside the figures — all of it on the first screen (it started below them). |
-| Platform activity, Who's signing in | Secondary | Left column, under the figures. |
-| Recent activity | Secondary | Right column, under Needs attention. |
-| Integrations | Detail | Closed, with a one-line status (Kobo, notifications, devices). Anything wrong there is already a failing check above. |
-| Accounts by role, Field officers without assigned schools | Detail | Closed, with a one-line summary (active accounts, waiting, officers without schools). The officers are also a failing check above. |
+| Platform status — "N health checks need attention", checks passing, queues waiting, the API's release | Primary | A line across the top, with "Review N actions" |
+| User activity — staff accounts, signed in this week, learners | Primary | A card: each figure with "View users", "View account activity", "View learners" |
+| Data activity — Kobo submissions counted, data quality score, schools | Primary | A card: each figure with "View Kobo data", "View data quality", "View schools" |
+| System activity — Kobo sync, live push, hourly notifications, field devices, access exceptions | Primary | A card: a light per part (working, needs attention, not in use) and its page |
+| Important actions — failing health checks, then queues with something in them (Kobo review, high-severity data issues, learners locked out) | Primary | Below the cards, each with Open; passing checks folded away |
+| Recent changes — changes per day and the latest five | Secondary | Beside Important actions, with "View audit log" and "Security events" |
+| When staff last signed in, staff by role | Secondary | One split bar and one line inside User activity |
+| Accounts by role in full, field officers without schools | Detail | On Users & roles; the officers are also named in their health check |
 
 ## Administration overview (`#admin-overview`)
 

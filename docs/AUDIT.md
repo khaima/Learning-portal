@@ -851,3 +851,30 @@ permission is as it was. `docs/NAVIGATION.md` §15 has the details.
   the icon rail, dark mode; opening and closing areas, a page kept for old
   links, keyboard and Escape; navigation tests (6) pass; axe-core clean on
   nine states (every role; drawer, rail and dark mode among them).
+
+### 14 October — the Platform overview as a command centre
+
+The Super Admin's start page is now one dashboard, not a set of sections:
+the platform's state, a summary of each part with a link to its page, and
+what is waiting on someone. Only figures the page already read; no new API
+call.
+
+- **Platform status:** one line — health checks needing attention, how many
+  pass, queues waiting for someone, the API's release — with "Review N
+  actions".
+- **User activity, Data activity, System activity:** a card each. Every
+  figure has a link to where the detail lives ("View users →", "View Kobo
+  data →", "View data quality →", "Device sync →" …). System activity gives
+  each part a light: working, needs attention, not in use.
+- **Important actions:** the failing health checks and, new here, the queues
+  with something in them — Kobo submissions to review, high-severity data
+  issues, learners locked out — each with Open. Passing checks fold away.
+- **Recent changes:** changes per day over the fortnight and the latest five,
+  with links to the audit log and security events.
+- **Not repeated here any more:** the accounts-by-role table and the list of
+  field officers without schools (both on Users & roles; the officers are
+  named in their health check), and the long integrations list (now one
+  line per part).
+- **Checked:** laptop, tablet, phone and dark mode; refresh in place with
+  changed data; the "Review" jump; every link opens an existing page;
+  axe-core clean in light, dark and phone views.
