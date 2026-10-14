@@ -459,7 +459,7 @@ export async function openAssignmentDetail(id, { canManage = false, canMark = fa
       if (what === "delete") {
         if (!(await confirmDialog({ title: "Delete this draft?", body: "Learners have never seen it. This can't be undone.", confirmLabel: "Delete", danger: true }))) return;
         await deleteAssignment(id);
-        toast("Draft deleted", "");
+        toast("Draft deleted", "Learners never saw it.", "success");
         closeViewer();
         onChanged();
         return;
@@ -472,7 +472,8 @@ export async function openAssignmentDetail(id, { canManage = false, canMark = fa
       openAssignmentDetail(id, { canManage, canMark, classes, terms, onChanged });
     } catch (err) {
       btn.disabled = false;
-      toast("Couldn't do that", friendlyError(err), "error");
+      toast({ published: "Couldn't publish it", closed: "Couldn't close it", draft: "Couldn't move it back to draft", delete: "Couldn't delete the draft" }[what]
+        || "Couldn't change the assignment", friendlyError(err), "error");
     }
   });
 }

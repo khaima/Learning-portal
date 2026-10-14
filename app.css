@@ -75,6 +75,14 @@
 .app-top h1{ font-size:1.5rem; margin-bottom:.25rem; }
 .app-top p{ margin:0; color:var(--ink-soft); font-size:.9rem; }
 .app-top-actions{ display:flex; align-items:center; gap:.6rem; }
+/* The page heading (nav.js): on every page but the start page, the page's
+   name and one line on what it is for. A panel heading that only repeated
+   the name ([data-page-title]) isn't shown again under it. */
+.top-page h1{ margin-top:.5rem; }
+.top-page .top-purpose{ max-width:48rem; font-size:.95rem; line-height:1.45; }
+.app-main:not(.is-home) [data-page-title]{ display:none; }
+.app-main:not(.is-home) .panel-head:has(> [data-page-title]:only-child){ display:none; }
+.app-main:not(.is-home) .panel-head > [data-page-title] + *{ margin-left:auto; }
 .icon-btn{
   width:38px; height:38px; border-radius:50%; border:1.5px solid var(--line); background:var(--paper-raised);
   display:flex; align-items:center; justify-content:center; color:var(--ink-soft); cursor:pointer; position:relative;
@@ -734,6 +742,16 @@ body.print-page .lms-table-wrap{ overflow:visible; }
 }
 .roster-actions button:hover{ text-decoration:underline; }
 .roster-actions button.danger{ color:var(--danger-fg); }
+.roster-actions button.caution{ color:var(--accent-fg); }
+/* Staff accounts: everyday actions on one line, the sign-in ones on the next. */
+.roster-actions .acts-break{ flex-basis:100%; height:0; }
+.users-table td:last-child .roster-actions{ min-width:15.5rem; gap:.25rem .75rem; }
+.users-table td:nth-last-child(2),.users-table td:nth-last-child(3){ white-space:nowrap; }
+@media (max-width:1400px){
+  .users-table td:last-child .roster-actions{ min-width:10.5rem; }
+  .users-table td:nth-last-child(2),.users-table td:nth-last-child(3){ white-space:normal; }
+}
+.btn.btn-ghost.danger{ color:var(--danger-fg); }
 @media (max-width:768px){
   .task-row:has(.roster-actions){ flex-wrap:wrap; }
   .roster-actions{ flex:1 1 100%; gap:.4rem .9rem; padding-top:.2rem; }
@@ -1365,7 +1383,7 @@ a.stat-tile.stat-link.intel-warn:hover,a.stat-tile.stat-link.intel-warn:focus-vi
 .perm-matrix td.lms-name{ text-align:left; min-width:15rem; }
 .perm-matrix .lms-group{ background:var(--paper-sunk); text-align:left; }
 .perm-yes{ color:var(--success-fg); font-weight:800; }
-.users-table .lms-table{ min-width:62rem; }
+.users-table .lms-table{ min-width:54rem; }
 .users-table td{ text-align:left; vertical-align:top; white-space:normal; }
 .users-table td:last-child{ white-space:nowrap; }
 .users-table tr.user-edit td{ background:var(--paper-sunk); }

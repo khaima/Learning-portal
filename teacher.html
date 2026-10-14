@@ -88,8 +88,8 @@
 
       <section class="dash-page" data-page="my-classes" hidden>
         <div class="panel">
-          <div class="panel-head"><h2>My classes</h2></div>
-          <p class="hint" style="margin-top:0">The classes your school head has assigned you to this year, with the subjects each takes. Set work for a class, or add and remove its learners. Learners you add yourself, before they're placed in a class, also stay on your roster.</p>
+          <div class="panel-head"><h2 data-page-title>My classes</h2></div>
+          <p class="hint" style="margin-top:0">Your school head assigns these. Learners you add yourself, before they're placed in a class, also stay on your roster.</p>
           <div id="classList"></div>
         </div>
       </section>
@@ -97,8 +97,8 @@
       <section class="dash-page" data-page="my-learners" hidden>
         <div class="panel">
           <div class="panel-head">
-            <h2>My Learners</h2>
-            <button type="button" id="addLearnerBtn">+ Add learner</button>
+            <h2 data-page-title>My Learners</h2>
+            <button type="button" class="btn btn-primary" id="addLearnerBtn">+ Add learner</button>
           </div>
           <form id="addLearnerForm" class="fill-form" hidden>
             <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.9rem">
@@ -118,8 +118,9 @@
               <button class="btn btn-ghost" type="button" id="cancelLearnerBtn">Cancel</button>
             </div>
           </form>
-          <div class="field" style="margin-top:.9rem;padding-top:.9rem;border-top:1px solid var(--line)">
-            <label>Add many at once</label>
+          <details class="more-detail" style="margin-top:.9rem;padding-top:.9rem;border-top:1px solid var(--line)">
+            <summary><b>Add many learners at once</b> <span class="hint-inline">— from a spreadsheet (CSV)</span></summary>
+            <div style="margin-top:.6rem">
             <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-bottom:.4rem">
               <button type="button" class="btn btn-outline" id="downloadLearnerTemplate" style="padding:.35rem .8rem;font-size:.85rem">Download template (CSV)</button>
               <span style="font-size:.82rem;color:var(--ink-soft)">fill it in, then upload it back:</span>
@@ -127,7 +128,8 @@
             </div>
             <p class="hint">One learner per row: full name is required; username, grade, PIN and gender (female, male or prefer not to say) are optional — left blank, we'll generate them for you and show you the result. Every learner is placed automatically in your own school and county.</p>
             <div id="bulkLearnerResult"></div>
-          </div>
+            </div>
+          </details>
           <div class="field" style="max-width:14rem;margin:1rem 0 .3rem">
             <label for="rosterStatus">Show</label>
             <select id="rosterStatus">
@@ -143,8 +145,8 @@
       <section class="dash-page" data-page="assignments" hidden>
         <div class="panel">
           <div class="panel-head">
-            <h2>Assignments</h2>
-            <button type="button" id="newAssignmentBtn">+ New assignment</button>
+            <h2 data-page-title>Assignments</h2>
+            <button type="button" class="btn btn-primary" id="newAssignmentBtn">+ New assignment</button>
           </div>
           <div class="filter-bar-row" style="margin-bottom:.8rem">
             <div class="field"><label for="af_class">Class</label><select id="af_class"><option value="">All my classes</option></select></div>
@@ -170,7 +172,7 @@
 
       <section class="dash-page" data-page="results" hidden>
         <div class="panel">
-          <div class="panel-head"><h2>Results</h2></div>
+          <div class="panel-head"><h2 data-page-title>Results</h2></div>
           <p class="hint" style="margin-top:0">Two separate measures. <b>Completion</b> is whether learners handed in the work they were set. <b>Achievement</b> is the marks on work you've marked. Handing everything in isn't the same as doing well, so they're never combined.</p>
           <div class="filter-bar-row" style="margin-bottom:.8rem">
             <div class="field"><label for="rf_by">Show by</label>
@@ -208,7 +210,7 @@
 
       <section class="dash-page" data-page="activity" hidden>
         <div class="panel">
-          <div class="panel-head"><h2>My learning activity</h2></div>
+          <div class="panel-head"><h2 data-page-title>My learning activity</h2></div>
           <div id="usageSummary"></div>
         </div>
       </section>

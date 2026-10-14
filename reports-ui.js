@@ -27,7 +27,7 @@ const remember = (k, v) => { try { localStorage.setItem(k, v); } catch { /* priv
 const recall = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 
 export async function mountExportCenter(el) {
-  const head = `<div class="panel-head"><h2>Export reports</h2></div>`;
+  const head = `<div class="panel-head"><h2 data-page-title>Export reports</h2></div>`;
   el.hidden = false;
   el.innerHTML = `${head}<div class="empty-state">Loading…</div>`;
   let cat;
@@ -177,7 +177,7 @@ export async function mountExportCenter(el) {
       result.innerHTML = rows
         ? `Saved <b>${esc(saved.name)}</b> — ${rows.toLocaleString()} row${rows === 1 ? "" : "s"}.`
         : `Saved <b>${esc(saved.name)}</b>. Nothing matched these filters, so it has the column headings only.`;
-      toast("Report downloaded", `${report.title} (${writers.FORMATS[format].label})`);
+      toast("Report downloaded", `${report.title} (${writers.FORMATS[format].label}) is in your downloads.`, "success");
     } catch (err) {
       toast("Couldn't export", friendlyError(err, "Check your connection and try again."), "error");
     } finally {

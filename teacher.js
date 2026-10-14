@@ -15,7 +15,7 @@ import {
   openAssignmentEditor, openAssignmentDetail, openMarking, resultsTableHtml,
   assignmentStatusPill, completionPill, markPill, fmtWhen,
 } from "./assignments-ui.js";
-import { openContentPanel } from "./viewer.js";
+import { openContentPanel, closeViewer } from "./viewer.js";
 import { mountFormList } from "./forms.js";
 import * as sync from "./sync.js";
 import { freshness } from "./api.js";
@@ -167,12 +167,12 @@ async function main() {
       if (!(await confirmDialog({ title: `Take ${btn.dataset.name} out of ${cls.name}?`, body: "They stay on your roster, not in any class, until they're placed again. Their work is kept.", confirmLabel: "Take out" }))) return;
       try {
         await removeLearnerFromClass(cls.id, btn.dataset.remove);
-        toast("Taken out of the class", "");
+        toast(`${btn.dataset.name} is out of ${cls.name}`, "They're still on your roster.", "success");
         await load();
         renderClasses();
         renderRoster();
       } catch (err) {
-        toast("Couldn't do that", friendlyError(err), "error");
+        toast(`Couldn't take ${btn.dataset.name} out of the class`, friendlyError(err), "error");
       }
     });
     panel.addEventListener("submit", async (e) => {
@@ -649,34 +649,14 @@ async function main() {
     const act = btn.dataset.act;
     if (act === "view") return openLearnerActivity(id, nameEl.textContent);
 
+    const l = learnerCache.find((x) => x.id === id) || { id, fullName: nameEl.textContent, username: rowEl.dataset.username, grade: rowEl.dataset.grade, gender: rowEl.dataset.gender };
     try {
-      if (act === "edit") {
-        const fullName = prompt("Full name", nameEl.textContent);
-        if (fullName === null) return;
-        const username = prompt("Username (lowercase, 3–32 chars)", rowEl.dataset.username);
-        if (username === null) return;
-        const grade = prompt("Grade / class", rowEl.dataset.grade);
-        if (grade === null) return;
-        const GENDER_WORDS = { female: "female", male: "male", prefer_not_to_say: "prefer not to say" };
-        const gender = prompt("Gender — optional: female, male or prefer not to say (leave empty if not recorded)", GENDER_WORDS[rowEl.dataset.gender] || "");
-        if (gender === null) return;
-        await updateLearner(id, {
-          fullName: fullName.trim(),
-          username: username.trim().toLowerCase(),
-          grade: grade.trim(),
-          gender: { f: "female", m: "male" }[gender.trim().toLowerCase()] || gender.trim(),
-        });
-        toast("Learner updated", "");
-      } else if (act === "pin") {
-        const pin = prompt("New 4-digit PIN");
-        if (!pin) return;
-        await updateLearner(id, { pin: pin.trim() });
-        toast("PIN reset", "Tell the learner their new PIN.");
-      } else if (act === "unlock") {
+      if (act === "edit") return openEditLearner(l);
+      if (act === "pin") return openNewPin(l);
+      if (act === "unlock") {
         await updateLearner(id, { unlock: true });
-        toast("Unlocked", "");
+        toast(`${l.fullName} can sign in again`, "Their wrong-PIN count is cleared.", "success");
       } else if (act === "archive") {
-        const l = learnerCache.find((x) => x.id === id);
         if (!(await openArchiveDialog(l))) return;
       } else if (act === "reactivate") {
         await setLearnerStatus(id, "ACTIVE");
@@ -687,9 +667,109 @@ async function main() {
       }
       renderRoster();
     } catch (err) {
-      toast("Couldn't do that", friendlyError(err), "error");
+      toast({ unlock: `Couldn't unlock ${l.fullName}`, reactivate: `Couldn't reactivate ${l.fullName}` }[act] || "Couldn't do that", friendlyError(err), "error");
     }
   });
+
+  /* Edit a learner: everything that can change in one form, checked the
+     way the server checks it, so a mistake is shown beside the field. */
+  const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{2,31}$/;
+  function openEditLearner(l) {
+    const g = l.gender || "";
+    const panel = openContentPanel({
+      title: `Edit ${l.fullName}`,
+      html: `
+        <form class="fill-form" data-edit-learner style="max-width:30rem" novalidate>
+          <div class="field"><label for="el_name">Full name</label><input id="el_name" type="text" maxlength="120" required value="${esc(l.fullName)}"></div>
+          <div class="field"><label for="el_user">Username <span class="hint-inline">— what they sign in with</span></label>
+            <input id="el_user" type="text" maxlength="32" required autocapitalize="none" spellcheck="false" value="${esc(l.username || "")}" aria-describedby="el_user_hint">
+            <p class="field-hint" id="el_user_hint">3–32 characters: lowercase letters, numbers, full stops, _ or -.</p></div>
+          <div class="field"><label for="el_grade">Grade</label><input id="el_grade" type="text" maxlength="40" value="${esc(l.grade || "")}" placeholder="e.g. Grade 5"></div>
+          <div class="field"><label for="el_gender">Gender <span class="hint-inline">— optional</span></label>
+            <select id="el_gender"><option value="">Not recorded</option>${[["female", "Female"], ["male", "Male"], ["prefer_not_to_say", "Prefer not to say"]]
+              .map(([v, t]) => `<option value="${v}"${g === v ? " selected" : ""}>${t}</option>`).join("")}</select></div>
+          <div class="field-error" data-error role="alert" hidden></div>
+          <div style="display:flex;gap:.6rem">
+            <button class="btn btn-primary" type="submit">Save changes</button>
+            <button class="btn btn-ghost" type="button" data-cancel>Cancel</button>
+          </div>
+        </form>`,
+    });
+    const form = panel.querySelector("[data-edit-learner]");
+    const err = panel.querySelector("[data-error]");
+    const fail = (msg, field) => { err.textContent = msg; err.hidden = false; field?.setAttribute("aria-invalid", "true"); field?.focus(); };
+    panel.querySelector("[data-cancel]").addEventListener("click", () => closeViewer());
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      err.hidden = true;
+      form.querySelectorAll("[aria-invalid]").forEach((f) => f.removeAttribute("aria-invalid"));
+      const fullName = form.querySelector("#el_name").value.trim();
+      const username = form.querySelector("#el_user").value.trim().toLowerCase();
+      if (!fullName) return fail("Enter the learner's full name.", form.querySelector("#el_name"));
+      if (!USERNAME_RE.test(username)) return fail("The username needs 3–32 characters: lowercase letters, numbers, full stops, _ or -, starting with a letter or number.", form.querySelector("#el_user"));
+      const btn = form.querySelector("[type=submit]");
+      btn.disabled = true;
+      btn.textContent = "Saving…";
+      try {
+        await updateLearner(l.id, { fullName, username, grade: form.querySelector("#el_grade").value.trim(), gender: form.querySelector("#el_gender").value });
+        closeViewer();
+        toast(`${fullName} is updated`, username !== l.username ? `They now sign in as @${username}.` : "Their details are saved.", "success");
+        renderRoster();
+      } catch (ex) {
+        btn.disabled = false;
+        btn.textContent = "Save changes";
+        fail(friendlyError(ex, "Couldn't save the changes. Check your connection and try again."));
+      }
+    });
+    form.querySelector("#el_name").focus();
+  }
+
+  /* A new PIN: chosen (or suggested) in a form, then shown once to pass on. */
+  function openNewPin(l) {
+    const panel = openContentPanel({
+      title: `New PIN for ${l.fullName}`,
+      html: `
+        <form class="fill-form" data-new-pin style="max-width:26rem" novalidate>
+          <p class="field-hint" style="margin-top:0">${esc(l.fullName)} signs in with the new PIN from now on, and the old one stops working. It also unlocks their account if they were locked out.</p>
+          <div class="field"><label for="np_pin">New 4-digit PIN</label>
+            <div style="display:flex;gap:.6rem;align-items:center"><input id="np_pin" type="text" inputmode="numeric" autocomplete="off" maxlength="4" placeholder="0000" style="max-width:8rem" required>
+              <button type="button" class="btn btn-ghost q-small" data-suggest>Suggest one</button></div></div>
+          <div class="field-error" data-error role="alert" hidden></div>
+          <div style="display:flex;gap:.6rem">
+            <button class="btn btn-primary" type="submit">Set new PIN</button>
+            <button class="btn btn-ghost" type="button" data-cancel>Cancel</button>
+          </div>
+        </form>`,
+    });
+    const form = panel.querySelector("[data-new-pin]");
+    const input = form.querySelector("#np_pin");
+    const err = panel.querySelector("[data-error]");
+    panel.querySelector("[data-cancel]").addEventListener("click", () => closeViewer());
+    form.querySelector("[data-suggest]").addEventListener("click", () => { input.value = randomPin(); input.focus(); });
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const pin = input.value.trim();
+      if (!/^\d{4}$/.test(pin)) { err.textContent = "The PIN must be exactly 4 digits."; err.hidden = false; input.setAttribute("aria-invalid", "true"); input.focus(); return; }
+      const btn = form.querySelector("[type=submit]");
+      btn.disabled = true;
+      try {
+        await updateLearner(l.id, { pin });
+        // Shown here once — tell the learner in person.
+        form.outerHTML = `<div class="kp-secret" role="status"><p style="margin-top:0"><b>${esc(l.fullName)}'s new PIN is <span class="code-chip" style="font-size:1rem">${esc(pin)}</span></b></p>
+          <p class="field-hint">Tell them in person. It isn't shown again; if it's forgotten, set another.</p>
+          <button type="button" class="btn btn-primary" data-done>Done</button></div>`;
+        panel.querySelector("[data-done]").addEventListener("click", () => closeViewer());
+        panel.querySelector("[data-done]").focus();
+        toast("New PIN set", `${l.fullName} signs in with it from now on.`, "success");
+        renderRoster();
+      } catch (ex) {
+        btn.disabled = false;
+        err.textContent = friendlyError(ex, "Couldn't set the PIN. Check your connection and try again.");
+        err.hidden = false;
+      }
+    });
+    input.focus();
+  }
 
   /* "View activity" — a read-only look at what this learner has actually
      done: their assignments (handed in or not, and the marks — two

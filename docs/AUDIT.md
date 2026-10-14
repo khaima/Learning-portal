@@ -915,3 +915,45 @@ route changed.
 - **Checked:** every page with key figures, laptop and phone, light and
   dark; hover and focus; refresh in place keeps the same cards; axe-core
   clean.
+
+### 14 October — how pages work, task by task
+
+Every page now follows the same steps: open it, see what it is for, see what
+matters, act, and see that it worked (NAVIGATION.md §16). No page, function,
+permission, route or API changed.
+
+- **Page headings:** the heading at the top was "Habari, name" on every
+  page, so the page's own name was only in the small breadcrumb, and inside
+  the page under a different name ("Accounts" in the menu, "Staff accounts"
+  on the page). Now the start page greets; every other page is headed with
+  its name and one line on what it is for. Repeated headings and hints are
+  gone.
+- **Main actions:** Add learner and New assignment were small text links;
+  they are now the page's main button. Start visit is an ordinary button in
+  the list of schools. Adding learners from a spreadsheet folds away, so the
+  roster shows straight away.
+- **Sensitive actions:** on Staff accounts the actions that affect sign-in
+  are in the warning colour on their own line (Suspend was plain blue);
+  Delete form and Archive learner are red. The confirm dialog starts on
+  Cancel for anything hard to undo, keeps the keyboard inside it and returns
+  the focus afterwards. "Run now" on Notifications and applying a
+  data-quality correction now ask first.
+- **Forms, not prompts:** editing a learner was four browser prompts in a
+  row (gender typed as free text); setting a PIN was another. Both are
+  forms, checked as the server checks them, and the new PIN is shown once.
+- **Messages:** ten successes showed in the neutral colour with no
+  detail ("Learner updated"); they now say what was done, in green.
+  Failures say what failed. Problems stay 10 seconds; every message has a
+  close button. Searches that find nothing say what was searched for.
+- **Staff accounts table:** the email is under the name, so each row's
+  actions fit on two lines at laptop width (they stacked five deep), and at
+  1280 px no action is cut off any more.
+- **Contrast:** the red confirm button and the green and red messages were
+  below 4.5:1 in light mode; they now use the deeper shade of each colour.
+- **Checked:** every page in every workspace for its heading and purpose;
+  the new flows by hand (edit a learner with a wrong username then a right
+  one, a new PIN, suspend with the keyboard, run notifications); axe-core
+  clean with the dialogs and panels open, in light, dark and phone views.
+  Applying a data-quality correction asks first, but the test data has no
+  issue with a correction to apply, so that dialog was checked in the code,
+  not by clicking.

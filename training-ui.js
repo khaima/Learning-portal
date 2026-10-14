@@ -148,7 +148,7 @@ export async function openTrainingPanel(id, ctx) {
       closeViewer();
       ctx.onChange?.();
     } catch (err) {
-      toast("Couldn't do that", friendlyError(err), "error");
+      toast(t.archived ? "Couldn't restore the session" : "Couldn't archive the session", friendlyError(err), "error");
     }
   });
 }

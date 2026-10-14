@@ -9,7 +9,7 @@
    The checks and the rules live server-side (data_quality.ts).
    ============================================================ */
 
-import { esc, toast, friendlyError, skeleton, errorState } from "./util.js";
+import { esc, toast, friendlyError, skeleton, errorState, confirmDialog } from "./util.js";
 import { openContentPanel } from "./viewer.js";
 import { dqIssue, dqSetStatus, dqFix } from "./store.js";
 import { kpiCard } from "./kpi.js";
@@ -76,12 +76,17 @@ export function dqTypesHtml(s) {
   </table></div>`;
 }
 
-/** The issue list (with a checkbox each, for bulk changes). */
-export function dqListHtml(issues, selected, canManage) {
-  if (!issues.length) return `<div class="empty-state">No issues match. ✓</div>`;
+/** The issue list (with a checkbox each, for bulk changes). `narrowed`: a
+    type, severity, status other than the usual, or search is chosen. */
+export function dqListHtml(issues, selected, canManage, narrowed = false) {
+  if (!issues.length) {
+    return narrowed
+      ? `<div class="empty-state">No issues match these choices. <button type="button" class="link-btn" data-dq-clear>Show every open issue</button></div>`
+      : `<div class="empty-state">No open issues — nothing needs fixing here. ✓</div>`;
+  }
   return issues.map((i) => `
     <div class="dq-row" data-dq-issue="${esc(i.id)}">
-      ${canManage ? `<input type="checkbox" data-dq-select="${esc(i.id)}" ${selected.has(i.id) ? "checked" : ""} aria-label="Select">` : ""}
+      ${canManage ? `<input type="checkbox" data-dq-select="${esc(i.id)}" ${selected.has(i.id) ? "checked" : ""} aria-label="Select: ${esc(i.typeLabel)} — ${esc(i.entity.label)}">` : ""}
       <div class="dq-row-main">
         <div class="dq-row-head">${severityPill(i.severity)} <b>${esc(i.typeLabel)}</b> ${statusPill(i.status)}${i.reopenedCount ? ` <span class="pill warm">Reopened ×${i.reopenedCount}</span>` : ""}</div>
         <div>${esc(i.summary)}</div>
@@ -161,6 +166,19 @@ export async function openDqIssue(id, { onChange = () => {} } = {}) {
     const form = e.target;
     const note = form.querySelector('[name="note"]')?.value.trim() || "";
     const buttons = form.querySelectorAll("button");
+    // A correction changes the record itself: say exactly what will change, and ask first.
+    if (form.matches("[data-fix]")) {
+      const fix = d.fixes[Number(form.dataset.fix)];
+      const chosen = fix.params.map((p) => {
+        const sel = form.querySelector(`[name="${p.name}"]`);
+        return `${p.label}: ${sel.selectedOptions[0]?.textContent || sel.value}`;
+      }).join(" · ");
+      if (!(await confirmDialog({
+        title: `${fix.label}?`,
+        body: `${chosen ? `${chosen}. ` : ""}This changes the record itself. What changed, and who changed it, is kept in this issue's history.`,
+        confirmLabel: "Apply the change",
+      }))) return;
+    }
     try {
       buttons.forEach((b) => { b.disabled = true; });
       if (form.matches("[data-move]")) {
@@ -172,13 +190,15 @@ export async function openDqIssue(id, { onChange = () => {} } = {}) {
         const body = { action: fix.action, note };
         for (const p of fix.params) body[p.name] = form.querySelector(`[name="${p.name}"]`).value;
         d = await dqFix(id, body);
-        toast("Corrected", d.issue.status === "RESOLVED" ? "The record was changed and the issue resolved." : "The record was changed, but the check still finds a problem.", d.issue.status === "RESOLVED" ? "success" : "error");
+        toast(d.issue.status === "RESOLVED" ? "Corrected" : "Changed, but not fixed yet",
+          d.issue.status === "RESOLVED" ? "The record was changed and the issue resolved." : "The record was changed, but the check still finds a problem.",
+          d.issue.status === "RESOLVED" ? "success" : "info");
       }
       render();
       onChange();
     } catch (err) {
       buttons.forEach((b) => { b.disabled = false; });
-      toast("Couldn't do that", friendlyError(err), "error");
+      toast(form.matches("[data-fix]") ? "Couldn't correct the record" : "Couldn't change the status", friendlyError(err), "error");
     }
   });
   load();

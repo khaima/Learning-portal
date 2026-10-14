@@ -682,3 +682,70 @@ menu only while it's open.
 | Learning resources › Learning resources | Learning resources › Library |
 | My progress › My progress | My progress › Progress |
 | My schools › My schools, All my teachers | My schools › Schools, Teachers |
+
+## 16. How a page works, 14 October 2026
+
+Every page follows the same five steps: open it, see what it is for, see
+what matters, act, and see that it worked.
+
+### 1. What the page is for
+
+- **The page heading is the page's name.** On the start page the header
+  greets the person ("Habari, Amina") and says who they are. On every other
+  page it names the page, in large type, with one line under it on what the
+  page is for ("Your learners and their sign-ins. Add learners, or edit,
+  reset or archive one."). The browser tab says the same.
+- Each page's name and purpose line are in `navigation.js`: `heading` when
+  the page's name should be fuller than its menu label ("Accounts" in the
+  menu, "Staff accounts" on the page), and `purpose`. A page that is the
+  same everywhere has them once, in `PAGES`; a role's own pages have them
+  on the menu item.
+- A panel heading that only repeated the page's name is marked
+  `data-page-title` and isn't shown under the page heading (it still shows
+  on the start page). Hints that only repeated the purpose line were taken
+  out; hints that add something were kept, shortened.
+
+### 2. One main action
+
+- A page has at most one main (filled, orange) button, for the thing most
+  people came to do: Invite staff, Add learner, New assignment, New upload,
+  Send form, Generate.
+- An action repeated down a list (Start visit on every school) is an
+  ordinary button in the list; on the school's own page it is the main one.
+- Less common ways of doing the main thing fold away: adding many learners
+  from a spreadsheet is under the roster's own controls, not above it.
+
+### 3. Sensitive actions look sensitive, and ask first
+
+- In a row of actions, the ones that change whether someone can sign in or
+  take something away are in the warning colour, after the everyday ones —
+  on Staff accounts, on a line of their own (Reset password in amber;
+  Suspend, Deactivate and Reject in red).
+- Each asks first, saying what will happen and what is kept. The question
+  for something that can't easily be undone has a red edge and a warning
+  sign, and the cursor starts on **Cancel**, so pressing Enter doesn't do
+  it by accident. The dialog keeps the keyboard inside it until it is
+  answered, closes with Escape, and puts the focus back where it was.
+- Asking first was added where it was missing: sending the due
+  notifications now ("Run now"), and applying a data-quality correction
+  (which changes the record itself — the dialog says what will change).
+
+### 4. Forms, not prompts
+
+- Nothing uses the browser's own `prompt()` boxes any more. Editing a
+  learner on the class roster is one form (name, username, grade, gender)
+  checked the way the server checks it, with the problem shown beside the
+  field. A new PIN is chosen, or suggested, in a form, then shown once to
+  pass on.
+
+### 5. Saying what happened
+
+- A message after an action says what was done and to what: "Kid One is
+  updated", "New PIN set", "Invitation link copied", "3 notifications
+  sent" — in green. A failure says what failed: "Couldn't suspend the
+  account", not "Couldn't do that".
+- Problems stay on screen for 10 seconds (and while pointed at); other
+  messages for 5. Every message can be dismissed.
+- A search that finds nothing says what was searched for, and how to widen
+  it ("No learner matches “otieno” in that school. Check the spelling, try
+  their username or learner code, or search all schools.").

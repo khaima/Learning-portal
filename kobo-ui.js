@@ -237,7 +237,7 @@ export async function openKoboPipeline(formId, { canManage = false, canRecheck =
     const id = recEl.dataset.rec;
     if (e.target.closest("[data-view]")) { openKoboRecord(id, () => openKoboPipeline(formId, { canManage, canRecheck, canReview, schools, onChange })); return; }
     if (e.target.closest("[data-clear]")) {
-      try { await reviewKoboRecord(id, "clear"); onChange(); load(); } catch (err) { toast("Couldn't do that", friendlyError(err), "error"); }
+      try { await reviewKoboRecord(id, "clear"); onChange(); load(); } catch (err) { toast("Couldn't update the submission", friendlyError(err), "error"); }
       return;
     }
     const decide = e.target.closest("[data-decide]");
@@ -378,12 +378,12 @@ export function wireWebhookBox(root, refresh) {
     }
     const copy = e.target.closest("[data-copy]");
     if (copy) {
-      try { await navigator.clipboard.writeText(copy.dataset.copy); toast("Copied", ""); } catch { toast("Couldn't copy", "Select it and copy by hand.", "error"); }
+      try { await navigator.clipboard.writeText(copy.dataset.copy); toast("Copied", "", "success"); } catch { toast("Couldn't copy", "Select it and copy by hand.", "error"); }
       return;
     }
     if (e.target.closest("[data-hook-off]")) {
       if (!(await confirmDialog({ title: "Turn off the push?", body: "KoboToolbox's calls will be refused. Remove the REST Service in KoboToolbox too. Sync keeps working.", confirmLabel: "Turn off", danger: true }))) return;
-      try { await removeKoboWebhook(); toast("Push turned off", ""); await refresh(); } catch (err) { toast("Couldn't do that", friendlyError(err), "error"); }
+      try { await removeKoboWebhook(); toast("Push turned off", "Sync still brings in new submissions.", "success"); await refresh(); } catch (err) { toast("Couldn't do that", friendlyError(err), "error"); }
     }
   });
 }

@@ -550,7 +550,7 @@ function askReason(title, body) {
 /* ------------------------------------------------------------------ Account activity (Super Admin) */
 export function renderAccountActivity(el) {
   return load(el, "/security/activity", (d) => `
-    <div class="panel-head" style="margin-bottom:.6rem"><h2 style="margin:0">Account activity</h2></div>
+    <div class="panel-head" style="margin-bottom:.6rem"><h2 data-page-title style="margin:0">Account activity</h2></div>
     <div class="stat-row">
       ${kpiCard({ label: "Learners enrolled", icon: "cap", value: count(d.learners.enrolled), sub: "active learner accounts" })}
       ${kpiCard({ label: "Learners signed in this week", icon: "activity", value: count(d.learners.signedIn7d),
@@ -650,7 +650,8 @@ const SCHOOL_TABS = [
 ];
 let schoolDirectory = null;
 
-/** The list, or one school. `actions(school)` adds buttons to a school's row and page (e.g. Start visit). */
+/** The list, or one school. `actions(school, { inList })` adds buttons to a school's row and page (e.g.
+    Start visit): the main button on a school's page, an ordinary one repeated down the list. */
 export async function renderSchoolsModule(el, { params = new URLSearchParams(), perms = new Set(), base = "#school-profiles", actions = () => "", fresh = false } = {}) {
   if (!schoolDirectory || fresh) {
     el.innerHTML = skeleton(4, { avatar: false });
@@ -747,8 +748,8 @@ function schoolListHtml(el, schools, { base, actions }) {
       return list.length ? `<div class="list-group"><div class="list-group-title">${esc(c)}<span class="count">${list.length}</span></div>
         ${list.map((s) => `<div class="task-row"><div style="flex:1;min-width:0"><a class="school-link" href="${esc(`${base}?school=${encodeURIComponent(s.id)}`)}"><b>${esc(s.name)}</b></a>
           <span><span class="code-chip">${esc(s.code)}</span></span></div>
-          <div class="roster-actions">${actions(s)}<a class="btn btn-ghost q-small" href="${esc(`${base}?school=${encodeURIComponent(s.id)}`)}">Open</a></div></div>`).join("")}</div>` : "";
-    }).join("") : `<div class="empty-state">${schools.length ? "No school matches that." : "No schools in your area yet."}</div>`;
+          <div class="roster-actions">${actions(s, { inList: true })}<a class="btn btn-ghost q-small" href="${esc(`${base}?school=${encodeURIComponent(s.id)}`)}">Open</a></div></div>`).join("")}</div>` : "";
+    }).join("") : `<div class="empty-state">${schools.length ? `No school matches “${esc(q)}”. Try its code, or the county.` : "No schools in your area yet."}</div>`;
   };
   el.querySelector("#schoolFind").addEventListener("input", draw);
   draw();

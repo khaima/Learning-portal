@@ -80,9 +80,15 @@ export function toast(title, body = "", kind = "info") {
   const el = document.createElement("div");
   el.className = `toast${kind === "error" ? " error" : kind === "success" ? " success" : ""}`;
   el.setAttribute("role", kind === "error" ? "alert" : "status");
-  el.innerHTML = `<strong>${esc(title)}</strong>${body ? `<div>${esc(body)}</div>` : ""}`;
+  el.innerHTML = `<div class="toast-text"><strong>${esc(title)}</strong>${body ? `<div>${esc(body)}</div>` : ""}</div>`
+    + `<button type="button" class="toast-close" aria-label="Dismiss">×</button>`;
   toastHost.appendChild(el);
-  setTimeout(() => el.remove(), 4000);
+  // A problem stays long enough to be read (and while it's pointed at); anything can be dismissed.
+  const ms = kind === "error" ? 10000 : 5000;
+  let timer = setTimeout(() => el.remove(), ms);
+  el.addEventListener("mouseenter", () => clearTimeout(timer));
+  el.addEventListener("mouseleave", () => { timer = setTimeout(() => el.remove(), 2500); });
+  el.querySelector(".toast-close").addEventListener("click", () => el.remove());
 }
 
 /* ============================================================
@@ -166,28 +172,42 @@ export function confirmDialog({ title = "Are you sure?", body = "", confirmLabel
       confirmOverlay.className = "confirm-overlay";
       document.body.appendChild(confirmOverlay);
     }
+    // Focus goes into the dialog and stays there until it's answered — on
+    // Cancel when the action can't easily be undone, so Enter doesn't do it
+    // by accident — then back to whatever opened it.
+    const opener = document.activeElement;
     confirmOverlay.innerHTML = `
-      <div class="confirm-card" role="alertdialog" aria-modal="true">
-        <b>${esc(title)}</b>
-        ${body ? `<p>${esc(body)}</p>` : ""}
+      <div class="confirm-card${danger ? " is-danger" : ""}" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle"${body ? ' aria-describedby="confirmBody"' : ""}>
+        <b id="confirmTitle">${danger ? '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>' : ""}${esc(title)}</b>
+        ${body ? `<p id="confirmBody">${esc(body)}</p>` : ""}
         <div class="confirm-actions">
           <button type="button" class="btn btn-outline" data-act="cancel">${esc(cancelLabel)}</button>
           <button type="button" class="btn ${danger ? "btn-danger" : "btn-primary"}" data-act="ok">${esc(confirmLabel)}</button>
         </div>
       </div>`;
+    const cancelBtn = confirmOverlay.querySelector('[data-act="cancel"]');
+    const okBtn = confirmOverlay.querySelector('[data-act="ok"]');
     let settled = false;
     const done = (val) => {
       if (settled) return;
       settled = true;
       confirmOverlay.classList.remove("is-open");
       document.removeEventListener("keydown", onKey);
+      if (opener && opener.isConnected && typeof opener.focus === "function") opener.focus();
       resolve(val);
     };
-    const onKey = (e) => { if (e.key === "Escape") done(false); };
-    confirmOverlay.querySelector('[data-act="cancel"]').addEventListener("click", () => done(false));
-    confirmOverlay.querySelector('[data-act="ok"]').addEventListener("click", () => done(true));
-    confirmOverlay.addEventListener("click", (e) => { if (e.target === confirmOverlay) done(false); });
+    const onKey = (e) => {
+      if (e.key === "Escape") { e.preventDefault(); done(false); }
+      if (e.key === "Tab") { // two buttons: keep the focus on them
+        e.preventDefault();
+        (document.activeElement === cancelBtn ? okBtn : cancelBtn).focus();
+      }
+    };
+    cancelBtn.addEventListener("click", () => done(false));
+    okBtn.addEventListener("click", () => done(true));
+    confirmOverlay.onclick = (e) => { if (e.target === confirmOverlay) done(false); };
     document.addEventListener("keydown", onKey);
     confirmOverlay.classList.add("is-open");
+    (danger ? cancelBtn : okBtn).focus();
   });
 }

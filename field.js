@@ -59,7 +59,7 @@ async function main() {
       if (page === "teachers") adminUi().then((m) => m.renderTeachers($("#tchBody"))).catch(pageFailed($("#tchBody")));
       // My schools: the portal's one Schools module, with only the schools assigned to this officer.
       if (page === "schools") {
-        const startVisit = (s) => `<a class="btn btn-primary q-small" href="#visits?start=${encodeURIComponent(s.id)}">Start visit</a>`;
+        const startVisit = (s, { inList = false } = {}) => `<a class="btn ${inList ? "btn-outline" : "btn-primary"} q-small" href="#visits?start=${encodeURIComponent(s.id)}">Start visit</a>`;
         adminUi().then((m) => m.renderSchoolsModule($("#schoolsModule"), { params, perms: new Set(user.permissions || []), base: "#schools", actions: startVisit }))
           .catch(pageFailed($("#schoolsModule")));
       }

@@ -178,7 +178,7 @@ export function openIndicatorPanel(row, res, { can, onChange = () => {} }) {
       onChange(row.id);
     } catch (err) {
       btns.forEach((b) => { b.disabled = false; });
-      toast("Couldn't do that", friendlyError(err), "error");
+      toast("Couldn't save it", friendlyError(err), "error");
     }
   });
 }
@@ -276,7 +276,7 @@ export function wireFramework(root, getFw, reload) {
         reload();
       }
     } catch (err) {
-      toast("Couldn't do that", friendlyError(err), "error");
+      toast("Couldn't archive it", friendlyError(err), "error");
     }
   });
 }

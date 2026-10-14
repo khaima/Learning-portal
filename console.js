@@ -550,7 +550,8 @@ async function main() {
     }
     const canManage = has("data_quality.manage");
     $("#dqCount").textContent = `${res.total} issue${res.total === 1 ? "" : "s"}`;
-    swap($("#dqList"), dq.dqListHtml(res.issues, dqSelected, canManage), { replace: !quiet });
+    const narrowed = !!($("#dq_type").value || $("#dq_severity").value || $("#dq_q").value.trim() || $("#dq_status").value !== "active");
+    swap($("#dqList"), dq.dqListHtml(res.issues, dqSelected, canManage, narrowed), { replace: !quiet });
     $("#dqPager").innerHTML = res.total > DQ_PAGE ? `
       <span>${dqOffset + 1}–${Math.min(res.total, dqOffset + DQ_PAGE)} of ${res.total}</span>
       <span><button type="button" class="btn btn-outline q-small" data-dq-page="-1" ${dqOffset ? "" : "disabled"}>← Previous</button>
@@ -602,6 +603,11 @@ async function main() {
     syncDqBulk();
   });
   $("#dqList").addEventListener("click", (e) => {
+    if (e.target.closest("[data-dq-clear]")) {
+      $("#dq_type").value = ""; $("#dq_severity").value = ""; $("#dq_status").value = "active"; $("#dq_q").value = "";
+      dqOffset = 0; dqSelected.clear(); renderDqList();
+      return;
+    }
     if (!e.target.closest("[data-dq-open]")) return;
     const id = e.target.closest("[data-dq-issue]").dataset.dqIssue;
     dqUi().then((m) => m.openDqIssue(id, { onChange: dqRefresh }))
@@ -832,7 +838,7 @@ async function main() {
           openMelReport(id);
         }
       } catch (err) {
-        toast("Couldn't do that", friendlyError(err), "error");
+        toast("Couldn't update the report", friendlyError(err), "error");
       }
     });
   }
@@ -1226,7 +1232,7 @@ async function main() {
         renderLibrary();
       } catch (err) {
         console.error("could not update publish state:", err);
-        toast("Couldn't do that", friendlyError(err), "error");
+        toast(publishing ? `Couldn't publish "${title}"` : `Couldn't unpublish "${title}"`, friendlyError(err), "error");
         btn.disabled = false;
       }
     } else if (btn.dataset.act === "edit") {
@@ -1759,7 +1765,7 @@ async function main() {
             ? `<button type="button" class="btn btn-ghost" data-form-act="restore" data-form-id="${esc(f.id)}">Restore form</button>`
             : answers.length
               ? `<button type="button" class="btn btn-ghost" data-form-act="archive" data-form-id="${esc(f.id)}">Archive form</button>`
-              : `<button type="button" class="btn btn-ghost" data-form-act="delete" data-form-id="${esc(f.id)}">Delete form</button>`;
+              : `<button type="button" class="btn btn-ghost danger" data-form-act="delete" data-form-id="${esc(f.id)}">Delete form</button>`;
           return `
             <div class="form-card">
               <div class="fc-head"><h3>${esc(f.title)}</h3><span class="pill">${f.archivedAt ? "Archived" : esc(AUDIENCE_LABEL[f.audience] || f.audience)}</span></div>
@@ -1829,10 +1835,16 @@ async function main() {
   ["#ntf_kind", "#ntf_role", "#ntf_status"].forEach((s) => $(s).addEventListener("change", renderNotificationLog));
   $("#ntfRunBtn").addEventListener("click", async () => {
     const btn = $("#ntfRunBtn");
+    if (!(await confirmDialog({
+      title: "Send due notifications now?",
+      body: "The hourly rules run straight away: anyone with work due, forms coming due, visits missing forms or accounts waiting is notified now instead of at the next hour. Nobody is notified twice for the same thing.",
+      confirmLabel: "Send now",
+    }))) return;
     btn.disabled = true;
     try {
       const res = await runNotificationsNow();
-      toast(res.error ? "The run failed" : "Done", res.error || `${res.created} new notification${res.created === 1 ? "" : "s"}.`, res.error ? "error" : "success");
+      toast(res.error ? "The run failed" : res.created ? `${res.created} notification${res.created === 1 ? "" : "s"} sent` : "Nothing was due",
+        res.error || (res.created ? "They're in the list below." : "Everyone due a notification already has one."), res.error ? "error" : "success");
       renderNotificationLog();
     } catch (err) {
       toast("Couldn't run it", friendlyError(err), "error");
@@ -2055,7 +2067,7 @@ async function main() {
         officerField: $("#kb_field").value.trim(),
       });
       $("#kb_token").value = "";
-      toast("KoboToolbox connected", "");
+      toast("KoboToolbox connected", "Attach the surveys to collect below.", "success");
       renderKobo();
     } catch (err) {
       toast("Couldn't connect", friendlyError(err, "Check the server URL and token."), "error");
@@ -2585,23 +2597,26 @@ async function main() {
     syncUserEditor();
   }
 
-  /* The buttons one account gets, from permissions + authority over it. */
+  /* The buttons one account gets, from permissions + authority over it:
+     the everyday ones first, then — on a line of their own, in the warning
+     colour — the ones that change whether someone can sign in. Each of
+     those asks first. */
   function userActions(u) {
-    const acts = [];
+    const acts = [["view", "View"]], risky = [];
     const status = u.status || "active";
     if (u.canManage) {
-      if (has("users.approve") && (status === "pending" || status === "rejected")) acts.push(["approve", "Approve"]);
-      if (has("users.approve") && status === "pending") acts.push(["reject", "Reject", "danger"]);
       if (has("users.edit", "users.roles.assign", "users.placement.assign")) acts.push(["edit", "Edit"]);
-      if (has("users.password.reset") && status === "active") acts.push(["password", "Reset password"]);
+      if (has("users.approve") && (status === "pending" || status === "rejected")) acts.push(["approve", "Approve"]);
+      if (has("users.status.manage") && status !== "active" && status !== "pending" && status !== "rejected") acts.push(["reactivate", "Reactivate"]);
+      if (has("users.password.reset") && status === "active") risky.push(["password", "Reset password", "caution"]);
+      if (has("users.approve") && status === "pending") risky.push(["reject", "Reject", "danger"]);
       if (has("users.status.manage")) {
-        if (status === "active") acts.push(["suspend", "Suspend"], ["deactivate", "Deactivate", "danger"]);
-        if (status === "suspended") acts.push(["reactivate", "Reactivate"], ["deactivate", "Deactivate", "danger"]);
-        if (status === "deactivated") acts.push(["reactivate", "Reactivate"]);
+        if (status === "active") risky.push(["suspend", "Suspend", "danger"]);
+        if (status === "active" || status === "suspended") risky.push(["deactivate", "Deactivate", "danger"]);
       }
     }
-    return [["view", "View"], ...acts].map(([act, label, cls]) =>
-      `<button type="button" data-act="${act}"${cls ? ` class="${cls}"` : ""}>${esc(label)}</button>`).join("");
+    const btn = ([act, label, cls]) => `<button type="button" data-act="${act}"${cls ? ` class="${cls}"` : ""}>${esc(label)}</button>`;
+    return acts.map(btn).join("") + (risky.length ? `<span class="acts-break" aria-hidden="true"></span>${risky.map(btn).join("")}` : "");
   }
 
   const lastSeen = (v) => {
@@ -2613,13 +2628,12 @@ async function main() {
      scope of someone not placed in a school), status, last sign-in,
      created — and what this administrator may do with it. */
   function userRow(u) {
-    if (u.id === editingUserId) return `<tr class="user-edit"><td colspan="9">${userEditRow(u)}</td></tr>`;
+    if (u.id === editingUserId) return `<tr class="user-edit"><td colspan="8">${userEditRow(u)}</td></tr>`;
     const pill = STATUS_PILL[u.status];
     const where = u.school || (u.scope && !u.scope.global ? `Assigned: ${u.scope.label}` : u.scope?.global && !["teacher", "school_leader"].includes(u.role) ? "All schools" : "—");
     return `<tr data-user="${esc(u.id)}" data-email="${esc(u.email || "")}">
-      <td class="lms-name"><b>${esc(u.fullName || "(no name)")}</b>${u.userCode ? `<br><span class="code-chip">${esc(u.userCode)}</span>` : ""}${
+      <td class="lms-name"><b>${esc(u.fullName || "(no name)")}</b>${u.email ? `<br><span class="hint-inline">${esc(u.email)}</span>` : ""}${u.userCode ? `<br><span class="code-chip">${esc(u.userCode)}</span>` : ""}${
         u.status === "pending" && u.requestedRole ? `<br><span class="hint-inline">asked for ${esc(ROLE_LABEL[u.requestedRole] || u.requestedRole)}</span>` : ""}</td>
-      <td>${esc(u.email || "")}</td>
       <td>${esc(ROLE_LABEL[u.role] || u.role)}${u.grants?.length ? ` <span class="pill" title="${esc(u.grants.join(", "))}">+${u.grants.length} granted</span>` : ""}</td>
       <td>${esc(u.county || "—")}</td>
       <td>${esc(where)}</td>
@@ -2685,7 +2699,7 @@ async function main() {
     // Waiting for approval first, then everyone else.
     const rows = [...sortUsers(filtered.filter((u) => u.status === "pending"), sortBy), ...sortUsers(filtered.filter((u) => u.status !== "pending"), sortBy)];
     list.innerHTML = `<div class="lms-table-wrap users-table"><table class="lms-table intel-table">
-      <thead><tr>${["Name", "Email", "Role", "County", "School / scope", "Status", "Last login", "Created", ""].map((h, i) => `<th${i === 0 ? ' class="lms-name"' : ""}>${h}</th>`).join("")}</tr></thead>
+      <thead><tr>${["Name and email", "Role", "County", "School / scope", "Status", "Last login", "Created", "Actions"].map((h, i) => `<th${i === 0 ? ' class="lms-name"' : ""}>${h}</th>`).join("")}</tr></thead>
       <tbody>${rows.map(userRow).join("")}</tbody></table></div>`;
     const editing = allUsers.find((u) => u.id === editingUserId);
     if (editing) wireUserEditor(editing);
@@ -2831,7 +2845,10 @@ async function main() {
         renderAuditPanel();
       }
     } catch (err) {
-      toast("Couldn't do that", friendlyError(err), "error");
+      const FAILED = { edit: "Couldn't save the changes", approve: "Couldn't approve the account", reject: "Couldn't reject the request",
+        suspend: "Couldn't suspend the account", deactivate: "Couldn't deactivate the account", reactivate: "Couldn't reactivate the account",
+        password: "Couldn't reset the password" };
+      toast(FAILED[act] || "Couldn't do that", friendlyError(err), "error");
       btn.disabled = false;
     }
   });
@@ -3038,8 +3055,8 @@ async function main() {
     auditKind = kind;
     $("#auditTitle").textContent = kind === "security" ? "Security events" : "Audit log";
     $("#auditHint").textContent = kind === "security"
-      ? "Sign-in and access changes: accounts approved, suspended or reactivated, roles, schools and data scope changed, permissions granted or revoked, passwords set, the Kobo connection. This record can't be edited or deleted."
-      : "Every recorded change — who made it and when. This record can't be edited or deleted.";
+      ? "Accounts approved, suspended or reactivated; roles, schools and data scope changed; permissions granted or revoked; passwords set; the Kobo connection. This record can't be edited or deleted."
+      : "This record can't be edited or deleted.";
     if (!more) { auditBefore = null; $("#auditList").innerHTML = skeleton(3, { avatar: false }); }
     try {
       const qs = new URLSearchParams(Object.entries({ before: more ? auditBefore : "", kind }).filter(([, v]) => v)).toString();
@@ -3110,7 +3127,7 @@ async function main() {
         </div></div>`;
     box.hidden = false;
     $("#inviteCopy").addEventListener("click", async () => {
-      try { await navigator.clipboard.writeText(link); toast("Link copied", ""); }
+      try { await navigator.clipboard.writeText(link); toast("Invitation link copied", "Send it to them; it works once.", "success"); }
       catch { $("#inviteLink").select(); }
     });
     box.scrollIntoView({ block: "nearest" });
@@ -3234,7 +3251,8 @@ async function main() {
             ${canTransfer ? `<button type="button" data-lf-transfer="${esc(l.id)}">Transfer</button>` : ""}
           </div>
         </div>`).join("")
-      : `<div class="empty-state">No learners match.</div>`;
+      : `<div class="empty-state">No learner matches “${esc($("#lf_q").value.trim())}”${$("#lf_school").value ? " in that school" : ""}.
+          Check the spelling, try their username or learner code${$("#lf_school").value ? ", or search all schools" : ""}${$("#lf_archived").checked ? "" : ", or include archived learners"}.</div>`;
   }
   if (canOpen("learners")) {
     $("#learnerFinder").addEventListener("submit", async (e) => {

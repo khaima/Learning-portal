@@ -52,7 +52,7 @@ export function openArchiveDialog(learner) {
           <div class="field"><label for="ar_reason">Reason <span class="hint-inline">— optional</span></label><input id="ar_reason" type="text" maxlength="300" placeholder="e.g. Family moved to Nairobi"></div>
           <div class="field-error" data-error hidden></div>
           <div style="display:flex;gap:.6rem">
-            <button class="btn btn-primary" type="submit">Archive learner</button>
+            <button class="btn btn-danger" type="submit">Archive learner</button>
             <button class="btn btn-ghost" type="button" data-cancel>Cancel</button>
           </div>
         </form>`,

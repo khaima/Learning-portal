@@ -301,6 +301,18 @@ export function mountNavigation(user, { workspace, onPage } = {}) {
   }
   const who = $(".top-identity");
   if (who) who.textContent = identityLine(user);
+  // On the start page the header greets the person and says who they are;
+  // on every other page it names the page and says what it is for, so
+  // nobody has to work out where they are from the breadcrumb.
+  const homeHead = [h1, who, $("#topSub")].filter(Boolean);
+  let pageHead = $(".top-page");
+  if (h1 && !pageHead) {
+    pageHead = document.createElement("div");
+    pageHead.className = "top-page";
+    pageHead.hidden = true;
+    pageHead.innerHTML = `<h1 class="top-title"></h1><p class="top-purpose"></p>`;
+    h1.before(pageHead);
+  }
   const sideMeta = $("#sideMeta");
   if (sideMeta) sideMeta.textContent = identityLine(user);
   mountAccountMenu();
@@ -453,8 +465,19 @@ export function mountNavigation(user, { workspace, onPage } = {}) {
     }
     drawTrail(g, item, page);
     if (filterBar) filterBar.hidden = !item?.filters;
-    const title = page === "profile" ? "My profile" : g && g.items.length > 1 && item?.label !== g.label ? `${item?.label} — ${g.label}` : g?.label;
-    document.title = `${title || ws.title} — ${ws.title}`;
+    const home = page === landing;
+    const heading = page === "profile" ? "My profile" : item?.heading || item?.label || g?.label || ws.title;
+    const purpose = page === "profile" ? "Your details, what your role lets you do, and your password." : item?.purpose || "";
+    homeHead.forEach((el) => { el.hidden = !home; });
+    if (pageHead) {
+      pageHead.hidden = home;
+      pageHead.querySelector(".top-title").textContent = heading;
+      const p = pageHead.querySelector(".top-purpose");
+      p.textContent = purpose;
+      p.hidden = !purpose;
+    }
+    main?.classList.toggle("is-home", home);
+    document.title = `${heading} — ${ws.title}`;
     window.scrollTo(0, 0);
     if (page === "profile") {
       import("./profile-ui.js").then((m) => m.renderProfile($('.dash-page[data-page="profile"]'), user)).catch(() => {});
