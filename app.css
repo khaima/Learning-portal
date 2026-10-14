@@ -5,8 +5,8 @@
    ============================================================ */
 
 /* ================================================================ APP SHELL (teacher + learner) */
-.app-shell{ min-height:100vh; display:grid; grid-template-columns:15.5rem 1fr; }
-.app-side{ background:var(--panel-deep); color:#fff; padding:1.3rem 1.1rem; display:flex; flex-direction:column; gap:1.6rem; }
+.app-shell{ min-height:100vh; display:grid; grid-template-columns:16.5rem 1fr; }
+.app-side{ background:var(--panel-deep); color:#fff; padding:1.3rem .95rem; display:flex; flex-direction:column; gap:1.6rem; }
 /* A grid item's default min-width is "auto" — the min-content size of
    whatever's inside it — so a chart grid with a minmax(300px,…) column
    (or any other wide-ish content) can silently force this whole track,
@@ -25,7 +25,7 @@
   .app-shell{ grid-template-columns:1fr; }
   .menu-btn{ display:inline-flex; }
   .app-side{
-    position:fixed; inset:0 auto 0 0; z-index:410; width:15.5rem; max-width:82vw;
+    position:fixed; inset:0 auto 0 0; z-index:410; width:17rem; max-width:86vw;
     transform:translateX(-100%); transition:transform .22s ease; box-shadow:var(--shadow);
   }
   .app-side.is-open{ transform:translateX(0); }
@@ -43,9 +43,8 @@
   color:rgba(255,255,255,.78); font-size:.87rem; font-weight:600; text-decoration:none; cursor:pointer;
 }
 .side-link .icon{ opacity:.85; }
-.side-link:hover:not(.active){ background:rgba(255,255,255,.07); color:#fff; }
+.side-link:hover:not([aria-current]){ background:rgba(255,255,255,.07); color:#fff; }
 .side-link:focus-visible{ outline:2px solid rgba(255,255,255,.55); outline-offset:1px; }
-.side-link.active{ background:rgba(255,255,255,.14); color:#fff; }
 /* ---- profile / account menu ----
    .side-user is the click target (nav.js); .side-menu is the popover it
    reveals — kept to one action today (Sign out) on purpose, since a
@@ -872,7 +871,7 @@ body.print-page .lms-table-wrap{ overflow:visible; }
 .form-tag.visit{ color:var(--brand-fg); background:var(--brand-soft); }
 .form-reach{ margin:.2rem 0 0; font-size:.82rem; }
 .form-card .fc-actions{ display:flex; justify-content:flex-end; margin-top:.5rem; }
-.form-card .fc-actions .btn{ padding:.35rem .7rem; font-size:.8rem; color:var(--danger, #b42318); }
+.form-card .fc-actions .btn{ padding:.35rem .7rem; font-size:.8rem; color:var(--danger-fg, #b42318); }
 .form-card .fc-answer a{ color:var(--brand); font-weight:600; }
 .form-open{ display:flex; width:fit-content; align-items:center; margin-bottom:.5rem; font-size:.84rem; font-weight:600; color:var(--brand); }
 a.btn.form-open{ margin-bottom:.2rem; }
@@ -1191,26 +1190,38 @@ a.stat-tile.dq-tile-link:hover{ border-color:var(--brand); }
 .fc-due input{ border:1.5px solid var(--line); border-radius:var(--radius-sm); padding:.3rem .45rem; font:inherit; font-size:.8rem; background:var(--paper-raised); color:var(--ink); }
 
 /* ================================================================ ROLE MENUS (nav.js + navigation.js)
-   Each person's sidebar: collapsible groups (state remembered per
-   workspace), badges for what's waiting, and a collapsed icon rail on
-   wide screens. Below 860px it is the off-canvas drawer above. */
+   Each person's sidebar: a row per area (at most seven). An area with
+   several pages opens in place to list them — the one you're in is open,
+   ones you open stay open. The page you're on carries the orange edge; the
+   area it's in is lit. On wide screens the menu can fold to an icon rail,
+   where an area's pages appear beside it on hover or focus. Below 860px it
+   is the off-canvas drawer above. */
 .side-nav{ gap:.1rem; overflow-y:auto; min-height:0; }
-@media (min-width:861px){ .app-side{ max-height:100vh; position:sticky; top:0; } }
-.side-section{ display:flex; flex-direction:column; }
-.side-group-btn{
-  display:flex; align-items:center; justify-content:space-between; gap:.4rem; width:100%;
-  margin:.55rem 0 .15rem; padding:.3rem .7rem; background:none; border:0; border-radius:8px; cursor:pointer;
-  font:inherit; font-size:.66rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:rgba(255,255,255,.55);
-}
-.side-section:first-child .side-group-btn{ margin-top:0; }
-.side-group-btn:hover{ color:#fff; background:rgba(255,255,255,.05); }
-.side-group-btn:focus-visible{ outline:2px solid rgba(255,255,255,.55); outline-offset:1px; }
-.side-group-btn .chev{ width:14px; height:14px; transition:transform .15s ease; }
-.side-section:not(.open) .chev{ transform:rotate(-90deg); }
-.side-section:not(.open) .side-items{ display:none; }
-.side-items{ display:flex; flex-direction:column; gap:.1rem; }
+/* The menu runs the full height of the window, however short the page. */
+@media (min-width:861px){ .app-side{ height:100vh; max-height:100vh; position:sticky; top:0; } }
+.side-items{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:.12rem; }
+.side-entry{ position:relative; }
+button.side-link{ width:100%; border:0; background:none; font:inherit; font-size:.87rem; text-align:left; }
 .side-link .side-label{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.side-link[aria-current]{ box-shadow:inset 3px 0 0 var(--accent); }
+.side-link .chev{ width:15px; height:15px; flex:none; opacity:.55; transition:transform .15s ease; }
+.side-entry.open > .side-toggle .chev{ transform:rotate(90deg); }
+.side-entry.current > .side-toggle{ color:#fff; }
+.side-entry.current > .side-toggle .icon:not(.chev){ opacity:1; }
+.side-link[aria-current="page"]{ background:rgba(255,255,255,.14); color:#fff; box-shadow:inset 3px 0 0 var(--accent); }
+/* An open area's count shows on the page it belongs to, not twice. */
+.side-entry.open > .side-toggle .nav-badge{ display:none; }
+.side-sub{ display:none; flex-direction:column; gap:.06rem; list-style:none; margin:.1rem 0 .4rem 1.45rem; padding:0 0 0 .6rem; border-left:1px solid rgba(255,255,255,.16); }
+.side-entry.open > .side-sub{ display:flex; }
+.side-sub > li[hidden]{ display:none; }
+.side-sub-title{ display:none; }
+.side-sublink{
+  display:flex; align-items:center; gap:.5rem; padding:.42rem .6rem; border-radius:8px;
+  color:rgba(255,255,255,.74); font-size:.83rem; font-weight:500; line-height:1.3; text-decoration:none;
+}
+.side-sublink:hover{ background:rgba(255,255,255,.07); color:#fff; }
+.side-sublink:focus-visible{ outline:2px solid rgba(255,255,255,.55); outline-offset:1px; }
+.side-sublink[aria-current="page"]{ background:rgba(255,255,255,.14); color:#fff; font-weight:600; box-shadow:inset 3px 0 0 var(--accent); }
+.side-sublink .nav-badge{ margin-left:auto; }
 .nav-badge{
   min-width:1.3rem; height:1.3rem; padding:0 .35rem; border-radius:999px; background:var(--accent-strong); color:#fff;
   font-size:.68rem; font-weight:700; display:inline-flex; align-items:center; justify-content:center; flex:none;
@@ -1224,16 +1235,38 @@ a.stat-tile.dq-tile-link:hover{ border-color:var(--brand); }
 @media (min-width:861px){
   .side-rail-btn{ display:flex; }
   .app-shell.nav-rail{ grid-template-columns:4.4rem 1fr; }
-  .nav-rail .app-side{ padding-left:.6rem; padding-right:.6rem; }
-  .nav-rail .wordmark-text, .nav-rail .side-label, .nav-rail .side-group-btn span, .nav-rail .side-group-btn .chev,
-  .nav-rail .side-user div{ display:none; }
-  .nav-rail .side-group-btn{ height:.5rem; margin:.3rem 0; padding:0; border-top:1px solid rgba(255,255,255,.12); border-radius:0; pointer-events:none; }
-  .nav-rail .side-section:not(.open) .side-items{ display:flex; }
+  .nav-rail .app-side{ z-index:30; padding-left:.6rem; padding-right:.6rem; }
+  .nav-rail .side-nav{ overflow:visible; }
+  .nav-rail .wordmark-text, .nav-rail .side-label, .nav-rail .side-link .chev, .nav-rail .side-user div{ display:none; }
   .nav-rail .side-link{ justify-content:center; padding:.55rem; position:relative; }
   .nav-rail .nav-badge{ position:absolute; top:.15rem; right:.15rem; min-width:1rem; height:1rem; font-size:.6rem; padding:0 .25rem; }
+  .nav-rail .side-entry.open > .side-toggle .nav-badge:not([hidden]){ display:inline-flex; }
+  .nav-rail .side-entry.current > .side-toggle{ background:rgba(255,255,255,.14); box-shadow:inset 3px 0 0 var(--accent); }
+  /* On the rail an area's pages appear beside it, on hover or keyboard focus. */
+  .nav-rail .side-entry > .side-sub{ display:none; }
+  .nav-rail .side-entry.has-sub:hover > .side-sub,.nav-rail .side-entry.has-sub:focus-within > .side-sub{
+    display:flex; position:absolute; top:0; left:100%; z-index:5; min-width:13.5rem; margin:0; padding:.45rem;
+    border:1px solid rgba(255,255,255,.12); border-radius:10px; background:var(--panel-deep); box-shadow:0 12px 30px -10px rgba(0,0,0,.5);
+  }
+  .nav-rail .side-sub .nav-badge{ position:static; min-width:1.3rem; height:1.3rem; padding:0 .35rem; font-size:.68rem; }
+  .nav-rail .side-sub-title{ display:block; padding:.3rem .6rem .4rem; font-size:.66rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:rgba(255,255,255,.6); }
   .nav-rail .side-rail-btn{ justify-content:center; }
   .nav-rail .side-rail-btn .icon{ transform:rotate(180deg); }
 }
+/* The phone drawer: its own close button, and the whole drawer scrolls. */
+.side-close{ display:none; }
+@media (max-width:860px){
+  .app-side{ overflow-y:auto; overscroll-behavior:contain; }
+  .side-close{
+    display:inline-flex; align-items:center; justify-content:center; position:absolute; top:1rem; right:.8rem;
+    width:36px; height:36px; border:0; border-radius:50%; background:rgba(255,255,255,.1); color:#fff; cursor:pointer;
+  }
+  .side-close:hover{ background:rgba(255,255,255,.18); }
+  .side-close:focus-visible{ outline:2px solid rgba(255,255,255,.7); outline-offset:2px; }
+  .app-side .wordmark{ padding-right:2.6rem; }
+  .side-link,.side-sublink{ min-height:44px; } /* finger-sized rows */
+}
+@media (prefers-reduced-motion: reduce){ .side-link .chev{ transition:none; } }
 
 /* ---- one row per module (navigation.js); Switch workspace for a Super Admin ---- */
 .ws-switch{ margin:0 0 .6rem; border:1px solid rgba(255,255,255,.14); border-radius:10px; }
@@ -1262,7 +1295,7 @@ a.stat-tile.dq-tile-link:hover{ border-color:var(--brand); }
 .side-menu-link .icon{ width:16px; height:16px; opacity:.85; }
 .side-menu-link:hover{ background:rgba(255,255,255,.08); color:#fff; }
 
-/* ---- where you are: breadcrumb, and the module's tabs ---- */
+/* ---- where you are: the breadcrumb; and tabs inside a page (a school's page) ---- */
 .page-trail{ margin:-.4rem 0 1rem; }
 .page-trail[hidden]{ display:none; }
 .crumbs{ display:flex; flex-wrap:wrap; gap:.15rem .4rem; list-style:none; margin:0 0 .5rem; padding:0; font-size:.78rem; color:var(--ink-soft); }
@@ -1270,6 +1303,7 @@ a.stat-tile.dq-tile-link:hover{ border-color:var(--brand); }
 .crumbs a{ color:var(--ink-soft); text-decoration:none; }
 .crumbs a:hover{ color:var(--brand); text-decoration:underline; }
 .crumbs [aria-current]{ color:var(--ink); font-weight:600; }
+@media (max-width:560px){ .crumbs > li:first-child{ display:none; } .crumbs > li:nth-child(2)::before{ content:none; } }
 .module-tabs{
   display:flex; gap:.35rem; overflow-x:auto; padding-bottom:.35rem; border-bottom:1px solid var(--line);
   scrollbar-width:thin; -webkit-overflow-scrolling:touch;

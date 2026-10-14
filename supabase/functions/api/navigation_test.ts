@@ -3,7 +3,7 @@
  * and keep to the navigation rules (docs/NAVIGATION.md):
  *   - each role reaches every page its permissions open, and nothing else;
  *   - one home per function: a page sits in one menu entry of a workspace
- *     (its tabs may be filtered views of it), and no two rows share a label;
+ *     (its other items may be filtered views of it), and no two rows share a label;
  *   - at most 7 rows, so no menu turns into a list of everything.
  *
  *   cd supabase/functions/api
@@ -53,7 +53,7 @@ Deno.test("menus: at most 7 rows, one home per page, and no two rows with the sa
         home.set(i.page, g.id);
       }
       const tabs = g.items.map((i) => i.label);
-      assertEquals(new Set(tabs).size, tabs.length, `${role}: two tabs named alike in ${g.label}`);
+      assertEquals(new Set(tabs).size, tabs.length, `${role}: two pages named alike in ${g.label}`);
     }
     const labels = groups.map((g) => g.label);
     assertEquals(new Set(labels).size, labels.length, `${role}: two rows named alike`);
@@ -62,7 +62,7 @@ Deno.test("menus: at most 7 rows, one home per page, and no two rows with the sa
 
 Deno.test("menus: the field officer's menu is the small, task-focused one", () => {
   const rows = menuFor("field", permsOf("field_officer")).map((g: Entry) => g.label);
-  assertEquals(rows, ["Dashboard", "My schools", "My visits", "Field surveys", "Reports"]);
+  assertEquals(rows, ["Dashboard", "My schools", "My visits", "Surveys & forms", "Reports"]);
 });
 
 Deno.test("menus: a granted page shows up for that person only, in an entry of its own", () => {

@@ -1617,8 +1617,8 @@ async function main() {
     const row = document.createElement("div");
     row.className = "qrow";
     row.innerHTML = `
-      <div class="field"><input type="text" class="q-prompt" placeholder="Question"></div>
-      <select class="q-type">${QUESTION_TYPES.map((q) => `<option value="${q.value}">${esc(q.label)}</option>`).join("")}</select>
+      <div class="field"><input type="text" class="q-prompt" placeholder="Question" aria-label="Question"></div>
+      <select class="q-type" aria-label="Kind of answer">${QUESTION_TYPES.map((q) => `<option value="${q.value}">${esc(q.label)}</option>`).join("")}</select>
       <button type="button" class="qrow-remove" aria-label="Remove question">&times;</button>
     `;
     row.querySelector(".qrow-remove").addEventListener("click", () => {

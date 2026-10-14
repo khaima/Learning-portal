@@ -4,7 +4,9 @@
 [§11](#11-implementation-plan) are released, with the decisions in
 [§12](#12-decisions-taken-7-october-2026); [§14](#14-before-vs-after) is the
 before and after. [`docs/RBAC.md`](RBAC.md) is the access model this builds on;
-none of its server-side rules change here.
+none of its server-side rules change here. **14 October:** [§15](#15-the-menus-14-october-2026)
+— the sidebar lists each area's pages (the tabs are gone), one name per page
+everywhere, a few pages regrouped, and a better phone menu.
 
 The aim, in one line: **one function, one home.** A function may have several
 contextual entry points (a button on a dashboard, a link on a school page),
@@ -561,3 +563,122 @@ changed: `kobo.manage` (decision 1, with the new `kobo.sync` for Admin).
 - Kobo surveys and the portal's forms: two systems underneath (decision 3),
   found in one place.
 - No Airtable or System Settings page: neither exists in the portal.
+
+---
+
+## 15. The menus, 14 October 2026
+
+A second pass, on how the menus read and work rather than on what is in
+them. Every page and every permission is as it was; nothing was removed.
+
+### What was wrong
+
+- **Tabs that didn't fit.** An area's other pages were tabs above the page.
+  Dashboards & reports had nine: on a laptop the last ones were cut off, and
+  on a phone they were a strip you had to swipe sideways without knowing
+  there was more.
+- **The sidebar showed only the areas.** What was inside an area could be
+  seen only by opening it, and in the phone drawer not at all.
+- **The same page under different names.** The device sync page was "Sync
+  monitor", "Devices" and "Stuck devices"; Data quality was "Validation" in
+  one workspace; the M&E learning dashboard was "Learning outcomes" in one
+  menu and "Learning" in another.
+- **Things in unrelated places.** For M&E, assignments, results, visits and
+  the training register sat under "Schools", and Kobo review sat under Data
+  quality while the survey results sat under Surveys & forms. For Admin, the
+  forms and Kobo surveys sat under "Field operations".
+- **Vague or technical names:** "Activities", "Education programmes",
+  "Form registry", "Validation", "Sync monitor", "Permissions & grants".
+- **An area named like its own first page:** "My classes › My classes",
+  "Learning resources › Learning resources", "My progress › My progress".
+
+### What it is now
+
+**The sidebar is the whole map.** Each row is an area. An area with one page
+is a link; an area with several opens in place to list them, with a chevron.
+The area you're in is open and lit; the page you're on has the orange edge.
+Areas you open stay open (remembered per workspace). The tab strip above the
+page is gone — its pages are in the sidebar instead, so nothing is listed
+twice.
+
+**Above every page, the breadcrumb:** Workspace › Area › Page, each step a
+link back. On a phone the workspace step is left off (it's in the pill above).
+
+**Folded menu (laptop):** the menu still folds to an icon rail; pointing at
+or tabbing to an area shows its pages beside it, with the area's name.
+
+**Phone:** the drawer lists the same areas, opening in place; rows are
+finger-sized; it has its own close button as well as tapping beside it or
+Escape; opening it puts the keyboard on the page you're on; closed, it is out
+of the keyboard's way; picking a page closes it, opening an area doesn't.
+
+**Counts** (waiting approvals, work to mark, Kobo submissions to review, data
+issues) show on the area's row while it's closed, and on the page itself
+once it's open — never twice.
+
+### Naming rules
+
+1. The same page has the same name in every workspace — unless the role
+   does something different there (M&E's "Kobo review" is the review queue
+   of the page Admin calls "Kobo surveys").
+2. Plain words for what you do there, not how the portal is built.
+3. A page isn't named like its area.
+4. The same area name means the same kind of thing in every workspace:
+   **Schools** (the directory), **Teaching & learning** (assignments,
+   results, training, the content library), **Surveys & forms**, **Data
+   quality**, **Dashboards & reports**, **Users**.
+
+### The menus
+
+| Workspace | Areas (pages inside) |
+| --- | --- |
+| Platform Administration | Overview · Users & roles (Accounts, Approvals, Permissions, Notifications sent) · Organisation setup (Counties & schools, Academic calendar, Classes, Subjects) · Data & integrations (KoboToolbox, Forms, Data quality, Device sync) · Dashboards & reports (Executive overview, Reach, Learning, Teacher development, Field operations, Digital resources, Survey results, M&E reports, Exports) · Audit & security (Audit log, Security events, Account activity) |
+| Programme Administration | Dashboard · Schools (All schools, All teachers, Find a learner, Field visits, Counties & schools, Academic calendar) · Teaching & learning (Assignments & assessments, Results, Content library) · Surveys & forms (Forms, Kobo surveys, Survey results) · Data quality (Data issues, Device sync) · Reports · Users (Accounts, Approvals, Notifications sent) |
+| Monitoring & Evaluation | M&E overview · Results framework (Programmes & indicators, Indicator results) · Dashboards & reports (Executive overview, Reach, Learning, Teacher development, Field operations, Digital resources, M&E reports, Exports) · Data quality · Surveys & forms (Survey results, Kobo review, Form responses) · Schools (All schools, All teachers, Find a learner, Field visits) · Teaching & learning (Assignments & assessments, Results, Training register, Content library) |
+| Learning & Education | Dashboard · Schools (All schools, All teachers, Find a learner, Field visits, Device sync) · Teaching & learning (Assignments & assessments, Results, Training register) · Content library (Library, Subjects) · Forms · Dashboards & reports (Teacher development, Digital resources, Exports) |
+| Field Operations | Dashboard · My schools (Schools, Teachers) · My visits · Surveys & forms (Kobo surveys, Forms) · Reports |
+| School Management | Dashboard · My school (Profile, Teachers, Learners & classes, Assignments & results, Visits) · Learning resources · Reports |
+| Teaching & Learning | Dashboard · My classes (Classes, Class roster) · Assessments · Results · Learning resources (Library, Reading activity) · Reports |
+| My Learning | Home · My classes · My assignments · My progress (Progress, Reading activity) · Library |
+
+Still at most seven areas for every role, and each page in one area of its
+workspace (`navigation_test.ts`). A class's page (`#classes`) stays out of
+the list, as before: it's reached from a school's page and is shown in the
+menu only while it's open.
+
+### Moved, and why
+
+| Page | Was under | Now under | Why |
+| --- | --- | --- | --- |
+| M&E: Assignments & assessments, Results, Training register | Schools | Teaching & learning | They're about learning, not the school list — the same area as Admin's |
+| M&E: Content usage | Reports & analytics | Teaching & learning › Content library | The library page, not a dashboard |
+| M&E: Kobo review | Data quality | Surveys & forms | All of Kobo in one place (decision 3) |
+| Admin: Forms, Kobo surveys, Survey results | Field operations | Surveys & forms | Forms reach teachers and heads too; the same area as M&E's and the field officer's |
+| Admin: Field visits | Field operations | Schools | A visit is to a school; each school's page has its visits |
+| Admin: Device sync | Field operations | Data quality | Both answer "is all the data in, and right?" |
+| Education: Teacher development, Digital resources (dashboards) | Activities; Content & resources | Dashboards & reports | Dashboards together, as in the other workspaces |
+| Education: Forms | Activities | its own row | "Activities" said nothing about what was in it |
+
+### Renamed
+
+| Was | Now |
+| --- | --- |
+| Reports & analytics | Dashboards & reports |
+| Education programmes, Activities | Teaching & learning |
+| Schools & learning | Schools |
+| Content & resources | Content library |
+| Education reports | Dashboards & reports (Exports inside) |
+| Field surveys (field officer) | Surveys & forms |
+| Validation | Data quality |
+| Form registry, Education forms | Forms |
+| Sync monitor, Devices, Stuck devices | Device sync |
+| Permissions & grants | Permissions |
+| Classes & structure | Classes |
+| Learning outcomes | Learning |
+| Executive | Executive overview |
+| Usage dashboard | Digital resources |
+| Schools (the list), School profiles | All schools |
+| My classes › My classes | My classes › Classes |
+| Learning resources › Learning resources | Learning resources › Library |
+| My progress › My progress | My progress › Progress |
+| My schools › My schools, All my teachers | My schools › Schools, Teachers |

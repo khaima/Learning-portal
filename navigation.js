@@ -13,11 +13,12 @@
    (docs/RBAC.md has the full model.)
 
    Entry (a sidebar row): { id, label, icon, items: [Item…], badge? } — one
-           item is a page; several make a module whose items are its tabs.
+           item is a page; several make an area that opens in the sidebar
+           to list them (docs/NAVIGATION.md §15).
    Item:  { page, label, icon, needs?: [any of these permissions],
            hash?: "#page?param=…" (a filtered view of a page),
-           hidden?: true (opens — old links, links from inside the module —
-           but isn't a tab: its job moved onto another page),
+           hidden?: true (opens — old links, links from inside the area —
+           but isn't listed: its job moved onto another page),
            badge?: key from GET /nav/badges, filters?: true (the page uses
            the county / school / term filter bar) }
    ============================================================ */
@@ -78,9 +79,9 @@ const PAGES = {
   classes: { label: "Classes", icon: "classes", needs: ["classes.manage.all", "learners.view.all"] },
   subjects: { label: "Subjects", icon: "tag", needs: ["subjects.manage"] },
   users: { label: "Staff accounts", icon: "users", needs: ["users.view"], badge: "approvals" },
-  learners: { label: "Learners", icon: "cap", needs: ["learners.view.all"] },
-  teachers: { label: "Teachers", icon: "teacher", needs: ["teachers.view"] },
-  "school-profiles": { label: "School profiles", icon: "school", needs: ["schools.profile.view"] },
+  learners: { label: "Find a learner", icon: "cap", needs: ["learners.view.all"] },
+  teachers: { label: "All teachers", icon: "teacher", needs: ["teachers.view"] },
+  "school-profiles": { label: "All schools", icon: "school", needs: ["schools.profile.view"] },
   assignments: { label: "Assignments & assessments", icon: "assignment", needs: ["assignments.view.all"] },
   results: { label: "Results", icon: "results", needs: ["assignments.view.all"] },
   content: { label: "Content library", icon: "book", needs: ["library.manage", "library.usage.view"], filters: true },
@@ -91,7 +92,7 @@ const PAGES = {
   "survey-results": { label: "Survey results", icon: "chart", needs: ["kobo.results.view"], filters: true },
   reports: { label: "Reports & exports", icon: "download", needs: ["reports.export"] },
   notifications: { label: "Notifications log", icon: "bell", needs: ["notifications.view.all"], filters: true },
-  "sync-problems": { label: "Stuck devices", icon: "sync", needs: ["sync.problems.view"] },
+  "sync-problems": { label: "Device sync", icon: "sync", needs: ["sync.problems.view"] },
   permissions: { label: "Permissions", icon: "shield", needs: ["permissions.manage"] },
   audit: { label: "Audit log", icon: "log", needs: ["audit.view"] },
   "account-activity": { label: "Account activity", icon: "activity", needs: ["audit.view"] },
@@ -99,15 +100,16 @@ const PAGES = {
 /** A console page as a menu item, optionally relabelled or as a filtered view. */
 const c = (page, extra = {}) => ({ page, ...PAGES[page], ...extra });
 
-/* ---- the menus: one entry per module (docs/NAVIGATION.md) ----
-   A workspace's `groups` are its sidebar entries, in order. An entry with
-   one item is a page; an entry with several is a MODULE — the sidebar
-   shows it once, opening its first item the person may see, and the
-   others are its tabs (nav.js draws them, with a breadcrumb, at the top of
-   each of its pages). A page has one home per workspace: it's in one
-   entry only (navigation_test.ts holds that). Account things — profile,
-   notifications, the Sync center, sign out — are in the menu under the
-   person's name, not here. */
+/* ---- the menus: one entry per area (docs/NAVIGATION.md §15) ----
+   A workspace's `groups` are its sidebar entries, in order — at most seven.
+   An entry with one item is a page; an entry with several is an AREA that
+   opens in the sidebar to list its pages (nav.js), with a breadcrumb above
+   each page. A page has one home per workspace: it's in one entry only
+   (navigation_test.ts holds that). The same page has the same name in
+   every workspace, unless what the role does there is different (Kobo
+   review for M&E). Names are plain words, not the portal's internals.
+   Account things — profile, notifications, the Sync center, sign out — are
+   in the menu under the person's name, not here. */
 const entry = (id, label, icon, items, extra = {}) => ({ id, label, icon, items, ...extra });
 
 export const WORKSPACES = {
@@ -121,18 +123,18 @@ export const WORKSPACES = {
       entry("users", "Users & roles", "users", [
         c("users", { label: "Accounts", badge: undefined }), // the approvals count belongs on Approvals
         c("users", { label: "Approvals", icon: "approve", hash: "#users?status=pending" }),
-        c("permissions", { label: "Permissions & grants" }),
+        c("permissions"),
         c("notifications", { label: "Notifications sent" }),
       ], { badge: "approvals" }),
       entry("organisation", "Organisation setup", "school", [
-        c("schools", { label: "Counties & schools" }), c("calendar"), c("classes", { label: "Classes & structure" }), c("subjects"),
+        c("schools", { label: "Counties & schools" }), c("calendar"), c("classes"), c("subjects"),
       ]),
       entry("integrations", "Data & integrations", "plug", [
-        c("kobo"), c("forms", { label: "Form registry" }), c("data-quality", { label: "Validation" }), c("sync-problems", { label: "Sync monitor" }),
+        c("kobo"), c("forms"), c("data-quality"), c("sync-problems"),
       ]),
-      entry("analytics", "Reports & analytics", "chart", [
-        c("reports", { label: "Exports" }), c("overview", { label: "Executive" }), c("reach"), c("learning"), c("teacher-development"),
-        c("field-operations"), c("digital-resources"), c("survey-results"), c("mel-reports"),
+      entry("analytics", "Dashboards & reports", "chart", [
+        c("overview"), c("reach"), c("learning"), c("teacher-development"), c("field-operations"), c("digital-resources"),
+        c("survey-results"), c("mel-reports"), c("reports", { label: "Exports" }),
       ]),
       entry("security", "Audit & security", "shield", [
         c("audit"), c("audit", { label: "Security events", icon: "alert", hash: "#audit?kind=security" }), c("account-activity"),
@@ -145,15 +147,13 @@ export const WORKSPACES = {
     groups: [
       entry("dashboard", "Dashboard", "dashboard", [c("admin-overview", { label: "Dashboard" })]),
       entry("schools", "Schools", "school", [
-        c("school-profiles", { label: "Schools" }), c("teachers", { label: "All teachers" }), c("learners", { label: "Find a learner" }),
+        c("school-profiles"), c("teachers"), c("learners"), c("field-visits"),
         c("classes", { hidden: true }), // a school's classes are on its page; the old address still works
         c("schools", { label: "Counties & schools" }), c("calendar"),
       ]),
-      entry("field", "Field operations", "pin", [
-        c("field-visits", { label: "Visits" }), c("forms"), c("kobo", { label: "Kobo surveys" }), c("survey-results"), c("sync-problems", { label: "Sync monitor" }),
-      ]),
-      entry("education", "Education programmes", "cap", [c("assignments"), c("results"), c("content", { label: "Content library" })]),
-      entry("data-quality", "Data quality", "check", [c("data-quality")], { badge: "dataQuality" }),
+      entry("teaching", "Teaching & learning", "cap", [c("assignments"), c("results"), c("content")]),
+      entry("surveys", "Surveys & forms", "survey", [c("forms"), c("kobo", { label: "Kobo surveys" }), c("survey-results")], { badge: "koboReview" }),
+      entry("data-quality", "Data quality", "check", [c("data-quality", { label: "Data issues" }), c("sync-problems")], { badge: "dataQuality" }),
       entry("reports", "Reports", "download", [c("reports", { label: "Reports" })]),
       entry("users", "Users", "users", [
         c("users", { label: "Accounts", badge: undefined }), // the approvals count belongs on Approvals
@@ -168,16 +168,16 @@ export const WORKSPACES = {
     groups: [
       entry("overview", "M&E overview", "target", [c("me-dashboard", { label: "M&E overview" })]),
       entry("framework", "Results framework", "layers", [c("mel-framework", { label: "Programmes & indicators" }), c("mel-results")]),
-      entry("analytics", "Reports & analytics", "chart", [
-        c("overview", { label: "Executive" }), c("reach"), c("learning", { label: "Learning outcomes" }), c("teacher-development"),
-        c("digital-resources"), c("field-operations"), c("mel-reports"), c("reports", { label: "Exports" }), c("content", { label: "Content usage" }),
+      entry("analytics", "Dashboards & reports", "chart", [
+        c("overview"), c("reach"), c("learning"), c("teacher-development"), c("field-operations"), c("digital-resources"),
+        c("mel-reports"), c("reports", { label: "Exports" }),
       ]),
-      entry("data-quality", "Data quality", "check", [c("data-quality"), c("kobo", { label: "Kobo review" })], { badge: "dataQuality" }),
+      entry("data-quality", "Data quality", "check", [c("data-quality")], { badge: "dataQuality" }),
+      entry("surveys", "Surveys & forms", "survey", [c("survey-results"), c("kobo", { label: "Kobo review" }), c("forms", { label: "Form responses" })], { badge: "koboReview" }),
       entry("schools", "Schools", "school", [
-        c("school-profiles", { label: "Schools" }), c("teachers", { label: "All teachers" }), c("learners", { label: "Find a learner" }),
-        c("classes", { hidden: true }), c("assignments"), c("results"), c("field-visits", { label: "Visits" }), c("training"),
+        c("school-profiles"), c("teachers"), c("learners"), c("field-visits"), c("classes", { hidden: true }),
       ]),
-      entry("surveys", "Surveys & forms", "survey", [c("survey-results"), c("forms", { label: "Form responses" })]),
+      entry("teaching", "Teaching & learning", "cap", [c("assignments"), c("results"), c("training"), c("content")]),
     ],
   },
   education: {
@@ -185,14 +185,13 @@ export const WORKSPACES = {
     question: "How is learning happening, and what support do teachers and learners need?",
     groups: [
       entry("dashboard", "Dashboard", "dashboard", [c("learning", { label: "Dashboard" })]),
-      entry("schools", "Schools & learning", "school", [
-        c("school-profiles", { label: "Schools" }), c("teachers", { label: "All teachers" }), c("learners", { label: "Find a learner" }),
-        c("classes", { hidden: true }), c("field-visits", { label: "Visits" }), c("sync-problems", { label: "Devices" }),
+      entry("schools", "Schools", "school", [
+        c("school-profiles"), c("teachers"), c("learners"), c("field-visits"), c("classes", { hidden: true }), c("sync-problems"),
       ]),
-      entry("activities", "Activities", "star", [c("training"), c("teacher-development"), c("forms", { label: "Education forms" })]),
-      entry("assessments", "Assessments", "assignment", [c("assignments"), c("results")]),
-      entry("content", "Content & resources", "book", [c("content", { label: "Content library" }), c("digital-resources", { label: "Usage dashboard" }), c("subjects")]),
-      entry("reports", "Education reports", "download", [c("reports", { label: "Reports" })]),
+      entry("teaching", "Teaching & learning", "cap", [c("assignments"), c("results"), c("training")]),
+      entry("content", "Content library", "book", [c("content", { label: "Library" }), c("subjects")]),
+      entry("forms", "Forms", "form", [c("forms")]),
+      entry("analytics", "Dashboards & reports", "chart", [c("teacher-development"), c("digital-resources"), c("reports", { label: "Exports" })]),
     ],
   },
   field: {
@@ -203,11 +202,11 @@ export const WORKSPACES = {
     groups: [
       entry("dashboard", "Dashboard", "dashboard", [{ page: "dashboard", label: "Dashboard", icon: "dashboard" }]),
       entry("schools", "My schools", "school", [
-        { page: "schools", label: "My schools", icon: "school" },
-        { page: "teachers", label: "All my teachers", icon: "teacher", needs: ["teachers.view"] },
+        { page: "schools", label: "Schools", icon: "school" },
+        { page: "teachers", label: "Teachers", icon: "teacher", needs: ["teachers.view"] },
       ]),
       entry("visits", "My visits", "pin", [{ page: "visits", label: "My visits", icon: "pin" }]),
-      entry("surveys", "Field surveys", "survey", [
+      entry("surveys", "Surveys & forms", "survey", [
         { page: "kobo-surveys", label: "Kobo surveys", icon: "survey", needs: ["kobo.surveys.fill"] },
         { page: "forms", label: "Forms", icon: "form" },
       ]),
@@ -236,13 +235,13 @@ export const WORKSPACES = {
     groups: [
       entry("dashboard", "Dashboard", "dashboard", [{ page: "home", label: "Dashboard", icon: "dashboard" }]),
       entry("classes", "My classes", "classes", [
-        { page: "my-classes", label: "My classes", icon: "classes" },
+        { page: "my-classes", label: "Classes", icon: "classes" },
         { page: "my-learners", label: "Class roster", icon: "cap" },
       ]),
       entry("assessments", "Assessments", "assignment", [{ page: "assignments", label: "Assessments", icon: "assignment", badge: "toMark" }], { badge: "toMark" }),
       entry("results", "Results", "results", [{ page: "results", label: "Results & progress", icon: "results" }]),
       entry("resources", "Learning resources", "book", [
-        { page: "resources", label: "Learning resources", icon: "book" },
+        { page: "resources", label: "Library", icon: "book" },
         { page: "activity", label: "Reading activity", icon: "clock" },
       ]),
       entry("reports", "Reports", "download", [{ page: "reports", label: "Reports", icon: "download" }]),
@@ -256,7 +255,7 @@ export const WORKSPACES = {
       entry("classes", "My classes", "classes", [{ page: "my-learning", label: "My classes", icon: "classes" }]),
       entry("assignments", "My assignments", "assignment", [{ page: "assignments", label: "My assignments", icon: "assignment" }]),
       entry("progress", "My progress", "results", [
-        { page: "my-progress", label: "My progress", icon: "results" },
+        { page: "my-progress", label: "Progress", icon: "results" },
         { page: "activity", label: "Reading activity", icon: "clock" },
       ]),
       entry("library", "Library", "book", [{ page: "resources", label: "Library", icon: "book" }]),

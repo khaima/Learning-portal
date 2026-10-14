@@ -816,3 +816,38 @@ only: the same figures from the same API; nothing was invented.
   history, laptop and phone, light and dark; tooltips by mouse and
   keyboard; refresh-in-place; axe-core clean on 12 page states.
 
+### 14 October — the menus
+
+How the menus read and work, not what is in them: every page, function and
+permission is as it was. `docs/NAVIGATION.md` §15 has the details.
+
+- **The sidebar lists each area's pages.** An area with several pages opens
+  in place (the one you're in is open; ones you open stay open). The tab
+  strip above pages is gone — it overflowed (nine tabs under Dashboards &
+  reports, cut off on a laptop, a hidden sideways strip on a phone) and
+  repeated what the sidebar now shows.
+- **Marks:** the page you're on has the orange edge; its area is lit. Counts
+  sit on the area's row while it's closed, on the page once it's open.
+- **One name per page in every workspace**, plain words (Device sync, not
+  Sync monitor / Devices / Stuck devices; Data quality, not Validation), and
+  no page named like its own area.
+- **Regrouped where things sat apart from their kind:** M&E's assignments,
+  results and training register under Teaching & learning (they were under
+  Schools); Kobo review with the other survey pages; Admin's forms and Kobo
+  under Surveys & forms, visits under Schools, device sync under Data
+  quality; Education's dashboards under Dashboards & reports. Still at most
+  seven areas per role.
+- **Folded menu:** on the icon rail an area's pages appear beside it on hover
+  or keyboard focus.
+- **Phone:** a close button in the drawer, finger-sized rows, the keyboard
+  starts on the page you're on, the closed drawer is out of the keyboard's
+  way, and the breadcrumb drops the workspace name the pill already shows.
+- **Also:** the menu now runs the full height of the window on short pages
+  (it stopped halfway); P2-12's two unlabelled controls (the form builder's
+  answer type, the teacher's CSV upload) have labels, and the form card's
+  delete button meets contrast. The keyboard part of P2-12 (scrolling
+  tables) is still open.
+- **Checked:** every role's menu at laptop and phone width, the drawer open,
+  the icon rail, dark mode; opening and closing areas, a page kept for old
+  links, keyboard and Escape; navigation tests (6) pass; axe-core clean on
+  nine states (every role; drawer, rail and dark mode among them).
