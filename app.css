@@ -91,9 +91,19 @@
 .stat-tile .s-label .icon{ color:var(--brand); }
 .stat-tile .s-num{ font-size:1.75rem; font-weight:700; letter-spacing:-.02em; font-variant-numeric:tabular-nums; line-height:1.05; }
 .stat-tile .s-sub{ font-size:.76rem; line-height:1.4; color:var(--ink-soft); margin-top:.4rem; }
+/* Key figures (kpi.js, docs/CHARTS.md "Key figures"): a change against an
+   earlier period, when there is one, sits between the value and its context. */
+.stat-tile .s-title{ min-width:0; }
+.stat-tile .s-trend{ font-size:.76rem; line-height:1.4; margin-top:.4rem; color:var(--ink-soft); }
+.trend{ font-weight:700; } .trend-delta{ white-space:nowrap; }
+.trend.good{ color:var(--success-fg); } .trend.bad{ color:var(--danger-fg); } .trend.flat{ color:var(--ink-soft); font-weight:600; }
+.trend .trend-what{ font-weight:400; color:var(--ink-soft); }
+.warn-text{ color:var(--accent-fg); font-weight:600; }
 
-.body-grid{ display:grid; grid-template-columns:1.5fr 1fr; gap:1.2rem; align-items:start; }
+.body-grid{ display:grid; grid-template-columns:minmax(0,1.5fr) minmax(0,1fr); gap:1.2rem; align-items:start; }
 @media (max-width:1080px){ .body-grid{ grid-template-columns:1fr; } }
+/* Short summary tables beside each other (a school's classes and visits) fit their column; they scroll only if they must. */
+.body-grid .intel-table{ min-width:0; }
 .panel{ background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius-lg); padding:1.25rem 1.4rem 1.35rem; box-shadow:var(--shadow); }
 .panel + .panel{ margin-top:1.1rem; }
 .panel-head{ display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:.4rem 1rem; margin-bottom:.95rem; }
@@ -1035,7 +1045,6 @@ a.btn.form-open{ margin-bottom:.2rem; }
 .dq-spark{ display:block; width:100%; height:44px; margin-top:.4rem; }
 .dq-score .dq-spark-note{ display:block; margin-top:.15rem; font-size:.72rem; font-weight:500; color:var(--ink-soft); }
 .dq-tiles{ margin:0; }
-.dq-sevnums{ font-size:1.3rem; }
 .dq-high{ color:var(--danger-fg); } .dq-medium{ color:var(--accent-fg); } .dq-low{ color:var(--ink-soft); }
 .pill.dq-sev.dq-high{ background:var(--danger-soft); color:var(--danger-fg); }
 .pill.dq-sev.dq-medium{ background:var(--accent-soft); color:var(--accent-fg); }
@@ -1059,8 +1068,6 @@ a.btn.form-open{ margin-bottom:.2rem; }
 .dq-history li{ position:relative; padding:.1rem 0 .6rem .4rem; }
 .dq-history li::before{ content:""; position:absolute; left:-1.32rem; top:.45rem; width:.6rem; height:.6rem; border-radius:50%; background:var(--brand); }
 .dq-change{ display:flex; flex-direction:column; font-size:.78rem; color:var(--ink-soft); font-family:ui-monospace,monospace; overflow-wrap:anywhere; }
-a.stat-tile.dq-tile-link{ text-decoration:none; color:inherit; }
-a.stat-tile.dq-tile-link:hover{ border-color:var(--brand); }
 @media (max-width:640px){ .dq-top{ grid-template-columns:1fr; } }
 
 /* ---------------------------------------------------------------- M&E layer (mel-ui.js) */
@@ -1337,8 +1344,14 @@ button.side-link{ width:100%; border:0; background:none; font:inherit; font-size
 .filter-bar[hidden]{ display:none; }
 
 /* Overview tiles that open a page, health checks, small headings */
-a.stat-tile.stat-link{ display:block; color:inherit; text-decoration:none; }
-a.stat-tile.stat-link:hover{ border-color:color-mix(in srgb, var(--brand) 35%, var(--line)); }
+a.stat-tile.stat-link{ display:block; color:inherit; text-decoration:none; transition:border-color .15s, box-shadow .15s, transform .15s; }
+.stat-tile .s-go{ margin-left:auto; padding-left:.3rem; color:var(--brand); font-weight:700; transition:transform .15s; }
+a.stat-tile.stat-link:hover,a.stat-tile.stat-link:focus-visible{ border-color:color-mix(in srgb, var(--brand) 45%, var(--line));
+  box-shadow:0 4px 14px color-mix(in srgb, var(--ink) 10%, transparent); transform:translateY(-1px); }
+a.stat-tile.stat-link:hover .s-go,a.stat-tile.stat-link:focus-visible .s-go{ transform:translateX(3px); }
+a.stat-tile.stat-link:hover .s-title{ text-decoration:underline; text-underline-offset:2px; }
+a.stat-tile.stat-link.intel-warn:hover,a.stat-tile.stat-link.intel-warn:focus-visible{ box-shadow:inset 3px 0 0 var(--accent), 0 4px 14px color-mix(in srgb, var(--ink) 10%, transparent); }
+@media (prefers-reduced-motion:reduce){ a.stat-tile.stat-link,a.stat-tile.stat-link .s-go{ transition:none; transform:none !important; } }
 .checks{ display:flex; flex-direction:column; gap:.45rem; }
 .check-row{ display:flex; align-items:center; gap:.7rem; padding:.55rem .7rem; border-radius:10px; border:1px solid var(--line); background:var(--paper-raised); }
 .check-row > div{ flex:1; min-width:0; }

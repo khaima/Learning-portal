@@ -12,6 +12,7 @@ import { viewableKind } from "./viewer.js";
 import * as sync from "./sync.js";
 import { freshness } from "./api.js";
 import { liveStatus, redraw } from "./live.js";
+import { kpiCard } from "./kpi.js";
 
 // Coming back to the page reads it again if what's shown is older than this.
 const RETURN_MS = 5 * 60_000;
@@ -123,6 +124,7 @@ async function main() {
     const fraction = total ? handedIn / total : 0;
     const toDo = set.filter((a) => a.canWork);
     const overdue = set.filter((a) => a.overdue).length;
+    const lateOpen = toDo.filter((a) => a.overdue).length;
     $("#progressText").textContent = `${handedIn}/${total}`;
     $("#progressArc").setAttribute("stroke-dasharray", String(CIRCUMFERENCE));
     $("#progressArc").setAttribute("stroke-dashoffset", String(CIRCUMFERENCE * (1 - fraction)));
@@ -134,11 +136,13 @@ async function main() {
       : assignmentsFailed
       ? "Couldn't load your assignments — check your connection."
       : "Your teacher hasn't set any assignments yet.";
-    const statsHtml = `
-      <div class="stat-tile"><div class="s-label">Handed in</div><div class="s-num">${handedIn}</div><div class="s-sub">of ${total} assignments</div></div>
-      <div class="stat-tile"><div class="s-label">To do</div><div class="s-num">${toDo.length}</div><div class="s-sub">still open</div></div>
-      <div class="stat-tile"><div class="s-label">Overdue</div><div class="s-num">${overdue}</div><div class="s-sub">past the due date</div></div>
-    `;
+    const statsHtml = [
+      kpiCard({ label: "Handed in", icon: "check", value: handedIn, sub: total ? `of ${total} assignments · ${Math.round(fraction * 100)}%` : "no assignments yet" }),
+      // Past the due date: some can still be handed in (late), the rest have closed.
+      kpiCard({ label: "To do", icon: "assignment", value: toDo.length, href: "#assignments", tone: lateOpen ? "warn" : "",
+        sub: [toDo.length ? "still open" : "nothing to do", lateOpen ? `<b class="warn-text">${lateOpen} past the due date</b>` : toDo.length ? "none overdue" : "",
+          overdue > lateOpen ? `${overdue - lateOpen} missed` : ""].filter(Boolean).join(" · ") }),
+    ].join("");
     $("#progressStats").innerHTML = statsHtml;
     $("#homeProgressStats").innerHTML = statsHtml;
   }

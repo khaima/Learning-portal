@@ -14,6 +14,7 @@ import { openContentPanel, closeViewer } from "./viewer.js";
 import * as sync from "./sync.js";
 import { freshness } from "./api.js";
 import { liveStatus, redraw } from "./live.js";
+import { kpiCard } from "./kpi.js";
 
 // Coming back to the page reads it again if what's shown is older than this.
 const RETURN_MS = 5 * 60_000;
@@ -21,14 +22,6 @@ const { waiting } = sync;
 // The school profile and teachers pages (admin-ui.js) load when first opened.
 const adminUi = () => import("./admin-ui.js");
 const pageFailed = (el) => (err) => { el.innerHTML = errorState(friendlyError(err, "Couldn't load this page — check your connection.")); };
-
-const ICON = {
-  schools: '<path d="M4 21V8l8-5 8 5v13"/><path d="M9 21v-6h6v6"/>',
-  visits: '<path d="M12 21s7-6.1 7-11.5A7 7 0 0 0 5 9.5C5 14.9 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/>',
-  forms: '<path d="M4 19V5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M9 13l2 2 4-4"/>',
-  sync: '<path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5M3 21v-5h5"/>',
-};
-const svg = (paths) => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${paths}</svg>`;
 
 /* Kenya's 3-term school year, client-side mirror of the backend's
    schoolTermOf — just enough to answer "how many visits this term." */
@@ -92,13 +85,15 @@ async function main() {
     const weekAgo = Date.now() - 7 * 864e5;
     const thisWeek = reportsCache.filter((r) => Date.parse(r.createdAt) >= weekAgo).length;
     const unsent = sync.status().pending;
-    const n = directory.schools.length;
-    $("#statRow").innerHTML = `
-      <a class="stat-tile stat-link" href="#schools"><div class="s-label">${svg(ICON.schools)}My schools</div><div class="s-num">${n}</div><div class="s-sub">${n ? "assigned to you" : "none assigned yet"}</div></a>
-      <a class="stat-tile stat-link" href="#visits"><div class="s-label">${svg(ICON.visits)}Visits this term</div><div class="s-num">${visitsThisTerm}</div><div class="s-sub">${thisWeek} this week</div></a>
-      <a class="stat-tile stat-link" href="#visits"><div class="s-label">${svg(ICON.forms)}Forms to finish</div><div class="s-num">${formsToFinish().length}</div><div class="s-sub">visits with forms still to fill</div></a>
-      <a class="stat-tile stat-link" href="#" data-open-sync-center><div class="s-label">${svg(ICON.sync)}Waiting to sync</div><div class="s-num">${unsent}</div><div class="s-sub">${unsent ? "sent when you're online" : "everything is sent"}</div></a>
-    `;
+    const n = directory.schools.length, toFinish = formsToFinish().length;
+    $("#statRow").innerHTML = [
+      kpiCard({ label: "My schools", icon: "school", value: n, href: "#schools", sub: n ? "assigned to you" : "none assigned yet" }),
+      kpiCard({ label: "Visits this term", icon: "pin", value: visitsThisTerm, href: "#visits", sub: `${thisWeek} in the last 7 days` }),
+      kpiCard({ label: "Forms to finish", icon: "form", value: toFinish, href: "#visits", tone: toFinish ? "warn" : "",
+        sub: toFinish ? "visits with forms still to fill" : "every visit's forms are filled" }),
+      kpiCard({ label: "Waiting to sync", icon: "sync", value: unsent, href: "#", attrs: "data-open-sync-center",
+        sub: unsent ? "sent when you're online" : "everything is sent" }),
+    ].join("");
   }
   sync.onChange(() => renderKpis());
 

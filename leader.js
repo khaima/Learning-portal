@@ -16,21 +16,13 @@ import { statusPill, openArchiveDialog, openHistoryPanel } from "./learners-ui.j
 import { mountFormList } from "./forms.js";
 import { freshness } from "./api.js";
 import { liveStatus, redraw } from "./live.js";
+import { kpiCard } from "./kpi.js";
 
 // Coming back to the page reads it again if what's shown is older than this.
 const RETURN_MS = 5 * 60_000;
 // The school profile and teachers pages (admin-ui.js) load when first opened.
 const adminUi = () => import("./admin-ui.js");
 const pageFailed = (el) => (err) => { el.innerHTML = errorState(friendlyError(err, "Couldn't load this page — check your connection.")); };
-
-const ICON = {
-  learners: '<path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/>',
-  teachers: '<path d="M4 19V6a2 2 0 0 1 2-2h13v14H6a2 2 0 0 0-2 2Zm0 0a2 2 0 0 0 2 2h13"/><path d="M9 8h7M9 11h7"/>',
-  grades: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/>',
-  handedIn: '<path d="M4 19V5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M9 13l2 2 4-4"/>',
-  marks: '<path d="M12 20V10M18 20V4M6 20v-6"/>',
-};
-const svg = (paths) => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${paths}</svg>`;
 
 /* A short label for the grade-row "avatar" swatch — "Grade 5" → "G5",
    anything without a number falls back to its first two letters, and an
@@ -76,13 +68,19 @@ async function main() {
      side by side and are never combined; each opens the Learning page. */
   function renderKpis() {
     const { assignmentsTotal: total, assignmentsDone: done, achievement } = overview;
-    $("#statRow").innerHTML = `
-      <div class="stat-tile"><div class="s-label">${svg(ICON.learners)}Learners</div><div class="s-num">${overview.learnerCount}</div><div class="s-sub">enrolled</div></div>
-      <div class="stat-tile"><div class="s-label">${svg(ICON.teachers)}Teachers</div><div class="s-num">${overview.teacherCount}</div><div class="s-sub">on staff</div></div>
-      <div class="stat-tile"><div class="s-label">${svg(ICON.grades)}Grades running</div><div class="s-num">${overview.gradeBreakdown.length}</div><div class="s-sub">this term</div></div>
-      <a class="stat-tile stat-link" href="#learning"><div class="s-label">${svg(ICON.handedIn)}Work handed in</div><div class="s-num">${total ? `${Math.round((done / total) * 100)}%` : "—"}</div><div class="s-sub">${total ? `${done} of ${total} pieces of work` : "no assignments set yet"}</div></a>
-      <a class="stat-tile stat-link" href="#learning"><div class="s-label">${svg(ICON.marks)}Average mark</div><div class="s-num">${achievement?.averagePercent != null ? `${Math.round(achievement.averagePercent)}%` : "—"}</div><div class="s-sub">${achievement?.marked ? `${achievement.marked} marked${achievement.band ? ` · ${esc(achievement.band)}` : ""}` : "nothing marked yet"}</div></a>
-    `;
+    const c = overview.completion || {};
+    const grades = overview.gradeBreakdown;
+    $("#statRow").innerHTML = [
+      kpiCard({ label: "Learners", icon: "cap", value: overview.learnerCount, href: "#learners",
+        sub: grades.length ? `enrolled in ${grades.length} grade${grades.length === 1 ? "" : "s"}` : "enrolled" }),
+      kpiCard({ label: "Teachers", icon: "teacher", value: overview.teacherCount, href: "#teachers",
+        // Teacher types where they're recorded ("(not set)" says nothing on a card).
+        sub: overview.teachersByType.filter((t) => t.label !== "(not set)").map((t) => `${t.value} ${esc(t.label)}`).join(" · ") || "on staff" }),
+      kpiCard({ label: "Work handed in", icon: "assignment", value: total ? `${Math.round((done / total) * 100)}%` : "—", href: "#learning",
+        sub: total ? `${done} of ${total} pieces of work${c.missing ? ` · <b class="warn-text">${c.missing} missing</b>` : ""}` : "no assignments set yet" }),
+      kpiCard({ label: "Average mark", icon: "results", value: achievement?.averagePercent != null ? `${Math.round(achievement.averagePercent)}%` : "—", href: "#learning",
+        sub: achievement?.marked ? `${achievement.marked} marked${achievement.band ? ` · ${esc(achievement.band)}` : ""}` : "nothing marked yet" }),
+    ].join("");
   }
 
   function gradeRow({ grade, learners, assignmentsTotal, assignmentsDone, marked, averagePercent, band }, withWork) {
@@ -110,8 +108,7 @@ async function main() {
   }
 
   function renderTeachers() {
-    $("#teacherStatRow").innerHTML =
-      `<div class="stat-tile"><div class="s-label">${svg(ICON.teachers)}Teachers</div><div class="s-num">${overview.teacherCount}</div><div class="s-sub">on staff</div></div>`;
+    $("#teacherStatRow").innerHTML = kpiCard({ label: "Teachers", icon: "teacher", value: overview.teacherCount, sub: "on staff" });
     $("#teacherTypeList").innerHTML = overview.teachersByType.length
       ? overview.teachersByType.map((t) => `<div class="result-row"><span>${esc(t.label)}</span><span>${t.value}</span></div>`).join("")
       : `<div class="empty-state">No teacher type recorded yet.</div>`;

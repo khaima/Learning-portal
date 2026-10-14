@@ -878,3 +878,40 @@ call.
 - **Checked:** laptop, tablet, phone and dark mode; refresh in place with
   changed data; the "Review" jump; every link opens an existing page;
   axe-core clean in light, dark and phone views.
+
+### 14 October — the key figures
+
+Every key-figure card in the portal is now drawn by one function
+(`kpi.js`), so they read the same everywhere: icon and title, the value,
+a change where the data supports one, and a line of context (CHARTS.md,
+"Key figures"). Only figures the pages already read; no API, permission or
+route changed.
+
+- **Changes, only where real:** completion and the average mark compare
+  the latest term with the one before (the API already gives both per
+  term); the data quality score compares with the scan before. Counts get
+  no arrow — the term or month under way is shown beside the one before,
+  in words. Nothing is estimated.
+- **Context added from data already there:** learners who joined this
+  term; "since Monday · N last week" for the teacher's hand-ins (shown only
+  when the list wasn't cut short); the share of enrolled learners who
+  signed in this week; when a school was last visited.
+- **Clickable cards look clickable:** an arrow by the title, and a lift,
+  darker border and underlined title on hover or focus. Cards that open
+  nothing have no arrow. New links: the programme dashboards' cards open
+  their pages (only those the person may open); the school head's,
+  teacher's and learner's cards open the matching page; a school's
+  overview cards open its tabs.
+- **Fewer cards saying the same thing:** the six Data Quality Center
+  counts became Open issues and Closed issues; Kobo submissions and Kobo
+  needing review, Active users and Learner reach, Active teachers and
+  Setting work, the learner's To do and Overdue — one card each. The school
+  head's name moved from a big figure to the context of Teachers.
+- **Warning colour only on figures that are waiting on someone** (work to
+  mark, forms to finish, open issues, locked out); elsewhere the words say
+  it.
+- **Fixed on the way:** a school's profile was wider than the screen (its
+  two short tables had a 36rem minimum); they now fit their column.
+- **Checked:** every page with key figures, laptop and phone, light and
+  dark; hover and focus; refresh in place keeps the same cards; axe-core
+  clean.

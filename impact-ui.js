@@ -29,6 +29,7 @@ import { esc, formatDuration } from "./util.js";
 import { fmtValue, ragPill } from "./mel-format.js";
 import { ICON } from "./navigation.js";
 import { barList, lineChart, monthPoints, proportion, stackBar, TARGET_KEY, targetList, termPoints, trendOrBars } from "./charts.js";
+import { kpiCard, periodTrend, termName } from "./kpi.js";
 
 const pct = (v) => (v == null ? "—" : `${Math.round(v)}%`);
 const num = (v) => (v == null ? "—" : Number(v).toLocaleString());
@@ -50,9 +51,21 @@ export const THEMES = {
 /* ------------------------------------------------------------ building blocks */
 
 const icon = (name) => (ICON[name] ? `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${ICON[name]}</svg>` : "");
-function tile(label, value, sub = "", tone = "", iconName = "") {
-  return `<div class="stat-tile${tone ? ` intel-${tone}` : ""}"><div class="s-label">${icon(iconName)}${esc(label)}</div><div class="s-num">${value}</div><div class="s-sub">${sub}</div></div>`;
-}
+/* The key figures are kpi.js cards. `opts.canOpen(page)` says which pages
+   this person may open: a figure links to its page only then. */
+const linkTo = (opts, page, hash = "") => (opts?.canOpen?.(page) ? hash || `#${page}` : "");
+/** The latest entry of a series and the one before it, if there are two. */
+const lastTwo = (list) => { const l = (list || []).filter(Boolean); return [l.at(-2), l.at(-1)]; };
+const monthName = (ym) => {
+  const [y, m] = String(ym).split("-").map(Number);
+  return y && m ? new Date(Date.UTC(y, m - 1, 1)).toLocaleString(undefined, { month: "long", timeZone: "UTC" }) : String(ym);
+};
+const warn = (t) => `<b class="warn-text">${t}</b>`;
+/** Learners who joined in the latest term: "+11 joined in Term 3". */
+const joinedLine = (growth) => {
+  const last = (growth || []).at(-1);
+  return last?.joined ? `+${num(last.joined)} joined in ${esc(termName(last.label))}` : "";
+};
 function card(title, meta, body, { wide = false } = {}) {
   return `<div class="chart-card${wide ? " intel-wide" : ""}">
     <div class="chart-card-head"><b>${esc(title)}</b>${meta ? `<span>${meta}</span>` : ""}</div>
@@ -143,7 +156,7 @@ export function themeIndicatorsHtml(dash, theme, { canManage = false } = {}) {
 
 /* ------------------------------------------------------------ 1. executive overview */
 
-export function executiveHtml(d) {
+export function executiveHtml(d, opts = {}) {
   const E = d.executive, R = d.reach, L = d.learning, T = d.teachers, F = d.fieldOps, S = d.resources;
   const AREA_ICON = { reach: "globe", learning: "results", "teacher-development": "teacher", "field-operations": "pin", "digital-resources": "book" };
   const area = (page, title, lines) => `
@@ -158,11 +171,18 @@ export function executiveHtml(d) {
   // with its own area below, once — not as a tile and again in a card.
   return {
     headline: [
-      tile("Schools", num(E.schools), `${E.schoolsVisited.visited} visited · ${pct(E.schoolsVisited.coverage)} coverage`, "", "school"),
-      tile("Learners", num(E.learners), `active · ${pct(E.activeUsers.learnerShare)} used the portal ${esc(E.activeUsers.window)}`, "", "cap"),
-      tile("Teachers", num(E.teachers), `${pct(T.training.share)} trained · ${pct(T.activity.participation.active.rate)} active`, "", "teacher"),
-      tile("Completion", pct(c.rate), c.assigned ? `${num(c.submitted)}/${num(c.assigned)} pieces of work handed in` : "no work set yet", "", "assignment"),
-      tile("Average mark", pct(E.averageMark), L.results.marked ? `${plural(L.results.marked, "piece")} marked${L.results.band ? ` · ${esc(L.results.band)}` : ""} — achievement` : "nothing marked yet", "", "results"),
+      kpiCard({ label: "Schools", icon: "school", value: num(E.schools), href: linkTo(opts, "school-profiles"),
+        sub: `${E.schoolsVisited.visited} visited · ${pct(E.schoolsVisited.coverage)} coverage` }),
+      kpiCard({ label: "Learners", icon: "cap", value: num(E.learners), href: linkTo(opts, "learners"),
+        sub: [joinedLine(R.growth), `${pct(E.activeUsers.learnerShare)} used the portal ${esc(E.activeUsers.window)}`].filter(Boolean).join(" · ") }),
+      kpiCard({ label: "Teachers", icon: "teacher", value: num(E.teachers), href: linkTo(opts, "teachers"),
+        sub: `${pct(T.training.share)} trained · ${pct(T.activity.participation.active.rate)} active` }),
+      kpiCard({ label: "Completion", icon: "assignment", value: pct(c.rate), href: linkTo(opts, "learning"),
+        trend: periodTrend(L.progress.byTerm, (t) => t.completionRate),
+        sub: c.assigned ? `${num(c.submitted)} of ${num(c.assigned)} pieces of work handed in` : "no work set yet" }),
+      kpiCard({ label: "Average mark", icon: "results", value: pct(E.averageMark), href: linkTo(opts, "learning"),
+        trend: periodTrend(L.progress.byTerm.filter((t) => t.marked), (t) => t.averagePercent),
+        sub: L.results.marked ? `${plural(L.results.marked, "piece")} marked${L.results.band ? ` · ${esc(L.results.band)}` : ""}` : "nothing marked yet" }),
     ].join(""),
     areas: [
       area("reach", "Reach", [
@@ -213,16 +233,18 @@ export function execMelArea(dash) {
 
 /* ------------------------------------------------------------ 2. reach */
 
-export function reachHtml(d) {
+export function reachHtml(d, opts = {}) {
   const R = d.reach, S = R.summary;
   const lg = R.gender.learners;
   return `
     <div class="stat-row">
-      ${tile("Counties reached", `${S.counties}/${S.countiesTotal}`, "with active learners or teachers")}
-      ${tile("Schools reached", `${S.schoolsReached}/${S.schoolsTotal}`, `${S.schoolsVisited} visited`)}
-      ${tile("Learners", num(S.learners), `${num(S.learnersEverEnrolled)} enrolled since the start`)}
-      ${tile("Teachers", num(S.teachers), plural(S.fieldOfficers, "field officer"))}
-      ${tile("Gender recorded", pct(lg.recordedShare), `for ${num(lg.recorded)} of ${num(lg.total)} learners · optional`)}
+      ${kpiCard({ label: "Counties reached", icon: "globe", value: `${S.counties}/${S.countiesTotal}`, sub: "with active learners or teachers" })}
+      ${kpiCard({ label: "Schools reached", icon: "school", value: `${S.schoolsReached}/${S.schoolsTotal}`, sub: `${S.schoolsVisited} visited`, href: linkTo(opts, "school-profiles") })}
+      ${kpiCard({ label: "Learners", icon: "cap", value: num(S.learners), href: linkTo(opts, "learners"),
+        sub: [joinedLine(R.growth), `${num(S.learnersEverEnrolled)} enrolled since the start`].filter(Boolean).join(" · ") })}
+      ${kpiCard({ label: "Teachers", icon: "teacher", value: num(S.teachers), href: linkTo(opts, "teachers"),
+        sub: `${pct(d.teachers.training.share)} trained · ${plural(S.fieldOfficers, "field officer")} supporting them` })}
+      ${kpiCard({ label: "Gender recorded", icon: "users", value: pct(lg.recordedShare), sub: `for ${num(lg.recorded)} of ${num(lg.total)} learners · optional` })}
     </div>
     <div class="chart-grid">
       ${melFirst("reach")}
@@ -244,18 +266,25 @@ export function reachHtml(d) {
 
 /* ------------------------------------------------------------ 3. learning */
 
-export function learningHtml(d) {
+export function learningHtml(d, opts = {}) {
   const L = d.learning, A = L.assignments, c = L.completion, a = L.results, P = L.progress.learners;
   const band = bandNames(L.bands);
   const byBand = bandChart(L.bands, a.bands);
   const terms = L.progress.byTerm.filter((t) => t.marked);
   return `
     <div class="stat-row">
-      ${tile("Assignments set", num(A.published + A.closed), `${A.published} open · ${A.closed} closed · ${A.draft} drafts`)}
-      ${tile("Completion", pct(c.rate), `${num(c.submitted)}/${num(c.assigned)} handed in · ${c.late} late · ${c.missing} missing`)}
-      ${tile("Average mark", pct(a.averagePercent), a.marked ? `${plural(a.marked, "piece")} marked${a.band ? ` · ${band.tag(a.band)}` : ""}` : "nothing marked yet")}
-      ${tile("To be marked", num(A.awaitingMarking), "handed in, not yet marked")}
-      ${tile("Learners improving", pct(P.improvedShare), P.compared ? `${P.improved} of ${P.compared} with marks in 2+ terms` : "needs marks in two terms")}
+      ${kpiCard({ label: "Assignments set", icon: "assignment", value: num(A.published + A.closed), href: linkTo(opts, "assignments"),
+        sub: `${A.published} open · ${A.closed} closed · ${A.draft} drafts` })}
+      ${kpiCard({ label: "Completion", icon: "check", value: pct(c.rate), href: linkTo(opts, "assignments"),
+        trend: periodTrend(L.progress.byTerm, (t) => t.completionRate),
+        sub: `${num(c.submitted)} of ${num(c.assigned)} handed in · ${c.late} late · ${c.missing} missing` })}
+      ${kpiCard({ label: "Average mark", icon: "results", value: pct(a.averagePercent), href: linkTo(opts, "results"),
+        trend: periodTrend(terms, (t) => t.averagePercent),
+        sub: a.marked ? `${plural(a.marked, "piece")} marked${a.band ? ` · ${band.tag(a.band)}` : ""}` : "nothing marked yet" })}
+      ${kpiCard({ label: "To be marked", icon: "clock", value: num(A.awaitingMarking), tone: A.awaitingMarking ? "warn" : "", href: linkTo(opts, "assignments"),
+        sub: A.awaitingMarking ? "handed in, waiting for a mark" : "nothing waiting" })}
+      ${kpiCard({ label: "Learners improving", icon: "activity", value: pct(P.improvedShare),
+        sub: P.compared ? `${P.improved} of ${P.compared} with marks in two or more terms` : "needs marks in two terms" })}
     </div>
     <div class="chart-grid">
       ${melFirst("learning")}
@@ -288,16 +317,20 @@ export function learningHtml(d) {
 
 /* ------------------------------------------------------------ 4. teacher development */
 
-export function teachersHtml(d) {
+export function teachersHtml(d, opts = {}) {
   const T = d.teachers, Tr = T.training, D = T.digital, P = T.activity.participation;
   return `
     <div class="stat-row">
-      ${tile("Teachers", num(T.total), T.byType.map((t) => `${t.value} ${esc(t.label)}`).join(" · ") || "active")}
-      ${tile("Trained", num(Tr.teachersTrained), `${pct(Tr.share)} of teachers · ${plural(Tr.sessions, "session")}`)}
-      ${tile("Using digital resources", num(D.teachersUsingLibrary), `${pct(D.share)} of teachers · ${hrs(D.hours)} · ${plural(D.teacherResourceOpens, "Teacher Resource")} opened`)}
-      ${tile("Active teachers", num(T.activity.activeInWindow), esc(T.activity.window))}
-      ${tile("Setting work", num(P.settingWork.count), `${pct(P.settingWork.rate)} of teachers`)}
-      ${tile("Teacher support visits", num(T.activity.supportVisits.visits), plural(T.activity.supportVisits.schools, "school"))}
+      ${kpiCard({ label: "Teachers", icon: "teacher", value: num(T.total), href: linkTo(opts, "teachers"),
+        sub: T.byType.filter((t) => t.label !== "Not specified").map((t) => `${t.value} ${esc(t.label)}`).join(" · ") || "active · type not recorded" })}
+      ${kpiCard({ label: "Trained", icon: "star", value: num(Tr.teachersTrained), href: linkTo(opts, "training"),
+        sub: `${pct(Tr.share)} of teachers · ${plural(Tr.sessions, "session")}` })}
+      ${kpiCard({ label: "Using digital resources", icon: "book", value: num(D.teachersUsingLibrary),
+        sub: `${pct(D.share)} of teachers · ${hrs(D.hours)} · ${plural(D.teacherResourceOpens, "Teacher Resource")} opened` })}
+      ${kpiCard({ label: "Active teachers", icon: "activity", value: num(T.activity.activeInWindow),
+        sub: `${esc(T.activity.window)} · ${num(P.settingWork.count)} set work (${pct(P.settingWork.rate)})` })}
+      ${kpiCard({ label: "Teacher support visits", icon: "pin", value: num(T.activity.supportVisits.visits), href: linkTo(opts, "field-visits"),
+        sub: plural(T.activity.supportVisits.schools, "school") })}
     </div>
     <div class="chart-grid chart-pairs">
       ${melFirst("teacher_development")}
@@ -334,16 +367,23 @@ export function trainingListHtml(list, { canManage = false, archived = false } =
 
 /* ------------------------------------------------------------ 5. field operations */
 
-export function fieldOpsHtml(d) {
+export function fieldOpsHtml(d, opts = {}) {
   const F = d.fieldOps, V = F.visits, K = F.kobo, Fm = F.forms;
+  // This term so far, and last term: two counts side by side, no arrow — a term under way has had less time.
+  const [prevT, lastT] = lastTwo(V.byTerm);
+  const termCounts = lastT ? `${esc(termName(lastT.label))} so far: ${num(lastT.value)}${prevT ? ` · ${esc(termName(prevT.label))}: ${num(prevT.value)}` : ""}` : "";
+  const koboAside = [K.needsReview ? warn(`${num(K.needsReview)} need review`) : "", K.byStatus.duplicate ? `${num(K.byStatus.duplicate)} duplicates` : "",
+    K.byStatus.rejected ? `${num(K.byStatus.rejected)} rejected in Kobo` : ""].filter(Boolean).join(" · ");
   return `
     <div class="stat-row">
-      ${tile("Field visits", num(V.visits), `by ${plural(V.officersReporting, "officer")} (${V.officers} active)`)}
-      ${tile("Schools visited", `${V.schools.visited}/${V.schools.total}`, `${pct(V.schools.coverage)} · ${V.schools.visitedThisTerm} ${esc(V.schools.currentTerm ? `in ${V.schools.currentTerm}` : "this term")}`)}
-      ${tile("Visit forms completed", num(Fm.visitFormsFilled), `${pct(Fm.visitsWithFormsShare)} of visits have one`)}
-      ${tile("Form response rate", pct(Fm.responseRateOverall), plural(Fm.responses, "response"))}
-      ${tile("Kobo submissions", num(K.counted), `counted · ${num(K.totalSubmissions)} received`)}
-      ${tile("Kobo needing review", num(K.needsReview), `${K.byStatus.duplicate} duplicates · ${K.byStatus.rejected} rejected in Kobo`, K.needsReview ? "warn" : "")}
+      ${kpiCard({ label: "Field visits", icon: "pin", value: num(V.visits), href: linkTo(opts, "field-visits"),
+        sub: [termCounts, `by ${plural(V.officersReporting, "officer")} (${V.officers} active)`].filter(Boolean).join("<br>") })}
+      ${kpiCard({ label: "Schools visited", icon: "school", value: `${V.schools.visited}/${V.schools.total}`, href: linkTo(opts, "school-profiles"),
+        sub: `${pct(V.schools.coverage)} · ${V.schools.visitedThisTerm} in ${esc(V.schools.currentTerm ? termName(V.schools.currentTerm) : "this term")}` })}
+      ${kpiCard({ label: "Visit forms completed", icon: "form", value: num(Fm.visitFormsFilled), sub: `${pct(Fm.visitsWithFormsShare)} of visits have one` })}
+      ${kpiCard({ label: "Form response rate", icon: "check", value: pct(Fm.responseRateOverall), href: linkTo(opts, "forms"), sub: plural(Fm.responses, "response") })}
+      ${kpiCard({ label: "Kobo submissions", icon: "survey", value: num(K.counted), href: linkTo(opts, "kobo"),
+        sub: `counted of ${num(K.totalSubmissions)} received${koboAside ? `<br>${koboAside}` : ""}` })}
     </div>
     <div class="chart-grid">
       ${melFirst("field_operations")}
@@ -373,15 +413,18 @@ export function fieldOpsHtml(d) {
 
 /* ------------------------------------------------------------ 6. digital resources */
 
-export function resourcesHtml(d) {
+export function resourcesHtml(d, opts = {}) {
   const S = d.resources, U = S.activeUsers;
+  const [prevM, lastM] = lastTwo(S.byMonth);
+  const monthCounts = lastM ? `${esc(monthName(lastM.label))} so far: ${num(lastM.opens)}${prevM ? ` · ${esc(monthName(prevM.label))}: ${num(prevM.opens)}` : ""}` : "";
   return `
     <div class="stat-row">
-      ${tile("Resources", num(S.items.total), `published · ${num(S.neverOpened)} never opened`)}
-      ${tile("Opens", num(S.opens), `${num(S.finished)} read to the end`)}
-      ${tile("Usage time", hrs(S.hours), "while a resource was open")}
-      ${tile("Active users", num(U.total), `${num(U.learners)} learners · ${num(U.staff)} staff`)}
-      ${tile("Learner reach", pct(U.learnerReach), "of active learners opened something")}
+      ${kpiCard({ label: "Resources", icon: "book", value: num(S.items.total), href: linkTo(opts, "content"),
+        sub: `published · ${num(S.neverOpened)} never opened` })}
+      ${kpiCard({ label: "Opens", icon: "activity", value: num(S.opens), sub: [monthCounts, `${num(S.finished)} read to the end`].filter(Boolean).join("<br>") })}
+      ${kpiCard({ label: "Usage time", icon: "clock", value: num(Math.round((S.hours || 0) * 10) / 10), unit: "hrs", sub: "while a resource was open" })}
+      ${kpiCard({ label: "Active users", icon: "users", value: num(U.total),
+        sub: `${num(U.learners)} learners — ${pct(U.learnerReach)} of active learners · ${num(U.staff)} staff` })}
     </div>
     <div class="chart-grid chart-pairs">
       ${melFirst("digital_resources")}

@@ -20,6 +20,7 @@ import { mountFormList } from "./forms.js";
 import * as sync from "./sync.js";
 import { freshness } from "./api.js";
 import { liveStatus, redraw } from "./live.js";
+import { kpiCard } from "./kpi.js";
 
 // Coming back to the page reads it again if what's shown is older than this.
 const RETURN_MS = 5 * 60_000;
@@ -30,16 +31,6 @@ sync.registerPrefetch(async () => {
   const subs = await getSubmissions({ limit: 500 });
   for (const x of subs.filter((s) => s.status === "submitted").slice(0, 40)) await getSubmission(x.id);
 });
-
-const ICON = {
-  classes: '<path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/>',
-  grade: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/>',
-  score: '<path d="M4 19V5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M9 13l2 2 4-4"/>',
-  attendance: '<path d="M12 20V10M18 20V4M6 20v-6"/>',
-  learners: '<circle cx="9" cy="7" r="4"/><path d="M2 21v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2"/><path d="M17 3.13a4 4 0 0 1 0 7.75"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/>',
-  library: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/>',
-};
-const svg = (paths) => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${paths}</svg>`;
 
 async function main() {
   const user = await requireRole("teacher");
@@ -58,13 +49,17 @@ async function main() {
   function renderKpis() {
     const toMark = submissionCache.filter((x) => x.status === "submitted").length;
     const handedInThisWeek = submissionCache.filter((x) => x.submittedAt && isThisWeek(x.submittedAt)).length;
+    // Last week beside it — only when the list wasn't cut short (the API sends at most 500, newest first).
+    const lastWeek = submissionCache.length < 500 ? submissionCache.filter((x) => x.submittedAt && isThisWeek(x.submittedAt, -1)).length : null;
     const resourcesUsed = usageCache ? usageCache.resourcesOpened : 0;
-    $("#statRow").innerHTML = `
-      <div class="stat-tile"><div class="s-label">${svg(ICON.learners)}My learners</div><div class="s-num">${activeCount}</div><div class="s-sub">active, across your classes</div></div>
-      <div class="stat-tile"><div class="s-label">${svg(ICON.grade)}Work to mark</div><div class="s-num">${toMark}</div><div class="s-sub">handed in, waiting for you</div></div>
-      <div class="stat-tile"><div class="s-label">${svg(ICON.score)}Handed in this week</div><div class="s-num">${handedInThisWeek}</div><div class="s-sub">submissions</div></div>
-      <div class="stat-tile"><div class="s-label">${svg(ICON.library)}Resources used</div><div class="s-num">${resourcesUsed}</div><div class="s-sub">by you, all time</div></div>
-    `;
+    $("#statRow").innerHTML = [
+      kpiCard({ label: "My learners", icon: "cap", value: activeCount, href: "#my-learners", sub: "active, across your classes" }),
+      kpiCard({ label: "Work to mark", icon: "assignment", value: toMark, href: "#assignments", tone: toMark ? "warn" : "",
+        sub: toMark ? "handed in, waiting for you" : "nothing waiting" }),
+      kpiCard({ label: "Handed in this week", icon: "check", value: handedInThisWeek, href: "#assignments",
+        sub: `since Monday${lastWeek != null ? ` · ${lastWeek} last week` : ""}` }),
+      kpiCard({ label: "Resources used", icon: "book", value: resourcesUsed, href: "#activity", sub: "by you, all time" }),
+    ].join("");
   }
 
   /* ------------------------------------------------------------ my classes
@@ -202,13 +197,14 @@ async function main() {
      The teacher's assignments (built here, for the classes they teach),
      work handed in and waiting to be marked, and what was marked lately.
      Home shows the marking queue and recent marks from the same data. */
-  function isThisWeek(dateStr) {
+  /** In this week (Monday to Sunday) — or, with weeks = -1, last week. */
+  function isThisWeek(dateStr, weeks = 0) {
     if (!dateStr) return false;
     const d = new Date(dateStr);
     if (Number.isNaN(d.getTime())) return false;
     const now = new Date();
     const day = (now.getDay() + 6) % 7; // Monday = 0
-    const start = new Date(now); start.setHours(0, 0, 0, 0); start.setDate(start.getDate() - day);
+    const start = new Date(now); start.setHours(0, 0, 0, 0); start.setDate(start.getDate() - day + 7 * weeks);
     const end = new Date(start); end.setDate(end.getDate() + 7);
     return d >= start && d < end;
   }

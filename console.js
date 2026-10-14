@@ -6,10 +6,11 @@
 import { mountNavigation } from "./nav.js";
 // Staff dashboards always need Supabase Auth: fetched with the page, not after it.
 import "./supabase-auth.js";
-import { ICON as NAV_ICON, menuFor, WORKSPACES } from "./navigation.js";
+import { menuFor, WORKSPACES } from "./navigation.js";
 import { apiGet } from "./api.js";
 import { liveStatus, swap } from "./live.js";
 import { barList, proportion } from "./charts.js";
+import { kpiCard, trendTag } from "./kpi.js";
 import { $, $$, esc, initials, toast, formatDuration, skeleton, errorState, friendlyError, confirmDialog } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import {
@@ -344,11 +345,11 @@ async function main() {
     lastImpact = d;
     const put = (el, html) => swap(el, html, { replace: !quiet });
     if (canOpen("overview") && !d.learningOnly) {
-      const o = imp.executiveHtml(d);
+      const o = imp.executiveHtml(d, { canOpen });
       put($("#statRow"), o.headline + dqSlot());
       put($("#intelAreas"), o.areas);
     }
-    for (const p of pagesHere) put($(`#imp-${p}`), imp[IMP_PAGES[p]](d));
+    for (const p of pagesHere) put($(`#imp-${p}`), imp[IMP_PAGES[p]](d, { canOpen }));
     for (const m of $$("details[data-more]")) m.open = moreOpen.has(m.dataset.more);
     const scope = d.scope.school || (d.scope.county ? `${d.scope.county} County` : "every school");
     for (const m of $$("[data-imp-meta]")) m.textContent = scope;
@@ -473,10 +474,16 @@ async function main() {
   let dqOffset = 0;
   const dqSelected = new Set();
   const DQ_PAGE = 40;
-  const dqTile = (s) => `<a class="stat-tile dq-tile-link" href="#data-quality"><div class="s-label"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${NAV_ICON.check}</svg>Data quality</div><div class="s-num">${s.score.value}</div><div class="s-sub">${esc(s.score.label)} · ${s.totals.byStatus.OPEN + s.totals.byStatus.UNDER_REVIEW} open issue${s.totals.byStatus.OPEN + s.totals.byStatus.UNDER_REVIEW === 1 ? "" : "s"}</div></a>`;
+  const dqTile = (s) => {
+    const open = s.totals.byStatus.OPEN + s.totals.byStatus.UNDER_REVIEW, high = s.totals.bySeverity.HIGH;
+    const hist = (s.history || []).filter((h) => h.score != null);
+    return kpiCard({ label: "Data quality", icon: "check", value: s.score.value, href: "#data-quality", attrs: "data-dq-tile",
+      trend: hist.length >= 2 ? trendTag(hist.at(-1).score - hist.at(-2).score, { unit: " pts", what: "since the last scan" }) : "",
+      sub: `${esc(s.score.label)} · ${high ? `<b class="warn-text">${high} high&#8209;severity</b> · ` : ""}${open} open issue${open === 1 ? "" : "s"}` });
+  };
   /* On the executive overview: a place is kept for it while the first scan is read. */
   const dqSlot = () => !canOpen("data-quality") ? "" : lastDq?.score ? dqTile(lastDq)
-    : `<a class="stat-tile dq-tile-link" href="#data-quality"><div class="s-label"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${NAV_ICON.check}</svg>Data quality</div><div class="s-num">—</div><div class="s-sub">${lastDq ? "Not scanned yet" : "Checking…"}</div></a>`;
+    : kpiCard({ label: "Data quality", icon: "check", value: "—", href: "#data-quality", attrs: "data-dq-tile", sub: lastDq ? "Not scanned yet" : "Checking…" });
   const dqFilters = (withList = false) => ({
     county: gf.county, school: gf.school, from: gf.from, to: gf.to,
     ...(withList ? { type: $("#dq_type").value, severity: $("#dq_severity").value, status: $("#dq_status").value, q: $("#dq_q").value.trim() } : {}),
@@ -517,7 +524,7 @@ async function main() {
       if (quiet) throw err;
       dqLive.fail(err);
       $("#dqTop").innerHTML = errorState(friendlyError(err), () => renderDq());
-      const waiting = $("#statRow .dq-tile-link .s-sub");
+      const waiting = $("#statRow [data-dq-tile] .s-sub");
       if (waiting && !lastDq) waiting.textContent = "Couldn't be read just now";
       return;
     }
@@ -525,7 +532,7 @@ async function main() {
     $("#dqMeta").textContent = s.lastScan ? `last scan ${new Date(s.lastScan.at).toLocaleString()}` : "not scanned yet";
     swap($("#dqTop"), dq.dqTopHtml(s), { replace: !quiet });
     swap($("#dqTypes"), dq.dqTypesHtml(s), { replace: !quiet });
-    const tile = $("#statRow .dq-tile-link");
+    const tile = $("#statRow [data-dq-tile]");
     if (tile && tile.outerHTML !== dqSlot()) tile.outerHTML = dqSlot();
     renderAttention();
     renderDqList({ quiet });

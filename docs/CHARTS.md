@@ -55,6 +55,51 @@ and how to read it ("Share of the work set that was handed in — not
 marks"). A target chart ends with one line: the bar is the actual, the
 line marks the target.
 
+## Key figures
+
+Every key figure in the portal is one card, drawn by `kpiCard()` in
+`kpi.js`, so it reads the same on every page:
+
+| Part | What it holds |
+| --- | --- |
+| Icon and title | What is counted, in plain words |
+| Value | The figure, large |
+| Change | Only where the data has an earlier period to compare with (see below) |
+| Context | What the number means: "+11 joined in Term 3", "152 need review", "since Monday · 7 last week" |
+
+**When a card shows a change.** Only for rates and averages that the API
+already gives term by term, compared with the term before:
+"Term 3: 58% · ▲ +4.8 pts on Term 2" (`periodTrend()`), plus the data
+quality score against the scan before. Counts are never given an arrow: a
+term or month still under way has had less time, so the latest period and
+the one before are shown side by side in words instead ("Term 3 so far: 9 ·
+Term 2: 16"). Where there is only one period there is no change; nothing is
+estimated. Green is better and red is worse, and the arrow is also said in
+words for screen readers ("Up", "Down").
+
+**Clickable or not.** A card that opens a page is a link and looks like
+one: an arrow by its title, and when pointed at or focused it lifts, its
+border darkens and its title is underlined. A card that opens nothing has
+no arrow and stays flat. On the programme dashboards a card links only to
+pages the person may open.
+
+**The warning colour** (orange edge and value) is for a figure that is
+itself waiting on someone — work to mark, forms to finish, open data
+issues, learners locked out. When only the context needs attention ("1 not
+in a class", "152 need review") the words carry it and the figure stays
+plain.
+
+**One card per idea.** Cards that said the same thing twice were merged:
+
+| Page | Before | Now |
+| --- | --- | --- |
+| Teacher development | "Active teachers" and "Setting work" | One card; how many set work is its context |
+| Field operations | "Kobo submissions" and "Kobo needing review" | One card; the review queue, duplicates and rejections are its context |
+| Digital resources | "Active users" and "Learner reach" | One card; the reach is its context |
+| Data Quality Center | Open, Under review, Resolved, Ignored, Affected records, Open by severity | Open issues (by severity, being looked at, records affected) and Closed issues |
+| Learner home and progress | "To do" and "Overdue" | One card: still open, how many are past the due date, how many were missed |
+| School profile | The school head's name as a figure | The name is the context of Teachers |
+
 ## Colour
 
 Defined in `base.css`, for light and dark, and checked with a colour-
@@ -113,9 +158,9 @@ many scans it covers and where the score started and ended.
 
 ### Unchanged
 
-Stat tiles, the platform overview's meters and score sparkline, the
-learner's progress ring and the school head's grade progress bars were
-already the right form.
+The platform overview's meters and score sparkline, the learner's
+progress ring and the school head's grade progress bars were already the
+right form. (The key-figure cards are described above.)
 
 ## Filters
 
@@ -129,7 +174,7 @@ already the right form.
 ## Adding a chart
 
 1. Decide what the reader should learn; pick the picture from the first
-   table. If it's one number, use a stat tile.
+   table. If it's one number, use a key-figure card (`kpiCard`).
 2. Use the function from `charts.js`; don't draw a new kind by hand.
 3. Give the card a one-line description.
 4. A new colour sequence must pass the validator in both themes before it

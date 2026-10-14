@@ -12,6 +12,7 @@
 import { esc, toast, friendlyError, skeleton, errorState } from "./util.js";
 import { openContentPanel } from "./viewer.js";
 import { dqIssue, dqSetStatus, dqFix } from "./store.js";
+import { kpiCard } from "./kpi.js";
 
 export const STATUS_LABEL = { OPEN: "Open", UNDER_REVIEW: "Under review", RESOLVED: "Resolved", IGNORED: "Ignored" };
 export const SEVERITY_LABEL = { HIGH: "High", MEDIUM: "Medium", LOW: "Low" };
@@ -51,14 +52,11 @@ export function dqTopHtml(s) {
         ${sparkline(s.history)}
       </div>
       <div class="stat-row dq-tiles">
-        <div class="stat-tile"><div class="s-label">Open</div><div class="s-num">${t.byStatus.OPEN}</div><div class="s-sub">waiting for someone</div></div>
-        <div class="stat-tile"><div class="s-label">Under review</div><div class="s-num">${t.byStatus.UNDER_REVIEW}</div><div class="s-sub">being looked at</div></div>
-        <div class="stat-tile"><div class="s-label">Resolved</div><div class="s-num">${t.byStatus.RESOLVED}</div><div class="s-sub">fixed here or at the source</div></div>
-        <div class="stat-tile"><div class="s-label">Ignored</div><div class="s-num">${t.byStatus.IGNORED}</div><div class="s-sub">accepted as they are</div></div>
-        <div class="stat-tile"><div class="s-label">Affected records</div><div class="s-num">${t.affectedRecords}</div><div class="s-sub">in open issues</div></div>
-        <div class="stat-tile"><div class="s-label">Open by severity</div><div class="s-num dq-sevnums">
-          <span class="dq-high">${t.bySeverity.HIGH}</span> · <span class="dq-medium">${t.bySeverity.MEDIUM}</span> · <span class="dq-low">${t.bySeverity.LOW}</span></div>
-          <div class="s-sub">high · medium · low</div></div>
+        ${kpiCard({ label: "Open issues", icon: "alert", value: t.byStatus.OPEN + t.byStatus.UNDER_REVIEW, tone: t.bySeverity.HIGH ? "warn" : "",
+          sub: `<span class="dq-high">${t.bySeverity.HIGH} high</span> · <span class="dq-medium">${t.bySeverity.MEDIUM} medium</span> · ${t.bySeverity.LOW} low<br>`
+            + `${t.byStatus.UNDER_REVIEW ? `${t.byStatus.UNDER_REVIEW} being looked at · ` : ""}${t.affectedRecords} record${t.affectedRecords === 1 ? "" : "s"} affected` })}
+        ${kpiCard({ label: "Closed issues", icon: "check", value: t.byStatus.RESOLVED + t.byStatus.IGNORED,
+          sub: `${t.byStatus.RESOLVED} fixed here or at the source · ${t.byStatus.IGNORED} accepted as they are` })}
       </div>
     </div>
     <p class="field-hint">The score is each check's pass rate (records with no open issue), weighted by how serious the check is — for the county / school picked, as of the last scan. Ignored and resolved issues don't count against it.</p>`;

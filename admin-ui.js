@@ -16,6 +16,7 @@ import { extendTrail } from "./nav.js";
 import { ICON } from "./navigation.js";
 import { agoTag, liveStatus, swap } from "./live.js";
 import { lineChart, stackBar } from "./charts.js";
+import { kpiCard } from "./kpi.js";
 
 const fmtDay = (v) => (v ? new Date(v).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—");
 const fmtWhen = (v) => (v ? new Date(v).toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
@@ -24,8 +25,8 @@ const ago = (v) => {
   const days = Math.floor((Date.now() - new Date(v).getTime()) / 864e5);
   return days <= 0 ? "Today" : days === 1 ? "Yesterday" : days < 30 ? `${days} days ago` : fmtDay(v);
 };
-const tile = (label, num, sub = "", link = "") => `<${link ? `a href="${esc(link)}" class="stat-tile stat-link"` : 'div class="stat-tile"'}>
-  <div class="s-label">${esc(label)}</div><div class="s-num">${esc(String(num ?? "—"))}</div>${sub ? `<div class="s-sub">${esc(sub)}</div>` : ""}</${link ? "a" : "div"}>`;
+const count = (n) => (n == null ? "—" : Number(n).toLocaleString());
+const warnText = (t) => `<b class="warn-text">${esc(t)}</b>`;
 const table = (head, rows, empty = "Nothing to show.") => rows.length
   ? `<div class="lms-table-wrap"><table class="lms-table intel-table"><thead><tr>${head.map((h, i) => `<th${i === 0 ? ' class="lms-name"' : ""}>${esc(h)}</th>`).join("")}</tr></thead>
       <tbody>${rows.map((r) => `<tr>${r.map((c, i) => `<td${i === 0 ? ' class="lms-name"' : ""}>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
@@ -467,12 +468,17 @@ export function renderAdminOverview(el) {
       <div class="panel-head" style="margin-bottom:.6rem"><h2 style="margin:0">Administration overview</h2>
         <span class="live-head"><span class="chart-meta" style="margin:0">${esc(d.scope.label)}${d.currentTerm ? ` · ${esc(String(d.currentTerm).replace(/^(\d{4})-T(\d)$/, "$1 Term $2"))}` : ""}</span><span data-live-host></span></span></div>
       <div class="stat-row exec-row">
-        ${tile("Schools", o.schools, `${o.counties} counties · ${o.classes} classes this year`, "#schools")}
-        ${tile("Teachers", p.teachers, `${p.heads} school heads`, "#teachers")}
-        ${tile("Learners", p.learners, p.learnersWithoutClass ? `${p.learnersWithoutClass} not in a class` : "All in a class", "#learners")}
-        ${tile("Field officers", p.fieldOfficers, `${o.fieldOfficersWithoutSchools} without schools`, "#users?role=field_officer")}
-        ${tile("Field visits this term", ops.visitsThisTerm, "", "#field-visits")}
-        ${tile("Open forms", ops.openForms, "", "#forms")}
+        ${kpiCard({ label: "Schools", icon: "school", value: count(o.schools), href: "#schools",
+          sub: `${o.counties} counties · ${o.classes} classes this year` })}
+        ${kpiCard({ label: "Teachers", icon: "teacher", value: count(p.teachers), href: "#teachers",
+          sub: `${p.heads} school heads` })}
+        ${kpiCard({ label: "Learners", icon: "cap", value: count(p.learners), href: "#learners",
+          sub: p.learnersWithoutClass ? warnText(`${p.learnersWithoutClass} not in a class`) : "All in a class" })}
+        ${kpiCard({ label: "Field officers", icon: "users", value: count(p.fieldOfficers), href: "#users?role=field_officer",
+          sub: o.fieldOfficersWithoutSchools ? warnText(`${o.fieldOfficersWithoutSchools} without schools`) : "All have schools" })}
+        ${kpiCard({ label: "Field visits this term", icon: "pin", value: count(ops.visitsThisTerm), href: "#field-visits",
+          sub: d.currentTerm ? `since ${esc(String(d.currentTerm).replace(/^(\d{4})-T(\d)$/, "Term $2"))} began` : "" })}
+        ${kpiCard({ label: "Open forms", icon: "form", value: count(ops.openForms), href: "#forms", sub: "open for responses" })}
       </div>
       <div class="panel">
         <div class="panel-head"><h2>Needs attention</h2>${attention.length ? `<span class="count-badge">${attention.length}</span>` : ""}</div>
@@ -546,9 +552,11 @@ export function renderAccountActivity(el) {
   return load(el, "/security/activity", (d) => `
     <div class="panel-head" style="margin-bottom:.6rem"><h2 style="margin:0">Account activity</h2></div>
     <div class="stat-row">
-      ${tile("Learners enrolled", d.learners.enrolled)}
-      ${tile("Learners signed in this week", d.learners.signedIn7d)}
-      ${tile("Learners locked out now", d.learners.lockedNow, `${d.learners.withFailedAttempts} with failed PIN attempts`)}
+      ${kpiCard({ label: "Learners enrolled", icon: "cap", value: count(d.learners.enrolled), sub: "active learner accounts" })}
+      ${kpiCard({ label: "Learners signed in this week", icon: "activity", value: count(d.learners.signedIn7d),
+        sub: d.learners.enrolled ? `${Math.round((d.learners.signedIn7d / d.learners.enrolled) * 100)}% of enrolled learners · last 7 days` : "last 7 days" })}
+      ${kpiCard({ label: "Learners locked out now", icon: "shield", value: count(d.learners.lockedNow), tone: d.learners.lockedNow ? "warn" : "",
+        sub: `${d.learners.withFailedAttempts} with failed PIN attempts` })}
     </div>
     <div class="panel">
       <div class="panel-head"><h2>Staff sign-ins</h2></div>
@@ -596,16 +604,18 @@ export function renderSchoolProfile(el, schoolId) {
   if (!schoolId) { el.innerHTML = `<div class="empty-state">Choose a school.</div>`; return null; }
   return load(el, `/schools/${encodeURIComponent(schoolId)}/profile`, schoolProfileHtml, () => renderSchoolProfile(el, schoolId));
 }
-export function schoolProfileHtml(d, { heading = true } = {}) {
+/** `link(tab)`: the address of one of the school's tabs, when the page has them and this person may open it. */
+export function schoolProfileHtml(d, { heading = true, link = () => "" } = {}) {
   return `
     ${heading ? `<div class="panel-head" style="margin-bottom:.4rem"><h2 style="margin:0">${esc(d.school.name)}</h2>
       <span class="chart-meta" style="margin:0"><span class="code-chip">${esc(d.school.code)}</span> · ${esc(d.school.county)} County</span></div>` : ""}
     <div class="stat-row">
-      ${tile("School head", d.heads.join(", ") || "None yet")}
-      ${tile("Teachers", d.teachers)}
-      ${tile("Learners", d.learners, `${d.classes.length} classes this year`)}
-      ${tile("Field visits", d.visits.total, d.visits.last ? `Last ${fmtDay(d.visits.last)}` : "None yet")}
-      ${tile("Kobo submissions", d.kobo.submissions, `${d.kobo.counted} counted`)}
+      ${kpiCard({ label: "Teachers", icon: "teacher", value: count(d.teachers), href: link("teachers"),
+        sub: d.heads.length ? `School head: ${esc(d.heads.join(", "))}` : warnText("No school head yet") })}
+      ${kpiCard({ label: "Learners", icon: "cap", value: count(d.learners), href: link("learners"), sub: `${d.classes.length} classes this year` })}
+      ${kpiCard({ label: "Field visits", icon: "pin", value: count(d.visits.total), href: link("visits"),
+        sub: d.visits.last ? `Last visit ${esc(ago(d.visits.last).toLowerCase())}` : "None yet" })}
+      ${kpiCard({ label: "Kobo submissions", icon: "survey", value: count(d.kobo.submissions), sub: `${d.kobo.counted} counted` })}
     </div>
     <div class="body-grid">
       <div>
@@ -675,7 +685,8 @@ export async function renderSchoolsModule(el, { params = new URLSearchParams(), 
   const sid = encodeURIComponent(id);
   switch (tab) {
     case "overview":
-      await load(body, `/schools/${sid}/profile`, (d) => schoolProfileHtml(d, { heading: false }), () => renderSchoolsModule(el, { params, perms, base, actions }));
+      await load(body, `/schools/${sid}/profile`, (d) => schoolProfileHtml(d, { heading: false, link: (t) => (tabs.some(([x]) => x === t) ? at(t) : "") }),
+        () => renderSchoolsModule(el, { params, perms, base, actions }));
       break;
     case "teachers":
       await load(body, "/teachers", (d) => table(["Name", "Role", "Type", "Classes taught", "Trainings"],
