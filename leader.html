@@ -51,29 +51,29 @@
 
         <div class="panel">
           <div class="panel-head"><h2>Attention required</h2><span class="count-badge" id="attentionCount" hidden></span></div>
-          <div id="attentionList"></div>
+          <div id="attentionList"><div data-skeleton="list"></div></div>
         </div>
 
         <div class="panel">
           <div class="panel-head"><h2>Education Team forms</h2><span class="chart-meta" id="reportingStatus" style="margin:0"></span></div>
-          <div id="formsList"></div>
+          <div id="formsList"><div data-skeleton="list"></div></div>
         </div>
 
         <div class="panel">
           <div class="panel-head"><h2>Field visits</h2><a href="#visits">View all</a></div>
-          <div id="visitSummary"></div>
+          <div id="visitSummary"><div data-skeleton="list"></div></div>
         </div>
 
         <div class="panel">
           <div class="panel-head"><h2>Resources for school leadership</h2><a href="#resources">View all</a></div>
-          <div id="leadershipResources"></div>
+          <div id="leadershipResources"><div data-skeleton="list"></div></div>
         </div>
       </section>
 
       <section class="dash-page" data-page="learners" hidden>
         <div class="panel">
           <div class="panel-head"><h2>Learners by grade</h2></div>
-          <div id="learnersByGrade"></div>
+          <div id="learnersByGrade"><div data-skeleton="list"></div></div>
         </div>
 
         <!-- Everyone enrolled in this school (leader.js) -->
@@ -85,7 +85,7 @@
             <div class="field" style="margin-bottom:0"><label for="srStatus">Show</label>
               <select id="srStatus"><option value="active">Active</option><option value="archived">Archived</option><option value="all">Everyone</option></select></div>
           </div>
-          <div id="schoolRoster"><div class="empty-state">Loading…</div></div>
+          <div id="schoolRoster"><div data-skeleton="rows" data-rows="4"></div></div>
         </div>
 
         <!-- Classes this year: create, assign a class teacher, promote -->
@@ -96,14 +96,14 @@
             <input id="nc_name" type="text" maxlength="40" placeholder="Class name, e.g. Grade 4 East" aria-label="Class name">
             <button class="btn btn-primary" type="submit">Add class</button>
           </form>
-          <div id="classManager"><div class="empty-state">Loading…</div></div>
+          <div id="classManager"><div data-skeleton="list"></div></div>
         </div>
 
         <!-- Learners who have left or moved on — their records stay -->
         <div class="panel">
           <div class="panel-head"><h2>Past learners</h2></div>
           <p class="hint" style="margin-top:0">Everyone whose time at this school, or in a class here, has ended — moved school, promoted, dropped out, completed or archived. These records are kept for good.</p>
-          <div id="pastLearners"><div class="empty-state">Loading…</div></div>
+          <div id="pastLearners"><div data-skeleton="list" data-rows="2"></div></div>
         </div>
       </section>
 
@@ -114,7 +114,7 @@
         </div>
         <div class="panel">
           <div class="panel-head"><h2>By teacher type</h2></div>
-          <div id="teacherTypeList"></div>
+          <div id="teacherTypeList"><div data-skeleton="list"></div></div>
         </div>
       </section>
 
@@ -122,7 +122,7 @@
         <div class="panel">
           <div class="panel-head"><h2>Learning by grade</h2></div>
           <p class="hint" style="margin-top:0">Two separate measures: <b>completion</b> (work handed in, out of what was set) and <b>achievement</b> (the average mark on marked work). Handing work in isn't the same as doing well, so they're never combined.</p>
-          <div id="learningByGrade"></div>
+          <div id="learningByGrade"><div data-skeleton="list"></div></div>
         </div>
         <div class="panel">
           <div class="panel-head"><h2>Results</h2></div>
@@ -136,12 +136,12 @@
             <div class="field"><label for="hr_subject">Subject</label><select id="hr_subject"><option value="">All subjects</option></select></div>
             <div class="field"><label for="hr_term">Term</label><select id="hr_term"><option value="">All terms</option></select></div>
           </div>
-          <div id="headResults"></div>
+          <div id="headResults"><div data-skeleton="table"></div></div>
         </div>
         <div class="panel">
           <div class="panel-head"><h2>Assignments in the school</h2></div>
           <p class="hint" style="margin-top:0">What teachers have set, and how much has been handed in and marked. Open one to see each learner's work.</p>
-          <div id="headAssignments"></div>
+          <div id="headAssignments"><div data-skeleton="list"></div></div>
         </div>
       </section>
 
@@ -153,7 +153,7 @@
       <section class="dash-page" data-page="visits" hidden>
         <div class="panel">
           <div class="panel-head"><h2 data-page-title>Field visits</h2></div>
-          <div id="visitList"></div>
+          <div id="visitList"><div data-skeleton="list"></div></div>
         </div>
       </section>
 
@@ -168,21 +168,21 @@
         <div class="panel">
           <div class="panel-head"><h2>For School Head</h2><span class="shelf-count" id="headOnlyCount"></span></div>
           <p class="shelf-sub">Addressed to school leadership only.</p>
-          <div id="headOnlyList"></div>
+          <div id="headOnlyList"><div data-skeleton="list"></div></div>
         </div>
         <div class="panel">
           <div class="panel-head"><h2>Teacher Resources</h2><span class="shelf-count" id="resourceCount"></span></div>
           <p class="shelf-sub">What your teachers see — never shown to learners.</p>
-          <div id="resourceList"></div>
+          <div id="resourceList"><div data-skeleton="list"></div></div>
         </div>
         <div class="panel">
           <div class="panel-head"><h2>Digital Library</h2><span class="shelf-count" id="libraryCount"></span></div>
           <p class="shelf-sub">Learner-facing content — learners and teachers see this shelf.</p>
-          <div id="libraryList"></div>
+          <div id="libraryList"><div data-skeleton="list"></div></div>
         </div>
         <div class="panel">
           <div class="panel-head"><h2>My learning activity</h2></div>
-          <div id="usageSummary"></div>
+          <div id="usageSummary"><div data-skeleton="list"></div></div>
         </div>
       </section>
     </main>

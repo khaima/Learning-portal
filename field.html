@@ -59,12 +59,12 @@
             <a class="btn btn-outline" href="#schools">My schools</a>
           </div>
           <!-- Visits whose forms aren't all in yet — the officer's open tasks -->
-          <div id="homeTasks"></div>
+          <div id="homeTasks"><div data-skeleton="list"></div></div>
         </div>
       </section>
 
       <section class="dash-page" data-page="schools" hidden>
-        <div class="panel" id="schoolsModule"><div class="empty-state">Loading…</div></div>
+        <div class="panel" id="schoolsModule"><div data-skeleton="list" data-rows="4"></div></div>
       </section>
 
       <section class="dash-page" data-page="visits" hidden>
@@ -128,7 +128,7 @@
 
         <div class="panel">
           <div class="panel-head"><h2>My visits</h2></div>
-          <div id="reportList"></div>
+          <div id="reportList"><div data-skeleton="list"></div></div>
         </div>
       </section>
 
@@ -139,21 +139,21 @@
             <button type="button" id="koboRefresh">Refresh</button>
           </div>
           <p class="hint" style="margin-top:0">Assigned · in progress (opened, not yet submitted on this device) · submitted.</p>
-          <div id="koboSurveyList"></div>
+          <div id="koboSurveyList"><div data-skeleton="list"></div></div>
         </div>
       </section>
 
       <section class="dash-page" data-page="forms" hidden>
         <div class="panel">
           <div class="panel-head"><h2 data-page-title>Forms from the Education Team</h2></div>
-          <div id="formsList"></div>
+          <div id="formsList"><div data-skeleton="list"></div></div>
         </div>
       </section>
 
       <section class="dash-page" data-page="teachers" hidden>
         <div class="panel">
           <div class="panel-head"><h2 data-page-title>Teachers at your schools</h2><span class="chart-meta" id="tchMeta" style="margin:0"></span></div>
-          <div id="tchBody"></div>
+          <div id="tchBody"><div data-skeleton="table"></div></div>
         </div>
       </section>
 

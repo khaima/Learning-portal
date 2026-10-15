@@ -3,7 +3,7 @@
    in plain words, anything granted to you on top of your role — and, for
    staff, changing your own password. Everything here comes from the server
    (GET /me, GET /me/access); it only shows, it decides nothing. */
-import { esc, initials, toast, errorState, friendlyError } from "./util.js";
+import { esc, initials, toast, errorState, friendlyError, skeleton, skeletonCards } from "./util.js";
 import { rawRequest } from "./api.js";
 
 const fmtDate = (v) => (v ? new Date(v).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "");
@@ -11,7 +11,7 @@ const fmtDate = (v) => (v ? new Date(v).toLocaleDateString(undefined, { day: "nu
 export async function renderProfile(el, user) {
   if (!el) return;
   const learner = user.role === "learner";
-  el.innerHTML = `<div class="panel"><div class="empty-state">Loading…</div></div>`;
+  el.innerHTML = `<div class="panel">${skeleton(1)}${skeletonCards(3)}</div>`;
   let access = null;
   try {
     access = await rawRequest("GET", "/me/access");

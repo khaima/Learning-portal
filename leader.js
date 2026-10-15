@@ -98,20 +98,20 @@ async function main() {
   function renderLearningByGrade() {
     $("#learningByGrade").innerHTML = overview.gradeBreakdown.length
       ? overview.gradeBreakdown.map((g) => gradeRow(g, true)).join("")
-      : `<div class="empty-state">No grades recorded yet.</div>`;
+      : `<div class="empty-state"><b>No learners enrolled yet.</b><div>Teachers add learners to their classes; each grade appears here.</div></div>`;
   }
 
   function renderLearnersByGrade() {
     $("#learnersByGrade").innerHTML = overview.gradeBreakdown.length
       ? overview.gradeBreakdown.map((g) => gradeRow(g, false)).join("")
-      : `<div class="empty-state">No learners recorded yet.</div>`;
+      : `<div class="empty-state"><b>No learners enrolled yet.</b><div>Teachers add learners to their classes; each grade appears here.</div></div>`;
   }
 
   function renderTeachers() {
     $("#teacherStatRow").innerHTML = kpiCard({ label: "Teachers", icon: "teacher", value: overview.teacherCount, sub: "on staff" });
     $("#teacherTypeList").innerHTML = overview.teachersByType.length
       ? overview.teachersByType.map((t) => `<div class="result-row"><span>${esc(t.label)}</span><span>${t.value}</span></div>`).join("")
-      : `<div class="empty-state">No teacher type recorded yet.</div>`;
+      : `<div class="empty-state"><b>No teacher type recorded yet.</b><div>BOM or TSC appears here once it's on a teacher's account.</div></div>`;
   }
 
   function visitRow(v) {
@@ -122,11 +122,11 @@ async function main() {
   function renderVisits() {
     $("#visitList").innerHTML = overview.visits.length
       ? overview.visits.map(visitRow).join("")
-      : `<div class="empty-state">No field visits recorded yet.</div>`;
+      : `<div class="empty-state"><b>No field visits recorded yet.</b><div>Visits by your field officer appear here once they're filed.</div></div>`;
     $("#visitSummary").innerHTML = overview.visits.length
       ? overview.visits.slice(0, 3).map(visitRow).join("")
         + (overview.visitsTotal > 3 ? `<p class="hint" style="margin-top:.4rem">${overview.visitsTotal} visits on record — view all.</p>` : "")
-      : `<div class="empty-state">No field visits recorded yet.</div>`;
+      : `<div class="empty-state"><b>No field visits recorded yet.</b><div>Visits by your field officer appear here once they're filed.</div></div>`;
   }
 
   /* School reporting status: how many of the Education Team's forms the
@@ -407,7 +407,7 @@ async function main() {
             <div class="roster-actions"><button type="button">Open</button></div>
           </div>`;
         }).join("")
-      : `<div class="empty-state">No assignments published yet.</div>`;
+      : `<div class="empty-state"><b>No assignments published yet.</b><div>Work your teachers publish for their classes appears here.</div></div>`;
   }
   $("#headAssignments").addEventListener("click", (e) => {
     const row = e.target.closest("[data-asg]");
@@ -523,7 +523,7 @@ async function main() {
         ${(cls.subjects || []).length ? cls.subjects.map((x) => `
           <div class="task-row"><div style="flex:1"><b>${esc(x.name)}</b></div>
             <div class="roster-actions"><button type="button" class="danger" data-rm-subject="${esc(x.id)}">Remove</button></div></div>`).join("")
-          : `<div class="empty-state">No subjects yet.</div>`}
+          : `<div class="empty-state"><b>No subjects yet.</b><div>Add the ones this class takes below.</div></div>`}
         ${allSubjects.every((x) => taken.has(x.id)) ? `<p class="field-hint">This class takes every subject on the list.</p>` : `
         <form class="fill-form" data-add-subject style="display:flex;gap:.6rem;align-items:flex-end;margin-top:.8rem;flex-wrap:wrap">
           <div class="field" style="margin:0;flex:1;min-width:12rem"><label for="cs_add">Add a subject</label>

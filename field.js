@@ -21,7 +21,8 @@ const RETURN_MS = 5 * 60_000;
 const { waiting } = sync;
 // The school profile and teachers pages (admin-ui.js) load when first opened.
 const adminUi = () => import("./admin-ui.js");
-const pageFailed = (el) => (err) => { el.innerHTML = errorState(friendlyError(err, "Couldn't load this page — check your connection.")); };
+// "Try again" opens the same page again (nav.js redraws it on hashchange).
+const pageFailed = (el) => (err) => { el.innerHTML = errorState(friendlyError(err), () => window.dispatchEvent(new HashChangeEvent("hashchange"))); };
 
 /* Kenya's 3-term school year, client-side mirror of the backend's
    schoolTermOf — just enough to answer "how many visits this term." */
@@ -523,7 +524,7 @@ async function main() {
     done();
     clearDraft();
     if (currentVisit.queued) toast("Visit saved on this device", "It's sent automatically when you're back online — you can close the page.", "success");
-    else toast("Visit report submitted successfully.", "", "success");
+    else toast("Visit report sent", "", "success");
     $("#confirmedSummary").innerHTML =
       `<div><b>${currentVisit.queued ? "Visit saved on this device — waiting to sync" : "Visit report submitted"}</b><br>${esc(currentVisit.school)} · ${esc(currentVisit.county)} · ${esc(currentVisit.visitType)}` +
       `${currentVisit.forms.length ? `<br>${currentVisit.formsSent} of ${currentVisit.forms.length} form${currentVisit.forms.length === 1 ? "" : "s"} sent` : ""}</div>`;

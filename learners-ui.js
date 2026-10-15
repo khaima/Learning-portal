@@ -8,7 +8,7 @@
    who may do each of these; these are only the screens.
    ============================================================ */
 
-import { esc, friendlyError, toast } from "./util.js";
+import { esc, friendlyError, toast, skeleton, errorState } from "./util.js";
 import { openContentPanel, closeViewer } from "./viewer.js";
 import { getLearnerHistory, setLearnerStatus, transferLearner, getClasses } from "./store.js";
 
@@ -82,7 +82,7 @@ export function openArchiveDialog(learner) {
 
 /* Every school and class this learner has been in, newest first. */
 export async function openHistoryPanel(learnerId, name) {
-  const panel = openContentPanel({ title: `${name || "Learner"} — enrollment history`, html: `<div class="empty-state">Loading…</div>` });
+  const panel = openContentPanel({ title: `${name || "Learner"} — enrollment history`, html: skeleton(3, { avatar: false }) });
   try {
     const { learner, enrollments } = await getLearnerHistory(learnerId);
     panel.innerHTML = `
@@ -96,9 +96,9 @@ export async function openHistoryPanel(learnerId, name) {
               ${e.exitReason ? `<br>${esc(e.exitReason)}` : ""}</span>
           </div>
           ${e.status === "ACTIVE" ? `<span class="pill ok">Current</span>` : statusPill(e.status)}
-        </div>`).join("") : `<div class="empty-state">No enrollment records yet.</div>`}`;
+        </div>`).join("") : `<div class="empty-state"><b>No enrollment records yet.</b><div>A record is added each time they join a school or a class.</div></div>`}`;
   } catch (err) {
-    panel.innerHTML = `<div class="field-error">${esc(friendlyError(err, "Couldn't load the history."))}</div>`;
+    panel.innerHTML = errorState(friendlyError(err), () => openHistoryPanel(learnerId, name));
   }
 }
 

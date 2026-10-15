@@ -6,8 +6,10 @@
    signs the person in, checks this is their workspace and builds their
    own menu (navigation.js). */
 import html from "./workspace.html?raw";
+import { fillSkeletons } from "./util.js";
 
 document.body.insertAdjacentHTML("afterbegin", html);
+fillSkeletons(); // each page's placeholder, in the shape of what it will show
 import("./console.js").catch((err) => {
   console.error(err);
   document.body.insertAdjacentHTML("afterbegin",

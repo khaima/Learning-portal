@@ -1,5 +1,5 @@
 import { mountNavigation } from "./nav.js";
-import { $, $$, esc, initials, schoolLine, formatDuration, skeleton, emptyState, errorState, friendlyError, toast } from "./util.js";
+import { $, $$, esc, initials, schoolLine, formatDuration, skeleton, skeletonLine, emptyState, errorState, friendlyError, toast } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { normalizeLibraryAudience } from "./data.js";
 import {
@@ -332,7 +332,7 @@ async function main() {
   $("#homeResources").innerHTML = skeleton(2, { avatar: false });
   $("#usageSummary").innerHTML = skeleton(3);
   $("#homeActivity").innerHTML = skeleton(2);
-  $("#continueCard").innerHTML = `<p class="continue-eyebrow">Continue learning</p><h2>Loading…</h2>`;
+  $("#continueCard").innerHTML = `<p class="continue-eyebrow">Continue learning</p><h2>${skeletonLine()}</h2>`;
 
   let assignments = [];
   let library = [];

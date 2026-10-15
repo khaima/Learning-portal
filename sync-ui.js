@@ -10,7 +10,7 @@
    device for reading offline.
    ============================================================ */
 
-import { esc, toast, confirmDialog } from "./util.js";
+import { esc, toast, confirmDialog, skeleton } from "./util.js";
 import * as sync from "./sync.js";
 import { openContentPanel } from "./viewer.js";
 import { getProfile } from "./auth.js";
@@ -226,7 +226,7 @@ export function openSyncPanel() {
   const busy = { all: false, kobo: false };
   let server = null;
   let perms = new Set();
-  const panel = openContentPanel({ title: "Sync center", html: `<div class="empty-state">Loading…</div>` }, () => stop());
+  const panel = openContentPanel({ title: "Sync center", html: skeleton(3, { avatar: false }) }, () => stop());
 
   let renderSeq = 0;
   const render = async () => {

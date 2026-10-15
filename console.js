@@ -12,7 +12,7 @@ import { liveStatus, swap } from "./live.js";
 import { enableSortableTables } from "./tables.js";
 import { barList, proportion } from "./charts.js";
 import { kpiCard, trendTag } from "./kpi.js";
-import { $, $$, esc, initials, toast, formatDuration, skeleton, errorState, friendlyError, confirmDialog } from "./util.js";
+import { $, $$, esc, initials, toast, formatDuration, skeleton, skeletonTable, skeletonCards, skeletonCharts, skeletonDashboard, FILTERED_EMPTY, errorState, friendlyError, confirmDialog } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import {
   CONTENT_TYPES, LIBRARY_SUBJECTS, LIBRARY_AUDIENCES, FORM_AUDIENCES, QUESTION_TYPES, ROLES,
@@ -166,11 +166,10 @@ async function main() {
     if (to) return `Until ${fmtDate(to)}`;
     return "";
   }
-  // A filter is active → an emptier, more specific message than the
-  // page's usual "nothing here yet" — see the brief: "No data available
-  // for this filter."
+  // With a filter on, an empty list says so — and what to do — instead of
+  // the page's usual "nothing here yet" (util.js FILTERED_EMPTY).
   function emptyMsg(base) {
-    return (gf.county || gf.school || gf.from || gf.to || gf.role) ? "No data available for this filter." : base;
+    return (gf.county || gf.school || gf.from || gf.to || gf.role) ? `${FILTERED_EMPTY} Take a filter off above to see more.` : base;
   }
 
   $("#gfTerm").innerHTML = termOptions().map((o) => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join("");
@@ -385,8 +384,8 @@ async function main() {
     const run = ++impactRun;
     if (!quiet) {
       impactLive.start();
-      $("#statRow").innerHTML = skeleton(4, { avatar: false });
-      for (const p of pagesHere) $(`#imp-${p}`).innerHTML = skeleton(4);
+      $("#statRow").innerHTML = skeletonCards(5);
+      for (const p of pagesHere) $(`#imp-${p}`).innerHTML = skeletonDashboard();
     }
     let d, imp;
     try {
@@ -432,7 +431,7 @@ async function main() {
     const run = ++melRun;
     if (!quiet) {
       melLive.start();
-      $("#melDash").innerHTML = skeleton(4, { avatar: false });
+      $("#melDash").innerHTML = skeletonCharts(2);
     }
     let dash, imp;
     try {
@@ -569,7 +568,7 @@ async function main() {
     dqLive ||= liveStatus($("#dqLive"), { refresh: () => renderDq({ quiet: true }) });
     if (!quiet) {
       dqLive.start();
-      $("#dqTop").innerHTML = skeleton(3, { avatar: false });
+      $("#dqTop").innerHTML = skeletonCards(3);
     }
     let s, dq;
     try {
@@ -823,7 +822,7 @@ async function main() {
         <div class="task-row" data-mel-report="${esc(r.id)}">
           <div style="flex:1;min-width:0"><b>${esc(r.title)}</b><span>${r.status === "final" ? `<span class="pill ok">Final</span> ${esc(new Date(r.finalizedAt).toLocaleDateString())}` : `<span class="pill warm">Draft</span>`} · ${esc(progName(r.programmeId))} · generated ${esc(new Date(r.generatedAt).toLocaleDateString())} by ${esc(r.generatedBy || "—")}</span></div>
           <button type="button" class="btn btn-outline q-small">Open</button>
-        </div>`).join("") : `<div class="empty-state">No reports yet.</div>`;
+        </div>`).join("") : `<div class="empty-state"><b>No reports yet.</b><div>${has("me.reports.manage") ? "Generate the first one above, for a programme and period." : "M&amp;E generates them here."}</div></div>`;
     } catch (err) {
       $("#melReportList").innerHTML = errorState(friendlyError(err), renderMelReports);
     }
@@ -851,7 +850,7 @@ async function main() {
   async function openMelReport(id) {
     const panel = openContentPanel({ title: "M&E report", html: skeleton(5) });
     let d, m;
-    try { [d, m] = await Promise.all([melReport(id), melUi()]); } catch (err) { panel.innerHTML = errorState(friendlyError(err)); return; }
+    try { [d, m] = await Promise.all([melReport(id), melUi()]); } catch (err) { panel.innerHTML = errorState(friendlyError(err), () => openMelReport(id)); return; }
     const r = d.report;
     const canManage = has("me.reports.manage");
     panel.innerHTML = `
@@ -1096,6 +1095,7 @@ async function main() {
   // edit mode just re-render from memory instead of refetching, so
   // typing a correction never fights a network round-trip.
   let cachedItems = [];
+  let libraryLoaded = false; // until the first read: a skeleton, never "nothing uploaded yet"
   let editingItemId = null;
 
   function foldersFor(audience) {
@@ -1293,7 +1293,7 @@ async function main() {
       btn.disabled = true;
       try {
         await setLibraryPublished(id, publishing);
-        toast(publishing ? "Published successfully." : "Unpublished.", publishing ? `"${title}" is now visible on dashboards.` : `"${title}" is hidden from dashboards again.`, "success");
+        toast(publishing ? "Published" : "Unpublished", publishing ? `"${title}" is now visible on dashboards.` : `"${title}" is hidden from dashboards again.`, "success");
         renderLibrary();
       } catch (err) {
         console.error("could not update publish state:", err);
@@ -1325,7 +1325,7 @@ async function main() {
       btn.disabled = true;
       try {
         await updateLibraryItem(id, patch);
-        toast("Saved.", `"${newTitle}" was updated.`, "success");
+        toast("Changes saved", `"${newTitle}" is updated.`, "success");
         editingItemId = null;
         renderLibrary();
       } catch (err) {
@@ -1434,6 +1434,7 @@ async function main() {
       return;
     }
     editingItemId = null;
+    libraryLoaded = true;
     renderLibraryDom();
   }
 
@@ -1457,7 +1458,7 @@ async function main() {
   }
 
   async function renderUsage() {
-    $("#usageBody").innerHTML = skeleton(3);
+    $("#usageBody").innerHTML = skeletonDashboard();
     let u;
     try {
       u = await getLibraryUsage({ school: gf.school });
@@ -1625,16 +1626,16 @@ async function main() {
     try {
       if (link) {
         await addLibraryItem(meta);
-        toast("Added to library successfully.", "Link added.", "success");
+        toast("Added to the library", "Link added.", "success");
       } else if (picked.length) {
         submitBtn.textContent = `Uploading 0/${picked.length}…`;
         await uploadLibraryFiles(meta, picked, (done, n) => {
           submitBtn.textContent = `Uploading ${done}/${n}…`;
         });
-        toast("Added to library successfully.", `${picked.length} file(s) uploaded`, "success");
+        toast("Added to the library", `${picked.length} file(s) uploaded`, "success");
       } else {
         await addLibraryItem(meta);
-        toast("Added to library successfully.", "", "success");
+        toast("Added to the library", "", "success");
       }
       resetUploadForm();
       setUploadOpen(false);
@@ -1843,7 +1844,7 @@ async function main() {
     const active = forms.filter((f) => !f.archivedAt);
     const archived = forms.filter((f) => f.archivedAt);
     $("#formsList").innerHTML =
-      (active.length ? active.map(formCard).join("") : `<div class="empty-state">No forms created yet.</div>`) +
+      (active.length ? active.map(formCard).join("") : `<div class="empty-state"><b>No forms yet.</b><div>${has("forms.manage") ? "Create one with “Create a form”." : "Forms the Education Team sends appear here, with their responses."}</div></div>`) +
       (archived.length
         ? `<div class="list-group" style="margin-top:1rem">
              <div class="list-group-title">Archived<span class="count">${archived.length}</span></div>
@@ -1874,7 +1875,7 @@ async function main() {
   };
   async function renderNotificationLog() {
     if (!canOpen("notifications")) return;
-    $("#ntfLog").innerHTML = skeleton(4, { avatar: false });
+    $("#ntfLog").innerHTML = skeletonTable(5, 5);
     let d;
     try {
       d = await notificationLog({ kind: $("#ntf_kind").value, role: $("#ntf_role").value, status: $("#ntf_status").value, from: gf.from, to: gf.to });
@@ -2076,7 +2077,7 @@ async function main() {
     const activeSurveys = forms.filter((f) => f.active);
     const archivedSurveys = forms.filter((f) => !f.active);
     $("#koboFormList").innerHTML =
-      (activeSurveys.length ? activeSurveys.map(koboCard).join("") : `<div class="empty-state">No surveys attached yet.</div>`) +
+      (activeSurveys.length ? activeSurveys.map(koboCard).join("") : `<div class="empty-state"><b>No surveys attached yet.</b><div>${has("kobo.manage") ? "Attach a deployed KoboToolbox survey above to start collecting it." : "A survey appears here once it's attached."}</div></div>`) +
       (archivedSurveys.length
         ? `<div class="list-group" style="margin-top:1rem">
              <div class="list-group-title">Archived<span class="count">${archivedSurveys.length}</span></div>
@@ -2098,7 +2099,7 @@ async function main() {
       btn.disabled = true;
       try {
         await removeKoboForm(btn.dataset.koboArchive);
-        toast("Survey archived.", "Field officers no longer see it. Its submission record is kept.", "success");
+        toast("Survey archived", "Field officers no longer see it. Its submission record is kept.", "success");
         renderKoboForms();
         refreshSurveyPicker();
       } catch (err) {
@@ -2110,7 +2111,7 @@ async function main() {
       btn.disabled = true;
       try {
         await restoreKoboForm(btn.dataset.koboRestore);
-        toast("Survey restored.", "Field officers can open it again.", "success");
+        toast("Survey restored", "Field officers can open it again.", "success");
         renderKoboForms();
         refreshSurveyPicker();
       } catch (err) {
@@ -2266,7 +2267,7 @@ async function main() {
     srBusy = true;
     const wanted = srCurrent;
     const firstView = srBody.dataset.for !== wanted;
-    if (firstView) srBody.innerHTML = skeleton(3);
+    if (firstView) srBody.innerHTML = skeletonCharts(2);
     if (!quiet) srLive.start();
     try {
       const res = await koboResults(wanted, { county: gf.county, school: gf.school });
@@ -2729,12 +2730,13 @@ async function main() {
   function renderUsersList() {
     const list = $("#usersList");
     if (usersFailed) {
-      list.innerHTML = errorState("Couldn't load staff accounts — check your connection and try again.", renderUsers);
+      list.innerHTML = errorState(usersFailed, renderUsers);
       $("#usersMeta").textContent = "";
       return;
     }
+    if (!usersLoaded) { if (!list.querySelector(".skeleton-list")) list.innerHTML = skeletonTable(6, 6); return; }
     if (!allUsers.length) {
-      list.innerHTML = `<div class="empty-state">No staff accounts yet.</div>`;
+      list.innerHTML = `<div class="empty-state"><b>No staff accounts yet.</b><div>${has("users.invite") ? "Invite the first with “Invite staff”." : "Accounts appear here as staff join."}</div></div>`;
       $("#usersMeta").textContent = "";
       return;
     }
@@ -2771,14 +2773,16 @@ async function main() {
   }
 
   let usersFailed = false;
+  let usersLoaded = false; // until the first read: a skeleton, never "no staff accounts yet"
   async function renderUsers() {
-    $("#usersList").innerHTML = skeleton(4);
+    $("#usersList").innerHTML = skeletonTable(6, 6);
     try {
       ({ users: allUsers, grantableRoles: grantable } = await getUserDirectory());
       usersFailed = false;
+      usersLoaded = true;
     } catch (err) {
       console.error("could not load staff accounts:", err);
-      usersFailed = true;
+      usersFailed = friendlyError(err); // what to say
       allUsers = [];
     }
     renderUsersList();
@@ -3128,7 +3132,7 @@ async function main() {
       const res = await apiGet(`/audit${qs ? `?${qs}` : ""}`);
       const html = (res.entries || []).map((e) => auditRow(e)).join("");
       if (more) $("#auditList").insertAdjacentHTML("beforeend", html);
-      else $("#auditList").innerHTML = html || `<div class="empty-state">Nothing recorded yet.</div>`;
+      else $("#auditList").innerHTML = html || `<div class="empty-state"><b>Nothing recorded yet.</b><div>${auditKind === "security" ? "Sign-in and access changes appear here as they happen." : "Each change made in the portal appears here, with who made it."}</div></div>`;
       auditBefore = res.nextBefore;
       $("#auditMore").hidden = !auditBefore;
     } catch (err) {
@@ -3330,7 +3334,7 @@ async function main() {
         [finderResults, LU] = await Promise.all([getLearners({ q, schoolId, status: $("#lf_archived").checked ? "all" : "active" }), learnersUi()]);
         renderFinder();
       } catch (err) {
-        $("#learnerFinderResults").innerHTML = errorState(friendlyError(err));
+        $("#learnerFinderResults").innerHTML = errorState(friendlyError(err), () => $("#learnerFinder").requestSubmit());
       }
     });
     $("#learnerFinderResults").addEventListener("click", async (e) => {
@@ -3377,7 +3381,7 @@ async function main() {
         }
       };
     } catch (err) {
-      $("#calendarText").textContent = friendlyError(err, "Couldn't load the school year.");
+      $("#calendarText").innerHTML = errorState(friendlyError(err), renderCalendar);
     }
   }
   renderCalendar();
@@ -3546,7 +3550,7 @@ async function main() {
         break;
       }
       case "content":
-        if (params.has("q")) { $("#libSearch").value = params.get("q"); renderLibraryDom(); }
+        if (params.has("q")) { $("#libSearch").value = params.get("q"); if (libraryLoaded) renderLibraryDom(); } // else it's drawn with it once read
         break;
       case "data-quality": {
         // A link can open the issue list already narrowed (?severity=HIGH, ?type=…, ?status=…, ?q=…).

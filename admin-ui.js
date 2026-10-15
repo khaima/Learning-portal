@@ -8,7 +8,7 @@
    Each page shows what the API returns for this person — already limited to
    their permissions and data scope on the server. Buttons appear only for
    what they may do, and the API checks every one again. */
-import { esc, skeleton, errorState, friendlyError, toast, confirmDialog } from "./util.js";
+import { esc, skeleton, skeletonTable, skeletonCards, errorState, emptyState, friendlyError, toast, confirmDialog } from "./util.js";
 import { apiGet, apiSend } from "./api.js";
 import { openContentPanel, closeViewer } from "./viewer.js";
 import { resultsTableHtml } from "./assignments-ui.js";
@@ -49,8 +49,9 @@ const STATUS_TEXT = { active: "Active", pending: "Waiting for approval", suspend
 const statusPill = (s) => s === "active" ? `<span class="pill ok">Active</span>`
   : `<span class="pill ${s === "pending" ? "warm" : "danger"}">${esc(STATUS_TEXT[s] || s)}</span>`;
 
-async function load(el, path, render, retry) {
-  el.innerHTML = skeleton(3, { avatar: false });
+/** `placeholder`: the skeleton while it loads — a table unless said. */
+async function load(el, path, render, retry, placeholder = skeletonTable(4, 4)) {
+  el.innerHTML = placeholder;
   try {
     const d = await apiGet(path);
     el.innerHTML = render(d);
@@ -70,7 +71,7 @@ function liveLoad(el, path, render, { every = 0 } = {}) {
   if (el.liveFor === path && el.querySelector("[data-live-host] .live")) { el.live.refreshIfStale(); return Promise.resolve(); }
   const refresh = async () => { swap(el, render(await apiGet(path))); };
   const first = async () => {
-    el.innerHTML = skeleton(3, { avatar: false });
+    el.innerHTML = skeletonCards(6) + skeleton(2, { avatar: false });
     let d;
     try {
       d = await apiGet(path);
@@ -229,7 +230,7 @@ function actionsPanel(checks, queue) {
 }
 
 function recentList(entries, describe, securityIds) {
-  if (!entries.length) return `<div class="empty-state">Nothing recorded yet.</div>`;
+  if (!entries.length) return `<div class="empty-state"><b>No changes recorded yet.</b><div>Each change made in the portal — accounts, schools, settings — appears here.</div></div>`;
   const key = entries.some((e) => securityIds.has(e.id))
     ? `<p class="pov-note"><i class="pov-key-security" aria-hidden="true"></i>Orange: a change to who can sign in or what they can reach.</p>` : "";
   return `<ol class="pov-feed">${entries.map((e) => {
@@ -587,7 +588,7 @@ export function renderAccountActivity(el) {
 let teachersCache = null;
 export async function renderTeachers(el, { q = "", role = "", county = "", school = "" } = {}, { fresh = false } = {}) {
   if (!teachersCache || fresh) {
-    el.innerHTML = skeleton(4);
+    el.innerHTML = skeletonTable(5, 7);
     try { teachersCache = await apiGet("/teachers"); } catch (err) {
       el.innerHTML = errorState(friendlyError(err), () => renderTeachers(el, { q, role, county, school }, { fresh: true }));
       return;
@@ -610,7 +611,7 @@ export async function renderTeachers(el, { q = "", role = "", county = "", schoo
 
 /* ------------------------------------------------------------------ Classes (read-only structure) */
 export function renderClasses(el, schoolId) {
-  if (!schoolId) { el.innerHTML = `<div class="empty-state">Choose a school.</div>`; return null; }
+  if (!schoolId) { el.innerHTML = `<div class="empty-state"><b>Choose a school</b><div>Its classes for this year appear here.</div></div>`; return null; }
   return load(el, `/classes?schoolId=${encodeURIComponent(schoolId)}`, (d) => table(
     ["Class", "Grade", "Teachers", "Learners"],
     d.classes.map((k) => [`<b>${esc(k.name)}</b>`, esc(k.grade), esc(k.teachers.map((t) => t.name).filter(Boolean).join(", ") || "None yet"), k.learnerCount]),
@@ -620,8 +621,8 @@ export function renderClasses(el, schoolId) {
 
 /* ------------------------------------------------------------------ School profiles */
 export function renderSchoolProfile(el, schoolId) {
-  if (!schoolId) { el.innerHTML = `<div class="empty-state">Choose a school.</div>`; return null; }
-  return load(el, `/schools/${encodeURIComponent(schoolId)}/profile`, schoolProfileHtml, () => renderSchoolProfile(el, schoolId));
+  if (!schoolId) { el.innerHTML = `<div class="empty-state"><b>Choose a school</b><div>Its profile appears here.</div></div>`; return null; }
+  return load(el, `/schools/${encodeURIComponent(schoolId)}/profile`, schoolProfileHtml, () => renderSchoolProfile(el, schoolId), skeletonCards(4) + skeletonTable(3, 3));
 }
 /** `link(tab)`: the address of one of the school's tabs, when the page has them and this person may open it. */
 export function schoolProfileHtml(d, { heading = true, link = () => "" } = {}) {
@@ -639,13 +640,13 @@ export function schoolProfileHtml(d, { heading = true, link = () => "" } = {}) {
     <div class="body-grid">
       <div>
         <h3 class="mini-head">Classes this year</h3>
-        ${table(["Class", "Grade", "Learners"], d.classes.map((k) => [esc(k.name), esc(k.grade), k.learners]), "No classes yet.")}
+        ${table(["Class", "Grade", "Learners"], d.classes.map((k) => [esc(k.name), esc(k.grade), k.learners]), "No classes this year yet — the school head adds them.")}
         <h3 class="mini-head">Learners by grade</h3>
-        ${table(["Grade", "Learners"], d.learnersByGrade.map((g) => [esc(g.grade), g.learners]), "No learners yet.")}
+        ${table(["Grade", "Learners"], d.learnersByGrade.map((g) => [esc(g.grade), g.learners]), "No learners enrolled yet — teachers add them to their classes.")}
       </div>
       <div>
         <h3 class="mini-head">Recent visits</h3>
-        ${table(["Date", "Type", "Officer"], d.visits.recent.map((v) => [esc(fmtDay(v.date)), esc(v.type), esc(v.officer || "—")]), "No visits yet.")}
+        ${table(["Date", "Type", "Officer"], d.visits.recent.map((v) => [esc(fmtDay(v.date)), esc(v.type), esc(v.officer || "—")]), "No visits recorded yet.")}
         <p class="hint">${d.supportedBy.length ? `Supported by ${esc(d.supportedBy.join(", "))}.` : "No field officer is assigned to this school yet."}</p>
       </div>
     </div>`;
@@ -813,7 +814,7 @@ let visitsCache = null;
 export async function renderFieldVisits(el, f = {}, { fresh = false } = {}) {
   const { q = "", type = "", county = "", school = "", from = "", to = "" } = typeof f === "string" ? { q: f } : f;
   if (!visitsCache || fresh) {
-    el.innerHTML = skeleton(4);
+    el.innerHTML = skeletonTable(5, 5);
     try { visitsCache = (await apiGet("/field-reports")).reports; } catch (err) {
       el.innerHTML = errorState(friendlyError(err), () => renderFieldVisits(el, f, { fresh: true }));
       return;
@@ -834,8 +835,8 @@ export async function renderFieldVisits(el, f = {}, { fresh = false } = {}) {
 
 /* ------------------------------------------------------------------ Subjects */
 export function renderSubjects(el) {
-  return load(el, "/subjects", (d) => `<div class="tag-list">${d.subjects.map((x) => `<span class="pill">${esc(x.name)}</span>`).join(" ")}</div>`,
-    () => renderSubjects(el));
+  return load(el, "/subjects", (d) => (d.subjects.length ? `<div class="tag-list">${d.subjects.map((x) => `<span class="pill">${esc(x.name)}</span>`).join(" ")}</div>`
+    : emptyState("No subjects yet.", "Add the first one above.")), () => renderSubjects(el), skeleton(2, { avatar: false }));
 }
 export async function addSubject(name) {
   return apiSend("POST", "/subjects", { name });

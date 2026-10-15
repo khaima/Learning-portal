@@ -990,3 +990,31 @@ and data only; no page added, no API, permission or route changed.
   "Field visits this term" 9 and 9 of 42; a school picked → Find a learner
   lists its learners; Enter on a chart point; reload keeps the filters;
   axe-core clean on the dashboards and detail pages, light, dark and phone.
+
+### 15 October — loading, empty, error and success states
+
+The four states read and look the same everywhere (NAVIGATION.md §18).
+
+- **Loading:** about 40 placeholders that said only "Loading…" are now
+  skeletons in the shape of what's coming — tables, key figures, chart
+  cards, whole dashboards, lists; another 50 lists that sat blank while
+  loading have one too. Dashboards and tables that loaded as generic
+  list rows now load as themselves. Checked: no page keeps a skeleton once
+  loaded.
+- **Fixed:** the Data Quality Center showed a stray `${'` while loading (a
+  template fragment in plain HTML); staff accounts said "No staff accounts
+  yet" and the teacher's dashboard "0 to mark — nothing waiting" before
+  their data had arrived; the live dashboards didn't recognise their own
+  error box (`.error-state` vs `.state-error`).
+- **Empty:** filters that hide everything say "Nothing matches your
+  current filters." everywhere; dashboard charts say what and where ("No
+  visits recorded in Narok County for this period."); a dozen bare "No …
+  yet." messages say what to do next, or what will appear.
+- **Error:** offline is said as offline; the detail no longer repeats the
+  title; "Try again" added to six places that had none.
+- **Success:** short past-tense titles, without "successfully" or full
+  stops ("Changes saved", "Published", "Visit report sent").
+- **Checked:** pages frozen mid-load and made to fail (the test copy holds
+  back or fails chosen requests), every page probed for an empty message
+  shown while still loading, and every page checked for a skeleton left
+  after loading; axe-core clean.

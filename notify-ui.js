@@ -9,7 +9,7 @@
    is synced later like any other offline activity.
    ============================================================ */
 
-import { esc, toast } from "./util.js";
+import { esc, toast, skeleton } from "./util.js";
 import { getNotifications, readNotification, readAllNotifications } from "./store.js";
 import { openContentPanel, closeViewer } from "./viewer.js";
 import * as sync from "./sync.js";
@@ -77,7 +77,7 @@ function itemHtml(n) {
 }
 
 export function openNotifications() {
-  const panel = openContentPanel({ title: "Notifications", html: `<div class="empty-state">Loading…</div>` });
+  const panel = openContentPanel({ title: "Notifications", html: skeleton(4) });
   const render = () => {
     const list = state.notifications;
     panel.innerHTML = `

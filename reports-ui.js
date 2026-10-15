@@ -3,7 +3,7 @@
    Excel / CSV / PDF. Every export is recorded on the server. Mounted by
    nav.js on any page with a [data-export-center] element, the first time
    that page is opened; the file writers (export.js) load on first use. */
-import { esc, toast, errorState, friendlyError } from "./util.js";
+import { esc, toast, errorState, friendlyError, skeleton } from "./util.js";
 import { apiGet } from "./api.js";
 import { getSchools } from "./store.js";
 
@@ -29,7 +29,7 @@ const recall = (k) => { try { return localStorage.getItem(k); } catch { return n
 export async function mountExportCenter(el) {
   const head = `<div class="panel-head"><h2 data-page-title>Export reports</h2></div>`;
   el.hidden = false;
-  el.innerHTML = `${head}<div class="empty-state">Loading…</div>`;
+  el.innerHTML = `${head}${skeleton(2, { avatar: false })}`;
   let cat;
   try {
     cat = await apiGet("/reports");

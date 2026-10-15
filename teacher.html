@@ -50,36 +50,36 @@
         <div class="panel">
           <div class="panel-head"><h2>Work to mark</h2><a href="#assignments">View all</a></div>
           <div class="panel-search"><input type="search" id="gradingSearch" placeholder="Search by learner or assignment…"></div>
-          <div id="gradingQueue"></div>
+          <div id="gradingQueue"><div data-skeleton="list"></div></div>
         </div>
 
         <div class="panel">
           <div class="panel-head"><h2>My classes</h2><a href="#my-classes">View all</a></div>
-          <div id="homeClassList"></div>
+          <div id="homeClassList"><div data-skeleton="list"></div></div>
         </div>
 
         <div class="panel">
           <div class="panel-head"><h2>Recently marked</h2><a href="#results">All results</a></div>
-          <div id="homeResultList"></div>
+          <div id="homeResultList"><div data-skeleton="list"></div></div>
         </div>
 
         <div class="panel">
           <div class="panel-head"><h2>Learner activity</h2><a href="#my-learners">Manage learners</a></div>
           <div class="panel-search"><input type="search" id="learnerActivitySearch" placeholder="Search learners…"></div>
-          <div id="learnerActivityList"></div>
+          <div id="learnerActivityList"><div data-skeleton="rows"></div></div>
         </div>
 
         <!-- The two shelves under one heading (both open the same page); the teacher's own reading is a click away. -->
         <div class="panel">
           <div class="panel-head"><h2>Learning resources</h2><a href="#resources">View all</a></div>
           <h3 class="chart-subhead">Teacher resources</h3>
-          <div id="homeTeacherResources"></div>
+          <div id="homeTeacherResources"><div data-skeleton="list"></div></div>
           <h3 class="chart-subhead">Digital Library</h3>
-          <div id="homeLibrary"></div>
+          <div id="homeLibrary"><div data-skeleton="list"></div></div>
           <details class="more-detail">
             <summary><b>My learning activity</b><span>Time spent, resources opened, badges earned</span></summary>
             <div class="more-body">
-              <div id="homeUsageSummary"></div>
+              <div id="homeUsageSummary"><div data-skeleton="list"></div></div>
               <p class="field-hint"><a href="#activity">Full activity</a></p>
             </div>
           </details>
@@ -90,7 +90,7 @@
         <div class="panel">
           <div class="panel-head"><h2 data-page-title>My classes</h2></div>
           <p class="hint" style="margin-top:0">Your school head assigns these. Learners you add yourself, before they're placed in a class, also stay on your roster.</p>
-          <div id="classList"></div>
+          <div id="classList"><div data-skeleton="list"></div></div>
         </div>
       </section>
 
@@ -137,7 +137,7 @@
               <option value="archived">Archived (left, moved, completed)</option>
             </select>
           </div>
-          <div id="learnerRoster"></div>
+          <div id="learnerRoster"><div data-skeleton="rows"></div></div>
           <div id="learnerRosterPager" style="display:flex;justify-content:space-between;align-items:center;margin-top:.6rem;font-size:.82rem;color:var(--ink-soft)"></div>
         </div>
       </section>
@@ -153,20 +153,20 @@
             <div class="field"><label for="af_status">Status</label>
               <select id="af_status"><option value="">Any status</option><option value="draft">Drafts</option><option value="published">Published</option><option value="closed">Closed</option></select></div>
           </div>
-          <div id="assignmentList"></div>
+          <div id="assignmentList"><div data-skeleton="list"></div></div>
         </div>
         <div class="panel">
           <div class="panel-head"><h2>Work to mark</h2></div>
           <div class="panel-search"><input type="search" id="assignSearch" placeholder="Search by learner or assignment…"></div>
-          <div id="taskList"></div>
+          <div id="taskList"><div data-skeleton="list"></div></div>
         </div>
         <div class="panel">
           <div class="panel-head"><h2>Recently marked</h2></div>
-          <div id="resultList"></div>
+          <div id="resultList"><div data-skeleton="list"></div></div>
         </div>
         <div class="panel">
           <div class="panel-head"><h2>Forms from the Education Team</h2></div>
-          <div id="formsList"></div>
+          <div id="formsList"><div data-skeleton="list"></div></div>
         </div>
       </section>
 
@@ -184,7 +184,7 @@
             <div class="field"><label for="rf_subject">Subject</label><select id="rf_subject"><option value="">All subjects</option></select></div>
             <div class="field"><label for="rf_term">Term</label><select id="rf_term"><option value="">All terms</option></select></div>
           </div>
-          <div id="resultsTable"></div>
+          <div id="resultsTable"><div data-skeleton="table"></div></div>
         </div>
       </section>
 
@@ -199,19 +199,19 @@
         <div class="panel">
           <div class="panel-head"><h2>Teacher Resources</h2><span class="shelf-count" id="teacherResourceCount"></span></div>
           <p class="shelf-sub">For teachers and the head of institution — learners never see these.</p>
-          <div id="teacherResourceList"></div>
+          <div id="teacherResourceList"><div data-skeleton="list"></div></div>
         </div>
         <div class="panel">
           <div class="panel-head"><h2>Digital Library</h2><span class="shelf-count" id="libraryCount"></span></div>
           <p class="shelf-sub">Learner-facing content — your learners see this shelf too.</p>
-          <div id="libraryList"></div>
+          <div id="libraryList"><div data-skeleton="list"></div></div>
         </div>
       </section>
 
       <section class="dash-page" data-page="activity" hidden>
         <div class="panel">
           <div class="panel-head"><h2 data-page-title>My learning activity</h2></div>
-          <div id="usageSummary"></div>
+          <div id="usageSummary"><div data-skeleton="list"></div></div>
         </div>
       </section>
     </main>

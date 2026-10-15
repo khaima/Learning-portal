@@ -439,7 +439,7 @@ export async function openAssignmentDetail(id, { canManage = false, canMark = fa
           ${s?.submittedAt ? ` · ${esc(fmtWhen(s.submittedAt))}` : ""} ${s?.status === "marked" ? markPill(s.percentage, s.band) : ""}</span></div>
         ${s && s.status !== "in_progress" ? `<div class="roster-actions"><button type="button" data-sub="${esc(s.id)}">${s.status === "submitted" && canMark ? "Mark" : "View"}</button></div>` : ""}
       </div>`;
-    }).join("") : `<div class="empty-state">Nobody is enrolled in this class yet.</div>`}`}`;
+    }).join("") : `<div class="empty-state"><b>Nobody is enrolled in this class yet.</b><div>Learners appear here once they're added to the class.</div></div>`}`}`;
 
   panel.addEventListener("click", async (e) => {
     const sub = e.target.closest("[data-sub]");

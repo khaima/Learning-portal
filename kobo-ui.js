@@ -150,7 +150,7 @@ export async function openKoboPipeline(formId, { canManage = false, canRecheck =
       return;
     }
     if (!res.records.length) {
-      box.innerHTML = `<div class="empty-state">${state.view === "review" ? "Nothing waiting for review. ✓" : "Nothing here."}</div>`;
+      box.innerHTML = `<div class="empty-state">${state.view === "review" ? "Nothing waiting for review. ✓" : "No submissions in this list."}</div>`;
       return;
     }
     box.innerHTML = res.records.map((r) => `
@@ -305,7 +305,7 @@ export async function openKoboRecord(id, onBack) {
   const panel = openContentPanel({ title: "Submission", html: skeleton(5) });
   let d;
   try { d = await koboRecord(id); } catch (err) {
-    panel.innerHTML = errorState(friendlyError(err));
+    panel.innerHTML = errorState(friendlyError(err), () => openKoboRecord(id, onBack));
     return;
   }
   const r = d.record;

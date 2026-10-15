@@ -808,3 +808,65 @@ The dashboards lead to their detail, and the filters go along.
   "Monitoring & Evaluation › Dashboards & reports › Field operations ›
   Field visits". The dashboard's crumb is a link back, and the dashboard
   still has its filters. The browser's Back button works too.
+
+## 18. Loading, empty, error and success, 15 October 2026
+
+Every list, table, chart and dashboard goes through the same four states,
+drawn by the same few functions in `util.js` so they look and read the
+same everywhere.
+
+### Loading — a skeleton in the shape of what's coming
+
+| Shape | Function | For |
+| --- | --- | --- |
+| List | `skeleton(rows, { avatar })` | lists of people, items, rows |
+| Table | `skeletonTable(rows, cols)` | tables |
+| Key figures | `skeletonCards(n)` | a row of key-figure cards |
+| Charts | `skeletonCharts(n)` | chart cards |
+| Dashboard | `skeletonDashboard()` | key figures, then charts |
+| Line | `skeletonLine()` | a line of text inside a heading or sentence |
+
+- A page's first placeholder names its shape in the HTML —
+  `<div data-skeleton="table" data-cols="5"></div>` — and `fillSkeletons()`
+  draws it as the page opens. Nothing on a page says just "Loading…".
+- Screen readers hear "Loading…" once (`role="status"`); the grey blocks are
+  hidden from them, and don't shimmer for people who ask for less motion.
+- A list never says it's empty before it has loaded: staff accounts, the
+  teacher's work to mark and recently marked, and the content library keep
+  their skeleton until the first answer arrives.
+
+### Empty — what is missing, and what to do next
+
+- `emptyState(title, detail)`: the title says what's missing ("No surveys
+  attached yet."), the detail what to do ("Attach a deployed KoboToolbox
+  survey above to start collecting it.") — only when this person can do
+  it; otherwise who does, or what will appear.
+- When filters hid everything: "Nothing matches your current filters.
+  Take a filter off above to see more." (`FILTERED_EMPTY`, `filteredEmpty()`),
+  the same words on every page.
+- A dashboard chart with nothing to show says what and where, from the
+  filters it was drawn with: "No visits recorded in Narok County for this
+  period." / "No resources recorded yet."
+- A search that finds nothing says what was searched for and how to widen
+  it.
+
+### Error — what happened, in plain words, and Try again
+
+- `errorState(detail, retry)`: "We couldn't load this information." and
+  one plain line under it — the server's own words when it wrote some for
+  people, otherwise "Check your connection and try again." Offline, it
+  says so: "You're offline. This needs a connection — try again once
+  you're back online."
+- A load that can be repeated has "Try again" (`retry`); added where it was
+  missing (a learner's history, an M&E report, the learner search, the
+  school year, a Kobo submission, the field officer's pages).
+- A form keeps its error beside the form, so what was typed isn't lost.
+
+### Success — short, and no more than needed
+
+- A small message at the bottom of the screen that goes by itself: a short
+  title in the past tense ("Changes saved", "Published", "Visit report
+  sent"), no full stop, no "successfully"; a detail line only when it adds
+  something ("They now sign in as @naomi.k.").
+- No dialog to confirm that something worked: a dialog is only for asking
+  first (§16).

@@ -238,6 +238,21 @@ th[aria-sort="descending"] .th-arrow{ opacity:1; } th[aria-sort="descending"] .t
 .skeleton-row .skeleton-lines .skeleton-block{ height:.68rem; width:100%; }
 .skeleton-row .skeleton-lines .skeleton-block:last-child{ width:55%; }
 @keyframes skeleton-shimmer{ 0%{ background-position:200% 0; } 100%{ background-position:-50% 0; } }
+/* The other shapes (util.js): a table, a row of key figures, chart cards, a line in a sentence. */
+.skeleton-inner{ display:contents; }
+.sk-table{ border:1px solid var(--line); border-radius:var(--radius-sm); overflow:hidden; }
+.sk-tr{ display:grid; grid-auto-flow:column; grid-auto-columns:minmax(0,1fr); gap:1rem; padding:.7rem .8rem; border-top:1px solid var(--line); }
+.sk-tr.sk-th{ border-top:0; background:var(--paper-sunk); }
+.sk-cell .skeleton-block{ height:.7rem; }
+.sk-th .sk-cell .skeleton-block{ height:.55rem; opacity:.7; }
+.sk-cards{ display:grid; grid-template-columns:repeat(auto-fit,minmax(11rem,1fr)); gap:.8rem; margin-bottom:1rem; }
+.sk-card,.sk-chart{ border:1px solid var(--line); border-radius:var(--radius-md); padding:1rem; display:flex; flex-direction:column; gap:.55rem; background:var(--paper-raised); }
+.sk-card .skeleton-block,.sk-chart .skeleton-block{ height:.65rem; }
+.sk-charts{ display:grid; grid-template-columns:repeat(auto-fit,minmax(18rem,1fr)); gap:1rem; }
+.sk-chart .sk-plot{ height:8.5rem !important; margin-top:.4rem; }
+.sk-line{ display:inline-block; width:min(24rem,80%); vertical-align:middle; }
+.sk-line .skeleton-block{ height:.7rem; }
+@media (max-width:640px){ .sk-cards{ grid-template-columns:repeat(2,minmax(0,1fr)); } .sk-tr{ gap:.6rem; } }
 @media (prefers-reduced-motion: reduce){ .skeleton-block{ animation:none; } }
 
 /* Error state — never the raw error; see friendlyError() in util.js. */
@@ -248,7 +263,7 @@ th[aria-sort="descending"] .th-arrow{ opacity:1; } th[aria-sort="descending"] .t
   background:var(--danger-soft); color:var(--danger-fg); border:0; border-radius:999px;
   padding:.45rem 1.15rem; font-size:.82rem; font-weight:700; cursor:pointer; font-family:inherit;
 }
-.state-retry:hover{ background:var(--danger); color:#fff; }
+.state-retry:hover{ background:var(--danger-fg); color:var(--paper-raised); }
 
 /* Offline banner — plain document flow at the top of <body> (see
    nav.js), so it pushes the page down rather than overlapping it, and

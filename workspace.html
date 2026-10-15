@@ -63,18 +63,18 @@
       </div>
 
       <section class="dash-page" data-page="platform-overview" hidden>
-        <div id="pfBody"><div class="empty-state">Loading…</div></div>
+        <div id="pfBody"><div data-skeleton="dashboard"></div></div>
       </section>
 
       <section class="dash-page" data-page="admin-overview" hidden>
-        <div id="aoBody"><div class="empty-state">Loading…</div></div>
+        <div id="aoBody"><div data-skeleton="dashboard"></div></div>
       </section>
 
       <section class="dash-page" data-page="calendar" hidden>
         <!-- Academic calendar (calendar.manage) -->
         <div class="panel" id="calendarPanel">
           <div class="panel-head"><h2>Academic year</h2></div>
-          <p class="shelf-sub" id="calendarText">Loading…</p>
+          <div class="shelf-sub" id="calendarText"><span data-skeleton="line"></span></div>
           <button type="button" class="btn btn-outline" id="startNextYear" hidden></button>
         </div>
       </section>
@@ -84,7 +84,7 @@
           <div class="panel-head"><h2 data-page-title>Classes</h2></div>
           <p class="hint" style="margin-top:0">School heads create classes and assign teachers in their own school.</p>
           <div class="filter-bar-row" style="margin-bottom:.8rem"><div class="field"><label for="clsSchool">School</label><select id="clsSchool"></select></div></div>
-          <div id="clsBody"><div class="empty-state">Loading…</div></div>
+          <div id="clsBody"><div data-skeleton="table"></div></div>
         </div>
       </section>
 
@@ -94,7 +94,7 @@
           <p class="hint" style="margin-top:0">A subject can be added but not renamed or removed, so past work keeps its subject.</p>
           <form id="subjectForm" class="school-add"><input id="subjectName" type="text" maxlength="60" placeholder="New subject, e.g. Kiswahili" aria-label="Subject name" required>
             <button class="btn btn-primary" type="submit">Add subject</button></form>
-          <div id="subjectsBody"><div class="empty-state">Loading…</div></div>
+          <div id="subjectsBody"><div data-skeleton="list" data-rows="2"></div></div>
         </div>
       </section>
 
@@ -120,12 +120,12 @@
             <div class="field"><label for="tchSearch">Search</label><input id="tchSearch" type="search" placeholder="Name, school, county…"></div>
             <div class="field"><label for="tchRole">Who</label><select id="tchRole"><option value="">Teachers and heads</option><option value="teacher">Teachers</option><option value="school_leader">School heads</option></select></div>
           </div>
-          <div id="tchBody"><div class="empty-state">Loading…</div></div>
+          <div id="tchBody"><div data-skeleton="table" data-cols="6"></div></div>
         </div>
       </section>
 
       <section class="dash-page" data-page="school-profiles" hidden>
-        <div class="panel" id="schoolsModule"><div class="empty-state">Loading…</div></div>
+        <div class="panel" id="schoolsModule"><div data-skeleton="list" data-rows="4"></div></div>
       </section>
 
       <section class="dash-page" data-page="assignments" hidden>
@@ -137,7 +137,7 @@
             <div class="field"><label for="asgStatus">Status</label><select id="asgStatus" data-default=""><option value="">Open and closed</option><option value="published">Open</option><option value="closed">Closed</option></select></div>
             <div class="field"><label for="asgSubject">Subject</label><select id="asgSubject" data-default=""><option value="">All subjects</option></select></div>
           </div>
-          <div id="asgBody"><div class="empty-state">Loading…</div></div>
+          <div id="asgBody"><div data-skeleton="table" data-cols="6"></div></div>
         </div>
       </section>
 
@@ -150,7 +150,7 @@
             <div class="field"><label for="resSchool">School</label><select id="resSchool"></select></div>
           </div>
           <p class="field-hint" id="resNote" hidden></p>
-          <div id="resBody"><div class="empty-state">Loading…</div></div>
+          <div id="resBody"><div data-skeleton="table" data-cols="5"></div></div>
         </div>
       </section>
 
@@ -160,7 +160,7 @@
             <span class="dq-head-actions"><label class="q-choice" style="margin:0;font-size:.82rem"><input type="checkbox" id="trArchived"> Show archived</label>
               <button type="button" class="btn btn-outline q-small" id="trNewBtn" hidden>Record a session</button></span></div>
           <p class="hint" style="margin-top:0">Nothing is deleted — archive a session, or take a teacher off the list (kept as not attended). Every change is in the audit log.</p>
-          <div id="trainingList"><div class="empty-state">Loading…</div></div>
+          <div id="trainingList"><div data-skeleton="list"></div></div>
         </div>
       </section>
 
@@ -169,7 +169,7 @@
           <div class="panel-head"><h2 data-page-title>Field visits</h2><span class="chart-meta" id="fvMeta" style="margin:0"></span></div>
           <div class="filter-bar-row" style="margin-bottom:.8rem"><div class="field"><label for="fvSearch">Search</label><input id="fvSearch" type="search" placeholder="School, officer, visit type…"></div>
             <div class="field"><label for="fvType">Visit type</label><select id="fvType" data-default=""><option value="">All visit types</option></select></div></div>
-          <div id="fvBody"><div class="empty-state">Loading…</div></div>
+          <div id="fvBody"><div data-skeleton="table" data-cols="5"></div></div>
         </div>
       </section>
 
@@ -185,25 +185,25 @@
           </div>
           <p class="hint" style="margin-top:0">From the portal's own records: only submissions that pass validation (or that someone accepted) are counted. The county and school filters apply.</p>
           <p class="chart-meta" id="srMeta"></p>
-          <div id="srBody"><div class="empty-state">Loading…</div></div>
+          <div id="srBody"><div data-skeleton="charts"></div></div>
         </div>
       </section>
 
       <section class="dash-page" data-page="permissions" hidden>
-        <div id="permBody"><div class="empty-state">Loading…</div></div>
+        <div id="permBody"><div data-skeleton="table" data-rows="8" data-cols="6"></div></div>
       </section>
 
       <section class="dash-page" data-page="audit" hidden>
         <div class="panel">
           <div class="panel-head"><h2 data-page-title><span id="auditTitle">Audit log</span></h2></div>
           <p class="hint" style="margin-top:0" id="auditHint">This record can't be edited or deleted.</p>
-          <div id="auditList"><div class="empty-state">Loading…</div></div>
+          <div id="auditList"><div data-skeleton="list" data-rows="5"></div></div>
           <button type="button" class="btn btn-outline" id="auditMore" hidden style="margin-top:.6rem">Load older</button>
         </div>
       </section>
 
       <section class="dash-page" data-page="account-activity" hidden>
-        <div id="activityBody"><div class="empty-state">Loading…</div></div>
+        <div id="activityBody"><div data-skeleton="table" data-cols="5"></div></div>
       </section>
 
       <section class="dash-page" data-page="overview" hidden>
@@ -212,7 +212,7 @@
         <div class="stat-row exec-row" id="statRow"></div>
         <div class="panel">
           <div class="panel-head"><h2>Needs attention</h2><span class="count-badge" id="attentionCount" hidden></span></div>
-          <div id="attentionList"><div class="empty-state">Loading…</div></div>
+          <div id="attentionList"><div data-skeleton="list" data-rows="2"></div></div>
         </div>
         <div class="panel-head section-head"><h2>Programme areas</h2><span class="chart-meta" style="margin:0">Open an area for its full dashboard</span></div>
         <div class="intel-areas" id="intelAreas"></div>
@@ -222,7 +222,7 @@
         <div class="panel">
           <div class="panel-head"><h2 data-page-title>Reach</h2><span class="live-head"><span class="chart-meta" data-imp-meta style="margin:0"></span><span data-live-impact></span></span></div>
           <details class="page-about"><summary>About this page</summary><p class="hint">Where the programme is: schools, learners and teachers by county, grades, and gender where it has been recorded (optional, shown only as totals). Learner growth term by term.</p></details>
-          <div id="imp-reach"><div class="empty-state">Loading…</div></div>
+          <div id="imp-reach"><div data-skeleton="dashboard"></div></div>
         </div>
       </section>
 
@@ -230,7 +230,7 @@
         <div class="panel">
           <div class="panel-head"><h2 data-page-title>Learning</h2><span class="live-head"><span class="chart-meta" data-imp-meta style="margin:0"></span><span data-live-impact></span></span></div>
           <details class="page-about"><summary>About this page</summary><p class="hint">Work set and handed in (<b>completion</b>), the marks on marked work (<b>results</b>), by grade and subject, and how learners progress from term to term. Completion and results are separate measures — handing work in isn't the same as doing well.</p></details>
-          <div id="imp-learning"><div class="empty-state">Loading…</div></div>
+          <div id="imp-learning"><div data-skeleton="dashboard"></div></div>
         </div>
       </section>
 
@@ -238,7 +238,7 @@
         <div class="panel">
           <div class="panel-head"><h2 data-page-title>Teacher development</h2><span class="live-head"><span class="chart-meta" data-imp-meta style="margin:0"></span><span data-live-impact></span></span></div>
           <details class="page-about"><summary>About this page</summary><p class="hint">Training (from the register below), ICT integration and other M&amp;E indicators shown here, teachers' own use of digital resources, and what teachers do in the portal.</p></details>
-          <div id="imp-teacher-development"><div class="empty-state">Loading…</div></div>
+          <div id="imp-teacher-development"><div data-skeleton="dashboard"></div></div>
         </div>
       </section>
 
@@ -246,7 +246,7 @@
         <div class="panel">
           <div class="panel-head"><h2 data-page-title>Field operations</h2><span class="live-head"><span class="chart-meta" data-imp-meta style="margin:0"></span><span data-live-impact></span></span></div>
           <details class="page-about"><summary>About this page</summary><p class="hint">Field visits by type, month, county and term; schools not yet visited; completed visit forms and form response rates; Kobo submissions and their checks. The date filter applies to visit and submission dates.</p></details>
-          <div id="imp-field-operations"><div class="empty-state">Loading…</div></div>
+          <div id="imp-field-operations"><div data-skeleton="dashboard"></div></div>
         </div>
       </section>
 
@@ -254,7 +254,7 @@
         <div class="panel">
           <div class="panel-head"><h2 data-page-title>Digital resources</h2><span class="live-head"><span class="chart-meta" data-imp-meta style="margin:0"></span><span data-live-impact></span></span></div>
           <details class="page-about"><summary>About this page</summary><p class="hint">What's on the shelves, how often it's opened and for how long, who uses it, and the most-used content.</p></details>
-          <div id="imp-digital-resources"><div class="empty-state">Loading…</div></div>
+          <div id="imp-digital-resources"><div data-skeleton="dashboard"></div></div>
         </div>
       </section>
 
@@ -265,7 +265,7 @@
           <div class="filter-bar-row" style="margin-bottom:.8rem">
             <div class="field"><label for="melDashPeriod">Period</label><select id="melDashPeriod"></select></div>
           </div>
-          <div id="melDash"><div class="empty-state">Loading…</div></div>
+          <div id="melDash"><div data-skeleton="charts"></div></div>
         </div>
         <div class="panel" id="melDashDetailPanel" hidden>
           <div id="melDashDetail"></div>
@@ -279,11 +279,11 @@
               <button type="button" class="btn btn-outline q-small" id="dqScanBtn">Scan now</button></span>
           </div>
           <details class="page-about"><summary>About this page</summary><p class="hint">Problems in the portal's records — duplicates, missing or contradictory schools, counties and grades, Kobo submissions that failed checks, orphaned links, bad dates, and work or classes left with nobody active behind them. The county, school and date filters at the top apply (date = when an issue was first found). Nothing is ever deleted, and every change is recorded in the issue's history and the audit log.</p></details>
-          <div id="dqTop">${'<div class="empty-state">Loading…</div>'}</div>
+          <div id="dqTop"><div data-skeleton="cards" data-rows="3"></div></div>
         </div>
         <div class="panel">
           <div class="panel-head"><h2>By check</h2></div>
-          <div id="dqTypes"></div>
+          <div id="dqTypes"><div data-skeleton="table"></div></div>
         </div>
         <div class="panel">
           <div class="panel-head"><h2>Issues</h2><span class="chart-meta" id="dqCount" style="margin:0"></span></div>
@@ -303,7 +303,7 @@
             <button type="button" class="btn btn-ghost q-small" data-bulk="IGNORED">Ignore</button>
             <button type="button" class="btn btn-ghost q-small" data-bulk="clear">Clear selection</button>
           </div>
-          <div id="dqList"></div>
+          <div id="dqList"><div data-skeleton="list"></div></div>
           <div id="dqPager" class="lms-actions" style="justify-content:space-between;margin-top:.6rem;font-size:.82rem"></div>
         </div>
       </section>
@@ -316,7 +316,7 @@
             <div class="field"><label for="melProg">Programme</label><select id="melProg"></select></div>
             <div class="field"><label for="melPeriod">Period</label><select id="melPeriod"></select></div>
           </div>
-          <div id="melResults"><div class="empty-state">Loading…</div></div>
+          <div id="melResults"><div data-skeleton="list" data-rows="4"></div></div>
         </div>
       </section>
 
@@ -334,7 +334,7 @@
             <div class="lms-actions"><button class="btn btn-primary q-small" type="submit">Create</button><button class="btn btn-ghost q-small" type="button" id="melProgCancel">Cancel</button></div>
           </form>
           <div class="field" style="max-width:22rem"><label for="melFwProg">Programme</label><select id="melFwProg"></select></div>
-          <div id="melFramework"></div>
+          <div id="melFramework"><div data-skeleton="list"></div></div>
         </div>
       </section>
 
@@ -349,7 +349,7 @@
             <button class="btn btn-primary" type="submit">Generate</button>
           </form>
           <p class="field-hint" id="melRepScope"></p>
-          <div id="melReportList"></div>
+          <div id="melReportList"><div data-skeleton="list"></div></div>
         </div>
       </section>
 
@@ -371,11 +371,11 @@
             </form>
             <p class="field-hint">The code (2–4 letters) starts every school code in that county, e.g. SMB-001, and can't be changed later. A county with no schools can be removed from its section below.</p>
           </details>
-          <div id="schoolList"></div>
+          <div id="schoolList"><div data-skeleton="list"></div></div>
         </div>
         <div class="panel">
           <div class="panel-head"><h2 id="schoolsHeading">Schools</h2></div>
-          <div id="schoolsBody"><div class="empty-state">Loading…</div></div>
+          <div id="schoolsBody"><div data-skeleton="list" data-rows="4"></div></div>
         </div>
 
 
@@ -444,7 +444,7 @@
               </select>
             </div>
           </div>
-          <div id="usersList"><div class="empty-state">Loading…</div></div>
+          <div id="usersList"><div data-skeleton="table" data-rows="6" data-cols="6"></div></div>
         </div>
 
       </section>
@@ -535,7 +535,7 @@
               <option value="draft">Drafts</option>
             </select>
           </div>
-          <div id="libraryList"></div>
+          <div id="libraryList"><div data-skeleton="list"></div></div>
         </div>
 
         <div class="panel">
@@ -550,7 +550,7 @@
             reading-time measurement. Scoped by the global School filter
             above.
           </p>
-          <div id="usageBody"><div class="empty-state">Loading…</div></div>
+          <div id="usageBody"><div data-skeleton="dashboard"></div></div>
         </div>
       </section>
 
@@ -620,7 +620,7 @@
           <div>
             <div class="panel">
               <div class="panel-head"><h2>Your forms & feedback</h2></div>
-              <div id="formsList"></div>
+              <div id="formsList"><div data-skeleton="list"></div></div>
             </div>
           </div>
         </div>
@@ -676,7 +676,7 @@
               </p>
             </form>
             <div id="koboPush"></div>
-            <div id="koboFormList"></div>
+            <div id="koboFormList"><div data-skeleton="list"></div></div>
           </div>
         </div>
       </section>
@@ -697,12 +697,12 @@
               <option value="education_team">Education Team</option><option value="admin">Admins</option><option value="learner">Learners</option></select></div>
             <div class="field"><label for="ntf_status">Status</label><select id="ntf_status"><option value="">Read and unread</option><option value="unread">Unread</option><option value="read">Read</option></select></div>
           </div>
-          <div id="ntfLog"><div class="empty-state">Loading…</div></div>
+          <div id="ntfLog"><div data-skeleton="table" data-cols="5"></div></div>
         </div>
       </section>
 
       <section class="dash-page" data-page="sync-problems" hidden>
-        <div id="syncProblems"><div class="empty-state">Loading…</div></div>
+        <div id="syncProblems"><div data-skeleton="table" data-cols="5"></div></div>
       </section>
 
       <section class="dash-page" data-page="reports" hidden>

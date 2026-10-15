@@ -25,10 +25,10 @@
    the point. Every card says in a line what it shows.
    ============================================================ */
 
-import { esc, formatDuration } from "./util.js";
+import { esc, formatDuration, skeleton } from "./util.js";
 import { fmtValue, ragPill } from "./mel-format.js";
 import { ICON } from "./navigation.js";
-import { barList, lineChart, monthPoints, proportion, stackBar, TARGET_KEY, targetList, termPoints, trendOrBars } from "./charts.js";
+import { barList as bars0, lineChart as line0, monthPoints, proportion as parts0, stackBar as stack0, TARGET_KEY, targetList, termPoints, trendOrBars as trend0 } from "./charts.js";
 import { kpiCard, periodTrend, termName } from "./kpi.js";
 
 const pct = (v) => (v == null ? "—" : `${Math.round(v)}%`);
@@ -78,6 +78,7 @@ const monthName = (ym) => {
 const warn = (t) => `<b class="warn-text">${t}</b>`;
 /** Learners who joined in the latest term: "+11 joined in Term 3". */
 const joinedLine = (growth) => {
+  if (datedScope) return "";
   const last = (growth || []).at(-1);
   return last?.joined ? `+${num(last.joined)} joined in ${esc(termName(last.label))}` : "";
 };
@@ -87,7 +88,24 @@ function card(title, meta, body, { wide = false } = {}) {
     ${body}
   </div>`;
 }
-const empty = (msg = "Nothing recorded yet.") => `<div class="chart-empty">${esc(msg)}</div>`;
+/* An empty chart says what is missing and where: "No visits recorded in
+   Narok County for this period." — the place and dates are the filters the
+   dashboard was drawn with (d.scope; set by forScope() as each one starts). */
+let where = " yet";
+let datedScope = false; // dates chosen above: figures about "this term" don't describe them
+function forScope(d) {
+  const s = d.scope || {};
+  datedScope = !!(s.from || s.to);
+  const place = s.school ? ` at ${s.school}` : s.county ? ` in ${s.county} County` : "";
+  where = `${place}${s.from || s.to ? " for this period" : ""}` || " yet";
+}
+const none = (noun = "") => (/^[a-z][a-z ]*s$/.test(noun) && !/^of /.test(noun) ? `No ${noun} recorded${where}.` : `Nothing recorded${where}.`);
+const barList = (rows, o = {}) => bars0(rows, { empty: none(o.noun), ...o });
+const lineChart = (points, o = {}) => line0(points, { empty: none(o.noun), ...o });
+const trendOrBars = (points, o = {}) => trend0(points, { empty: none(o.noun), ...o });
+const proportion = (parts, o = {}) => parts0(parts, { empty: none(o.noun), ...o });
+const stackBar = (parts, o = {}) => stack0(parts, { empty: none(o.noun), ...o });
+const empty = (msg) => `<div class="chart-empty">${esc(msg ?? none())}</div>`;
 
 /** The detail behind a page — long tables and narrower breakdowns — closed
     until it's wanted. `what` says what's inside, so nobody opens it to find out. */
@@ -172,6 +190,7 @@ export function themeIndicatorsHtml(dash, theme, { canManage = false } = {}) {
 /* ------------------------------------------------------------ 1. executive overview */
 
 export function executiveHtml(d, opts = {}) {
+  forScope(d);
   const E = d.executive, R = d.reach, L = d.learning, T = d.teachers, F = d.fieldOps, S = d.resources;
   const AREA_ICON = { reach: "globe", learning: "results", "teacher-development": "teacher", "field-operations": "pin", "digital-resources": "book" };
   const area = (page, title, lines) => `
@@ -249,6 +268,7 @@ export function execMelArea(dash) {
 /* ------------------------------------------------------------ 2. reach */
 
 export function reachHtml(d, opts = {}) {
+  forScope(d);
   const R = d.reach, S = R.summary;
   const lg = R.gender.learners;
   return `
@@ -283,6 +303,7 @@ export function reachHtml(d, opts = {}) {
 /* ------------------------------------------------------------ 3. learning */
 
 export function learningHtml(d, opts = {}) {
+  forScope(d);
   const L = d.learning, A = L.assignments, c = L.completion, a = L.results, P = L.progress.learners;
   const band = bandNames(L.bands);
   const byBand = bandChart(L.bands, a.bands);
@@ -337,6 +358,7 @@ export function learningHtml(d, opts = {}) {
 /* ------------------------------------------------------------ 4. teacher development */
 
 export function teachersHtml(d, opts = {}) {
+  forScope(d);
   const T = d.teachers, Tr = T.training, D = T.digital, P = T.activity.participation;
   return `
     <div class="stat-row">
@@ -388,10 +410,13 @@ export function trainingListHtml(list, { canManage = false, archived = false } =
 /* ------------------------------------------------------------ 5. field operations */
 
 export function fieldOpsHtml(d, opts = {}) {
+  forScope(d);
   const F = d.fieldOps, V = F.visits, K = F.kobo, Fm = F.forms;
   // This term so far, and last term: two counts side by side, no arrow — a term under way has had less time.
   const [prevT, lastT] = lastTwo(V.byTerm);
-  const termCounts = lastT ? `${esc(termName(lastT.label))} so far: ${num(lastT.value)}${prevT ? ` · ${esc(termName(prevT.label))}: ${num(prevT.value)}` : ""}` : "";
+  // "so far" is about the term under way: shown only when no dates are chosen above.
+  const dated = !!(d.scope?.from || d.scope?.to);
+  const termCounts = lastT && !dated ? `${esc(termName(lastT.label))} so far: ${num(lastT.value)}${prevT ? ` · ${esc(termName(prevT.label))}: ${num(prevT.value)}` : ""}` : "";
   const koboAside = [K.needsReview ? warn(`${num(K.needsReview)} need review`) : "", K.byStatus.duplicate ? `${num(K.byStatus.duplicate)} duplicates` : "",
     K.byStatus.rejected ? `${num(K.byStatus.rejected)} rejected in Kobo` : ""].filter(Boolean).join(" · ");
   return `
@@ -436,9 +461,10 @@ export function fieldOpsHtml(d, opts = {}) {
 /* ------------------------------------------------------------ 6. digital resources */
 
 export function resourcesHtml(d, opts = {}) {
+  forScope(d);
   const S = d.resources, U = S.activeUsers;
   const [prevM, lastM] = lastTwo(S.byMonth);
-  const monthCounts = lastM ? `${esc(monthName(lastM.label))} so far: ${num(lastM.opens)}${prevM ? ` · ${esc(monthName(prevM.label))}: ${num(prevM.opens)}` : ""}` : "";
+  const monthCounts = lastM && !(d.scope?.from || d.scope?.to) ? `${esc(monthName(lastM.label))} so far: ${num(lastM.opens)}${prevM ? ` · ${esc(monthName(prevM.label))}: ${num(prevM.opens)}` : ""}` : "";
   return `
     <div class="stat-row">
       ${kpiCard({ label: "Resources", icon: "book", value: num(S.items.total), href: linkTo(opts, "content"),
@@ -516,8 +542,8 @@ export function melIndicatorHtml(ind, trend, breakdown) {
     </div>
     <div class="chart-grid">
       ${card("Trend over time", `The actual each term, against that term's target · ${esc(trend?.scope?.label || "")}`,
-        trend ? lineChart(points, { unit: unit === "percent" ? "%" : "", target: "Target", name: "Actual", height: 190, title: `${ind.name} by term`, empty: "No values for any term yet." }) : empty("Loading…"), { wide: true })}
-      ${card("County comparison", breakdown ? `Each county's progress to its target · ${esc(breakdown.period.label)}` : "", breakdown ? targetList(counties, { fmt: fmtValue }) : empty("Loading…"))}
-      ${card("School comparison", breakdown ? `Schools with a value or a target · ${esc(breakdown.period.label)}` : "", breakdown ? targetList(schools.slice(0, 25), { fmt: fmtValue }) + TARGET_KEY : empty("Loading…"))}
+        trend ? lineChart(points, { unit: unit === "percent" ? "%" : "", target: "Target", name: "Actual", height: 190, title: `${ind.name} by term`, empty: "No values for any term yet." }) : skeleton(3, { avatar: false }), { wide: true })}
+      ${card("County comparison", breakdown ? `Each county's progress to its target · ${esc(breakdown.period.label)}` : "", breakdown ? targetList(counties, { fmt: fmtValue }) : skeleton(3, { avatar: false }))}
+      ${card("School comparison", breakdown ? `Schools with a value or a target · ${esc(breakdown.period.label)}` : "", breakdown ? targetList(schools.slice(0, 25), { fmt: fmtValue }) + TARGET_KEY : skeleton(3, { avatar: false }))}
     </div>`;
 }

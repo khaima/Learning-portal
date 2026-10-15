@@ -1,7 +1,7 @@
 import { mountNavigation } from "./nav.js";
 // Staff dashboards always need Supabase Auth: fetched with the page, not after it.
 import "./supabase-auth.js";
-import { $, $$, esc, initials, schoolLine, toast, formatDuration, skeleton, emptyState, errorState, friendlyError, confirmDialog } from "./util.js";
+import { $, $$, esc, initials, schoolLine, toast, formatDuration, skeleton, skeletonCards, emptyState, errorState, friendlyError, confirmDialog } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
 import { normalizeLibraryAudience } from "./data.js";
 import {
@@ -47,6 +47,7 @@ async function main() {
      Real counts only, from the same data as the lists below: work waiting
      to be marked, and work handed in this week (completion — not marks). */
   function renderKpis() {
+    if (!submissionsLoaded && !submissionsFailed) { $("#statRow").innerHTML = skeletonCards(4); return; }
     const toMark = submissionCache.filter((x) => x.status === "submitted").length;
     const handedInThisWeek = submissionCache.filter((x) => x.submittedAt && isThisWeek(x.submittedAt)).length;
     // Last week beside it — only when the list wasn't cut short (the API sends at most 500, newest first).
@@ -70,6 +71,7 @@ async function main() {
   // Declared up here: renderKpis() runs before the sections below set them.
   let submissionCache = [];
   let submissionsFailed = false;
+  let submissionsLoaded = false; // until the first read: skeletons, never "nothing to mark"
   let assignmentList = [];
   let learnerCache = [];
   let activeCount = 0; // active learners, shown in the KPI tile whichever list is open
@@ -152,7 +154,7 @@ async function main() {
           <div class="task-row">
             <div style="flex:1;min-width:0"><b>${esc(l.fullName)}</b><span>${l.learnerCode ? `<span class="code-chip">${esc(l.learnerCode)}</span> ` : ""}@${esc(l.username)}</span></div>
             <div class="roster-actions"><button type="button" class="danger" data-remove="${esc(l.id)}" data-name="${esc(l.fullName)}">Take out of class</button></div>
-          </div>`).join("") : `<div class="empty-state">Nobody is in this class yet.</div>`}
+          </div>`).join("") : `<div class="empty-state"><b>Nobody is in this class yet.</b><div>Add learners from your roster below.</div></div>`}
         <h3 style="margin:1.1rem 0 .3rem">Add learners</h3>
         <p class="field-hint" style="margin-top:0">Learners on your roster who aren't in this class. Your school head can add anyone in the school.</p>
         ${others.length ? `
@@ -231,9 +233,10 @@ async function main() {
     const el = $(targetId);
     if (!el) return;
     if (submissionsFailed) {
-      el.innerHTML = errorState("Couldn't load work to mark — check your connection and try again.", loadSubmissions);
+      el.innerHTML = errorState(submissionsFailed, loadSubmissions);
       return;
     }
+    if (!submissionsLoaded) { el.innerHTML = skeleton(2, { avatar: false }); return; }
     const queue = submissionCache.filter((x) => x.status === "submitted")
       .sort((x, y) => String(x.submittedAt).localeCompare(String(y.submittedAt))); // oldest first
     const filtered = filterSubs(queue, ($(searchInputId)?.value || "").trim());
@@ -242,20 +245,21 @@ async function main() {
     el.innerHTML = filtered.length
       ? filtered.map(queueRow).join("")
       : queue.length
-        ? `<div class="empty-state">No matches for that search.</div>`
+        ? `<div class="empty-state"><b>Nothing matches your search.</b><div>Check the spelling, or clear the search to see everyone.</div></div>`
         : emptyState("Nothing to mark", "Work your learners hand in shows up here.");
   }
 
   function renderRecentResults() {
     if (submissionsFailed) {
-      const msg = errorState("Couldn't load marked work — check your connection and try again.", loadSubmissions);
+      const msg = errorState(submissionsFailed, loadSubmissions);
       $("#resultList").innerHTML = msg;
       $("#homeResultList").innerHTML = msg;
       return;
     }
+    if (!submissionsLoaded) { for (const sel of ["#resultList", "#homeResultList"]) $(sel).innerHTML = skeleton(2, { avatar: false }); return; }
     const marked = submissionCache.filter((x) => x.status === "marked")
       .sort((x, y) => String(y.markedAt).localeCompare(String(x.markedAt)));
-    const empty = `<div class="empty-state">Nothing marked yet.</div>`;
+    const empty = `<div class="empty-state"><b>Nothing marked yet.</b><div>Work you mark appears here.</div></div>`;
     $("#resultList").innerHTML = marked.length ? marked.slice(0, 50).map(markedRow).join("") : empty;
     $("#homeResultList").innerHTML = marked.length
       ? marked.slice(0, 8).map(markedRow).join("") + (marked.length > 8 ? `<p class="hint" style="margin-top:.4rem">+${marked.length - 8} more — see Results.</p>` : "")
@@ -278,10 +282,11 @@ async function main() {
     try {
       submissionCache = await getSubmissions({ limit: 500 });
       submissionsFailed = false;
+      submissionsLoaded = true;
     } catch (err) {
       console.error("could not load submissions:", err);
       if (quiet) throw err; // what's shown stays; the freshness line says it couldn't refresh
-      submissionsFailed = true;
+      submissionsFailed = friendlyError(err); // what to say
       submissionCache = [];
     }
     const from = freshness("/submissions") ?? undefined;
@@ -499,7 +504,7 @@ async function main() {
       ? shown.map(learnerActivityRow).join("")
         + (filtered.length > shown.length ? `<p class="hint" style="margin:.6rem 0 0">Showing ${shown.length} of ${filtered.length} learners — search for a name, or see them all on <a href="#my-learners">My learners</a>.</p>` : "")
       : learnerCache.length
-        ? `<div class="empty-state">No matches for that search.</div>`
+        ? `<div class="empty-state"><b>Nothing matches your search.</b><div>Check the spelling, or clear the search to see everyone.</div></div>`
         : `<div class="empty-state">No learners yet. Add one from My Learners.</div>`;
   }
   $("#learnerActivitySearch")?.addEventListener("input", renderHomeLearnerActivity);
@@ -799,7 +804,7 @@ async function main() {
             <span>${completionPill(a.completion, { late: s?.isLate, overdue })} ${s?.status === "marked" ? markPill(s.percentage, s.band) : ""}</span>
           </div>`;
         }).join("")
-      : `<div class="empty-state">No assignments set for them yet.</div>`;
+      : `<div class="empty-state"><b>No assignments set for them yet.</b><div>Work you set for their class appears here.</div></div>`;
     const c = summary.completion;
     const ach = summary.achievement;
     const usageRows = library.interactions.length
@@ -809,7 +814,7 @@ async function main() {
             it.completedAt ? " · Finished " + new Date(it.completedAt).toLocaleString() : " · In progress"}</span></div>
           <span class="bar-num">${it.durationSeconds != null ? formatDuration(it.durationSeconds) : "—"}</span>
         </div>`).join("")
-      : `<div class="empty-state">Nothing opened from the library yet.</div>`;
+      : `<div class="empty-state"><b>Nothing opened from the library yet.</b><div>What they open and read appears here.</div></div>`;
     const badgeChips = (library.badges || []).slice(0, 6).map((b) => `
       <span class="pill" style="display:inline-flex;align-items:center;gap:.3rem;margin:0 .3rem .3rem 0">&#127942; ${esc(b.title || "Resource")}</span>`).join("");
 

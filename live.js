@@ -240,7 +240,7 @@ function markable(c) {
     is marked for a moment. Returns how many were marked. */
 export function swap(el, html, { highlight = true, replace = false } = {}) {
   if (!el) return 0;
-  const placeholder = replace || !el.firstElementChild || el.querySelector(":scope > .skeleton-list, :scope > .error-state, :scope > .empty-state") || el.dataset.liveDrawn !== "1";
+  const placeholder = replace || !el.firstElementChild || el.querySelector(":scope > .skeleton-list, :scope > .state-error, :scope > .empty-state") || el.dataset.liveDrawn !== "1";
   if (placeholder) {
     el.innerHTML = html;
     el.dataset.liveDrawn = "1";

@@ -14,7 +14,7 @@
    ============================================================ */
 import { apiGet } from "./api.js";
 import { liveStatus, swap } from "./live.js";
-import { esc, skeleton, errorState, friendlyError } from "./util.js";
+import { esc, skeleton, skeletonTable, errorState, emptyState, filteredEmpty, friendlyError } from "./util.js";
 import { fmtSyncTime } from "./sync-ui.js";
 
 const KIND = { "learner-work": "Learner work", mark: "Marking", reading: "Reading time", "field-visit": "Field visit", "form-response": "Form response" };
@@ -80,9 +80,9 @@ function eventsHtml(d) {
 /* Every staff device, last sync and what's waiting (sync.monitor) — moved here
    from the Sync center, which is now about the person's own device. */
 function devicesHtml(data, roleFilter) {
-  if (!data) return `<div class="empty-state">Loading the field team…</div>`;
+  if (!data) return skeletonTable(4, 5);
   const people = data.people.filter((p) => !roleFilter || p.role === roleFilter);
-  if (!people.length) return `<p class="hint">Nobody here yet.</p>`;
+  if (!people.length) return roleFilter ? filteredEmpty() : emptyState("No devices have reported yet.", "Each staff device reports here after it syncs.");
   return `<div class="lms-table-wrap"><table class="lms-table intel-table sc-team">
     <thead><tr><th class="lms-name">Who</th><th>Device</th><th>Last sync</th><th>Waiting</th><th class="lms-name">Status</th></tr></thead>
     <tbody>${people.map((p) => {
