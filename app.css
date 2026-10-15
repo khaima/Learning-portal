@@ -85,6 +85,114 @@
 .app-main:not(.is-home) .panel-head > [data-page-title] + *{ margin-left:auto; }
 /* Filters a page doesn't use aren't offered there (nav.js). */
 .filter-bar .gf-off{ display:none !important; }
+/* ================================================================ PHONES AND TABLETS
+   docs/NAVIGATION.md §19. Not the desktop made smaller: the same parts,
+   arranged for the screen and the finger. */
+
+/* Tables. On a phone each row is a card: the first cell is its title, the
+   rest are "name  value" lines (tables.js gives each cell its column's
+   name), actions along the bottom. The permissions matrix stays a grid.
+   On a tablet a wide table scrolls sideways with its first column held,
+   and a shadow at the edge says there's more. */
+@media (max-width:640px){
+  .lms-table:not(.perm-matrix){ min-width:0 !important; border:0; }
+  .lms-table-wrap:has(> .lms-table:not(.perm-matrix)){ overflow:visible; border:0; border-radius:0; background:none; }
+  /* Off-screen but still read: as a block, so its width can't widen the page. */
+  .lms-table:not(.perm-matrix) thead{ display:block; position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); clip-path:inset(50%); white-space:nowrap; }
+  .lms-table:not(.perm-matrix),.lms-table:not(.perm-matrix) tbody,.lms-table:not(.perm-matrix) tr{ display:block; }
+  .lms-table:not(.perm-matrix) tr{ border:1px solid var(--line); border-radius:var(--radius-sm); padding:.55rem .8rem .45rem; margin-bottom:.6rem; background:var(--paper-raised); }
+  /* Name on the left, the value on the right — a value of several lines (a school, then its class) stacks there. */
+  .lms-table:not(.perm-matrix) td{ display:grid; grid-template-columns:minmax(0,max-content) minmax(0,1fr); column-gap:.9rem; align-items:baseline; justify-items:end;
+    padding:.28rem 0; border:0; white-space:normal; text-align:right; position:static; background:none; overflow-wrap:anywhere; }
+  .lms-table:not(.perm-matrix) td::before{ content:attr(data-label); grid-column:1; grid-row:1 / span 8; max-width:11rem; justify-self:start; text-align:left; font-size:.74rem; font-weight:600; color:var(--ink-soft); overflow-wrap:normal; }
+  .lms-table:not(.perm-matrix) td > *{ grid-column:2; min-width:0; }
+  .lms-table:not(.perm-matrix) td .hint-inline{ white-space:normal; }
+  .lms-table:not(.perm-matrix) td:first-child{ display:block; text-align:left; font-size:.92rem; padding:.1rem 0 .4rem; margin-bottom:.15rem; border-bottom:1px solid var(--line); overflow-wrap:normal; }
+  .lms-table:not(.perm-matrix) td:first-child::before,.lms-table:not(.perm-matrix) td[data-label=""]::before{ content:none; }
+  .lms-table:not(.perm-matrix) td[data-label=""]{ display:block; text-align:left; }
+  .lms-table:not(.perm-matrix) td.td-actions{ display:block; text-align:left; padding-top:.45rem; }
+  .lms-table:not(.perm-matrix) td.td-actions::before{ display:block; margin-bottom:.2rem; }
+  .lms-table:not(.perm-matrix) td[colspan]{ display:block; text-align:left; }
+  .lms-table:not(.perm-matrix) td[colspan]::before{ content:none; }
+  .lms-table .lms-gap{ border-left:0 !important; }
+  /* Long tables and lists: the first rows, then "Show all". */
+  table.is-long:not(.is-expanded) tbody tr:nth-child(n+16){ display:none; }
+  [data-clamp].is-long:not(.is-expanded) > :nth-child(n+11):not(.table-more){ display:none; }
+  .table-sort-mobile{ display:flex; align-items:center; gap:.5rem; margin:0 0 .6rem; font-size:.78rem; font-weight:600; color:var(--ink-soft); }
+  .table-sort-mobile select{ flex:1; min-width:0; }
+  .table-more{ width:100%; margin-top:.2rem; }
+}
+@media (min-width:641px){
+  .table-sort-mobile,.table-more{ display:none !important; }
+  .lms-table-wrap{ background:
+    linear-gradient(to left, var(--paper-raised) 40%, transparent) right center / 1.75rem 100% no-repeat local,
+    linear-gradient(to left, color-mix(in srgb, var(--ink) 14%, transparent), transparent) right center / .8rem 100% no-repeat scroll; }
+  .lms-table th:first-child,.lms-table td:first-child{ position:sticky; left:0; z-index:1; background:var(--paper-raised); }
+  .lms-table thead th:first-child{ background:var(--paper); }
+}
+
+/* The filters, on a phone: one "Filters" button (with how many are set),
+   the tags of what's chosen, and the choices in a sheet from the bottom. */
+.gf-open,.gf-sheet-head,.gf-backdrop{ display:none; }
+@media (max-width:640px){
+  .panel.filter-bar{ padding:.6rem .8rem; }
+  .gf-open{ display:inline-flex; align-items:center; gap:.45rem; }
+  .gf-count{ display:inline-grid; place-items:center; min-width:1.35rem; height:1.35rem; padding:0 .3rem; border-radius:999px; background:var(--brand); color:var(--paper-raised); font-size:.74rem; font-weight:700; }
+  .filter-bar:not(.is-open) .gf-sheet{ display:none; }
+  .filter-bar.is-open .gf-sheet{ position:fixed; left:0; right:0; bottom:0; z-index:620; max-height:85vh; overflow-y:auto; overscroll-behavior:contain;
+    background:var(--paper-raised); border-radius:var(--radius-lg) var(--radius-lg) 0 0; box-shadow:0 -8px 30px rgba(10,16,32,.25); padding:1rem 1rem calc(1rem + env(safe-area-inset-bottom)); animation:viewer-pop .18s ease-out; }
+  .filter-bar.is-open .gf-sheet-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:.8rem; }
+  .gf-sheet-head b{ font-size:1rem; }
+  .filter-bar.is-open .filter-bar-row{ display:grid; grid-template-columns:1fr; gap:.75rem; }
+  .filter-bar.is-open .filter-bar-row .field{ max-width:none; min-width:0; }
+  .filter-bar.is-open #gfClear{ justify-self:start; }
+  .filter-bar.is-open ~ .gf-backdrop,.gf-backdrop.is-on{ display:block; position:fixed; inset:0; z-index:610; background:rgba(10,16,32,.45); }
+  .filter-bar .filter-summary{ margin-top:.5rem; }
+  .filter-bar .filter-summary:empty,.filter-bar .filter-summary[hidden]{ display:none; }
+}
+
+/* A page's own filters, on a phone: two to a row, a search across the whole row. */
+@media (max-width:640px){
+  .panel .filter-bar-row{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.6rem; }
+  .panel .filter-bar-row .field{ max-width:none; min-width:0; }
+  .panel .filter-bar-row .field:has(input[type=search]),.panel .filter-bar-row .field:has(input[type=text]){ grid-column:1 / -1; }
+  .users-filters{ grid-template-columns:repeat(2,minmax(0,1fr)) !important; gap:.6rem !important; }
+  .users-filters .field:first-child{ grid-column:1 / -1; }
+  /* A row with a note on the right (a time, a count) puts the note under it when there's no room beside. */
+  .result-row{ flex-wrap:wrap; row-gap:.15rem; }
+}
+
+/* Charts: with a dozen months on a narrow chart, every other name is left out (never the year). */
+@container lc (max-width:360px){ .lc-x:has(> span:nth-child(9)) > span:nth-child(even):not(:has(small)){ visibility:hidden; } }
+
+/* Touch screens: every control at least a fingertip (44px) — text links in
+   rows get room round them rather than a bigger look; 16px text in fields
+   so a phone doesn't zoom in when one is tapped. */
+@media (pointer:coarse){
+  .btn,button.btn,a.btn{ min-height:44px; }
+  .btn.q-small{ min-height:40px; }
+  select,textarea,input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]){ min-height:44px; font-size:max(16px, 1em); }
+  .filter-bar .field input,.filter-bar .field select,.filter-bar-row .field input,.filter-bar-row .field select{ font-size:16px; }
+  .roster-actions button,.roster-actions a{ min-height:44px; padding-left:.35rem; padding-right:.35rem; display:inline-flex; align-items:center; }
+  .panel-head a,.panel-head button:not(.btn):not(.live-btn),.intel-link,.cc-go,.link-btn,.th-sort,.page-trail a,.chart-note a,.bars-link{ min-height:44px; display:inline-flex; align-items:center; }
+  .page-trail .crumbs{ row-gap:0; }
+  .filter-summary .gf-x{ min-width:36px; min-height:36px; }
+  .side-link,.side-sublink,.side-toggle{ min-height:44px; }
+  .live-btn{ min-height:40px; }
+  .toast-close{ min-width:40px; min-height:40px; }
+  input[type=checkbox],input[type=radio]{ width:1.5rem; height:1.5rem; }
+  .roster-actions button,.roster-actions a{ min-width:44px; justify-content:center; }
+  button.pill{ min-height:40px; display:inline-flex; align-items:center; padding-left:.85rem; padding-right:.85rem; }
+  .result-row > button,.task-row button:not(.btn):not(.pill):not(.mark-done){ min-height:44px; }
+  summary{ min-height:44px; display:flex; align-items:center; }
+  .chart-card-head a,.app-side :is(a,button,summary){ min-height:44px; }
+  .chart-card-head a{ display:inline-flex; align-items:center; }
+  .app-side :is(a,button):not(.side-link):not(.side-sublink):not(.side-toggle){ display:flex; align-items:center; }
+  /* Every other button on a page, and the links that act as one (a title in a table, "see all"). */
+  .app-main button:not(.th-sort):not(.gf-x):not(.bars-link):not(.toast-close){ min-height:44px; min-width:44px; }
+  .app-main td a,.shelf-more,.lib-card a{ min-height:44px; display:inline-flex; align-items:center; }
+}
+
 /* A filter in the summary can be taken off on its own: back up one level. */
 .filter-summary .gf-pill{ display:inline-flex; align-items:center; gap:.15rem; padding-right:.2rem; }
 .filter-summary .gf-x{ background:none; border:0; padding:0 .3rem; font-size:1rem; line-height:1; color:inherit; cursor:pointer; border-radius:999px; }
@@ -134,7 +242,7 @@ th[aria-sort="descending"] .th-arrow{ opacity:1; } th[aria-sort="descending"] .t
 .warn-text{ color:var(--accent-fg); font-weight:600; }
 
 .body-grid{ display:grid; grid-template-columns:minmax(0,1.5fr) minmax(0,1fr); gap:1.2rem; align-items:start; }
-@media (max-width:1080px){ .body-grid{ grid-template-columns:1fr; } }
+@media (max-width:1080px){ .body-grid{ grid-template-columns:minmax(0,1fr); } }
 /* Short summary tables beside each other (a school's classes and visits) fit their column; they scroll only if they must. */
 .body-grid .intel-table{ min-width:0; }
 .panel{ background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius-lg); padding:1.25rem 1.4rem 1.35rem; box-shadow:var(--shadow); }
@@ -1400,6 +1508,7 @@ button.side-link{ width:100%; border:0; background:none; font:inherit; font-size
 /* The header: which workspace, and who is signed in. */
 .top-identity{ margin:.1rem 0 .15rem !important; font-size:.84rem !important; font-weight:600; color:var(--ink) !important; }
 .filter-bar[hidden]{ display:none; }
+body.sheet-open{ overflow:hidden; }
 
 /* Overview tiles that open a page, health checks, small headings */
 a.stat-tile.stat-link{ display:block; color:inherit; text-decoration:none; transition:border-color .15s, box-shadow .15s, transform .15s; }
@@ -1424,6 +1533,7 @@ a.stat-tile.stat-link.intel-warn:hover,a.stat-tile.stat-link.intel-warn:focus-vi
 .perm-matrix .lms-group{ background:var(--paper-sunk); text-align:left; }
 .perm-yes{ color:var(--success-fg); font-weight:800; }
 .users-table .lms-table{ min-width:54rem; }
+.users-table .lms-table th,.users-table .lms-table td{ padding-left:.55rem; padding-right:.55rem; } /* eight columns: a little less room round each, so all fit on a laptop */
 .users-table td{ text-align:left; vertical-align:top; white-space:normal; }
 .users-table td:last-child{ white-space:nowrap; }
 .users-table tr.user-edit td{ background:var(--paper-sunk); }

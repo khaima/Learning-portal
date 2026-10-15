@@ -186,6 +186,9 @@ async function main() {
       $(`#${id}`).classList.toggle("is-set", !!on);
     }
     $("#gfClear").disabled = !parts.length;
+    $(".gf-count").hidden = !parts.length;
+    $(".gf-count").textContent = parts.length || "";
+    $(".gf-open").setAttribute("aria-label", parts.length ? `Filters — ${parts.length} chosen` : "Filters");
     const el = $("#gfSummary");
     if (!parts.length) { el.hidden = true; el.textContent = ""; return; }
     el.hidden = false;
@@ -211,6 +214,25 @@ async function main() {
     if (c) c.classList.toggle("is-set", c.value !== (c.dataset.default ?? ""));
   });
   updateFilterSummary(); // nothing is set yet: "Clear filters" starts out idle
+
+  /* On a phone the filters open as a sheet from the bottom ("Filters"),
+     so the page's figures come first; each choice applies as it's made,
+     and "Done" (or a tap outside, or Escape) closes it. */
+  const filterBarEl = $(".filter-bar"), gfSheet = $("#gfSheet"), gfOpen = $(".gf-open");
+  const phoneWidth = matchMedia("(max-width: 640px)");
+  function setFilterSheet(open) {
+    filterBarEl.classList.toggle("is-open", open);
+    gfOpen.setAttribute("aria-expanded", String(open));
+    if (open) { gfSheet.setAttribute("role", "dialog"); gfSheet.setAttribute("aria-modal", "true"); gfSheet.querySelector("select:not(:disabled)")?.focus(); }
+    else { gfSheet.removeAttribute("role"); gfSheet.removeAttribute("aria-modal"); }
+    document.body.classList.toggle("sheet-open", open);
+  }
+  gfOpen.addEventListener("click", () => setFilterSheet(true));
+  $(".gf-done").addEventListener("click", () => { setFilterSheet(false); gfOpen.focus(); });
+  $(".gf-backdrop").addEventListener("click", () => setFilterSheet(false));
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && filterBarEl.classList.contains("is-open")) { setFilterSheet(false); gfOpen.focus(); } });
+  phoneWidth.addEventListener("change", () => setFilterSheet(false));
+  window.addEventListener("hashchange", () => setFilterSheet(false));
 
   async function applyFilters() {
     saveFilters();

@@ -1,18 +1,25 @@
 /* ============================================================
-   HPF Digital Learning Portal — tables that sort.
+   HPF Digital Learning Portal — tables on every screen.
 
-   A table marked data-sortable (the table helpers mark any with more than
-   three rows) sorts by a column when its heading is pressed: once for
-   ascending, again for descending. The heading says which way it is
-   sorted (aria-sort), and a table that is drawn again — a filter changed,
-   the data refreshed — keeps the sort its reader chose.
+   Sorting. A table marked data-sortable (the table helpers mark any with
+   more than three rows) sorts by a column when its heading is pressed:
+   once for ascending, again for descending. The heading says which way
+   it is sorted (aria-sort), and a table that is drawn again — a filter
+   changed, the data refreshed — keeps the sort its reader chose. A cell's
+   data-sort, when there is one, is what it sorts by; otherwise its text,
+   read as a number, a duration ("3h 20m"), a date or words.
 
-   A cell's data-sort, when there is one, is what it sorts by; otherwise
-   its text, read as a number, a duration ("3h 20m"), a date or words.
+   Phones. Every table's cells carry their column's name (data-label), so
+   on a narrow screen a row reads as a card — "County  Narok" — instead of
+   a strip that has to be scrolled sideways (app.css). The headings are
+   off-screen there, so a sortable table gets a "Sort by" list instead.
+   A long table, or a list marked data-clamp, shows its first rows and a
+   "Show all" button; nothing is left out of a search or a sort.
    ============================================================ */
 
 const chosen = new Map(); // table → { col, dir } by its page and headings
 const keyOf = (t) => `${location.hash.split("?")[0]}|${[...(t.tHead?.rows[0]?.cells || [])].map((c) => c.textContent.trim()).join("|")}`;
+const LONG = 15; // rows a phone shows before "Show all"
 
 function valueOf(cell) {
   const raw = (cell?.dataset.sort ?? cell?.textContent ?? "").trim();
@@ -33,6 +40,30 @@ const compare = (a, b) => {
   return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
 };
 
+/** Each column's name, reading every heading row: "Completion · Rate". */
+function columnLabels(t) {
+  const grid = [];
+  [...(t.tHead?.rows || [])].forEach((tr, r) => {
+    grid[r] ??= [];
+    let c = 0;
+    for (const cell of tr.cells) {
+      while (grid[r][c]) c++;
+      for (let i = 0; i < cell.colSpan; i++) for (let j = 0; j < cell.rowSpan; j++) (grid[r + j] ??= [])[c + i] = cell;
+      c += cell.colSpan;
+    }
+  });
+  const n = Math.max(0, ...grid.map((g) => g.length));
+  return Array.from({ length: n }, (_, c) => {
+    const parts = [];
+    for (const g of grid) if (g[c] && !parts.includes(g[c])) parts.push(g[c]);
+    // A group heading ("Completion — work handed in") is named by its first words.
+    return parts.map((x) => (x.colSpan > 1 ? x.textContent.split(" — ")[0] : x.textContent).trim()).filter(Boolean).join(" · ");
+  });
+}
+
+/** The wrap a table sits in (or the table): where "Sort by" and "Show all" go. */
+const shellOf = (t) => (t.parentElement?.classList.contains("lms-table-wrap") ? t.parentElement : t);
+
 function sortTable(t, col, dir) {
   const body = t.tBodies[0];
   if (!body) return;
@@ -45,11 +76,40 @@ function sortTable(t, col, dir) {
     if (i === col) c.setAttribute("aria-sort", dir > 0 ? "ascending" : "descending");
     else c.removeAttribute("aria-sort");
   });
+  const pick = shellOf(t).previousElementSibling?.querySelector?.("select[data-table-sort]");
+  if (pick) pick.value = `${col}:${dir}`;
 }
 
-/** Headings become buttons; a sort chosen earlier is put back. */
 function enhance(t) {
   if (!t.tHead?.rows[0] || !t.tBodies[0]) return;
+  // Each cell names its column, for the card a row becomes on a phone.
+  if (t.dataset.labelled !== String(t.tBodies[0].rows.length)) {
+    const labels = columnLabels(t);
+    for (const tr of t.tBodies[0].rows) {
+      let c = 0;
+      for (const td of tr.cells) {
+        if (td.colSpan === 1 && !td.hasAttribute("data-label")) td.dataset.label = labels[c] || "";
+        if (td.querySelector(".roster-actions, button, .btn")) td.classList.add("td-actions");
+        c += td.colSpan;
+      }
+    }
+    t.dataset.labelled = String(t.tBodies[0].rows.length);
+  }
+  const shell = shellOf(t);
+  const rows = t.tBodies[0].rows.length;
+  // Long: the first rows on a phone, and a button for the rest.
+  t.classList.toggle("is-long", rows > LONG);
+  const more = shell.nextElementSibling?.matches?.(".table-more") ? shell.nextElementSibling : null;
+  if (rows > LONG && !more && !t.classList.contains("is-expanded")) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn btn-outline table-more";
+    b.textContent = `Show all ${rows} rows`;
+    shell.after(b);
+  } else if (rows <= LONG && more) more.remove();
+  else if (more && more.textContent !== `Show all ${rows} rows`) more.textContent = `Show all ${rows} rows`; // only a change: the observer sees every write
+
+  if (!t.hasAttribute("data-sortable")) return;
   for (const th of t.tHead.rows[0].cells) {
     if (th.querySelector(".th-sort") || !th.textContent.trim()) continue;
     const b = document.createElement("button");
@@ -62,15 +122,62 @@ function enhance(t) {
     b.append(arrow);
     th.append(b);
   }
+  // On a phone the headings are off-screen: the same sorts, as a list.
+  if (!shell.previousElementSibling?.matches?.(".table-sort-mobile")) {
+    const box = document.createElement("label");
+    box.className = "table-sort-mobile";
+    const name = document.createElement("span");
+    name.textContent = "Sort by";
+    const sel = document.createElement("select");
+    sel.dataset.tableSort = "";
+    sel.add(new Option("As listed", ""));
+    columnLabels(t).forEach((l, i) => {
+      if (!l) return;
+      sel.add(new Option(`${l} — first to last`, `${i}:1`));
+      sel.add(new Option(`${l} — last to first`, `${i}:-1`));
+    });
+    box.append(name, sel);
+    shell.before(box);
+  }
   const was = chosen.get(keyOf(t));
   if (was) sortTable(t, was.col, was.dir);
 }
 
+/** A list (data-clamp="10") shows its first rows on a phone, then "Show all". */
+function clampList(el) {
+  const n = Number(el.dataset.clamp) || 10;
+  const more = el.lastElementChild?.matches(".table-more") ? el.lastElementChild : null;
+  const items = el.children.length - (more ? 1 : 0);
+  el.classList.toggle("is-long", items > n);
+  el.style.setProperty("--clamp", n);
+  if (items > n && !more && !el.classList.contains("is-expanded")) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn btn-outline table-more";
+    b.textContent = `Show all ${items}`;
+    el.append(b);
+  } else if (items <= n && more) more.remove();
+}
+
 let busy = false;
+const sweep = (root) => {
+  root.querySelectorAll("table.lms-table").forEach(enhance);
+  root.querySelectorAll("[data-clamp]").forEach(clampList);
+};
+/** Sorting, phone layouts and "Show all" for every table under `root`, now and as they're drawn. */
 export function enableSortableTables(root = document.body) {
-  root.querySelectorAll("table[data-sortable]").forEach(enhance);
+  sweep(root);
   root.addEventListener("click", (e) => {
-    const b = e.target instanceof Element ? e.target.closest(".th-sort") : null;
+    const target = e.target instanceof Element ? e.target : null;
+    const more = target?.closest(".table-more");
+    if (more) {
+      const prev = more.previousElementSibling;
+      const list = prev?.matches?.(".lms-table-wrap") ? prev.querySelector("table") : prev?.matches?.("table") ? prev : more.parentElement;
+      list?.classList.add("is-expanded");
+      more.remove();
+      return;
+    }
+    const b = target?.closest(".th-sort");
     if (!b) return;
     const th = b.closest("th"), t = th.closest("table");
     const col = [...th.parentElement.cells].indexOf(th);
@@ -80,11 +187,24 @@ export function enableSortableTables(root = document.body) {
     sortTable(t, col, dir);
     busy = false;
   });
-  // Tables drawn again keep their reader's sort.
+  root.addEventListener("change", (e) => {
+    const sel = e.target instanceof Element ? e.target.closest("select[data-table-sort]") : null;
+    if (!sel) return;
+    const next = sel.closest(".table-sort-mobile")?.nextElementSibling;
+    const t = next instanceof HTMLTableElement ? next : next?.querySelector?.("table");
+    if (!t) return;
+    if (!sel.value) { chosen.delete(keyOf(t)); return; }
+    const [col, dir] = sel.value.split(":").map(Number);
+    chosen.set(keyOf(t), { col, dir });
+    busy = true;
+    sortTable(t, col, dir);
+    busy = false;
+  });
+  // Tables drawn again keep their reader's sort, and get their labels.
   new MutationObserver(() => {
     if (busy) return;
     busy = true;
-    root.querySelectorAll("table[data-sortable]").forEach(enhance);
+    sweep(root);
     busy = false;
   }).observe(root, { childList: true, subtree: true });
 }

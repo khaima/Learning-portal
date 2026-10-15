@@ -1018,3 +1018,32 @@ The four states read and look the same everywhere (NAVIGATION.md §18).
   back or fails chosen requests), every page probed for an empty message
   shown while still loading, and every page checked for a skeleton left
   after loading; axe-core clean.
+
+### 15 October — phones and tablets
+
+Arranged for small screens rather than shrunk (NAVIGATION.md §19). No
+function hidden or changed.
+
+- **Filters:** on a phone they took 309 px at 320 px wide (184 px at 390)
+  before any figure; now one "Filters" button (73 px with the tags) opens
+  them in a sheet. The first key figures moved up by about 190 px at 320 px.
+- **Tables:** on a phone each row is a card with its column names; a
+  Sort by list replaces the headings; long tables show 15 rows, then "Show
+  all". Staff accounts, assignments, results, data-quality checks and field
+  visits no longer need sideways scrolling to reach a column — Staff
+  accounts' actions were off-screen. On a tablet a wide table keeps its
+  first column in view while it scrolls, with a shadow at the edge.
+- **Touch:** controls at least 44 px on touch screens; on the pages
+  measured the controls under that size went from up to 88 of 102 (the
+  teacher's Assessments) to none. Fields at 16 px so phones don't zoom.
+- **Charts:** a month chart on a narrow screen names every other month.
+- **Long lists:** the teacher's recently marked work shows 10, then "Show
+  all" (the Assessments page went from 7,450 px to 5,570 px on a phone).
+- **Fixed on the way:** at 320 px the Assignments page, the Audit log and
+  Forms scrolled sideways (a class name and a time that couldn't wrap, and a
+  column that couldn't shrink); on a laptop the Staff accounts table was
+  14 px too wide for its box.
+- **Checked:** 35 pages at 320, 375 and 768 px and the main ones at 1024,
+  1280 and 1440 px — nothing scrolls sideways; the filter sheet opens,
+  takes Escape and gives the focus back; Sort by and Show all on a phone;
+  axe-core clean on phone and tablet views, light and dark.

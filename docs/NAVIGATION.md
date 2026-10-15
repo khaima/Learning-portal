@@ -870,3 +870,32 @@ same everywhere.
   something ("They now sign in as @naomi.k.").
 - No dialog to confirm that something worked: a dialog is only for asking
   first (§16).
+
+## 19. Phones and tablets, 15 October 2026
+
+The same pages and the same functions at every width — arranged for the
+screen and the finger, not the desktop made smaller. Checked at 320, 375,
+390, 768, 1024 and 1440 px.
+
+| | Phone (up to 640 px) | Tablet (641–1024 px) | Laptop |
+| --- | --- | --- | --- |
+| Menu | Drawer from the ☰ button | Drawer up to 860 px, then the sidebar | Sidebar (or the icon rail) |
+| Filters above a page | One **Filters** button with how many are chosen; the choices open in a sheet from the bottom; the tags of what's chosen stay on the page, each with its × | The filter bar | The filter bar |
+| A page's own filters | Two to a row; a search across the row | In a row | In a row |
+| Key figures | Two to a row, straight after the page heading | Three to a row | Up to six |
+| Tables | Each row a card: the first cell its title, every other value with its column's name; actions along the bottom. A **Sort by** list for sortable tables; the first 15 rows, then **Show all** | Scroll sideways with the first column held, and a shadow at the edge while there's more | As tables |
+| Charts | One to a row; a month chart names every other month (never the year) | Two to a row | Two or three |
+| Long lists | The teacher's recently marked work: the first 10, then **Show all** | All | All |
+
+- **Touch screens** (any width): every control at least 44 px — buttons,
+  fields, the links in table rows and panel headings, menu rows, the ×
+  on a filter tag. Text links get room round them rather than a bigger
+  look. Fields use 16 px text so a phone doesn't zoom in on them.
+- **Nothing is hidden because the screen is small.** A table that becomes
+  cards keeps every column; "Show all" shows the rest; the sorts that are
+  headings on a laptop are the Sort by list on a phone; the filters are one
+  tap away, with what's chosen always on show.
+- The permissions matrix stays a grid (it's read across), scrolling
+  sideways.
+- `tables.js` does the table part on every page (labels, Sort by, Show
+  all); the rest is `app.css` (§ "PHONES AND TABLETS").

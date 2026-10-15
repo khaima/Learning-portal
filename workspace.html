@@ -32,6 +32,10 @@
       <!-- Global filters — shown only on the pages whose data they narrow
            (navigation.js marks those); console.js applies them. -->
       <div class="panel filter-bar">
+        <button type="button" class="btn btn-outline gf-open" aria-expanded="false" aria-controls="gfSheet">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg>Filters<span class="gf-count" hidden></span></button>
+        <div class="gf-sheet" id="gfSheet" aria-label="Filters">
+        <div class="gf-sheet-head"><b>Filters</b><button type="button" class="btn btn-primary q-small gf-done">Done</button></div>
         <div class="filter-bar-row">
           <div class="field" data-gf="county">
             <label for="gfCounty">County</label>
@@ -59,8 +63,10 @@
           </div>
           <button type="button" id="gfClear" class="btn btn-ghost">Clear filters</button>
         </div>
+        </div>
         <p class="filter-summary" id="gfSummary" hidden aria-live="polite"></p>
       </div>
+      <div class="gf-backdrop"></div>
 
       <section class="dash-page" data-page="platform-overview" hidden>
         <div id="pfBody"><div data-skeleton="dashboard"></div></div>

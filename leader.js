@@ -16,6 +16,7 @@ import { statusPill, openArchiveDialog, openHistoryPanel } from "./learners-ui.j
 import { mountFormList } from "./forms.js";
 import { freshness } from "./api.js";
 import { liveStatus, redraw } from "./live.js";
+import { enableSortableTables } from "./tables.js";
 import { kpiCard } from "./kpi.js";
 
 // Coming back to the page reads it again if what's shown is older than this.
@@ -43,6 +44,7 @@ async function main() {
   $("#sideMeta").textContent = `School Head · ${user.userCode || user.county || "—"}`;
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
   // The menu (navigation.js). Everything here is this school's only — the server makes sure.
+  enableSortableTables(document.querySelector(".app-main") || document.body); // sorting, phone layouts, "Show all"
   mountNavigation(user, {
     onPage(page) {
       if (page === "school-profile") adminUi().then((m) => m.renderSchoolProfile($("#spBody"), user.schoolId)).catch(pageFailed($("#spBody")));

@@ -20,6 +20,7 @@ import { mountFormList } from "./forms.js";
 import * as sync from "./sync.js";
 import { freshness } from "./api.js";
 import { liveStatus, redraw } from "./live.js";
+import { enableSortableTables } from "./tables.js";
 import { kpiCard } from "./kpi.js";
 
 // Coming back to the page reads it again if what's shown is older than this.
@@ -41,6 +42,7 @@ async function main() {
   $("#sideMeta").textContent = `Teacher · ${user.userCode || user.county || "—"}`;
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
   $("#topSub").textContent = schoolLine(user);
+  enableSortableTables(document.querySelector(".app-main") || document.body); // sorting, phone layouts, "Show all"
   mountNavigation(user); // the menu (navigation.js)
 
   /* ------------------------------------------------------------ KPI row

@@ -14,6 +14,7 @@ import { openContentPanel, closeViewer } from "./viewer.js";
 import * as sync from "./sync.js";
 import { freshness } from "./api.js";
 import { liveStatus, redraw } from "./live.js";
+import { enableSortableTables } from "./tables.js";
 import { kpiCard } from "./kpi.js";
 
 // Coming back to the page reads it again if what's shown is older than this.
@@ -50,6 +51,7 @@ async function main() {
   // the school already chosen when there is one (startFromLink, below).
   let pendingStart = null;
   let startFromLink = () => {};
+  enableSortableTables(document.querySelector(".app-main") || document.body); // sorting, phone layouts, "Show all"
   mountNavigation(user, {
     onPage(page, params) {
       if (page === "visits" && params.has("start")) {

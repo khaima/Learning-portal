@@ -12,6 +12,7 @@ import { viewableKind } from "./viewer.js";
 import * as sync from "./sync.js";
 import { freshness } from "./api.js";
 import { liveStatus, redraw } from "./live.js";
+import { enableSortableTables } from "./tables.js";
 import { kpiCard } from "./kpi.js";
 
 // Coming back to the page reads it again if what's shown is older than this.
@@ -45,6 +46,7 @@ async function main() {
   $("#sideName").textContent = user.fullName;
   $("#sideMeta").textContent = `Learner · ${user.learnerCode || user.userCode || user.grade || "—"}`;
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
+  enableSortableTables(document.querySelector(".app-main") || document.body); // sorting, phone layouts, "Show all"
   mountNavigation(user); // the menu (navigation.js)
   const termLabel = user.term ? `${user.academicYear} Term ${String(user.term).replace(/^\d{4}-T/, "")}` : user.academicYear || "";
   $("#topSub").textContent = [schoolLine(user), user.className || user.grade, termLabel].filter(Boolean).join(" · ");
