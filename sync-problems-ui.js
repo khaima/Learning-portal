@@ -46,8 +46,7 @@ function since(hours) {
 
 function stuckHtml(d) {
   if (!d.stuck.length) {
-    return `<div class="empty-state"><b>No device has work stuck for ${esc(HOURS.find(([h]) => h === d.hours)?.[1] ?? `${d.hours} hours`)} or more.</b>
-      <div>Devices report after each sync; anything unsent for longer would show here.</div></div>`;
+    return `<div class="empty-state"><b>No device has work stuck for ${esc(HOURS.find(([h]) => h === d.hours)?.[1] ?? `${d.hours} hours`)} or more.</b></div>`;
   }
   return `<div class="lms-table-wrap"><table class="lms-table intel-table">
     <thead><tr><th class="lms-name">Who</th><th class="lms-name">Device</th><th>Unsent</th><th>Waiting for</th><th>Last heard from</th><th class="lms-name">Latest problem</th></tr></thead>
@@ -94,7 +93,7 @@ function devicesHtml(data, roleFilter) {
         <td>${p.pending || "0"}</td>
         <td class="lms-name">${p.attention ? `<span class="${p.devices.length ? "field-error" : "hint-inline"}">${esc(p.attention)}</span>` : `<span class="pill ok">OK</span>`}</td></tr>`;
     }).join("")}</tbody></table></div>
-    <p class="field-hint">Each staff device reports after it syncs — counts only, never the work. Someone whose device has work waiting for days may need help getting a connection, or to open the portal once.</p>`;
+    <p class="field-hint">Devices report counts only, never the work itself.</p>`;
 }
 
 /** Draws the page into `el`; `hours` is the threshold (48 by default). */
@@ -106,7 +105,7 @@ export async function renderSyncProblems(el, { hours = 48, perms = new Set() } =
           <label class="hint-inline" for="spbHours">Unsent for</label>
           <select id="spbHours">${HOURS.map(([h, l]) => `<option value="${h}"${h === hours ? " selected" : ""}>${l} or more</option>`).join("")}</select>
           <span id="spbLive"></span></span></div>
-      <p class="hint" style="margin-top:0">Work done offline waits on the device until it syncs. These devices have had something unsent for longer than this — waiting for a connection, refused by the server, or in conflict with a change made elsewhere. As of each device's last report: one that has gone quiet stays here.</p>
+      <p class="hint" style="margin-top:0">Waiting for a connection, refused, or in conflict. A device that goes quiet stays listed.</p>
       <div id="spbStuck">${skeleton(3, { avatar: false })}</div>
     </div>
     ${perms.has("sync.monitor") ? `<div class="panel">
@@ -118,7 +117,7 @@ export async function renderSyncProblems(el, { hours = 48, perms = new Set() } =
     </div>` : ""}
     <div class="panel">
       <div class="panel-head"><h2>Sync failures and conflicts</h2><span class="chart-meta" style="margin:0">Last 7 days</span></div>
-      <p class="hint" style="margin-top:0">What the server refused or found in conflict when a device synced, and what the person then chose. Nothing here can be changed or deleted.</p>
+      <p class="hint" style="margin-top:0">What the server refused or found in conflict, and what the person chose.</p>
       <div id="spbEvents">${skeleton(3, { avatar: false })}</div>
     </div>`;
   /* Read when the page opens, on Refresh, when the threshold changes, and by

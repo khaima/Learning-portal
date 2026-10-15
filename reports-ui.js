@@ -52,7 +52,7 @@ export async function mountExportCenter(el) {
   const periods = cat.periods || [];
 
   el.innerHTML = `${head}
-    <p class="hint" style="margin-top:0">Download as Excel, CSV or PDF. An export holds only what your account is allowed to see, and every export is recorded.</p>
+    <p class="hint" style="margin-top:0">Exports hold only what you can see, and every export is recorded.</p>
     <div class="filter-bar-row xp-row">
       <div class="field xp-report"><label for="${id("report")}">Report</label><select id="${id("report")}">${options}</select></div>
     </div>

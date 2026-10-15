@@ -222,7 +222,7 @@ function koboDetailHtml(k, perms) {
       ${m.surveys.length ? `<ul class="sync-list">${m.surveys.map((s) => `<li class="sync-item"><b>${esc(s.title)}</b><span class="hint-inline"> · ${s.received ? `${plural(s.received, "submission")}${s.lastSubmittedAt ? `, latest ${esc(fmtSyncTime(s.lastSubmittedAt))}` : ""}` : "none from you yet"}${s.needsReview ? ` · ${s.needsReview} need review` : ""}</span></li>`).join("")}</ul>` : ""}
       ${m.issues.length ? `<p><b>Why some need review</b></p><ul class="mel-evidence">${m.issues.map((i) => `<li>${esc(i.message)}${i.count > 1 ? ` <span class="hint-inline">× ${i.count}</span>` : ""}</li>`).join("")}</ul>
         <p class="field-hint">Usually a school name or code Kobo didn't recognise — check it next time, and tell the Education Team which school it was.</p>` : ""}
-      <p class="field-hint">Sent something in Kobo Collect that isn't here? It arrives at the next Kobo sync${k.lastSyncedAt ? ` (last: ${esc(fmtSyncTime(k.lastSyncedAt))})` : ""}. If Kobo Collect still shows it under "Ready to send", it hasn't left your phone yet — send it from there with a connection.</p>`;
+      <p class="field-hint">Not here yet? It arrives at the next Kobo sync${k.lastSyncedAt ? ` (last: ${esc(fmtSyncTime(k.lastSyncedAt))})` : ""}. If Kobo Collect still lists it under "Ready to send", send it from there.</p>`;
   }
   return html;
 }

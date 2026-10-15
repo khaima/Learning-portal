@@ -65,7 +65,7 @@ export function resultsHtml(res) {
             </tr>`).join("")}</tbody>
         </table></div>` : `<p class="field-hint">No indicators yet.</p>`}
       </div>`).join("")}
-    <p class="field-hint">Achievement is the actual as a share of the target (the other way round for indicators meant to go down): <b>met</b> at 100%+, <b>close</b> at 80%+. <b>Live</b> values are worked out now from the data; <b>recorded</b> ones are a fixed snapshot with evidence; <b>verified</b> ones were checked by someone else. ${res.scope.type !== "programme" ? "* the programme-wide target, where there's none for this county or school." : ""}</p>`;
+    <p class="field-hint"><b>Met</b>: 100%+ of target · <b>close</b>: 80%+. <b>Live</b>: worked out now · <b>recorded</b>: saved with evidence · <b>verified</b>: checked by a second person. ${res.scope.type !== "programme" ? "* the programme-wide target, where there's none for this county or school." : ""}</p>`;
 }
 
 /** One indicator in the results: working, recorded value, evidence, actions, breakdown. */
@@ -461,7 +461,7 @@ export function reportHtml(r, content) {
             </tr>`).join("")}</tbody>
           </table></div>
         </section>`).join("")}
-      <p class="field-hint">Live = worked out from the data when the report was made, not yet recorded; Recorded = a fixed snapshot with evidence; Verified = checked by someone other than the person who recorded it.</p>
+      <p class="field-hint">Live: worked out when the report was made · Recorded: saved with evidence · Verified: checked by a second person.</p>
     </article>`;
 }
 

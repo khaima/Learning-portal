@@ -47,8 +47,9 @@ Rules that follow from this:
 The same order on all five: key figures → M&E indicators tagged for the
 page (target against actual) → the main charts → **More detail**. Where
 no indicator is tagged for a page, the note about choosing some sits at
-the foot instead of the top. Each page's paragraph of explanation is
-under **About this page**.
+the foot instead of the top. A page needing one line to be read right
+(Learning: completion and results are separate) shows it under the
+filters; the others have none (docs/NAVIGATION.md §21).
 
 ### Reach (`#reach`)
 
@@ -105,8 +106,8 @@ tile.
 
 ### M&E dashboard and Data Quality Center
 
-Order unchanged — both already lead with their summary. Their
-explanation is under **About this page**.
+Order unchanged — both already lead with their summary. Each has one
+line under the filters: where to record actuals; that nothing is deleted.
 
 ## Platform overview (`#platform-overview`)
 

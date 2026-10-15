@@ -89,7 +89,7 @@
       <section class="dash-page" data-page="my-classes" hidden>
         <div class="panel">
           <div class="panel-head"><h2 data-page-title>My classes</h2></div>
-          <p class="hint" style="margin-top:0">Your school head assigns these. Learners you add yourself, before they're placed in a class, also stay on your roster.</p>
+          <p class="hint" style="margin-top:0">Your school head assigns your classes.</p>
           <div id="classList"><div data-skeleton="list"></div></div>
         </div>
       </section>
@@ -126,7 +126,7 @@
               <span style="font-size:.82rem;color:var(--ink-soft)">fill it in, then upload it back:</span>
               <input type="file" id="learnerCsvInput" accept=".csv,text/csv" aria-label="Upload the filled-in template (CSV)" style="max-width:14rem">
             </div>
-            <p class="hint">One learner per row: full name is required; username, grade, PIN and gender (female, male or prefer not to say) are optional — left blank, we'll generate them for you and show you the result. Every learner is placed automatically in your own school and county.</p>
+            <p class="hint">One learner per row. Only the full name is required; blanks are filled in for you. Gender: female, male or prefer not to say.</p>
             <div id="bulkLearnerResult"></div>
             </div>
           </details>
@@ -173,7 +173,6 @@
       <section class="dash-page" data-page="results" hidden>
         <div class="panel">
           <div class="panel-head"><h2 data-page-title>Results</h2></div>
-          <p class="hint" style="margin-top:0">Two separate measures. <b>Completion</b> is whether learners handed in the work they were set. <b>Achievement</b> is the marks on work you've marked. Handing everything in isn't the same as doing well, so they're never combined.</p>
           <div class="filter-bar-row" style="margin-bottom:.8rem">
             <div class="field"><label for="rf_by">Show by</label>
               <select id="rf_by">

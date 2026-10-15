@@ -61,41 +61,41 @@ export const ICON = {
 
 /* ---- the console pages (platform / admin / me / education share them) ---- */
 const PAGES = {
-  "platform-overview": { label: "Platform overview", icon: "dashboard", needs: ["platform.view"], purpose: "The platform's state at a glance, and what is waiting on someone." },
+  "platform-overview": { label: "Platform overview", icon: "dashboard", needs: ["platform.view"], purpose: "The platform at a glance, and what's waiting on someone." },
   "admin-overview": { label: "Administration overview", icon: "dashboard", needs: ["users.view"], purpose: "How the programme is organised, and what needs attention." },
-  "me-dashboard": { label: "M&E overview", icon: "target", needs: ["me.view"], filters: ["county", "school"], purpose: "Every indicator against its target, for the period and place you choose." },
-  overview: { label: "Executive overview", icon: "dashboard", needs: ["intelligence.view"], filters: true, purpose: "The programme at a glance: reach, learning, teachers and field work." },
+  "me-dashboard": { label: "M&E overview", icon: "target", needs: ["me.view"], filters: ["county", "school"], purpose: "Every indicator against its target." },
+  overview: { label: "Executive overview", icon: "dashboard", needs: ["intelligence.view"], filters: true, purpose: "The programme at a glance." },
   reach: { label: "Reach", icon: "globe", needs: ["intelligence.view"], filters: true, purpose: "Where the programme reaches: counties, schools, learners and teachers." },
-  learning: { label: "Learning", icon: "results", needs: ["intelligence.view", "learning.dashboard.view"], filters: true, purpose: "How learners are doing: work handed in, marks, and progress over the terms." },
-  "teacher-development": { label: "Teacher development", icon: "teacher", needs: ["intelligence.view", "learning.dashboard.view"], filters: true, purpose: "Teachers' training, their use of digital resources and the support they get." },
-  "field-operations": { label: "Field operations", icon: "pin", needs: ["intelligence.view"], filters: true, purpose: "Field visits, visit forms and Kobo submissions, by place and term." },
-  "digital-resources": { label: "Digital resources", icon: "book", needs: ["intelligence.view", "learning.dashboard.view"], filters: true, purpose: "How the library is used: what is opened, by whom and for how long." },
-  "mel-framework": { label: "Results framework", icon: "layers", needs: ["me.view"], purpose: "Each programme's outcomes and indicators, where their data comes from, and their targets." },
-  "mel-results": { label: "Indicator results", icon: "target", needs: ["me.view"], filters: ["county", "school"], purpose: "Each indicator's baseline, target and actual for a term or year. Record actuals here." },
-  "mel-reports": { label: "M&E reports", icon: "log", needs: ["me.view"], filters: ["county", "school"], purpose: "Generate a report that keeps the results for a programme, period and place." },
-  "data-quality": { label: "Data quality", icon: "check", needs: ["data_quality.view"], badge: "dataQuality", filters: true, purpose: "Find and fix problems in the portal's records: duplicates, and missing or wrong details." },
-  schools: { label: "Schools & counties", icon: "school", needs: ["schools.manage"], filters: true, purpose: "The counties and schools every list in the portal uses. Add, rename or remove them here." },
-  calendar: { label: "Academic calendar", icon: "calendar", needs: ["calendar.manage"], purpose: "The school year the portal is in, and starting the next one." },
-  classes: { label: "Classes", icon: "classes", needs: ["classes.manage.all", "learners.view.all"], purpose: "This year's classes in each school, with their teachers and how many learners are in each." },
+  learning: { label: "Learning", icon: "results", needs: ["intelligence.view", "learning.dashboard.view"], filters: true, purpose: "How learners are doing: work handed in, marks and progress." },
+  "teacher-development": { label: "Teacher development", icon: "teacher", needs: ["intelligence.view", "learning.dashboard.view"], filters: true, purpose: "Teachers' training, resource use and support." },
+  "field-operations": { label: "Field operations", icon: "pin", needs: ["intelligence.view"], filters: true, purpose: "Field visits, visit forms and Kobo submissions." },
+  "digital-resources": { label: "Digital resources", icon: "book", needs: ["intelligence.view", "learning.dashboard.view"], filters: true, purpose: "How the library is used." },
+  "mel-framework": { label: "Results framework", icon: "layers", needs: ["me.view"], purpose: "Each programme's outcomes, indicators and targets." },
+  "mel-results": { label: "Indicator results", icon: "target", needs: ["me.view"], filters: ["county", "school"], purpose: "Each indicator's target and actual. Record actuals here." },
+  "mel-reports": { label: "M&E reports", icon: "log", needs: ["me.view"], filters: ["county", "school"], purpose: "Reports that keep a period's results." },
+  "data-quality": { label: "Data quality", icon: "check", needs: ["data_quality.view"], badge: "dataQuality", filters: true, purpose: "Find and fix duplicate, missing or wrong records." },
+  schools: { label: "Schools & counties", icon: "school", needs: ["schools.manage"], filters: true, purpose: "The counties and schools every list in the portal uses." },
+  calendar: { label: "Academic calendar", icon: "calendar", needs: ["calendar.manage"], purpose: "The current school year, and starting the next." },
+  classes: { label: "Classes", icon: "classes", needs: ["classes.manage.all", "learners.view.all"], purpose: "This year's classes in each school." },
   subjects: { label: "Subjects", icon: "tag", needs: ["subjects.manage"], purpose: "The subjects classes take and work is set in." },
-  users: { label: "Staff accounts", icon: "users", needs: ["users.view"], badge: "approvals", heading: "Staff accounts", purpose: "Invite staff, approve sign-up requests, and change someone's role or access." },
-  learners: { label: "Find a learner", icon: "cap", needs: ["learners.view.all"], purpose: "Search every school for a learner, to see where they have been or move them to another school." },
-  teachers: { label: "All teachers", icon: "teacher", needs: ["teachers.view"], filters: ["county", "school"], purpose: "Teachers and school heads: where they work, what they teach and the training they've had." },
-  "school-profiles": { label: "All schools", icon: "school", needs: ["schools.profile.view"], filters: ["county", "school"], purpose: "Open a school to see its teachers, learners, classes and visits." },
-  assignments: { label: "Assignments & assessments", icon: "assignment", needs: ["assignments.view.all"], filters: ["county", "term"], purpose: "All the work set in your area's schools. Teachers set and mark it; this view is read-only." },
-  results: { label: "Results", icon: "results", needs: ["assignments.view.all"], purpose: "Work handed in and marks, side by side, by school, class or subject." },
-  content: { label: "Content library", icon: "book", needs: ["library.manage", "library.usage.view"], filters: ["school"], heading: "Content library", purpose: "Upload resources, choose who sees them, and see how they are used." },
+  users: { label: "Staff accounts", icon: "users", needs: ["users.view"], badge: "approvals", heading: "Staff accounts", purpose: "Invite staff, approve requests, and change roles or access." },
+  learners: { label: "Find a learner", icon: "cap", needs: ["learners.view.all"], purpose: "Find any learner, see their history, or move them." },
+  teachers: { label: "All teachers", icon: "teacher", needs: ["teachers.view"], filters: ["county", "school"], purpose: "Where teachers and school heads work, and what they teach." },
+  "school-profiles": { label: "All schools", icon: "school", needs: ["schools.profile.view"], filters: ["county", "school"], purpose: "Each school's teachers, learners, classes and visits." },
+  assignments: { label: "Assignments & assessments", icon: "assignment", needs: ["assignments.view.all"], filters: ["county", "term"], purpose: "All work set in your area's schools (read-only)." },
+  results: { label: "Results", icon: "results", needs: ["assignments.view.all"], purpose: "Work handed in and marks, by school, class or subject." },
+  content: { label: "Content library", icon: "book", needs: ["library.manage", "library.usage.view"], filters: ["school"], heading: "Content library", purpose: "Upload resources, choose who sees them, see their use." },
   training: { label: "Training register", icon: "star", needs: ["trainings.manage", "intelligence.view"], purpose: "Training sessions and who attended." },
   forms: { label: "Forms", icon: "form", needs: ["forms.manage", "forms.responses.view"], purpose: "Send forms to staff, and read their responses." },
-  "field-visits": { label: "Field visits", icon: "pin", needs: ["field_reports.view.all"], filters: ["county", "school", "term"], purpose: "Every visit field officers have filed in your area, newest first." },
+  "field-visits": { label: "Field visits", icon: "pin", needs: ["field_reports.view.all"], filters: ["county", "school", "term"], purpose: "Every visit filed in your area, newest first." },
   kobo: { label: "KoboToolbox", icon: "survey", needs: ["kobo.configure", "kobo.manage", "kobo.review", "kobo.results.view"], badge: "koboReview", purpose: "Connect KoboToolbox, choose the surveys to collect, and review submissions." },
   "survey-results": { label: "Survey results", icon: "chart", needs: ["kobo.results.view"], filters: ["county", "school"], purpose: "What each Kobo survey's counted submissions say, question by question." },
   reports: { label: "Reports & exports", icon: "download", needs: ["reports.export"], purpose: "Download the portal's data as Excel, CSV or PDF." },
-  notifications: { label: "Notifications log", icon: "bell", needs: ["notifications.view.all"], filters: ["term"], heading: "Notifications sent", purpose: "Every notification the portal has sent: who was told what, when, and whether they read it." },
-  "sync-problems": { label: "Device sync", icon: "sync", needs: ["sync.problems.view"], purpose: "Devices with offline work still waiting to be sent, and syncs that failed." },
-  permissions: { label: "Permissions", icon: "shield", needs: ["permissions.manage"], purpose: "What each role may do, and anything granted to one person on top." },
+  notifications: { label: "Notifications log", icon: "bell", needs: ["notifications.view.all"], filters: ["term"], heading: "Notifications sent", purpose: "Every notification sent, and whether it was read." },
+  "sync-problems": { label: "Device sync", icon: "sync", needs: ["sync.problems.view"], purpose: "Devices with unsent work, and syncs that failed." },
+  permissions: { label: "Permissions", icon: "shield", needs: ["permissions.manage"], purpose: "What each role may do, plus individual grants." },
   audit: { label: "Audit log", icon: "log", needs: ["audit.view"], purpose: "Every recorded change: who made it and when." },
-  "account-activity": { label: "Account activity", icon: "activity", needs: ["audit.view"], purpose: "Who signs in, when they last did, and learners locked out of their accounts." },
+  "account-activity": { label: "Account activity", icon: "activity", needs: ["audit.view"], purpose: "Who signs in and when, and learners locked out." },
 };
 /** A console page as a menu item, optionally relabelled or as a filtered view. */
 const c = (page, extra = {}) => ({ page, ...PAGES[page], ...extra });
@@ -145,7 +145,7 @@ export const WORKSPACES = {
   },
   admin: {
     title: "Programme Administration", page: "admin.html", roles: ["admin", "super_admin"],
-    question: "Is the programme operationally organised and running correctly?",
+    question: "Is the programme organised and running correctly?",
     groups: [
       entry("dashboard", "Dashboard", "dashboard", [c("admin-overview", { label: "Dashboard" })]),
       entry("schools", "Schools", "school", [
@@ -167,7 +167,7 @@ export const WORKSPACES = {
   },
   me: {
     title: "Monitoring & Evaluation", page: "me.html", roles: ["me", "super_admin"],
-    question: "Are HPF programmes achieving their intended results — and can we show it with reliable data?",
+    question: "Are HPF programmes achieving their intended results?",
     groups: [
       entry("overview", "M&E overview", "target", [c("me-dashboard", { label: "M&E overview" })]),
       entry("framework", "Results framework", "layers", [c("mel-framework", { label: "Programmes & indicators" }), c("mel-results")]),
@@ -186,7 +186,7 @@ export const WORKSPACES = {
   },
   education: {
     title: "Learning & Education", page: "education.html", roles: ["education_team", "super_admin"],
-    question: "How is learning happening, and what support do teachers and learners need?",
+    question: "How is learning going, and what support is needed?",
     groups: [
       entry("dashboard", "Dashboard", "dashboard", [c("learning", { label: "Dashboard" })]),
       entry("schools", "Schools", "school", [
@@ -206,13 +206,13 @@ export const WORKSPACES = {
     groups: [
       entry("dashboard", "Dashboard", "dashboard", [{ page: "dashboard", label: "Dashboard", icon: "dashboard" }]),
       entry("schools", "My schools", "school", [
-        { page: "schools", label: "Schools", icon: "school", heading: "My schools", purpose: "The schools you support. Start a visit, or open a school to see its details." },
+        { page: "schools", label: "Schools", icon: "school", heading: "My schools", purpose: "The schools you support." },
         { page: "teachers", label: "Teachers", icon: "teacher", needs: ["teachers.view"], heading: "Teachers at my schools",
-          purpose: "Who teaches what at the schools you support, and the training they've had." },
+          purpose: "Who teaches what at your schools, and their training." },
       ]),
       entry("visits", "My visits", "pin", [{ page: "visits", label: "My visits", icon: "pin", purpose: "Record a school visit, and see the visits you've filed." }]),
       entry("surveys", "Surveys & forms", "survey", [
-        { page: "kobo-surveys", label: "Kobo surveys", icon: "survey", needs: ["kobo.surveys.fill"], purpose: "The field surveys assigned to you. Open one to fill it in." },
+        { page: "kobo-surveys", label: "Kobo surveys", icon: "survey", needs: ["kobo.surveys.fill"], purpose: "The field surveys assigned to you." },
         { page: "forms", label: "Forms", icon: "form", purpose: "Forms the Education Team has sent you to fill in." },
       ]),
       entry("reports", "Reports", "download", [{ page: "activity", label: "Reports", icon: "download", purpose: "Download your visits and forms as Excel, CSV or PDF." }]),
@@ -226,8 +226,8 @@ export const WORKSPACES = {
       entry("school", "My school", "school", [
         { page: "school-profile", label: "Profile", icon: "school", heading: "School profile", purpose: "Your school's classes, learners by grade, and recent visits." },
         { page: "teachers", label: "Teachers", icon: "teacher", purpose: "Your school's teachers, by type." },
-        { page: "learners", label: "Learners & classes", icon: "cap", purpose: "Your school's learners and this year's classes. Put learners in classes here." },
-        { page: "learning", label: "Assignments & results", icon: "results", purpose: "The work set in your school, how much is handed in, and the marks." },
+        { page: "learners", label: "Learners & classes", icon: "cap", purpose: "Your school's learners and classes." },
+        { page: "learning", label: "Assignments & results", icon: "results", purpose: "Work set in your school: handed in, and marks." },
         { page: "visits", label: "Visits", icon: "pin", purpose: "Field officers' visits to your school." },
       ]),
       entry("resources", "Learning resources", "book", [{ page: "resources", label: "Learning resources", icon: "book",
@@ -241,13 +241,13 @@ export const WORKSPACES = {
     groups: [
       entry("dashboard", "Dashboard", "dashboard", [{ page: "home", label: "Dashboard", icon: "dashboard" }]),
       entry("classes", "My classes", "classes", [
-        { page: "my-classes", label: "Classes", icon: "classes", heading: "My classes", purpose: "The classes you teach this year. Set work for a class, or see its learners." },
-        { page: "my-learners", label: "Class roster", icon: "cap", purpose: "Your learners and their sign-ins. Add learners, or edit, reset or archive one." },
+        { page: "my-classes", label: "Classes", icon: "classes", heading: "My classes", purpose: "The classes you teach this year." },
+        { page: "my-learners", label: "Class roster", icon: "cap", purpose: "Your learners and their sign-ins." },
       ]),
       entry("assessments", "Assessments", "assignment", [{ page: "assignments", label: "Assessments", icon: "assignment", badge: "toMark",
         purpose: "Set work for your classes, and mark what learners hand in." }], { badge: "toMark" }),
       entry("results", "Results", "results", [{ page: "results", label: "Results & progress", icon: "results",
-        purpose: "How your learners are doing: work handed in, and the marks on it." }]),
+        purpose: "How your learners are doing: work handed in and marks." }]),
       entry("resources", "Learning resources", "book", [
         { page: "resources", label: "Library", icon: "book", purpose: "Resources for you, and the library your learners see." },
         { page: "activity", label: "Reading activity", icon: "clock", purpose: "What you've read in the library, and for how long." },
@@ -262,7 +262,7 @@ export const WORKSPACES = {
       entry("home", "Home", "home", [{ page: "home", label: "Home", icon: "home" }]),
       entry("classes", "My classes", "classes", [{ page: "my-learning", label: "My classes", icon: "classes", purpose: "Your classes, their subjects and your teachers." }]),
       entry("assignments", "My assignments", "assignment", [{ page: "assignments", label: "My assignments", icon: "assignment",
-        purpose: "Work your teachers have set. Open one to start, save as you go, then hand it in." }]),
+        purpose: "Work your teachers have set. Open one to start." }]),
       entry("progress", "My progress", "results", [
         { page: "my-progress", label: "Progress", icon: "results", heading: "My progress", purpose: "How much of your work is handed in, and your marks." },
         { page: "activity", label: "Reading activity", icon: "clock", purpose: "What you've read in the library, and for how long." },

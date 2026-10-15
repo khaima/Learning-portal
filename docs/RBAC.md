@@ -134,9 +134,9 @@ officers (their whole county) but not for the fourth — see §8.
 | Role | Workspace | Page | Lands on | Main question |
 |---|---|---|---|---|
 | SUPER_ADMIN | Platform Administration | `platform.html` | Platform overview | Is the platform secure, healthy and correctly configured? |
-| ADMIN | Programme Administration | `admin.html` | Administration overview | Is the programme operationally organised and running correctly? |
-| M&E | Monitoring & Evaluation | `me.html` | M&E overview | Are HPF programmes achieving their intended results, and can we show it with reliable data? |
-| EDUCATION_TEAM | Learning & Education | `education.html` | Learning overview | How is learning happening, and what support do teachers and learners need? |
+| ADMIN | Programme Administration | `admin.html` | Administration overview | Is the programme organised and running correctly? |
+| M&E | Monitoring & Evaluation | `me.html` | M&E overview | Are HPF programmes achieving their intended results? |
+| EDUCATION_TEAM | Learning & Education | `education.html` | Learning overview | How is learning going, and what support is needed? |
 | FIELD_OFFICER | Field Operations | `field.html` | My dashboard | What needs to happen at the schools I support? |
 | SCHOOL_HEAD | School Management | `leader.html` | School overview | What is happening in my school? |
 | TEACHER | Teaching & Learning | `teacher.html` | My teaching | What is happening in my classes and learners? |

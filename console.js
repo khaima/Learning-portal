@@ -3377,7 +3377,7 @@ async function main() {
       const next = String(Number(currentYear || new Date().getFullYear()) + 1);
       const hasNext = years.some((y) => y.id === next);
       $("#calendarText").textContent = currentYear
-        ? `The portal is in the ${currentYear} school year${currentTerm ? `, Term ${String(currentTerm).replace(/^\d{4}-T/, "")}` : ""}. New classes and enrollments use this year. Start ${next} when the new school year begins — then school heads add the new year's classes and promote learners into them.`
+        ? `Now: the ${currentYear} school year${currentTerm ? `, Term ${String(currentTerm).replace(/^\d{4}-T/, "")}` : ""}. Start ${next} when the new year begins; school heads then add classes and promote learners.`
         : "No school year is set yet.";
       $("#startNextYear").textContent = hasNext ? `Switch the portal to ${next}` : `Start the ${next} school year`;
       $("#startNextYear").hidden = false;

@@ -512,7 +512,7 @@ export function renderPermissions(el, { onRevoke } = {}) {
     return `
       <div class="panel">
         <div class="panel-head"><h2>Permissions by role</h2></div>
-        <p class="hint" style="margin-top:0">What each role may do — the same table the API enforces on every request. A Super Admin can grant one person one extra permission from <a href="#users">Users &amp; roles</a> → <b>View</b>; those are listed below.</p>
+        <p class="hint" style="margin-top:0">The portal enforces exactly this table. To give one person more, use <a href="#users">Users &amp; roles</a> → <b>View</b>.</p>
         <div class="lms-table-wrap"><table class="lms-table intel-table perm-matrix">
           <thead><tr><th class="lms-name">Permission</th>${roles.map((r) => `<th title="${esc(r.workspace?.title || "")}">${esc(r.label)}</th>`).join("")}</tr></thead>
           <tbody>${d.groups.map((g) => `<tr><td class="lms-name lms-group" colspan="${roles.length + 1}"><b>${esc(g.group)}</b></td></tr>${

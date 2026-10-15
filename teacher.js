@@ -827,7 +827,7 @@ async function main() {
         <div><b>${ach.averagePercent != null ? Math.round(ach.averagePercent) + "%" : "—"}</b><span>Average mark${ach.marked ? `, ${ach.marked} marked` : ""}</span></div>
         <div><b>${formatDuration(library.totalSeconds)}</b><span>Library time</span></div>
       </div>
-      <p class="field-hint">Handed in is completion; the average mark is achievement on marked work only. They're separate.</p>
+      <p class="field-hint">The average counts marked work only.</p>
       <h3 style="margin:1rem 0 .4rem">Assignments</h3>
       ${assignmentRows}
       <h3 style="margin:1.1rem 0 .4rem">Digital Library activity</h3>

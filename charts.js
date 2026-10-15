@@ -117,7 +117,7 @@ export function targetList(rows, { fmt = (v) => show(v), keepEmpty = false, empt
   }).join("")}</div>`;
 }
 /** One line under a target chart, saying how to read it. */
-export const TARGET_KEY = `<p class="chart-note"><i class="tg-key" aria-hidden="true"></i>The bar is the actual; the line marks the target. A bar that reaches the line has met it.</p>`;
+export const TARGET_KEY = `<p class="chart-note"><i class="tg-key" aria-hidden="true"></i>Bar: actual · line: target.</p>`;
 
 /* ------------------------------------------------------------ a measure over time */
 

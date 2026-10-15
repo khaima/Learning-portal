@@ -110,7 +110,7 @@ export function resultsTableHtml(data) {
         ${data.rows.length > 1 && data.overall ? `<tfoot>${row("All", data.overall, "th")}</tfoot>` : ""}
       </table>
     </div>
-    <p class="field-hint">Completion counts work handed in, out of what each learner was set. Achievement is the average mark on work that has been marked — work not handed in or not yet marked isn't counted as a score.${bandsKey ? `<br>Bands: ${bandsKey}` : ""}</p>`;
+    <p class="field-hint">The average counts marked work only — missing work isn't scored as 0.${bandsKey ? `<br>Bands: ${bandsKey}` : ""}</p>`;
 }
 
 /* ------------------------------------------------------------ teacher: build / edit an assignment */

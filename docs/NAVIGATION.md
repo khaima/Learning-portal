@@ -927,3 +927,40 @@ Checked: 320, 390, 768 and 1440 px (no sideways scroll, every touch
 target 44 px), axe on each changed page in light and dark (no
 violations), lint, build, CSP check, size budget, API tests (370) and
 navigation tests (6).
+
+## 21. Less writing, 16 October 2026
+
+Every block of explanation on the 55 pages was counted, then cut. Longer
+notes (seven words or more) went from 1,607 words to 742; no table or
+figure changed.
+
+**How the portal writes now**
+
+1. **One purpose line per page**, under the heading, about ten words:
+   what the page is for (`navigation.js` `purpose`). No intro paragraph
+   says it again.
+2. **No describing the screen.** "The county and school filters at the
+   top apply", "Open one to…", "Pick a county to see only it" under a
+   chart whose names are already links — gone. A line chart, whose points
+   don't look clickable, keeps its "Pick a month…".
+3. **Keep what changes a decision or prevents a mistake**, in one
+   sentence: something can't be undone ("Subjects can't be renamed or
+   removed once added"), privacy ("Passwords are never visible"), what a
+   figure counts ("The average counts marked work only — missing work
+   isn't scored as 0"), live against recorded data.
+4. **A key once, next to what it explains.** The results pages said
+   "completion and achievement are separate" above the table and again
+   below it, while the table's headings already say so; now only the
+   band key and the one rule above remain.
+5. **No "About this page" box for a single line.** The dashboards that
+   still need one line show it plainly; the rest lost the box.
+
+| Where | Before | After |
+| --- | --- | --- |
+| Indicator results | A 45-word intro and a 48-word key | The purpose line and a one-line key |
+| Results (teacher, head, admin) | The two measures explained twice, about 80 words | One line under the table, then the bands |
+| Device sync | Three paragraphs, 106 words | Three short lines |
+| Notifications sent | 35 words on how they're made | "Sent hourly: work due, forms due, …" |
+| M&E overview | 47-word About box + 40-word note | A link to record actuals, and the key |
+| Content library | 43 words on "time spent" | "an estimate, not reading time" |
+| Workspace questions | M&E 15 words, Education 13 | 7 and 9 (docs/RBAC.md updated) |

@@ -1755,15 +1755,15 @@ h2,h3{ font-family:inherit; letter-spacing:-.01em; }
 .app-top > div:first-child{ flex:1 1 18rem; min-width:0; }
 
 /* Something closed until it's wanted: a quiet line with a chevron. */
-.more-detail > summary,.page-about > summary{ cursor:pointer; list-style:none; }
-.more-detail > summary::-webkit-details-marker,.page-about > summary::-webkit-details-marker{ display:none; }
-.more-detail > summary::before,.page-about > summary::before{
+.more-detail > summary{ cursor:pointer; list-style:none; }
+.more-detail > summary::-webkit-details-marker{ display:none; }
+.more-detail > summary::before{
   content:""; flex:none; align-self:center; width:.42rem; height:.42rem; margin:0 .2rem 0 .1rem;
   border-right:2px solid currentColor; border-bottom:2px solid currentColor; transform:rotate(-45deg); transition:transform .15s ease;
 }
-.more-detail[open] > summary::before,.page-about[open] > summary::before{ transform:rotate(45deg); }
-.more-detail > summary:focus-visible,.page-about > summary:focus-visible{ outline:3px solid var(--focus); outline-offset:3px; border-radius:6px; }
-@media (prefers-reduced-motion: reduce){ .more-detail > summary::before,.page-about > summary::before{ transition:none; } }
+.more-detail[open] > summary::before{ transform:rotate(45deg); }
+.more-detail > summary:focus-visible{ outline:3px solid var(--focus); outline-offset:3px; border-radius:6px; }
+@media (prefers-reduced-motion: reduce){ .more-detail > summary::before{ transition:none; } }
 
 /* "More detail" at the foot of a dashboard — it says what's inside. */
 .more-detail{ margin-top:1.15rem; border-top:1px solid var(--line); }
@@ -1775,11 +1775,8 @@ h2,h3{ font-family:inherit; letter-spacing:-.01em; }
 .mel-foot{ margin-top:1rem; }
 .field-hint + .more-detail{ margin-top:.9rem; }
 
-/* What a page shows, for whoever is new to it. */
-.page-about{ margin:-.5rem 0 .9rem; font-size:.8rem; }
-.page-about > summary{ display:inline-flex; align-items:center; gap:.2rem; font-weight:600; color:var(--ink-soft); }
-.page-about > summary:hover{ color:var(--brand-fg); }
-.page-about .hint{ margin:.5rem 0 0; }
+/* One line a dashboard needs to be read right, under its heading. */
+.page-note{ margin:-.5rem 0 .9rem; font-size:.8rem; }
 
 /* How many things need attention, beside the heading. */
 .count-badge{ display:inline-grid; place-items:center; min-width:1.65rem; height:1.65rem; padding:0 .45rem; border-radius:99px; font-size:.8rem; font-weight:700; background:var(--accent-soft); color:var(--accent-fg); }
