@@ -27,6 +27,11 @@ export function fmtSyncTime(iso) {
 }
 const fmtBytes = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n || 0} B`);
 const waitingText = (n) => `${n} ${n === 1 ? "activity" : "activities"} waiting to sync`;
+/** "Synced 10:47 PM · nothing waiting" / "Nothing waiting to sync" / "2 activities waiting to sync · last sync 9:15 AM". */
+function syncLine(st) {
+  if (st.pending) return `${waitingText(st.pending)}${st.lastSync ? ` · last sync ${fmtSyncTime(st.lastSync)}` : ""}`;
+  return st.lastSync ? `Synced ${fmtSyncTime(st.lastSync)} · nothing waiting` : "Nothing waiting to sync";
+}
 
 function chipState(st) {
   if (st.conflicts || st.failed) return { cls: "attention", label: st.online ? "Needs attention" : "Offline" };
@@ -47,9 +52,9 @@ export function mountSyncStatus() {
     const stuck = st.conflicts + st.failed;
     chip.dataset.state = cls;
     chip.innerHTML = `<i class="sync-dot" aria-hidden="true"></i><b>${label}</b>
-      <span class="sync-meta">Last sync ${esc(fmtSyncTime(st.lastSync))} · ${st.online && !st.pending ? "Pending 0" : waitingText(st.pending)}${stuck ? ` · ${stuck} to check` : ""}</span>
+      <span class="sync-meta">${esc(syncLine(st))}${stuck ? ` · ${stuck} to check` : ""}</span>
       <span class="sync-count" aria-hidden="true">${st.pending || stuck ? st.pending + stuck : ""}</span>`;
-    chip.title = `${label}. Last sync ${fmtSyncTime(st.lastSync)}. ${waitingText(st.pending)}.`;
+    chip.title = `${label}. ${syncLine(st)}.`;
   };
   render(sync.status());
   sync.onChange(render);

@@ -487,12 +487,13 @@ export function mountNavigation(user, { workspace, onPage } = {}) {
     const via = viaPage && viaPage !== page && allowed.has(viaPage) ? locate(viaPage, viaPage) : [null, null];
     drawTrail(g, item, page, via[0] && via[1] ? via : null);
     // The filter bar shows on the pages its filters narrow, with only the
-    // filters that apply there (a page lists them, or uses all).
+    // filters that apply there: the ones a page lists, or county, school and
+    // period.
     if (filterBar) {
       filterBar.hidden = !item?.filters;
-      const fields = Array.isArray(item?.filters) ? item.filters : null;
-      for (const f of filterBar.querySelectorAll("[data-gf]")) f.classList.toggle("gf-off", !!fields && !fields.includes(f.dataset.gf));
-      filterBar.dataset.fields = item?.filters ? (fields || ["county", "school", "term", "role"]).join(" ") : "";
+      const fields = Array.isArray(item?.filters) ? item.filters : ["county", "school", "term"];
+      for (const f of filterBar.querySelectorAll("[data-gf]")) f.classList.toggle("gf-off", !fields.includes(f.dataset.gf));
+      filterBar.dataset.fields = item?.filters ? fields.join(" ") : "";
     }
     const home = page === landing;
     const heading = page === "profile" ? "My profile" : item?.heading || item?.label || g?.label || ws.title;

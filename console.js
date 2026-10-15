@@ -100,10 +100,13 @@ async function main() {
      date pickers set — see termBounds(). Pages with nothing school/county/
      date-scoped in their data model (Forms, Kobo Surveys, Reports) simply
      don't read this state. */
-  const gf = { county: "", school: "", from: "", to: "", role: "" };
+  const gf = { county: "", school: "", from: "", to: "" };
   // Kept for this tab (not shared, not after it closes): a reload keeps what was chosen.
   const GF_KEY = `hpf_filters_${wsId}`;
-  try { Object.assign(gf, JSON.parse(sessionStorage.getItem(GF_KEY) || "{}")); } catch { /* none kept */ }
+  try {
+    const kept = JSON.parse(sessionStorage.getItem(GF_KEY) || "{}");
+    for (const k of Object.keys(gf)) if (typeof kept[k] === "string") gf[k] = kept[k];
+  } catch { /* none kept */ }
   const saveFilters = () => { try { sessionStorage.setItem(GF_KEY, JSON.stringify(gf)); } catch { /* private mode */ } };
   let pageNow = ""; // the page open now (onPage), for the detail pages that follow the filters
   // The live county/school list (see "school list" below) — the one source
@@ -169,20 +172,18 @@ async function main() {
   // With a filter on, an empty list says so — and what to do — instead of
   // the page's usual "nothing here yet" (util.js FILTERED_EMPTY).
   function emptyMsg(base) {
-    return (gf.county || gf.school || gf.from || gf.to || gf.role) ? `${FILTERED_EMPTY} Take a filter off above to see more.` : base;
+    return (gf.county || gf.school || gf.from || gf.to) ? `${FILTERED_EMPTY} Take a filter off above to see more.` : base;
   }
 
   $("#gfTerm").innerHTML = termOptions().map((o) => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join("");
-  $("#gfRole").innerHTML = `<option value="">All roles</option>` + ROLES.map((r) => `<option value="${r.value}">${esc(r.label)}</option>`).join("");
 
   function updateFilterSummary() {
-    const fields = ($(".filter-bar")?.dataset.fields || "county school term role").split(" ");
+    const fields = ($(".filter-bar")?.dataset.fields || "county school term").split(" ");
     const parts = [];
     if (gf.county && fields.includes("county")) parts.push(["county", `${gf.county} County`]);
     if (gf.school && fields.includes("school")) parts.push(["school", gf.school]);
     if ((gf.from || gf.to) && fields.includes("term")) parts.push(["term", termLabelFor(gf.from, gf.to) || dateRangeLabel(gf.from, gf.to)]);
-    if (gf.role && fields.includes("role")) parts.push(["role", ROLE_LABEL[gf.role] || gf.role]);
-    for (const [id, on] of [["gfCounty", gf.county], ["gfSchool", gf.school], ["gfTerm", gf.from || gf.to], ["gfFrom", gf.from], ["gfTo", gf.to], ["gfRole", gf.role]]) {
+    for (const [id, on] of [["gfCounty", gf.county], ["gfSchool", gf.school], ["gfTerm", gf.from || gf.to], ["gfFrom", gf.from], ["gfTo", gf.to]]) {
       $(`#${id}`).classList.toggle("is-set", !!on);
     }
     $("#gfClear").disabled = !parts.length;
@@ -202,7 +203,6 @@ async function main() {
     if (k === "county") { gf.county = ""; gf.school = ""; }
     if (k === "school") gf.school = "";
     if (k === "term") setRange({ from: "", to: "" });
-    if (k === "role") { gf.role = ""; $("#gfRole").value = ""; }
     renderGlobalFilterOptions();
     applyFilters();
     $("#gfClear").focus();
@@ -332,11 +332,10 @@ async function main() {
   };
   $("#gfFrom").addEventListener("change", rangeChanged);
   $("#gfTo").addEventListener("change", rangeChanged);
-  $("#gfRole").addEventListener("change", (e) => { gf.role = e.target.value; applyFilters(); });
   $("#gfClear").addEventListener("click", () => {
-    gf.county = ""; gf.school = ""; gf.from = ""; gf.to = ""; gf.role = "";
+    gf.county = ""; gf.school = ""; gf.from = ""; gf.to = "";
     renderGlobalFilterOptions();
-    setRange({ from: "", to: "" }); $("#gfRole").value = "";
+    setRange({ from: "", to: "" });
     $("#gfFromField").hidden = true; $("#gfToField").hidden = true;
     applyFilters();
   });
@@ -2759,11 +2758,6 @@ async function main() {
     if (!usersLoaded) { if (!list.querySelector(".skeleton-list")) list.innerHTML = skeletonTable(6, 6); return; }
     if (!allUsers.length) {
       list.innerHTML = `<div class="empty-state"><b>No staff accounts yet.</b><div>${has("users.invite") ? "Invite the first with “Invite staff”." : "Accounts appear here as staff join."}</div></div>`;
-      $("#usersMeta").textContent = "";
-      return;
-    }
-    if (gf.role === "learner") {
-      list.innerHTML = `<div class="empty-state">Learner accounts aren't staff sign-ins — see Schools for learner counts by grade.</div>`;
       $("#usersMeta").textContent = "";
       return;
     }

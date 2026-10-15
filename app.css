@@ -619,6 +619,7 @@ th[aria-sort="descending"] .th-arrow{ opacity:1; } th[aria-sort="descending"] .t
 .shelf-sub{ margin:-.35rem 0 .9rem; font-size:.8rem; color:var(--ink-soft); }
 /* ---- Education Team's school list (Schools page) ---- */
 .school-add{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,2fr) auto; gap:.6rem; margin-bottom:1rem; }
+#subjectForm.school-add{ grid-template-columns:minmax(0,1fr) auto; max-width:34rem; }
 .school-add select,
 .school-add input{
   width:100%; box-sizing:border-box; padding:.6rem .8rem; border:1.5px solid var(--line);
@@ -1112,7 +1113,9 @@ a.btn.form-open{ margin-bottom:.2rem; }
 .band-pill.band-BE{ background:var(--danger-soft); color:var(--danger-fg); }
 .lms-table-wrap{ overflow-x:auto; border:1px solid var(--line); border-radius:var(--radius-sm); }
 .lms-table{ width:100%; border-collapse:collapse; font-size:.84rem; min-width:36rem; }
-.lms-table th,.lms-table td{ padding:.55rem .75rem; text-align:right; border-bottom:1px solid var(--line); white-space:nowrap; }
+.lms-table th,.lms-table td{ padding:.55rem .75rem; text-align:left; border-bottom:1px solid var(--line); white-space:nowrap; }
+.lms-table .num{ text-align:right; } /* columns of numbers (tables.js): they line up to compare */
+.lms-table td.wrap{ white-space:normal; min-width:13rem; } /* long entries wrap, so the table fits */
 .lms-table th{ font-size:.72rem; font-weight:600; color:var(--ink-soft); background:var(--paper); }
 .lms-table tbody tr:last-child td{ border-bottom:0; }
 .lms-table tbody tr:hover td{ background:var(--paper); }
@@ -1528,7 +1531,7 @@ a.stat-tile.stat-link.intel-warn:hover,a.stat-tile.stat-link.intel-warn:focus-vi
 .check-row.ok .check-mark{ background:var(--success-soft); color:var(--success-fg); }
 .check-row.warn .check-mark{ background:var(--accent-soft); color:var(--accent-fg); }
 .mini-head{ font-size:.9rem; margin:1.1rem 0 .5rem; }
-.perm-matrix td{ text-align:center; }
+.perm-matrix td,.perm-matrix th{ text-align:center; }
 .perm-matrix td.lms-name{ text-align:left; min-width:15rem; }
 .perm-matrix .lms-group{ background:var(--paper-sunk); text-align:left; }
 .perm-yes{ color:var(--success-fg); font-weight:800; }

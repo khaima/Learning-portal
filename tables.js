@@ -40,8 +40,8 @@ const compare = (a, b) => {
   return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
 };
 
-/** Each column's name, reading every heading row: "Completion · Rate". */
-function columnLabels(t) {
+/** The heading cell over each column, row by row (a group heading spans its columns). */
+function headGrid(t) {
   const grid = [];
   [...(t.tHead?.rows || [])].forEach((tr, r) => {
     grid[r] ??= [];
@@ -52,6 +52,12 @@ function columnLabels(t) {
       c += cell.colSpan;
     }
   });
+  return grid;
+}
+
+/** Each column's name, reading every heading row: "Completion · Rate". */
+function columnLabels(t) {
+  const grid = headGrid(t);
   const n = Math.max(0, ...grid.map((g) => g.length));
   return Array.from({ length: n }, (_, c) => {
     const parts = [];
@@ -59,6 +65,33 @@ function columnLabels(t) {
     // A group heading ("Completion — work handed in") is named by its first words.
     return parts.map((x) => (x.colSpan > 1 ? x.textContent.split(" — ")[0] : x.textContent).trim()).filter(Boolean).join(" · ");
   });
+}
+
+/** A row's cells by column, counting a cell that spans several. */
+function byColumn(tr) {
+  const cols = [];
+  let c = 0;
+  for (const td of tr.cells) { if (td.colSpan === 1) cols[c] = td; c += td.colSpan; }
+  return cols;
+}
+/* A value is a number when it's only figures and units: 42, 1,204, 85%, +3 pts, 8 of 10, 3h 20m. */
+const isNumber = (v) => /\d/.test(v) && !v.replace(/(\d)\s*(pts?|hrs?|mins?|h|m)\b/gi, "$1").replace(/\bof\b/g, "").replace(/[\d\s.,%+\-−–·()/:]/g, "");
+/** Columns of numbers line up on the right, so they compare at a glance; words read from the left,
+    and a column of long entries (a list of classes) wraps rather than pushing the table off the page. */
+function alignColumns(t) {
+  const rows = [...t.tBodies[0].rows].map(byColumn);
+  const n = Math.max(0, ...rows.map((r) => r.length));
+  const head = headGrid(t);
+  const foot = [...(t.tFoot?.rows || [])].map(byColumn);
+  for (let c = 0; c < n; c++) {
+    const vals = rows.map((r) => r[c]?.textContent.trim()).filter((v) => v && v !== "—");
+    const numeric = vals.length > 0 && vals.filter(isNumber).length >= vals.length * 0.7;
+    for (const cell of [...rows.map((r) => r[c]), ...foot.map((r) => r[c]), ...head.map((g) => g[c])]) {
+      if (cell && cell.colSpan === 1 && cell.classList.contains("num") !== numeric) cell.classList.toggle("num", numeric);
+    }
+    const long = !numeric && vals.some((v) => v.length > 40);
+    for (const r of rows) if (r[c] && r[c].classList.contains("wrap") !== long) r[c].classList.toggle("wrap", long);
+  }
 }
 
 /** The wrap a table sits in (or the table): where "Sort by" and "Show all" go. */
@@ -93,6 +126,7 @@ function enhance(t) {
         c += td.colSpan;
       }
     }
+    alignColumns(t);
     t.dataset.labelled = String(t.tBodies[0].rows.length);
   }
   const shell = shellOf(t);

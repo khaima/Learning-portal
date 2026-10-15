@@ -756,10 +756,10 @@ The dashboards lead to their detail, and the filters go along.
 
 ### The filters
 
-- **One set of filters** — county, school, period, role — above every page
-  whose data they narrow. A page shows only the ones that apply there
-  (navigation.js: `filters: true`, or a list such as `["county",
-  "school", "term"]`).
+- **One set of filters** — county, school, period — above every page
+  whose data they narrow. A page shows only the ones it applies
+  (navigation.js: `filters: true` for all three, or a list such as
+  `["county", "school"]`; see §20).
 - **They stay** while the tab is open: from page to page, and through a
   reload (sessionStorage, per workspace). They aren't shared with anyone
   and go when the tab closes.
@@ -899,3 +899,31 @@ screen and the finger, not the desktop made smaller. Checked at 320, 375,
   sideways.
 - `tables.js` does the table part on every page (labels, Sort by, Show
   all); the rest is `app.css` (§ "PHONES AND TABLETS").
+
+## 20. The final pass, 15 October 2026
+
+Every page was looked at against ten questions — purpose clear, the most
+important thing first, clutter, duplicates, one obvious action, readable
+charts, a way on to related detail, consistent with the rest, works on a
+phone, live told apart from unavailable. Most pages already passed. What
+didn't, most harmful first:
+
+| Problem | Where | Now |
+| --- | --- | --- |
+| A **Role** filter that changed nothing | Every page with the filter bar | Gone, kept value and all. Only the Staff accounts page read it, and that page has no filter bar — so a role kept from an earlier page could empty its list with nothing there to take it off |
+| Filters a page ignores | Content (applies only School), Notifications sent (only Period), M&E overview, Indicator results, M&E reports, Survey results (County and School) | Each page lists the filters it applies (`navigation.js`); the rest aren't offered |
+| Two Period controls | M&E overview, Indicator results, M&E reports | The page's own Period (a term or school year, as the results framework records them); the global one isn't shown there |
+| Table columns all right-aligned, words included | Every table | Words read from the left; a column of numbers (counts, %, "8 of 10", "3h 20m") lines up on the right to compare (`tables.js` marks it `num`). The permission matrix's ticks and headings are centred |
+| A wide table off the side of a laptop screen | All teachers (Classes taught) | A column of long entries wraps (`wrap`) instead of pushing the last columns out of view |
+| An "Unfiled" heading over every resource | Libraries before any folder exists | Just the resources; folder headings appear once there are folders |
+| "Last sync not yet on this device · Pending 0" | The sync status in the top bar | "Synced 11:00 PM · nothing waiting", "Nothing waiting to sync", or "2 activities waiting to sync · last sync 9:15 AM" |
+| An Add subject button stretched across the page | Subjects | A button its own size beside the name |
+
+Left as they are, on purpose: the Counties & schools page lists schools
+in two panels — one to rename and remove, one with each school's figures
+and a link to it. Merging them would remove one of those jobs.
+
+Checked: 320, 390, 768 and 1440 px (no sideways scroll, every touch
+target 44 px), axe on each changed page in light and dark (no
+violations), lint, build, CSP check, size budget, API tests (370) and
+navigation tests (6).

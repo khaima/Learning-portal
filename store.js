@@ -262,7 +262,10 @@ export function libraryItemCard(it) {
    `rowFn` lets the education team pass its own card with management
    actions. */
 export function librarySectionsHtml(items, folders, { rowFn = libraryItemCard, folderMeta } = {}) {
-  return groupByFolder(items, folders).map(({ id, name, items: rows }) => `
+  const groups = groupByFolder(items, folders);
+  // Nothing filed in a folder yet: just the items — an "Unfiled" heading over everything says nothing.
+  if (groups.length === 1 && groups[0].id === null) return `<div class="lib-grid">${groups[0].items.map((r) => rowFn(r)).join("")}</div>`;
+  return groups.map(({ id, name, items: rows }) => `
     <details class="lib-section" open>
       <summary class="lib-section-head">
         <span class="lib-section-ic">${FOLDER_ICON_SVG}</span>
