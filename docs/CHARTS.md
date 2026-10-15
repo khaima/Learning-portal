@@ -100,6 +100,29 @@ plain.
 | Learner home and progress | "To do" and "Overdue" | One card: still open, how many are past the due date, how many were missed |
 | School profile | The school head's name as a figure | The name is the context of Teachers |
 
+## Picking a bar or a point
+
+A chart that can take the reader further says so in its description
+("Pick a county to see only it") and answers to a click, a tap or the
+keyboard:
+
+- **A county's bar** narrows the dashboard to that county (`drill:
+  { county }` on the row). When the dashboard already shows one county
+  the bars are plain — there's nothing left to narrow.
+- **A month or a term on a line** sets the dates to that period
+  (`lineChart(…, { drill: true })`; `monthPoints` and `termPoints` give each
+  point its period). With the keyboard: step to the point with the arrow
+  keys and press Enter.
+- **A category whose detail is on another page** opens that page with the
+  filter set (`href` on the row): a visit type opens Field visits of that
+  type, a subject opens its Assignments, a resource or a subject opens the
+  Content library searched for it.
+- A chart with a page of its own detail has a line under it leading there
+  ("Every visit, newest first →", "Results by grade, in full →").
+
+Tables with more than three rows sort by any column: press its heading,
+again to reverse (`tables.js`). A table drawn again keeps its sort.
+
 ## Colour
 
 Defined in `base.css`, for light and dark, and checked with a colour-

@@ -83,6 +83,31 @@
 .app-main:not(.is-home) [data-page-title]{ display:none; }
 .app-main:not(.is-home) .panel-head:has(> [data-page-title]:only-child){ display:none; }
 .app-main:not(.is-home) .panel-head > [data-page-title] + *{ margin-left:auto; }
+/* Filters a page doesn't use aren't offered there (nav.js). */
+.filter-bar .gf-off{ display:none !important; }
+/* A filter in the summary can be taken off on its own: back up one level. */
+.filter-summary .gf-pill{ display:inline-flex; align-items:center; gap:.15rem; padding-right:.2rem; }
+.filter-summary .gf-x{ background:none; border:0; padding:0 .3rem; font-size:1rem; line-height:1; color:inherit; cursor:pointer; border-radius:999px; }
+.filter-summary .gf-x:hover{ background:color-mix(in srgb, currentColor 14%, transparent); }
+.filter-summary .gf-x:focus-visible{ outline:2px solid var(--focus); outline-offset:1px; }
+/* Drill-downs: a bar that opens its detail, or narrows the dashboard, is
+   one big target — the name is the link, the whole row answers to it. */
+.bars-row.is-drill{ position:relative; border-radius:6px; }
+.bars-row.is-drill .bars-link{ background:none; border:0; padding:0; font:inherit; color:var(--brand-fg); font-weight:600; text-align:left; cursor:pointer; text-decoration:none; }
+.bars-row.is-drill .bars-link::after{ content:""; position:absolute; inset:-.2rem -.35rem; border-radius:6px; }
+.bars-row.is-drill:hover .bars-link,.bars-row.is-drill .bars-link:focus-visible{ text-decoration:underline; text-underline-offset:2px; }
+.bars-row.is-drill:hover{ background:color-mix(in srgb, var(--brand) 6%, transparent); }
+.bars-row.is-drill .bars-link:focus-visible{ outline:none; }
+.bars-row.is-drill:has(.bars-link:focus-visible){ outline:3px solid var(--focus); outline-offset:2px; }
+.lc.is-drill .lc-pt[data-drill]{ cursor:pointer; }
+/* Sortable tables (tables.js): the heading is the button. */
+.th-sort{ background:none; border:0; padding:0; font:inherit; color:inherit; cursor:pointer; display:inline-flex; align-items:center; gap:.25rem; text-align:inherit; }
+.th-sort:hover{ text-decoration:underline; text-underline-offset:2px; }
+.th-sort:focus-visible{ outline:2px solid var(--focus); outline-offset:2px; border-radius:3px; }
+.th-arrow{ display:inline-block; width:.7em; opacity:.35; }
+.th-arrow::before{ content:"↕"; }
+th[aria-sort="ascending"] .th-arrow{ opacity:1; } th[aria-sort="ascending"] .th-arrow::before{ content:"↑"; }
+th[aria-sort="descending"] .th-arrow{ opacity:1; } th[aria-sort="descending"] .th-arrow::before{ content:"↓"; }
 .icon-btn{
   width:38px; height:38px; border-radius:50%; border:1.5px solid var(--line); background:var(--paper-raised);
   display:flex; align-items:center; justify-content:center; color:var(--ink-soft); cursor:pointer; position:relative;

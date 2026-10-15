@@ -957,3 +957,36 @@ permission, route or API changed.
   Applying a data-quality correction asks first, but the test data has no
   issue with a correction to apply, so that dialog was checked in the code,
   not by clicking.
+
+### 15 October — interactive dashboards
+
+The dashboards lead to their detail, and the filters go along
+(NAVIGATION.md §17, CHARTS.md "Picking a bar or a point"). Existing pages
+and data only; no page added, no API, permission or route changed.
+
+- **Filters:** kept through a reload for the tab; shown only where they
+  apply; each can be taken off with its ×; Period gains the last 30 days
+  and whole school years; a date range can't run backwards.
+- **Charts:** a county's bar narrows the dashboard to it; a month or term
+  on a line sets the dates (by mouse, touch or keyboard); a visit type, a
+  subject or a resource opens its detail page, filtered. Charts say so in
+  their description.
+- **Detail pages:** Field visits, All teachers, All schools and Assignments
+  follow the dashboard's county, school and period; Field visits gains a
+  Visit type filter and Assignments a Subject filter (both from data
+  already loaded); Find a learner lists the picked school's learners;
+  Results says when a county or date range can't apply to it.
+- **Clickable figures:** key figures, attention items and the overviews'
+  links open their page with the filter set ("Field visits this term"
+  opens this term's visits; "high-severity data issues" opens those).
+- **Breadcrumbs:** a page opened from a dashboard shows the way back to it.
+- **Tables:** sortable by any column (more than three rows), keeping the
+  sort when drawn again.
+- **Searches:** a count says how many of the whole list match ("3 of 42
+  visits"), and an empty result says which filter to take off.
+- **Checked:** county → Visit type → Field visits with the county, term and
+  type applied (3 of 42), back by the breadcrumb with the filters intact;
+  the subject bar's count matches the Assignments page (13 and 13 of 38);
+  "Field visits this term" 9 and 9 of 42; a school picked → Find a learner
+  lists its learners; Enter on a chart point; reload keeps the filters;
+  axe-core clean on the dashboards and detail pages, light, dark and phone.

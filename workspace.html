@@ -33,27 +33,27 @@
            (navigation.js marks those); console.js applies them. -->
       <div class="panel filter-bar">
         <div class="filter-bar-row">
-          <div class="field">
+          <div class="field" data-gf="county">
             <label for="gfCounty">County</label>
             <select id="gfCounty"><option value="">All counties</option></select>
           </div>
-          <div class="field">
+          <div class="field" data-gf="school">
             <label for="gfSchool">School</label>
             <select id="gfSchool"><option value="">All schools</option></select>
           </div>
-          <div class="field">
-            <label for="gfTerm">Term</label>
+          <div class="field" data-gf="term">
+            <label for="gfTerm">Period</label>
             <select id="gfTerm"></select>
           </div>
-          <div class="field" id="gfFromField" hidden>
+          <div class="field" id="gfFromField" data-gf="term" hidden>
             <label for="gfFrom">From</label>
             <input type="date" id="gfFrom">
           </div>
-          <div class="field" id="gfToField" hidden>
+          <div class="field" id="gfToField" data-gf="term" hidden>
             <label for="gfTo">To</label>
             <input type="date" id="gfTo">
           </div>
-          <div class="field">
+          <div class="field" data-gf="role">
             <label for="gfRole">Role</label>
             <select id="gfRole"></select>
           </div>
@@ -134,7 +134,8 @@
           <p class="hint" style="margin-top:0">Tests and quizzes are included. <b>Handed in</b> and <b>marks</b> are shown side by side, never combined.</p>
           <div class="filter-bar-row" style="margin-bottom:.8rem">
             <div class="field"><label for="asgSchool">School</label><select id="asgSchool"></select></div>
-            <div class="field"><label for="asgStatus">Status</label><select id="asgStatus"><option value="">Open and closed</option><option value="published">Open</option><option value="closed">Closed</option></select></div>
+            <div class="field"><label for="asgStatus">Status</label><select id="asgStatus" data-default=""><option value="">Open and closed</option><option value="published">Open</option><option value="closed">Closed</option></select></div>
+            <div class="field"><label for="asgSubject">Subject</label><select id="asgSubject" data-default=""><option value="">All subjects</option></select></div>
           </div>
           <div id="asgBody"><div class="empty-state">Loading…</div></div>
         </div>
@@ -148,6 +149,7 @@
             <div class="field"><label for="resBy">Show by</label><select id="resBy"><option value="school">School</option><option value="subject">Subject</option><option value="grade">Grade</option><option value="class">Class</option><option value="term">Term</option></select></div>
             <div class="field"><label for="resSchool">School</label><select id="resSchool"></select></div>
           </div>
+          <p class="field-hint" id="resNote" hidden></p>
           <div id="resBody"><div class="empty-state">Loading…</div></div>
         </div>
       </section>
@@ -165,7 +167,8 @@
       <section class="dash-page" data-page="field-visits" hidden>
         <div class="panel">
           <div class="panel-head"><h2 data-page-title>Field visits</h2><span class="chart-meta" id="fvMeta" style="margin:0"></span></div>
-          <div class="filter-bar-row" style="margin-bottom:.8rem"><div class="field"><label for="fvSearch">Search</label><input id="fvSearch" type="search" placeholder="School, officer, visit type…"></div></div>
+          <div class="filter-bar-row" style="margin-bottom:.8rem"><div class="field"><label for="fvSearch">Search</label><input id="fvSearch" type="search" placeholder="School, officer, visit type…"></div>
+            <div class="field"><label for="fvType">Visit type</label><select id="fvType" data-default=""><option value="">All visit types</option></select></div></div>
           <div id="fvBody"><div class="empty-state">Loading…</div></div>
         </div>
       </section>

@@ -246,6 +246,12 @@ const iconSvg = (name) =>
   `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${ICON[name] ?? ICON.dashboard}</svg>`;
 const escText = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const hrefOf = (it) => it.hash || `#${it.page}`;
+/** A link from a dashboard to a detail page, saying which dashboard it came
+    from (`via`): the page's breadcrumb then leads back there. */
+export function withVia(href, via) {
+  if (!href || !via || !href.startsWith("#")) return href;
+  return `${href}${href.includes("?") ? "&" : "?"}via=${encodeURIComponent(via)}`;
+}
 const badgeText = (n) => (!n ? "" : n > 99 ? "99+" : String(n));
 
 let pageHandler = null;
@@ -395,9 +401,23 @@ export function mountNavigation(user, { workspace, onPage } = {}) {
     trail.setAttribute("aria-label", "Where you are");
     ($(".app-top", main) ?? main.firstElementChild)?.after(trail);
   }
-  function drawTrail(g, item, page) {
+  function drawTrail(g, item, page, via = null) {
     if (!trail) return;
     const home = groups[0];
+    // Opened from a dashboard: the trail is the way back to it — the dashboard
+    // keeps the county, school and dates it had.
+    if (via) {
+      const [vg, vi] = via;
+      const viaDeeper = vg.items.length > 1 && vi.label !== vg.label && vg !== home;
+      trail.hidden = false;
+      trail.innerHTML = `<ol class="crumbs">${[
+        `<li><a href="${escText(hrefOf(home.items[0]))}">${escText(ws.title)}</a></li>`,
+        ...(viaDeeper ? [`<li><a href="${escText(hrefOf(vg.items[0]))}">${escText(vg.label)}</a></li>`] : []),
+        vg === home && vg.items.length === 1 ? "" : `<li><a href="${escText(hrefOf(vi))}">${escText(vi.label)}</a></li>`,
+        `<li aria-current="page">${escText(item?.label || g?.label || page)}</li>`,
+      ].join("")}</ol>`;
+      return;
+    }
     if (page === "profile") {
       trail.hidden = false;
       trail.innerHTML = `<ol class="crumbs"><li><a href="${escText(hrefOf(home.items[0]))}">${escText(ws.title)}</a></li><li aria-current="page">My profile</li></ol>`;
@@ -463,8 +483,17 @@ export function mountNavigation(user, { workspace, onPage } = {}) {
         if (list[i].hidden) a.parentElement.hidden = i !== at;
       }
     }
-    drawTrail(g, item, page);
-    if (filterBar) filterBar.hidden = !item?.filters;
+    const viaPage = params.get("via");
+    const via = viaPage && viaPage !== page && allowed.has(viaPage) ? locate(viaPage, viaPage) : [null, null];
+    drawTrail(g, item, page, via[0] && via[1] ? via : null);
+    // The filter bar shows on the pages its filters narrow, with only the
+    // filters that apply there (a page lists them, or uses all).
+    if (filterBar) {
+      filterBar.hidden = !item?.filters;
+      const fields = Array.isArray(item?.filters) ? item.filters : null;
+      for (const f of filterBar.querySelectorAll("[data-gf]")) f.classList.toggle("gf-off", !!fields && !fields.includes(f.dataset.gf));
+      filterBar.dataset.fields = item?.filters ? (fields || ["county", "school", "term", "role"]).join(" ") : "";
+    }
     const home = page === landing;
     const heading = page === "profile" ? "My profile" : item?.heading || item?.label || g?.label || ws.title;
     const purpose = page === "profile" ? "Your details, what your role lets you do, and your password." : item?.purpose || "";

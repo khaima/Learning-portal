@@ -9,6 +9,7 @@ import "./supabase-auth.js";
 import { menuFor, WORKSPACES } from "./navigation.js";
 import { apiGet } from "./api.js";
 import { liveStatus, swap } from "./live.js";
+import { enableSortableTables } from "./tables.js";
 import { barList, proportion } from "./charts.js";
 import { kpiCard, trendTag } from "./kpi.js";
 import { $, $$, esc, initials, toast, formatDuration, skeleton, errorState, friendlyError, confirmDialog } from "./util.js";
@@ -100,6 +101,11 @@ async function main() {
      date-scoped in their data model (Forms, Kobo Surveys, Reports) simply
      don't read this state. */
   const gf = { county: "", school: "", from: "", to: "", role: "" };
+  // Kept for this tab (not shared, not after it closes): a reload keeps what was chosen.
+  const GF_KEY = `hpf_filters_${wsId}`;
+  try { Object.assign(gf, JSON.parse(sessionStorage.getItem(GF_KEY) || "{}")); } catch { /* none kept */ }
+  const saveFilters = () => { try { sessionStorage.setItem(GF_KEY, JSON.stringify(gf)); } catch { /* private mode */ } };
+  let pageNow = ""; // the page open now (onPage), for the detail pages that follow the filters
   // The live county/school list (see "school list" below) — the one source
   // for every county/school dropdown on this dashboard.
   let schoolDir = { counties: [], countyCodes: {}, schools: [] };
@@ -119,10 +125,13 @@ async function main() {
     const to = new Date(year, (term - 1) * 4 + 4, 0);
     return { from: isoDate(from), to: isoDate(to) };
   }
+  const last30 = () => { const to = new Date(); const from = new Date(); from.setDate(from.getDate() - 29); return { from: isoDate(from), to: isoDate(to) }; };
   function termOptions() {
     const now = new Date();
     const curTerm = now.getMonth() <= 3 ? 1 : now.getMonth() <= 7 ? 2 : 3;
-    const opts = [{ value: "", label: "All time" }];
+    const l30 = last30();
+    const opts = [{ value: "", label: "All time" }, { value: `${l30.from}|${l30.to}`, label: "Last 30 days" }];
+    for (const year of [now.getFullYear(), now.getFullYear() - 1]) opts.push({ value: `${year}-01-01|${year}-12-31`, label: `${year} school year` });
     for (const year of [now.getFullYear(), now.getFullYear() - 1]) {
       for (let term = 3; term >= 1; term--) {
         if (year === now.getFullYear() && term > curTerm) continue;
@@ -135,6 +144,12 @@ async function main() {
   }
   function termLabelFor(from, to) {
     if (!from && !to) return null;
+    const l30 = last30();
+    if (from === l30.from && to === l30.to) return "Last 30 days";
+    const y = /^(\d{4})-01-01$/.exec(from);
+    if (y && to === `${y[1]}-12-31`) return `${y[1]} school year`;
+    const m = /^(\d{4})-(\d{2})-01$/.exec(from);
+    if (m && to === isoDate(new Date(Number(m[1]), Number(m[2]), 0))) return new Date(Number(m[1]), Number(m[2]) - 1, 1).toLocaleString(undefined, { month: "long", year: "numeric" });
     const now = new Date();
     for (const year of [now.getFullYear(), now.getFullYear() - 1]) {
       for (let term = 1; term <= 3; term++) {
@@ -162,11 +177,12 @@ async function main() {
   $("#gfRole").innerHTML = `<option value="">All roles</option>` + ROLES.map((r) => `<option value="${r.value}">${esc(r.label)}</option>`).join("");
 
   function updateFilterSummary() {
+    const fields = ($(".filter-bar")?.dataset.fields || "county school term role").split(" ");
     const parts = [];
-    if (gf.county) parts.push(`${gf.county} County`);
-    if (gf.school) parts.push(gf.school);
-    if (gf.from || gf.to) parts.push(termLabelFor(gf.from, gf.to) || dateRangeLabel(gf.from, gf.to));
-    if (gf.role) parts.push(ROLE_LABEL[gf.role] || gf.role);
+    if (gf.county && fields.includes("county")) parts.push(["county", `${gf.county} County`]);
+    if (gf.school && fields.includes("school")) parts.push(["school", gf.school]);
+    if ((gf.from || gf.to) && fields.includes("term")) parts.push(["term", termLabelFor(gf.from, gf.to) || dateRangeLabel(gf.from, gf.to)]);
+    if (gf.role && fields.includes("role")) parts.push(["role", ROLE_LABEL[gf.role] || gf.role]);
     for (const [id, on] of [["gfCounty", gf.county], ["gfSchool", gf.school], ["gfTerm", gf.from || gf.to], ["gfFrom", gf.from], ["gfTo", gf.to], ["gfRole", gf.role]]) {
       $(`#${id}`).classList.toggle("is-set", !!on);
     }
@@ -174,8 +190,21 @@ async function main() {
     const el = $("#gfSummary");
     if (!parts.length) { el.hidden = true; el.textContent = ""; return; }
     el.hidden = false;
-    el.innerHTML = `<span>Showing data for</span>${parts.map((p) => `<span class="pill">${esc(p)}</span>`).join("")}`;
+    el.innerHTML = `<span>Showing data for</span>${parts.map(([k, p]) => `<span class="pill gf-pill">${esc(p)}<button type="button" class="gf-x" data-gf-clear="${k}" aria-label="Remove ${esc(p)}">×</button></span>`).join("")}`;
   }
+  // Taking one filter off goes back up a level: without the school, the
+  // county; without the county, everywhere.
+  $("#gfSummary").addEventListener("click", (e) => {
+    const k = e.target.closest("[data-gf-clear]")?.dataset.gfClear;
+    if (!k) return;
+    if (k === "county") { gf.county = ""; gf.school = ""; }
+    if (k === "school") gf.school = "";
+    if (k === "term") setRange({ from: "", to: "" });
+    if (k === "role") { gf.role = ""; $("#gfRole").value = ""; }
+    renderGlobalFilterOptions();
+    applyFilters();
+    $("#gfClear").focus();
+  });
   /* The other narrowing controls on a page (issue type, severity, a search)
      look set when they are, the same way. */
   document.addEventListener("change", (e) => {
@@ -185,11 +214,36 @@ async function main() {
   updateFilterSummary(); // nothing is set yet: "Clear filters" starts out idle
 
   async function applyFilters() {
+    saveFilters();
     updateFilterSummary();
+    refreshFilteredPage();
     await renderStats();
     renderUsersList();
     renderUsage();
   }
+  /* A date range from a chart or a link: the Period list shows it when it's
+     one of its choices, otherwise as a custom range. */
+  function setRange({ from = "", to = "" }) {
+    gf.from = from; gf.to = to;
+    const v = from || to ? `${from}|${to}` : "";
+    const known = [...$("#gfTerm").options].some((o) => o.value === v);
+    $("#gfTerm").value = known ? v : "custom";
+    $("#gfFromField").hidden = known; $("#gfToField").hidden = known;
+    $("#gfFrom").value = from; $("#gfTo").value = to;
+    $("#gfTo").min = from; $("#gfFrom").max = to;
+  }
+  /* What a chart's bar or point narrows the dashboard to (data-drill), or a
+     link's address (?county=…&term=…): a county, a school, a term or a month. */
+  function applyDrill(d) {
+    if (d.county) { gf.county = d.county; gf.school = ""; }
+    if (d.school) pickSchoolFilter(d.school);
+    const t = d.term && /^(\d{4})[ -]T(?:erm )?(\d)$/.exec(d.term);
+    if (t) setRange(termBounds(Number(t[1]), Number(t[2])));
+    const mo = d.month && /^(\d{4})-(\d{2})$/.exec(d.month);
+    if (mo) setRange({ from: `${mo[1]}-${mo[2]}-01`, to: isoDate(new Date(Number(mo[1]), Number(mo[2]), 0)) });
+    renderGlobalFilterOptions();
+  }
+  if (gf.from || gf.to) setRange({ from: gf.from, to: gf.to }); // kept from before a reload
 
   /* County/School filter options come from the live school list (never
      from whatever text is in people's profiles), with the school list
@@ -248,13 +302,20 @@ async function main() {
     gf.from = from; gf.to = to;
     applyFilters();
   });
-  $("#gfFrom").addEventListener("change", (e) => { gf.from = e.target.value; applyFilters(); });
-  $("#gfTo").addEventListener("change", (e) => { gf.to = e.target.value; applyFilters(); });
+  // A range can't run backwards: each date limits the other, and a pair typed the wrong way round is swapped.
+  const rangeChanged = () => {
+    let from = $("#gfFrom").value, to = $("#gfTo").value;
+    if (from && to && from > to) [from, to] = [to, from];
+    setRange({ from, to });
+    applyFilters();
+  };
+  $("#gfFrom").addEventListener("change", rangeChanged);
+  $("#gfTo").addEventListener("change", rangeChanged);
   $("#gfRole").addEventListener("change", (e) => { gf.role = e.target.value; applyFilters(); });
   $("#gfClear").addEventListener("click", () => {
     gf.county = ""; gf.school = ""; gf.from = ""; gf.to = ""; gf.role = "";
     renderGlobalFilterOptions();
-    $("#gfTerm").value = ""; $("#gfRole").value = "";
+    setRange({ from: "", to: "" }); $("#gfRole").value = "";
     $("#gfFromField").hidden = true; $("#gfToField").hidden = true;
     applyFilters();
   });
@@ -345,11 +406,11 @@ async function main() {
     lastImpact = d;
     const put = (el, html) => swap(el, html, { replace: !quiet });
     if (canOpen("overview") && !d.learningOnly) {
-      const o = imp.executiveHtml(d, { canOpen });
+      const o = imp.executiveHtml(d, { canOpen, via: "overview" });
       put($("#statRow"), o.headline + dqSlot());
       put($("#intelAreas"), o.areas);
     }
-    for (const p of pagesHere) put($(`#imp-${p}`), imp[IMP_PAGES[p]](d, { canOpen }));
+    for (const p of pagesHere) put($(`#imp-${p}`), imp[IMP_PAGES[p]](d, { canOpen, via: p }));
     for (const m of $$("details[data-more]")) m.open = moreOpen.has(m.dataset.more);
     const scope = d.scope.school || (d.scope.county ? `${d.scope.county} County` : "every school");
     for (const m of $$("[data-imp-meta]")) m.textContent = scope;
@@ -844,13 +905,17 @@ async function main() {
   }
   if (canOpen("mel-results", "mel-framework", "mel-reports", "me-dashboard")) loadMel();
 
-  // A school name anywhere on these pages narrows everything to it.
-  for (const p of Object.keys(IMP_PAGES)) {
-    $(`#imp-${p}`).addEventListener("click", (e) => {
-      const btn = e.target.closest("[data-pick-school]");
+  // A school name anywhere on these pages narrows everything to it; so does
+  // a county's bar, and a month or term on a chart narrows the dates. The
+  // summary above says what's shown, and its "×" goes back.
+  for (const host of [...Object.keys(IMP_PAGES).map((p) => $(`#imp-${p}`)), $('.dash-page[data-page="overview"]')].filter(Boolean)) {
+    host.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-pick-school], [data-drill]");
       if (!btn) return;
-      pickSchoolFilter(btn.dataset.pickSchool);
+      if (btn.dataset.pickSchool) pickSchoolFilter(btn.dataset.pickSchool);
+      else { try { applyDrill(JSON.parse(btn.dataset.drill)); } catch { return; } }
       applyFilters();
+      $("#gfSummary").scrollIntoView({ behavior: "smooth", block: "nearest" });
     });
   }
 
@@ -908,7 +973,7 @@ async function main() {
     // from users) — escaped here, once, so nothing in them can run as HTML.
     $("#attentionList").innerHTML = items.length
       ? items.map((it) => `<div class="alert alert-${it.tone} alert-act"><div><b>${esc(it.title)}</b>${esc(it.detail)}</div>${canOpen(it.page)
-        ? `<a class="btn btn-outline q-small" href="#${it.page}">${esc(it.go)}<span class="sr-only">: ${esc(it.title)}</span></a>` : ""}</div>`).join("")
+        ? `<a class="btn btn-outline q-small" href="#${it.page}?via=overview">${esc(it.go)}<span class="sr-only">: ${esc(it.title)}</span></a>` : ""}</div>`).join("")
       : emptyMsg("") ? `<div class="empty-state">${emptyMsg("")}</div>`
         : `<div class="alert alert-ok"><div><b>Nothing needs attention right now.</b></div></div>`;
   }
@@ -3318,9 +3383,9 @@ async function main() {
   renderCalendar();
 
   /* ------------------------------------------------------------ pages loaded when first opened */
-  const schoolOptions = (sel, { all = "" } = {}) => {
+  const schoolOptions = (sel, { all = "", county = "" } = {}) => {
     const keep = sel.value;
-    sel.innerHTML = (all ? `<option value="">${esc(all)}</option>` : "") + schoolDir.schools
+    sel.innerHTML = (all ? `<option value="">${esc(all)}</option>` : "") + schoolDir.schools.filter((x) => !county || x.county === county)
       .map((x) => `<option value="${esc(x.id)}">${esc(x.name)} — ${esc(x.county)}</option>`).join("");
     if ([...sel.options].some((o) => o.value === keep)) sel.value = keep;
   };
@@ -3330,7 +3395,40 @@ async function main() {
   // Pages built by admin-ui.js, which loads the first time one of them opens.
   const ADMIN_UI_PAGES = new Set(["platform-overview", "admin-overview", "permissions", "account-activity", "teachers", "classes",
     "school-profiles", "assignments", "results", "field-visits", "subjects"]);
+  /* A detail page that lists places and dates (navigation.js marks it)
+     shows what the filters above pick; it's drawn again when they change. */
+  const visitsFilter = () => ({ q: $("#fvSearch").value, type: $("#fvType").value, county: gf.county, school: gf.school, from: gf.from, to: gf.to });
+  const teachersFilter = () => ({ q: $("#tchSearch").value, role: $("#tchRole").value, county: gf.county, school: gf.school });
+  const asgRedraw = (A) => A.renderAssignments($("#asgBody"), { schoolId: $("#asgSchool").value, status: $("#asgStatus").value, subject: $("#asgSubject").value,
+    county: gf.county, from: gf.from, to: gf.to }, schoolNames(), new Map(schoolDir.schools.map((x) => [x.id, x.county])));
+  function refreshFilteredPage() {
+    if (!["field-visits", "teachers", "school-profiles", "assignments"].includes(pageNow)) return;
+    adminUi().then((A) => {
+      if (pageNow === "field-visits") A.renderFieldVisits($("#fvBody"), visitsFilter());
+      if (pageNow === "teachers") A.renderTeachers($("#tchBody"), teachersFilter());
+      if (pageNow === "assignments") { schoolOptions($("#asgSchool"), { all: "All schools in your area", county: gf.county }); asgRedraw(A); }
+      if (pageNow === "school-profiles" && !new URLSearchParams(location.hash.split("?")[1] || "").get("school")) {
+        A.renderSchoolsModule($("#schoolsModule"), { params: new URLSearchParams(), perms, base: "#school-profiles", filter: { county: gf.county, school: gf.school } });
+      }
+    }).catch(() => {});
+  }
+  /** A select set from the address, if it has that choice. */
+  const setFrom = (sel, value) => { if (value != null && [...sel.options].some((o) => o.value === value)) { sel.value = value; sel.classList.toggle("is-set", value !== (sel.dataset.default ?? "")); } };
+  /** The school picked above, as the id a page's own School list uses. */
+  const schoolIdOf = (name) => schoolDir.schools.find((s) => s.name === name)?.id || "";
+
   async function onPage(page, params) {
+    pageNow = page;
+    // A link can carry the filters (?county=…&school=…&term=2026 Term 3&month=2026-10).
+    const carried = Object.fromEntries(["county", "school", "term", "month"].map((k) => [k, params.get(k)]).filter(([, v]) => v));
+    if (Object.keys(carried).length) {
+      applyDrill(carried); saveFilters(); renderStats();
+      // From here on they're the filters above (kept for the tab): the address drops them, so taking one off sticks.
+      const rest = new URLSearchParams(params);
+      for (const k of Object.keys(carried)) rest.delete(k);
+      history.replaceState(null, "", `#${page}${rest.toString() ? `?${rest}` : ""}`);
+    }
+    updateFilterSummary();
     let A = null;
     if (ADMIN_UI_PAGES.has(page)) {
       A = await adminUi().catch(() => null);
@@ -3358,40 +3456,68 @@ async function main() {
         break;
       case "teachers":
         if (first) {
-          const redraw = () => A.renderTeachers($("#tchBody"), { q: $("#tchSearch").value, role: $("#tchRole").value });
+          const redraw = () => A.renderTeachers($("#tchBody"), teachersFilter());
           $("#tchSearch").addEventListener("input", redraw);
           $("#tchRole").addEventListener("change", redraw);
         }
-        A.renderTeachers($("#tchBody"), { q: $("#tchSearch").value, role: $("#tchRole").value }, { fresh: first });
+        if (params.has("q")) $("#tchSearch").value = params.get("q");
+        setFrom($("#tchRole"), params.get("role"));
+        A.renderTeachers($("#tchBody"), teachersFilter(), { fresh: first });
         break;
       case "classes":
         await ensureSchools();
         schoolOptions($("#clsSchool"));
+        // The school chosen on a dashboard, or in the address, is the one shown.
+        setFrom($("#clsSchool"), params.get("school") || (gf.school && schoolIdOf(gf.school)) || null);
         if (first) $("#clsSchool").addEventListener("change", () => A.renderClasses($("#clsBody"), $("#clsSchool").value));
         A.renderClasses($("#clsBody"), $("#clsSchool").value);
         break;
       case "school-profiles":
-        A.renderSchoolsModule($("#schoolsModule"), { params, perms, base: "#school-profiles" });
+        // One school's own page has its own heading and tabs; the filters are for the list.
+        $(".filter-bar").hidden = !!params.get("school");
+        A.renderSchoolsModule($("#schoolsModule"), { params, perms, base: "#school-profiles", filter: { county: gf.county, school: gf.school } });
         break;
       case "assignments": {
         await ensureSchools();
-        schoolOptions($("#asgSchool"), { all: "All schools in your area" });
-        const redraw = () => A.renderAssignments($("#asgBody"), { schoolId: $("#asgSchool").value, status: $("#asgStatus").value }, schoolNames());
-        if (first) { $("#asgSchool").addEventListener("change", redraw); $("#asgStatus").addEventListener("change", redraw); }
+        schoolOptions($("#asgSchool"), { all: "All schools in your area", county: gf.county });
+        const redraw = () => asgRedraw(A);
+        if (first) { for (const s of ["#asgSchool", "#asgStatus", "#asgSubject"]) $(s).addEventListener("change", redraw); }
+        setFrom($("#asgSchool"), params.get("school") || (gf.school && schoolIdOf(gf.school)) || null);
+        setFrom($("#asgStatus"), params.get("status"));
+        if (params.has("subject")) $("#asgSubject").dataset.want = params.get("subject"); // its choices come with the list
         redraw();
         break;
       }
       case "results": {
         await ensureSchools();
         schoolOptions($("#resSchool"), { all: "All schools in your area" });
-        const redraw = () => A.renderResults($("#resBody"), { by: $("#resBy").value, schoolId: $("#resSchool").value });
+        setFrom($("#resBy"), params.get("by"));
+        setFrom($("#resSchool"), params.get("school") || (gf.school && schoolIdOf(gf.school)) || null);
+        // Results can be narrowed to a school and a term, not to a county or other dates: say so, rather than
+        // show figures that look like the dashboard's and aren't.
+        const redraw = () => {
+          const t = termLabelFor(gf.from, gf.to);
+          const term = t && /^Term (\d), (\d{4})$/.exec(t);
+          const termId = term ? `${term[2]}-T${term[1]}` : "";
+          const notes = [];
+          if (gf.county && !$("#resSchool").value) notes.push(`every county, not only ${gf.county} — pick a school to narrow it`);
+          if ((gf.from || gf.to) && !termId) notes.push("all dates — results can be narrowed to a whole term only");
+          $("#resNote").hidden = !notes.length;
+          $("#resNote").textContent = notes.length ? `These results cover ${notes.join("; and ")}.` : "";
+          A.renderResults($("#resBody"), { by: $("#resBy").value, schoolId: $("#resSchool").value, termId });
+        };
         if (first) { $("#resBy").addEventListener("change", redraw); $("#resSchool").addEventListener("change", redraw); }
         redraw();
         break;
       }
       case "field-visits":
-        if (first) $("#fvSearch").addEventListener("input", () => A.renderFieldVisits($("#fvBody"), $("#fvSearch").value));
-        A.renderFieldVisits($("#fvBody"), $("#fvSearch").value, { fresh: first });
+        if (first) {
+          $("#fvSearch").addEventListener("input", () => A.renderFieldVisits($("#fvBody"), visitsFilter()));
+          $("#fvType").addEventListener("change", () => A.renderFieldVisits($("#fvBody"), visitsFilter()));
+        }
+        if (params.has("q")) $("#fvSearch").value = params.get("q");
+        if (params.has("type")) $("#fvType").dataset.want = params.get("type"); // its choices come with the visits
+        A.renderFieldVisits($("#fvBody"), visitsFilter(), { fresh: first });
         break;
       case "subjects":
         if (first) {
@@ -3409,10 +3535,27 @@ async function main() {
         }
         A.renderSubjects($("#subjectsBody"));
         break;
-      case "learners":
+      case "learners": {
         await ensureSchools();
         fillFinderSchools();
+        // From a dashboard narrowed to a school, or a link: that school's learners straight away.
+        const sid = params.get("school") || (gf.school && schoolIdOf(gf.school)) || "";
+        if (params.has("q")) $("#lf_q").value = params.get("q");
+        if (sid && [...$("#lf_school").options].some((o) => o.value === sid)) $("#lf_school").value = sid;
+        if ($("#lf_q").value.trim() || $("#lf_school").value) $("#learnerFinder").requestSubmit();
         break;
+      }
+      case "content":
+        if (params.has("q")) { $("#libSearch").value = params.get("q"); renderLibraryDom(); }
+        break;
+      case "data-quality": {
+        // A link can open the issue list already narrowed (?severity=HIGH, ?type=…, ?status=…, ?q=…).
+        const wants = [["#dq_type", "type"], ["#dq_severity", "severity"], ["#dq_status", "status"]].filter(([, k]) => params.has(k));
+        for (const [sel, k] of wants) setFrom($(sel), params.get(k));
+        if (params.has("q")) $("#dq_q").value = params.get("q");
+        if (wants.length || params.has("q")) { dqOffset = 0; dqSelected.clear(); renderDqList(); }
+        break;
+      }
       case "sync-problems": {
         const ui = await syncProblemsUi().catch(() => null);
         if (!ui) { toast("Couldn't open this page", "Check your connection and try again.", "error"); return; }
@@ -3431,6 +3574,7 @@ async function main() {
   if (canOpen("forms")) renderForms();
   if (canOpen("kobo", "survey-results")) renderKobo();
   if (canOpen("users")) renderUsers();
+  enableSortableTables($(".app-main"));
   mountNavigation(user, { workspace: wsId, onPage });
 }
 main();

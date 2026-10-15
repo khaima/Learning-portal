@@ -38,7 +38,11 @@ const none = (msg = "Nothing recorded yet.") => `<div class="chart-empty">${esc(
 /** Horizontal bars, one per group: the name and its value on one line,
     the bar across the full width beneath — so a long name never squeezes
     the bar, on a phone either.
-      rows   [{ label, value, note?, html? }]   (html: a ready-made label, e.g. a link)
+      rows   [{ label, value, note?, html?, href?, drill? }]   (html: a ready-made label, e.g. a link)
+             href: the row opens that page (its detail, with the filter set)
+             drill: the row narrows the dashboard — { county } / { school } /
+             { term } / { month }, handled by the page (console.js, data-drill)
+      act    what picking a row does, for screen readers ("show only this county")
       unit   "%" puts every bar on a 0–100 scale
       share  also say each row's share of the total (parts of one count)
       shareOf  …or of this number instead (people who answered, when each
@@ -48,7 +52,7 @@ const none = (msg = "Nothing recorded yet.") => `<div class="chart-empty">${esc(
       text   (row) => the value as text, when it isn't a plain number
       zeros  a word for the rows at nothing ("Not chosen"): they're named in
              one line under the chart instead of each drawing an empty bar */
-export function barList(rows, { unit = "", max = null, share: withShare = false, shareOf = null, shareWord = "", sort = false, noun = "", text = null, zeros = "", empty = "Nothing recorded yet." } = {}) {
+export function barList(rows, { unit = "", max = null, share: withShare = false, shareOf = null, shareWord = "", sort = false, noun = "", text = null, zeros = "", act = "", empty = "Nothing recorded yet." } = {}) {
   let list = (rows || []).filter((r) => r.value != null);
   if (!list.length || !list.some((r) => r.value)) return none(empty);
   if (sort) list = [...list].sort((a, b) => b.value - a.value);
@@ -61,9 +65,14 @@ export function barList(rows, { unit = "", max = null, share: withShare = false,
     const part = (withShare || shareOf != null) && total ? `${share(r.value, total)}%` : "";
     const rows = [[value, noun]];
     if (part) rows.push([part, `of ${num(total)}${shareWord ? ` ${shareWord}` : ""}`]);
+    // A row that leads somewhere is one big target: its name is the link or button.
+    const said = act ? `<span class="sr-only"> — ${esc(act)}</span>` : "";
+    const name = r.href ? `<a class="bars-link" href="${esc(r.href)}">${r.html ?? esc(r.label)}${said}</a>`
+      : r.drill ? `<button type="button" class="bars-link" data-drill="${esc(JSON.stringify(r.drill))}">${r.html ?? esc(r.label)}${said}</button>`
+      : r.html ?? esc(r.label);
     return `
-    <div class="bars-row${r.value ? "" : " is-zero"}" role="listitem"${tip(r.label, rows, r.note || "")}>
-      <div class="bars-head"><span class="bars-label">${r.html ?? esc(r.label)}</span>
+    <div class="bars-row${r.value ? "" : " is-zero"}${r.href || r.drill ? " is-drill" : ""}" role="listitem"${tip(r.label, rows, r.note || "")}>
+      <div class="bars-head"><span class="bars-label">${name}</span>
         <span class="bars-val"><b>${esc(value)}</b>${part ? `<small>${part}</small>` : ""}${r.note ? `<small>${esc(r.note)}</small>` : ""}</span></div>
       <div class="bars-track"><span class="bars-fill" style="width:${Math.min(100, (r.value / top) * 100).toFixed(1)}%"></span></div>
     </div>`;
@@ -130,8 +139,11 @@ function niceTop(max) {
       target  name of a second, dashed series read from point.target ("Target")
       band    { from, label } — shade the points from this index on ("Last 7 days")
       ticks   which labels to show on the axis (indexes); all by default
-      height  of the plot, in pixels (150 unless said) */
-export function lineChart(points, { unit = "", noun = "", target = "", band = null, ticks = null, name = "Actual", title = "", height = 0, empty = "Nothing recorded yet." } = {}) {
+      height  of the plot, in pixels (150 unless said)
+      drill   each point with a `drill` (monthPoints/termPoints give one)
+              narrows the dashboard to that period: click it, or step to it
+              with the arrow keys and press Enter */
+export function lineChart(points, { unit = "", noun = "", target = "", band = null, ticks = null, name = "Actual", title = "", height = 0, drill = false, empty = "Nothing recorded yet." } = {}) {
   const pts = points || [];
   const has = (k) => pts.some((p) => p[k] != null);
   if (!pts.length || !(pts.some((p) => p.value) || (target && has("target")))) return none(empty);
@@ -158,10 +170,12 @@ export function lineChart(points, { unit = "", noun = "", target = "", band = nu
   const last = known.at(-1), peak = known.reduce((m, i) => (pts[i].value > pts[m].value ? i : m), known[0] ?? 0);
   const labelled = new Set(n <= 4 ? known : [last, peak]);
   const dotted = n <= 8;
-  const said = `${title ? `${title}: ` : ""}${pts.map((p) => `${p.full || p.label} ${p.value == null ? "no value" : show(p.value, unit)}${target && p.target != null ? ` (target ${show(p.target, unit)})` : ""}`).join(", ")}`;
+  const picks = drill && pts.some((p) => p.drill);
+  const said = `${title ? `${title}: ` : ""}${pts.map((p) => `${p.full || p.label} ${p.value == null ? "no value" : show(p.value, unit)}${target && p.target != null ? ` (target ${show(p.target, unit)})` : ""}`).join(", ")}${
+    picks ? ". Step through the points with the arrow keys; press Enter to show only that period" : ""}`;
   const shown = new Set(ticks ?? pts.map((_, i) => i));
   const yLabels = [top, top / 2, 0].map((v) => show(v, unit));
-  return `<div class="lc" tabindex="0" role="img" aria-label="${esc(said)}" data-live-quiet${height ? ` style="--lc-h:${height}px"` : ""}>
+  return `<div class="lc${picks ? " is-drill" : ""}" tabindex="0" role="img" aria-label="${esc(said)}" data-live-quiet${height ? ` style="--lc-h:${height}px"` : ""}>
     <div class="lc-y" style="width:${(Math.max(...yLabels.map((l) => l.length)) * 0.58 + 0.2).toFixed(2)}em" aria-hidden="true">${yLabels.map((l, i) => `<span style="bottom:${100 - i * 50}%">${esc(l)}</span>`).join("")}</div>
     <div class="lc-plot">
       <i class="lc-grid" style="bottom:100%"></i><i class="lc-grid" style="bottom:50%"></i>
@@ -176,7 +190,8 @@ export function lineChart(points, { unit = "", noun = "", target = "", band = nu
         if (p.value != null) rows.push([show(p.value, unit), target ? name.toLowerCase() : noun, "var(--chart-1)"]);
         if (target && p.target != null) rows.push([show(p.target, unit), target.toLowerCase(), "var(--chart-2)"]);
         if (!rows.length) rows.push(["—", "no value"]);
-        return `<span class="lc-pt${labelled.has(i) || dotted ? " is-marked" : ""}" style="left:${((i / n) * 100).toFixed(2)}%;width:${(100 / n).toFixed(2)}%"${tip(p.full || p.label, rows, p.note || "")}>${
+        const pick = picks && p.drill && p.value != null ? ` data-drill="${esc(JSON.stringify(p.drill))}"` : "";
+        return `<span class="lc-pt${labelled.has(i) || dotted ? " is-marked" : ""}" style="left:${((i / n) * 100).toFixed(2)}%;width:${(100 / n).toFixed(2)}%"${pick}${tip(p.full || p.label, rows, p.note ? `${p.note}${pick ? " · pick it to see only this period" : ""}` : pick ? "Pick it to see only this period" : "")}>${
           target && p.target != null ? `<i class="lc-dot lc-dot-t" style="bottom:${y(p.target).toFixed(2)}%"></i>` : ""}${
           p.value != null ? `<i class="lc-dot" data-tip-anchor style="bottom:${y(p.value).toFixed(2)}%"></i>` : ""}${
           p.value != null && labelled.has(i) ? `<b class="lc-val" style="bottom:${y(p.value).toFixed(2)}%">${esc(show(p.value, unit))}</b>` : ""}</span>`;
@@ -198,6 +213,7 @@ export function monthPoints(rows, pick = (r) => r.value) {
     return {
       label: d.toLocaleString(undefined, { month: "short", timeZone: "UTC" }), sub,
       full: d.toLocaleString(undefined, { month: "long", year: "numeric", timeZone: "UTC" }), value: pick(r),
+      drill: { month: String(r.label) },
     };
   });
 }
@@ -208,14 +224,15 @@ export function termPoints(rows, pick = (r) => r.value, more = () => ({})) {
     const m = /^(\d{4}) Term (\d)$/.exec(String(r.label));
     const sub = m && m[1] !== year ? m[1] : "";
     if (m) year = m[1];
-    return { label: m ? `Term ${m[2]}` : String(r.label), sub, full: String(r.label), value: pick(r), ...more(r) };
+    return { label: m ? `Term ${m[2]}` : String(r.label), sub, full: String(r.label), value: pick(r), ...(m ? { drill: { term: String(r.label) } } : {}), ...more(r) };
   });
 }
 /** A trend needs three points to have a shape; with fewer, the periods are simply compared. */
 export function trendOrBars(points, opts = {}) {
   const known = (points || []).filter((p) => p.value != null);
   if (known.length >= 3) return lineChart(points, opts);
-  return barList(known.map((p) => ({ label: p.full || p.label, value: p.value, note: p.note })), { unit: opts.unit, noun: opts.noun, empty: opts.empty });
+  return barList(known.map((p) => ({ label: p.full || p.label, value: p.value, note: p.note, drill: opts.drill ? p.drill : undefined })),
+    { unit: opts.unit, noun: opts.noun, empty: opts.empty, act: opts.drill ? "show only this period" : "" });
 }
 
 /* ------------------------------------------------------------ parts of one whole */
@@ -360,6 +377,7 @@ if (typeof document !== "undefined") {
     const to = e.key === "ArrowRight" ? Math.min(pts.length - 1, at + 1) : e.key === "ArrowLeft" ? (at < 0 ? pts.length - 1 : Math.max(0, at - 1))
       : e.key === "Home" ? 0 : e.key === "End" ? pts.length - 1 : null;
     if (e.key === "Escape") { hideTip(); return; }
+    if (e.key === "Enter" && tipFor?.dataset.drill && chart.contains(tipFor)) { e.preventDefault(); tipFor.click(); return; }
     if (to == null) return;
     e.preventDefault();
     showTip(pts[to]);

@@ -12,7 +12,7 @@ import { esc, skeleton, errorState, friendlyError, toast, confirmDialog } from "
 import { apiGet, apiSend } from "./api.js";
 import { openContentPanel, closeViewer } from "./viewer.js";
 import { resultsTableHtml } from "./assignments-ui.js";
-import { extendTrail } from "./nav.js";
+import { extendTrail, withVia } from "./nav.js";
 import { ICON } from "./navigation.js";
 import { agoTag, liveStatus, swap } from "./live.js";
 import { lineChart, stackBar } from "./charts.js";
@@ -28,9 +28,23 @@ const ago = (v) => {
 const count = (n) => (n == null ? "—" : Number(n).toLocaleString());
 const warnText = (t) => `<b class="warn-text">${esc(t)}</b>`;
 const table = (head, rows, empty = "Nothing to show.") => rows.length
-  ? `<div class="lms-table-wrap"><table class="lms-table intel-table"><thead><tr>${head.map((h, i) => `<th${i === 0 ? ' class="lms-name"' : ""}>${esc(h)}</th>`).join("")}</tr></thead>
+  ? `<div class="lms-table-wrap"><table class="lms-table intel-table"${rows.length > 3 ? " data-sortable" : ""}><thead><tr>${head.map((h, i) => `<th${i === 0 ? ' class="lms-name"' : ""}>${esc(h)}</th>`).join("")}</tr></thead>
       <tbody>${rows.map((r) => `<tr>${r.map((c, i) => `<td${i === 0 ? ' class="lms-name"' : ""}>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
   : `<div class="empty-state">${esc(empty)}</div>`;
+/** Fill a page's own filter list from the data (`want`: a choice asked for in the address, used once). */
+function fillChoices(sel, values, allLabel) {
+  if (!sel) return "";
+  const want = sel.dataset.want;
+  delete sel.dataset.want;
+  const keep = want ?? sel.value;
+  const list = [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  sel.innerHTML = `<option value="">${esc(allLabel)}</option>${list.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("")}`;
+  sel.value = list.includes(keep) ? keep : "";
+  sel.classList.toggle("is-set", !!sel.value);
+  return sel.value;
+}
+/** "N of M", when something narrows the list. */
+const ofAll = (n, all, noun) => `${n === all ? "" : `${n} of `}${all} ${noun}${all === 1 ? "" : "s"}`;
 const STATUS_TEXT = { active: "Active", pending: "Waiting for approval", suspended: "Suspended", deactivated: "Deactivated", rejected: "Not approved" };
 const statusPill = (s) => s === "active" ? `<span class="pill ok">Active</span>`
   : `<span class="pill ${s === "pending" ? "warm" : "danger"}">${esc(STATUS_TEXT[s] || s)}</span>`;
@@ -182,7 +196,7 @@ function stat({ value, unit = "", label, sub = "", viz = "", href = "", go = "",
   return `<div class="cc-stat${warn ? " warn" : ""}">
     <div class="cc-num">${value}${unit ? `<small>${esc(unit)}</small>` : ""}</div>
     <div class="cc-text"><b>${esc(label)}</b>${sub ? `<span class="cc-sub">${sub}</span>` : ""}${viz}
-      ${href ? `<a class="cc-go" href="${esc(href)}">${esc(go)}<span aria-hidden="true"> →</span></a>` : ""}</div>
+      ${href ? `<a class="cc-go" href="${esc(withVia(href, "platform-overview"))}">${esc(go)}<span aria-hidden="true"> →</span></a>` : ""}</div>
   </div>`;
 }
 /** One part of the system: a light for its state, what it's doing, and its page. */
@@ -191,7 +205,7 @@ function sysRow({ name, state, tone = "ok", href = "", go = "" }) {
   return `<div class="cc-sys ${tone}">
     <span class="cc-light" role="img" aria-label="${said}"></span>
     <div class="cc-text"><b>${esc(name)}</b><span class="cc-sub">${state}</span></div>
-    ${href ? `<a class="cc-go" href="${esc(href)}">${esc(go)}<span aria-hidden="true"> →</span><span class="sr-only">: ${esc(name)}</span></a>` : ""}
+    ${href ? `<a class="cc-go" href="${esc(withVia(href, "platform-overview"))}">${esc(go)}<span aria-hidden="true"> →</span><span class="sr-only">: ${esc(name)}</span></a>` : ""}
   </div>`;
 }
 
@@ -207,7 +221,7 @@ function actionsPanel(checks, queue) {
     ${items.length ? `<ul class="pov-alerts">${items.map((x) => `
       <li class="pov-alert" data-key="${esc(x.label)}"><span class="pov-alert-icon" aria-hidden="true">${icon("alert")}</span>
         <div class="pov-alert-text"><b>${esc(x.label)}</b><span>${esc(x.detail)}</span></div>
-        ${x.link ? `<a class="btn btn-outline pov-alert-go" href="${esc(x.link)}">Open<span class="sr-only">: ${esc(x.label)}</span></a>` : ""}
+        ${x.link ? `<a class="btn btn-outline pov-alert-go" href="${esc(withVia(x.link, "platform-overview"))}">Open<span class="sr-only">: ${esc(x.label)}</span></a>` : ""}
       </li>`).join("")}</ul>`
       : `<div class="pov-allgood">${icon("check")}<div><b>Nothing is waiting.</b><span>All ${checks.length} health checks pass and no queue has anything in it.</span></div></div>`}
     ${passing.length && items.length ? `<details class="pov-passing"><summary>${icon("check")} ${plural(passing.length, "health check")} passing</summary>
@@ -299,7 +313,7 @@ function overviewHtml(d, x, describe) {
   // Queues with something in them — waiting on a person, not on a setting.
   const queue = [
     kobo.review && { label: `${plural(kobo.review, "Kobo submission")} ${kobo.review === 1 ? "needs" : "need"} review`, detail: "Submissions that failed a check wait for someone to accept, correct or reject them.", link: "#kobo" },
-    d.dataQuality.high && { label: `${plural(d.dataQuality.high, "high-severity data issue")} open`, detail: "Found by the Data Quality Center's last scan.", link: "#data-quality" },
+    d.dataQuality.high && { label: `${plural(d.dataQuality.high, "high-severity data issue")} open`, detail: "Found by the Data Quality Center's last scan.", link: "#data-quality?severity=HIGH" },
     d.learners.lockedNow && { label: `${plural(d.learners.lockedNow, "learner")} locked out`, detail: "Too many wrong PINs — a teacher or an administrator can unlock them.", link: "admin.html#learners" },
   ].filter(Boolean);
   const waiting = failing + queue.length;
@@ -462,28 +476,29 @@ export function renderAdminOverview(el) {
       o.teachersWithoutClasses && [`${o.teachersWithoutClasses} teacher(s) not teaching any class`, "#teachers"],
       p.learnersWithoutClass && [`${p.learnersWithoutClass} learner(s) not in a class`, "#learners"],
       ops.koboNeedsReview && [`${ops.koboNeedsReview} Kobo submission(s) need review`, "#kobo"],
-      ops.dataQualityHigh && [`${ops.dataQualityHigh} high-severity data issue(s)`, "#data-quality"],
+      ops.dataQualityHigh && [`${ops.dataQualityHigh} high-severity data issue(s)`, "#data-quality?severity=HIGH"],
     ].filter(Boolean);
     return `
       <div class="panel-head" style="margin-bottom:.6rem"><h2 style="margin:0">Administration overview</h2>
         <span class="live-head"><span class="chart-meta" style="margin:0">${esc(d.scope.label)}${d.currentTerm ? ` · ${esc(String(d.currentTerm).replace(/^(\d{4})-T(\d)$/, "$1 Term $2"))}` : ""}</span><span data-live-host></span></span></div>
       <div class="stat-row exec-row">
-        ${kpiCard({ label: "Schools", icon: "school", value: count(o.schools), href: "#schools",
+        ${kpiCard({ label: "Schools", icon: "school", value: count(o.schools), href: withVia("#schools", "admin-overview"),
           sub: `${o.counties} counties · ${o.classes} classes this year` })}
-        ${kpiCard({ label: "Teachers", icon: "teacher", value: count(p.teachers), href: "#teachers",
+        ${kpiCard({ label: "Teachers", icon: "teacher", value: count(p.teachers), href: withVia("#teachers", "admin-overview"),
           sub: `${p.heads} school heads` })}
-        ${kpiCard({ label: "Learners", icon: "cap", value: count(p.learners), href: "#learners",
+        ${kpiCard({ label: "Learners", icon: "cap", value: count(p.learners), href: withVia("#learners", "admin-overview"),
           sub: p.learnersWithoutClass ? warnText(`${p.learnersWithoutClass} not in a class`) : "All in a class" })}
-        ${kpiCard({ label: "Field officers", icon: "users", value: count(p.fieldOfficers), href: "#users?role=field_officer",
+        ${kpiCard({ label: "Field officers", icon: "users", value: count(p.fieldOfficers), href: withVia("#users?role=field_officer", "admin-overview"),
           sub: o.fieldOfficersWithoutSchools ? warnText(`${o.fieldOfficersWithoutSchools} without schools`) : "All have schools" })}
-        ${kpiCard({ label: "Field visits this term", icon: "pin", value: count(ops.visitsThisTerm), href: "#field-visits",
+        ${kpiCard({ label: "Field visits this term", icon: "pin", value: count(ops.visitsThisTerm),
+          href: withVia(d.currentTerm ? `#field-visits?term=${encodeURIComponent(d.currentTerm)}` : "#field-visits", "admin-overview"),
           sub: d.currentTerm ? `since ${esc(String(d.currentTerm).replace(/^(\d{4})-T(\d)$/, "Term $2"))} began` : "" })}
-        ${kpiCard({ label: "Open forms", icon: "form", value: count(ops.openForms), href: "#forms", sub: "open for responses" })}
+        ${kpiCard({ label: "Open forms", icon: "form", value: count(ops.openForms), href: withVia("#forms", "admin-overview"), sub: "open for responses" })}
       </div>
       <div class="panel">
         <div class="panel-head"><h2>Needs attention</h2>${attention.length ? `<span class="count-badge">${attention.length}</span>` : ""}</div>
         ${attention.length ? `<div>${attention.map(([t, link]) => `<div class="task-row" data-key="${esc(link)}"><div style="flex:1"><b>${esc(t)}</b></div>
-          <div class="roster-actions"><a class="intel-link" href="${esc(link)}">Open</a></div></div>`).join("")}</div>`
+          <div class="roster-actions"><a class="intel-link" href="${esc(withVia(link, "admin-overview"))}">Open</a></div></div>`).join("")}</div>`
           : `<div class="empty-state">Nothing needs attention right now.</div>`}
       </div>`;
   }, { every: OVERVIEW_EVERY_MS });
@@ -570,19 +585,23 @@ export function renderAccountActivity(el) {
 
 /* ------------------------------------------------------------------ Teachers (directory, no account actions) */
 let teachersCache = null;
-export async function renderTeachers(el, { q = "", role = "" } = {}, { fresh = false } = {}) {
+export async function renderTeachers(el, { q = "", role = "", county = "", school = "" } = {}, { fresh = false } = {}) {
   if (!teachersCache || fresh) {
     el.innerHTML = skeleton(4);
     try { teachersCache = await apiGet("/teachers"); } catch (err) {
-      el.innerHTML = errorState(friendlyError(err), () => renderTeachers(el, { q, role }, { fresh: true }));
+      el.innerHTML = errorState(friendlyError(err), () => renderTeachers(el, { q, role, county, school }, { fresh: true }));
       return;
     }
   }
   const needle = q.trim().toLowerCase();
-  const list = teachersCache.teachers.filter((t) => (!role || t.role === role) &&
+  const list = teachersCache.teachers.filter((t) => (!role || t.role === role) && (!county || t.county === county) && (!school || t.school === school) &&
     (!needle || [t.name, t.school, t.county, t.code].some((v) => String(v || "").toLowerCase().includes(needle))));
   const meta = document.getElementById("tchMeta");
-  if (meta) meta.textContent = `${list.length} · ${teachersCache.scope}`;
+  if (meta) meta.textContent = `${ofAll(list.length, teachersCache.teachers.length, "person")} · ${teachersCache.scope}`;
+  if (!list.length && teachersCache.teachers.length) {
+    el.innerHTML = `<div class="empty-state">No one matches${needle ? ` “${esc(q.trim())}”` : ""}${school ? ` at ${esc(school)}` : county ? ` in ${esc(county)} County` : ""}. Clear the search or a filter above to see more.</div>`;
+    return;
+  }
   el.innerHTML = table(["Name", "Role", "School", "County", "Type", "Classes taught", "Trainings"], list.map((t) => [
     `<b>${esc(t.name)}</b>${t.code ? `<br><span class="code-chip">${esc(t.code)}</span>` : ""}`, esc(t.roleLabel), esc(t.school), esc(t.county),
     esc(t.teacherType || "—"), esc(t.classes.join(", ") || "—"), t.trainings,
@@ -652,7 +671,7 @@ let schoolDirectory = null;
 
 /** The list, or one school. `actions(school, { inList })` adds buttons to a school's row and page (e.g.
     Start visit): the main button on a school's page, an ordinary one repeated down the list. */
-export async function renderSchoolsModule(el, { params = new URLSearchParams(), perms = new Set(), base = "#school-profiles", actions = () => "", fresh = false } = {}) {
+export async function renderSchoolsModule(el, { params = new URLSearchParams(), perms = new Set(), base = "#school-profiles", actions = () => "", fresh = false, filter = {} } = {}) {
   if (!schoolDirectory || fresh) {
     el.innerHTML = skeleton(4, { avatar: false });
     try { schoolDirectory = await apiGet("/schools"); } catch (err) {
@@ -662,7 +681,7 @@ export async function renderSchoolsModule(el, { params = new URLSearchParams(), 
   }
   const schools = schoolDirectory.schools || [];
   const id = params.get("school");
-  if (!id) { schoolListHtml(el, schools, { base, actions }); return; }
+  if (!id) { schoolListHtml(el, schools, { base, actions, filter }); return; }
   const school = schools.find((s) => s.id === id);
   if (!school) {
     el.innerHTML = `<div class="empty-state"><b>That school isn't in your area.</b><div><a href="${esc(base)}">All schools</a></div></div>`;
@@ -732,7 +751,9 @@ export async function renderSchoolsModule(el, { params = new URLSearchParams(), 
   }
 }
 
-function schoolListHtml(el, schools, { base, actions }) {
+function schoolListHtml(el, schools, { base, actions, filter = {} }) {
+  const inArea = schools.length;
+  schools = schools.filter((s) => (!filter.county || s.county === filter.county) && (!filter.school || s.name === filter.school));
   const counties = [...new Set(schools.map((s) => s.county))];
   el.innerHTML = `
     <div class="filter-bar-row" style="margin-bottom:.8rem"><div class="field"><label for="schoolFind">Find a school</label>
@@ -742,60 +763,73 @@ function schoolListHtml(el, schools, { base, actions }) {
   const draw = () => {
     const q = el.querySelector("#schoolFind").value.trim().toLowerCase();
     const shown = schools.filter((s) => !q || [s.name, s.code, s.county].some((v) => String(v || "").toLowerCase().includes(q)));
-    el.querySelector("[data-count]").textContent = `${shown.length} of ${schools.length} school${schools.length === 1 ? "" : "s"}`;
+    el.querySelector("[data-count]").textContent = `${shown.length} of ${inArea} school${inArea === 1 ? "" : "s"}${filter.school ? "" : filter.county ? ` · ${filter.county} County` : ""}`;
     el.querySelector("[data-list]").innerHTML = shown.length ? counties.map((c) => {
       const list = shown.filter((s) => s.county === c);
       return list.length ? `<div class="list-group"><div class="list-group-title">${esc(c)}<span class="count">${list.length}</span></div>
         ${list.map((s) => `<div class="task-row"><div style="flex:1;min-width:0"><a class="school-link" href="${esc(`${base}?school=${encodeURIComponent(s.id)}`)}"><b>${esc(s.name)}</b></a>
           <span><span class="code-chip">${esc(s.code)}</span></span></div>
           <div class="roster-actions">${actions(s, { inList: true })}<a class="btn btn-ghost q-small" href="${esc(`${base}?school=${encodeURIComponent(s.id)}`)}">Open</a></div></div>`).join("")}</div>` : "";
-    }).join("") : `<div class="empty-state">${schools.length ? `No school matches “${esc(q)}”. Try its code, or the county.` : "No schools in your area yet."}</div>`;
+    }).join("") : `<div class="empty-state">${schools.length ? `No school matches “${esc(q)}”. Try its code, or the county.`
+      : inArea ? "No school here matches the filters above. Take one off to see more." : "No schools in your area yet."}</div>`;
   };
   el.querySelector("#schoolFind").addEventListener("input", draw);
   draw();
 }
 
 /* ------------------------------------------------------------------ Assignments (read-only, across schools) */
-export function renderAssignments(el, { schoolId = "", status = "" } = {}, schoolName = new Map()) {
+/** `county`, `from`, `to`: the dashboard's filters — a school's county comes from `countyOf` (school id → county),
+    the dates are the due date (or the day it was set, without one). */
+export function renderAssignments(el, { schoolId = "", status = "", subject = "", county = "", from = "", to = "" } = {}, schoolName = new Map(), countyOf = new Map()) {
   const qs = new URLSearchParams(Object.entries({ schoolId, status }).filter(([, v]) => v)).toString();
   return load(el, `/assignments${qs ? `?${qs}` : ""}`, (d) => {
-    const list = d.assignments.filter((a) => a.status !== "draft");
+    const day = (a) => String(a.dueAt || a.publishedAt || "").slice(0, 10);
+    const all = d.assignments.filter((a) => a.status !== "draft" && (!county || countyOf.get(a.schoolId) === county)
+      && (!from || !day(a) || day(a) >= from) && (!to || !day(a) || day(a) <= to));
+    // The subject list comes from the assignments themselves.
+    const subj = fillChoices(document.getElementById("asgSubject"), all.map((a) => a.subject), "All subjects") || subject;
+    const list = all.filter((a) => !subj || a.subject === subj);
     const meta = document.getElementById("asgMeta");
-    if (meta) meta.textContent = `${list.length} assignment${list.length === 1 ? "" : "s"}`;
+    if (meta) meta.textContent = ofAll(list.length, all.length, "assignment");
     return table(["Assignment", "School / class", "Subject", "Set by", "Due", "Status", "Handed in", "Marked"], list.map((a) => [
       `<b>${esc(a.title)}</b>${a.term ? `<br><span class="hint-inline">${esc(a.term)}</span>` : ""}`,
       `${esc(schoolName.get(a.schoolId) || "")}${a.className ? `<br><span class="hint-inline">${esc(a.className)}</span>` : ""}`,
       esc(a.subject), esc(a.teacherName || "—"), esc(fmtDay(a.dueAt)),
       a.status === "closed" ? `<span class="pill">Closed</span>` : `<span class="pill ok">Open</span>`,
       a.counts ? `${a.counts.submitted} of ${a.counts.expected}` : "—", a.counts ? a.counts.marked : "—",
-    ]), "No assignments in your area yet.");
-  }, () => renderAssignments(el, { schoolId, status }, schoolName));
+    ]), all.length ? "No assignments match these filters." : "No assignments in your area yet.");
+  }, () => renderAssignments(el, { schoolId, status, subject, county, from, to }, schoolName, countyOf));
 }
 
 /* ------------------------------------------------------------------ Results */
-export function renderResults(el, { by = "school", schoolId = "" } = {}) {
-  const qs = new URLSearchParams(Object.entries({ by, schoolId }).filter(([, v]) => v)).toString();
+export function renderResults(el, { by = "school", schoolId = "", termId = "" } = {}) {
+  const qs = new URLSearchParams(Object.entries({ by, schoolId, termId }).filter(([, v]) => v)).toString();
   return load(el, `/results?${qs}`, (d) => (d.rows?.length ? resultsTableHtml(d) : `<div class="empty-state">No results yet — they appear once work is handed in and marked.</div>`),
-    () => renderResults(el, { by, schoolId }));
+    () => renderResults(el, { by, schoolId, termId }));
 }
 
 /* ------------------------------------------------------------------ Field visits (everyone's, in scope) */
 let visitsCache = null;
-export async function renderFieldVisits(el, q = "", { fresh = false } = {}) {
+export async function renderFieldVisits(el, f = {}, { fresh = false } = {}) {
+  const { q = "", type = "", county = "", school = "", from = "", to = "" } = typeof f === "string" ? { q: f } : f;
   if (!visitsCache || fresh) {
     el.innerHTML = skeleton(4);
     try { visitsCache = (await apiGet("/field-reports")).reports; } catch (err) {
-      el.innerHTML = errorState(friendlyError(err), () => renderFieldVisits(el, q, { fresh: true }));
+      el.innerHTML = errorState(friendlyError(err), () => renderFieldVisits(el, f, { fresh: true }));
       return;
     }
   }
+  const kind = fillChoices(document.getElementById("fvType"), visitsCache.map((v) => v.visitType), "All visit types") || type;
   const needle = q.trim().toLowerCase();
-  const list = visitsCache.filter((v) => !needle || [v.school, v.county, v.visitType, v.officer].some((x) => String(x || "").toLowerCase().includes(needle)));
+  const day = (v) => String(v.createdAt || "").slice(0, 10);
+  const list = visitsCache.filter((v) => (!kind || v.visitType === kind) && (!county || v.county === county) && (!school || v.school === school)
+    && (!from || day(v) >= from) && (!to || day(v) <= to)
+    && (!needle || [v.school, v.county, v.visitType, v.officer].some((x) => String(x || "").toLowerCase().includes(needle))));
   const meta = document.getElementById("fvMeta");
-  if (meta) meta.textContent = `${list.length} visit${list.length === 1 ? "" : "s"}`;
+  if (meta) meta.textContent = ofAll(list.length, visitsCache.length, "visit");
   el.innerHTML = table(["Date", "School", "County", "Visit type", "Field officer"], list.map((v) => [
     esc(fmtDay(v.createdAt)), `<b>${esc(v.school)}</b>`, esc(v.county), esc(v.visitType), esc(v.officer || "—"),
-  ]), "No field visits in your area yet.");
+  ]), visitsCache.length ? "No visits match these filters. Take one off to see more." : "No field visits in your area yet.");
 }
 
 /* ------------------------------------------------------------------ Subjects */

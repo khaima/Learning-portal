@@ -749,3 +749,62 @@ what matters, act, and see that it worked.
 - A search that finds nothing says what was searched for, and how to widen
   it ("No learner matches “otieno” in that school. Check the spelling, try
   their username or learner code, or search all schools.").
+
+## 17. Filters and drill-downs, 15 October 2026
+
+The dashboards lead to their detail, and the filters go along.
+
+### The filters
+
+- **One set of filters** — county, school, period, role — above every page
+  whose data they narrow. A page shows only the ones that apply there
+  (navigation.js: `filters: true`, or a list such as `["county",
+  "school", "term"]`).
+- **They stay** while the tab is open: from page to page, and through a
+  reload (sessionStorage, per workspace). They aren't shared with anyone
+  and go when the tab closes.
+- **Period**: all time, the last 30 days, a whole school year, a term, or
+  a custom range. A custom range can't run backwards: each date limits the
+  other, and a pair typed the wrong way round is swapped.
+- **Each filter can be taken off on its own** with the × on its tag under
+  the filters: without the school you see the county, without the county
+  everywhere. "Clear filters" takes them all off.
+
+### Drilling down
+
+- **Within a dashboard**: a county's bar, a school's name, or a month or
+  term on a chart narrows the dashboard to it. The tags say what is shown.
+- **To the detail**: a key figure or a chart's category opens the existing
+  page that holds the detail, already filtered. Nothing was duplicated to
+  make this work:
+
+  | From | Opens |
+  | --- | --- |
+  | Field operations · Visit types | Field visits, that type |
+  | Field visits (key figure), Visits by month | Field visits |
+  | Administration overview · Field visits this term | Field visits, this term |
+  | Learning · Assignments by subject | Assignments, that subject |
+  | Learning · Completion by grade, Subject performance | Results, by grade / by subject |
+  | Digital resources · Most-used content, Resources by subject | Content library, searched for it |
+  | Reach · Learners (key figure), with a school picked | Find a learner, that school's learners listed |
+  | High-severity data issues (Administration, Platform) | Data quality, high-severity issues |
+
+- Detail pages that list places and dates follow the filters above:
+  Field visits (county, school, period), All teachers and All schools
+  (county, school), Assignments (county, period; its own School list is
+  set from the school picked above). Results can be narrowed to a school
+  and a whole term only; when a county or other dates are chosen it says
+  so above the table instead of showing figures that look like the
+  dashboard's and aren't.
+- A link can carry filters in its address (`?county=`, `?school=`,
+  `?term=2026 Term 3`, `?month=2026-10`) and a page's own choices
+  (`?type=`, `?subject=`, `?status=`, `?severity=`, `?by=`, `?q=`). Once
+  applied, the carried filters become the filters above, and leave the
+  address — so taking one off sticks.
+
+### Getting back
+
+- A page opened from a dashboard says so in its breadcrumb (`?via=`):
+  "Monitoring & Evaluation › Dashboards & reports › Field operations ›
+  Field visits". The dashboard's crumb is a link back, and the dashboard
+  still has its filters. The browser's Back button works too.
