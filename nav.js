@@ -332,17 +332,13 @@ export function mountNavigation(user, { workspace, onPage } = {}) {
   }
 
   // ---- the menu: a row per area. An area with one page is a link; an area
-  // with several opens in place to list them — the one you're in is open,
-  // and any you open stay open (remembered per workspace). On the collapsed
+  // with several opens in place to list them — one at a time: the one you're
+  // in, or the one you just opened, so the menu stays short. On the collapsed
   // icon rail an area's pages appear beside it on hover or focus; in the
   // phone drawer the areas open in place. Someone who may open more than
   // one workspace (a Super Admin) switches between them at the top.
   const items = groups.flatMap((g) => g.items);
   const switchable = workspacesFor(user.role);
-  const OPEN_KEY = `hpf_nav_open_${wsId}`;
-  let opened;
-  try { opened = new Set(JSON.parse(localStorage.getItem(OPEN_KEY) || "[]")); } catch { opened = new Set(); }
-  const saveOpened = () => { try { localStorage.setItem(OPEN_KEY, JSON.stringify([...opened])); } catch { /* ignore */ } };
   const badgeCounts = {};
   const badgeHtml = (key) => (key ? `<span class="nav-badge" data-badge="${escText(key)}"${badgeCounts[key] ? "" : " hidden"}>${escText(badgeText(badgeCounts[key]))}</span>` : "");
   const chevron = `<svg class="icon chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>`;
@@ -378,9 +374,8 @@ export function mountNavigation(user, { workspace, onPage } = {}) {
     if (toggle) {
       const li = toggle.closest(".side-entry");
       const on = !li.classList.contains("open");
+      if (on) for (const other of nav.querySelectorAll(".side-entry.open")) setOpen(other, false);
       setOpen(li, on);
-      if (on) opened.add(li.dataset.entry); else opened.delete(li.dataset.entry);
-      saveOpened();
       return;
     }
     if (e.target.closest(".side-rail-btn")) {
@@ -471,7 +466,7 @@ export function mountNavigation(user, { workspace, onPage } = {}) {
         if (here) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
         continue;
       }
-      setOpen(li, here || opened.has(li.dataset.entry));
+      setOpen(li, here);
       const list = byEntry.get(li.dataset.entry).items;
       const at = here ? list.indexOf(item) : -1;
       for (const a of li.querySelectorAll(".side-sublink")) {
@@ -499,10 +494,11 @@ export function mountNavigation(user, { workspace, onPage } = {}) {
     homeHead.forEach((el) => { el.hidden = !home; });
     if (pageHead) {
       pageHead.hidden = home;
-      pageHead.querySelector(".top-title").textContent = heading;
-      const p = pageHead.querySelector(".top-purpose");
-      p.textContent = purpose;
-      p.hidden = !purpose;
+      // The heading says what the page is; its one-line purpose is the heading's tooltip, not more words on the page.
+      const t = pageHead.querySelector(".top-title");
+      t.textContent = heading;
+      if (purpose) t.title = purpose; else t.removeAttribute("title");
+      pageHead.querySelector(".top-purpose").hidden = true;
     }
     main?.classList.toggle("is-home", home);
     document.title = `${heading} — ${ws.title}`;

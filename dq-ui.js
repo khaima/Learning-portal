@@ -59,7 +59,7 @@ export function dqTopHtml(s) {
           sub: `${t.byStatus.RESOLVED} fixed here or at the source · ${t.byStatus.IGNORED} accepted as they are` })}
       </div>
     </div>
-    <p class="field-hint">Score: each check's pass rate, weighted by severity, as of the last scan. Resolved and ignored issues don't count against it.</p>`;
+    <p class="field-hint">Score: pass rate, weighted by severity.</p>`;
 }
 
 /** One row per check. Clicking a row filters the list to it. */

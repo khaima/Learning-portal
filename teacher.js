@@ -41,7 +41,6 @@ async function main() {
   $("#sideName").textContent = user.fullName;
   $("#sideMeta").textContent = `Teacher · ${user.userCode || user.county || "—"}`;
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
-  $("#topSub").textContent = schoolLine(user);
   enableSortableTables(document.querySelector(".app-main") || document.body); // sorting, phone layouts, "Show all"
   mountNavigation(user); // the menu (navigation.js)
 
@@ -61,7 +60,7 @@ async function main() {
         sub: toMark ? "handed in, waiting for you" : "nothing waiting" }),
       kpiCard({ label: "Handed in this week", icon: "check", value: handedInThisWeek, href: "#assignments",
         sub: `since Monday${lastWeek != null ? ` · ${lastWeek} last week` : ""}` }),
-      kpiCard({ label: "Resources used", icon: "book", value: resourcesUsed, href: "#activity", sub: "by you, all time" }),
+      kpiCard({ label: "Resources used", icon: "book", value: resourcesUsed, href: "#resources", sub: "by you, all time" }),
     ].join("");
   }
 
@@ -94,7 +93,7 @@ async function main() {
     classTerms = res.terms || [];
     const today = new Date().toISOString().slice(0, 10);
     const term = classTerms.find((t) => t.startsOn <= today && today <= t.endsOn);
-    $("#topSub").textContent = [schoolLine(user), term?.label || res.academicYear].filter(Boolean).join(" · ");
+    $("#topSub").textContent = term?.label || res.academicYear || ""; // who and where is the line above
     const html = myClasses.length
       ? myClasses.map((c) => {
           const mine = c.teachers.find((t) => t.teacherId === user.id);
@@ -231,7 +230,8 @@ async function main() {
     return list.filter((x) => `${x.learnerName} ${x.assignmentTitle} ${x.subject} ${x.className}`.toLowerCase().includes(q));
   }
 
-  function renderQueueInto(targetId, searchInputId) {
+  /** The queue of work to mark; `limit` keeps the dashboard's copy to its first few (the rest are on Assessments). */
+  function renderQueueInto(targetId, searchInputId, limit = 0) {
     const el = $(targetId);
     if (!el) return;
     if (submissionsFailed) {
@@ -244,8 +244,9 @@ async function main() {
     const filtered = filterSubs(queue, ($(searchInputId)?.value || "").trim());
     const search = $(searchInputId)?.closest(".panel-search");
     if (search) search.hidden = !queue.length; // nothing to search
+    const shown = limit ? filtered.slice(0, limit) : filtered;
     el.innerHTML = filtered.length
-      ? filtered.map(queueRow).join("")
+      ? shown.map(queueRow).join("") + (shown.length < filtered.length ? `<p class="hint" style="margin-top:.4rem">+${filtered.length - shown.length} more — <a href="#assignments">see all</a></p>` : "")
       : queue.length
         ? `<div class="empty-state"><b>Nothing matches your search.</b><div>Check the spelling, or clear the search to see everyone.</div></div>`
         : emptyState("Nothing to mark", "Work your learners hand in shows up here.");
@@ -264,12 +265,12 @@ async function main() {
     const empty = `<div class="empty-state"><b>Nothing marked yet.</b><div>Work you mark appears here.</div></div>`;
     $("#resultList").innerHTML = marked.length ? marked.slice(0, 50).map(markedRow).join("") : empty;
     $("#homeResultList").innerHTML = marked.length
-      ? marked.slice(0, 8).map(markedRow).join("") + (marked.length > 8 ? `<p class="hint" style="margin-top:.4rem">+${marked.length - 8} more — see Results.</p>` : "")
+      ? marked.slice(0, 5).map(markedRow).join("") + (marked.length > 5 ? `<p class="hint" style="margin-top:.4rem">+${marked.length - 5} more — <a href="#results">see all</a></p>` : "")
       : empty;
   }
 
   function renderAllAssignmentViews() {
-    renderQueueInto("#gradingQueue", "#gradingSearch");
+    renderQueueInto("#gradingQueue", "#gradingSearch", 5);
     renderQueueInto("#taskList", "#assignSearch");
     renderRecentResults();
     renderKpis();
@@ -312,7 +313,7 @@ async function main() {
       if (b) openMarking(b.dataset.openSub, { canMark: true, onDone: refreshWork });
     });
   }
-  $("#gradingSearch")?.addEventListener("input", () => renderQueueInto("#gradingQueue", "#gradingSearch"));
+  $("#gradingSearch")?.addEventListener("input", () => renderQueueInto("#gradingQueue", "#gradingSearch", 5));
   // Marks sent (or settled) from the queue: refresh what's shown.
   let lastWaiting = sync.status().items.length;
   sync.onChange((st) => {
@@ -504,7 +505,7 @@ async function main() {
     const shown = q ? filtered : filtered.slice(0, 6);
     el.innerHTML = filtered.length
       ? shown.map(learnerActivityRow).join("")
-        + (filtered.length > shown.length ? `<p class="hint" style="margin:.6rem 0 0">Showing ${shown.length} of ${filtered.length} learners — search for a name, or see them all on <a href="#my-learners">My learners</a>.</p>` : "")
+        + (filtered.length > shown.length ? `<p class="hint" style="margin:.6rem 0 0">${shown.length} of ${filtered.length} · <a href="#my-learners">see all</a></p>` : "")
       : learnerCache.length
         ? `<div class="empty-state"><b>Nothing matches your search.</b><div>Check the spelling, or clear the search to see everyone.</div></div>`
         : `<div class="empty-state">No learners yet. Add one from My Learners.</div>`;
@@ -812,8 +813,8 @@ async function main() {
     const usageRows = library.interactions.length
       ? library.interactions.slice(0, 10).map((it) => `
         <div class="task-row">
-          <div style="flex:1"><b>${esc(it.title || "Resource")}</b><span>Started ${new Date(it.startedAt).toLocaleString()}${
-            it.completedAt ? " · Finished " + new Date(it.completedAt).toLocaleString() : " · In progress"}</span></div>
+          <div style="flex:1"><b>${esc(it.title || "Resource")}</b><span>${new Date(it.startedAt).toLocaleString([], { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}${
+            it.completedAt ? "" : " · In progress"}</span></div>
           <span class="bar-num">${it.durationSeconds != null ? formatDuration(it.durationSeconds) : "—"}</span>
         </div>`).join("")
       : `<div class="empty-state"><b>Nothing opened from the library yet.</b><div>What they open and read appears here.</div></div>`;
@@ -917,8 +918,8 @@ async function main() {
     }
     const rows = u.interactions.slice(0, 10).map((it) => `
       <div class="task-row">
-        <div style="flex:1"><b>${esc(it.title || "Resource")}</b><span>Started ${new Date(it.startedAt).toLocaleString()}${
-          it.completedAt ? " · Finished " + new Date(it.completedAt).toLocaleString() : " · In progress"}</span></div>
+        <div style="flex:1"><b>${esc(it.title || "Resource")}</b><span>${new Date(it.startedAt).toLocaleString([], { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}${
+          it.completedAt ? "" : " · In progress"}</span></div>
         <span class="bar-num">${it.durationSeconds != null ? formatDuration(it.durationSeconds) : "—"}</span>
       </div>`).join("");
     const badgeChips = (u.badges || []).slice(0, 6).map((b) => `

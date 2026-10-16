@@ -336,8 +336,8 @@ export function webhookBoxHtml(cfg, canManage) {
     <div class="kp-push">
       <b>Live push from KoboToolbox</b>
       <p class="field-hint" style="margin:.2rem 0 .5rem">${w.configured
-        ? `On since ${esc(fmt(w.setAt))}. Submissions arrive as they're sent; “Sync now” catches anything missed.`
-        : "Off. Submissions arrive when someone presses “Sync now”."}</p>
+        ? `On since ${esc(fmt(w.setAt))}.`
+        : "Off — submissions arrive on “Sync now”."}</p>
       ${canManage ? `<div class="lms-actions">
         <button type="button" class="btn btn-outline q-small" data-hook-create>${w.configured ? "Create a new password" : "Set up the push"}</button>
         ${w.configured ? `<button type="button" class="btn btn-ghost q-small danger" data-hook-off>Turn off</button>` : ""}

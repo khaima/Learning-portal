@@ -54,8 +54,8 @@ async function main() {
       if (page === "visits") adminUi().then((m) => m.renderSchoolVisits($("#visitList"), user.schoolId)).then((ok) => { if (ok) visitsDetailed = true; }).catch(() => {});
     },
   });
-  $("#topSub").textContent = schoolLine(user);
-  currentTermLabel().then((term) => { if (term) $("#topSub").textContent = `${schoolLine(user)} · ${term}`; });
+  // Who and where is the line above (nav.js); this one adds the term.
+  currentTermLabel().then((term) => { if (term) $("#topSub").textContent = term; });
 
   /* Everything on this dashboard is an aggregate — counts, percentages,
      grade-level rollups — never a single learner's name or row. That's
@@ -131,7 +131,7 @@ async function main() {
       : `<div class="empty-state"><b>No field visits recorded yet.</b><div>Visits by your field officer appear here once they're filed.</div></div>`;
     $("#visitSummary").innerHTML = overview.visits.length
       ? overview.visits.slice(0, 3).map(visitRow).join("")
-        + (overview.visitsTotal > 3 ? `<p class="hint" style="margin-top:.4rem">${overview.visitsTotal} visits on record — view all.</p>` : "")
+        + (overview.visitsTotal > 3 ? `<p class="hint" style="margin-top:.4rem">${overview.visitsTotal} visits on record</p>` : "")
       : `<div class="empty-state"><b>No field visits recorded yet.</b><div>Visits by your field officer appear here once they're filed.</div></div>`;
   }
 

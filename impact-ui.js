@@ -158,9 +158,7 @@ const indicatorRow = (i) => ({
 function genderHtml(g, who) {
   if (!g.total) return empty(`No ${who} in view.`);
   if (!g.recorded) {
-    return `<p class="chart-empty">Not recorded for any ${who.replace(/s$/, "")} yet. It's optional — ${who === "learners"
-      ? "teachers and school heads can add it when adding or editing a learner"
-      : "administrators can add it on a staff account"} (female, male or prefer not to say).</p>`;
+    return `<p class="chart-empty">Not recorded for any ${who.replace(/s$/, "")} yet.</p>`;
   }
   const cell = (v) => (v == null ? `<span class="hint-inline" title="Fewer than ${g.threshold ?? 5} — hidden so no one can be picked out">&lt;5</span>` : num(v));
   const keys = ["female", "male", "prefer_not_to_say", "not_recorded"];
@@ -168,7 +166,7 @@ function genderHtml(g, who) {
   return table(["", "Female", "Male", "Prefer not to say", "Not recorded"], [
     [`<b>All</b> <small class="hint-inline">${num(g.total)}</small>`, ...keys.map((k) => cell(overall[k]))],
     ...g.byCounty.map((c) => [`${esc(c.county)} <small class="hint-inline">${num(c.total)}</small>`, ...keys.map((k) => cell(c.values[k]))]),
-  ]) + `<p class="field-hint">Recorded for ${num(g.recorded)} of ${num(g.total)} (${pct(g.recordedShare)}). Totals only — any group under 5 shows as &lt;5 so no one can be picked out.</p>`;
+  ]) + `<p class="field-hint">Recorded for ${num(g.recorded)} of ${num(g.total)} (${pct(g.recordedShare)}) · groups under 5 show as &lt;5</p>`;
 }
 
 /* ------------------------------------------------------------ M&E indicators on a dashboard */
@@ -179,11 +177,10 @@ export function themeIndicatorsHtml(dash, theme, { canManage = false } = {}) {
   const rows = dash.indicators.filter((i) => i.dashboardTheme === theme);
   const where = dash.scope?.label ? ` · ${esc(dash.scope.label)}` : "";
   if (!rows.length) {
-    return card(`M&E indicators — ${THEMES[theme]}`, dash.period ? esc(dash.period.label) : "", `<p class="chart-empty">No indicators are shown here yet.${canManage
-      ? ` Edit an indicator on <a href="#mel-framework">Results framework</a> and choose “Also show on: ${esc(THEMES[theme])}”${theme === "teacher_development" ? " — e.g. “% of teachers integrating ICT”" : ""}.`
-      : " M&E chooses which indicators appear on each dashboard."}</p>`, { wide: true });
+    return card(`M&E indicators — ${THEMES[theme]}`, dash.period ? esc(dash.period.label) : "", `<p class="chart-empty">No indicators here yet.${canManage
+      ? ` Choose some on <a href="#mel-framework">Results framework</a> (“Also show on: ${esc(THEMES[theme])}”).` : ""}</p>`, { wide: true });
   }
-  return card(`M&E indicators — ${THEMES[theme]}`, `Progress to this term's targets · ${dash.period ? esc(dash.period.label) : ""}${where} · <a href="#me-dashboard">all indicators</a>`,
+  return card(`M&E indicators — ${THEMES[theme]}`, `${dash.period ? esc(dash.period.label) : ""}${where} · <a href="#me-dashboard">all indicators</a>`,
     targetList(rows.map(indicatorRow), { fmt: fmtValue }) + TARGET_KEY, { wide: true });
 }
 
@@ -194,10 +191,10 @@ export function executiveHtml(d, opts = {}) {
   const E = d.executive, R = d.reach, L = d.learning, T = d.teachers, F = d.fieldOps, S = d.resources;
   const AREA_ICON = { reach: "globe", learning: "results", "teacher-development": "teacher", "field-operations": "pin", "digital-resources": "book" };
   const area = (page, title, lines) => `
-    <a class="intel-area" href="#${page}">
+    <a class="intel-area" href="${linkTo(opts, page) || `#${page}`}">
       <b>${icon(AREA_ICON[page])}${esc(title)}</b>
       ${lines.map(([v, l]) => `<span><strong>${v}</strong> ${esc(l)}</span>`).join("")}
-      <em>Open ${esc(title.toLowerCase())} →</em>
+      <em aria-hidden="true">→</em>
     </a>`;
   const c = E.completion;
   // The headline is who the programme reaches and how learning is going
@@ -248,7 +245,7 @@ export function executiveHtml(d, opts = {}) {
         [S.top[0] ? esc(S.top[0].title) : "—", "most used"],
       ]),
       `<a class="intel-area" href="#me-dashboard" data-live-keep data-exec-mel>
-        <b>${icon("target")}M&amp;E</b><span>Indicator targets and actuals</span><em>Open M&amp;E →</em>
+        <b>${icon("target")}M&amp;E</b><span>Indicator targets and actuals</span><em aria-hidden="true">→</em>
       </a>`,
     ].join(""),
   };
@@ -262,7 +259,7 @@ export function execMelArea(dash) {
     ${n ? `<span><strong>${s.met}</strong> of ${n} indicators met${dash.period ? ` · ${esc(dash.period.label)}` : ""}</span>
       <span><strong>${s.close}</strong> close · <strong>${s.not_met}</strong> not met</span>
       <span><strong>${s.no_data}</strong> without data</span>` : `<span>No indicators set up yet</span>`}
-    <em>Open M&amp;E →</em>`;
+    <em aria-hidden="true">→</em>`;
 }
 
 /* ------------------------------------------------------------ 2. reach */
@@ -283,20 +280,20 @@ export function reachHtml(d, opts = {}) {
     </div>
     <div class="chart-grid">
       ${melFirst("reach")}
-      ${card("Schools by county", "Schools in each county, and how many have active learners or teachers",
+      ${card("Schools by county", "",
         barList(byPlace(d, R.schoolsByCounty, (c) => ({ label: c.label, value: c.schools, note: `${c.reached} reached` })), { sort: true, noun: "schools", ...PLACE }))}
-      ${card("Learners by county", `Where the ${num(S.learners)} active learners are`, barList(byPlace(d, R.learnersByCounty), { share: true, sort: true, noun: "learners", ...PLACE }))}
-      ${card("Teachers by county", `Where the ${num(S.teachers)} active teachers are`, barList(byPlace(d, R.teachersByCounty), { share: true, sort: true, noun: "teachers", ...PLACE })
+      ${card("Learners by county", `${num(S.learners)} active`, barList(byPlace(d, R.learnersByCounty), { share: true, sort: true, noun: "learners", ...PLACE }))}
+      ${card("Teachers by county", `${num(S.teachers)} active`, barList(byPlace(d, R.teachersByCounty), { share: true, sort: true, noun: "teachers", ...PLACE })
         + seeAll(linkTo(opts, "teachers"), "All teachers"))}
-      ${card("Learner growth", "Learners on roll in each term. Pick a term to see only it",
+      ${card("Learner growth", "",
         trendOrBars(termPoints(R.growth, (t) => t.learners, (t) => ({ note: `${num(t.joined)} joined this term` })), { noun: "learners on roll", title: "Learners on roll by term", drill: true }))}
-      ${card("Grade distribution", "Active learners in each grade", barList(R.grades, { share: true, noun: "learners" }))}
+      ${card("Grade distribution", "", barList(R.grades, { share: true, noun: "learners" }))}
     </div>
-    ${more("reach", "Gender where recorded, accounts by role, teachers by employment type", `
-      ${card("Learners by gender", "Where it has been recorded — totals only", genderHtml(R.gender.learners, "learners"), { wide: true })}
-      ${card("Teachers by gender", "Where it has been recorded — totals only", genderHtml(R.gender.teachers, "teachers"), { wide: true })}
-      ${card("Accounts by role", "Active accounts in view, by what they do", barList(R.accountsByRole, { share: true, sort: true, noun: "accounts" }))}
-      ${card("Teachers by employment type", "BOM or TSC, as each teacher declared", proportion(R.teachersByType, { noun: "teachers" }))}`)}
+    ${more("reach", "Gender, roles, employment", `
+      ${card("Learners by gender", "Where recorded", genderHtml(R.gender.learners, "learners"), { wide: true })}
+      ${card("Teachers by gender", "Where recorded", genderHtml(R.gender.teachers, "teachers"), { wide: true })}
+      ${card("Accounts by role", "", barList(R.accountsByRole, { share: true, sort: true, noun: "accounts" }))}
+      ${card("Teachers by employment type", "BOM or TSC", proportion(R.teachersByType, { noun: "teachers" }))}`)}
     ${melLast("reach")}`;
 }
 
@@ -325,28 +322,28 @@ export function learningHtml(d, opts = {}) {
     </div>
     <div class="chart-grid">
       ${melFirst("learning")}
-      ${card("Completion by grade", "Share of the work set that was handed in — not marks",
+      ${card("Completion by grade", "Work handed in",
         barList(L.completionByGrade.map((r) => ({ ...r, note: `of ${num(r.n)} set` })), { unit: "%", noun: "handed in" })
         + seeAll(linkTo(opts, "results", { by: "grade" }), "Results by grade, in full"))}
-      ${card("Results by grade", "Average mark on marked work — achievement",
+      ${card("Results by grade", "Average mark",
         barList(L.resultsByGrade.map((r) => ({ ...r, note: `${num(r.n)} marked` })), { unit: "%", noun: "average mark" })
         + (byBand ? `<div class="chart-subhead">All marked work, by band</div>${byBand}` : ""))}
-      ${card("Learner progress", "Average mark on marked work, term by term. Pick a term to see only it",
+      ${card("Learner progress", "Average mark by term",
         trendOrBars(termPoints(terms, (t) => t.averagePercent, (t) => ({ note: `${num(t.marked)} marked${t.band ? ` · ${t.band}` : ""}` })), { unit: "%", noun: "average mark", title: "Average mark by term", drill: true }))}
-      ${card("Subject performance", "Completion and results side by side — never combined", table(
+      ${card("Subject performance", "", table(
         ["Subject", "Handed in", "Average mark", "Marked"],
         L.subjects.map((s) => [esc(s.label), s.assigned ? rate(s.completionRate) : "—", s.marked ? band.mark(s.averagePercent, s.band) : "—", num(s.marked)]))
         + seeAll(linkTo(opts, "results", { by: "subject" }), "Results by subject, in full"), { wide: true })}
     </div>
-    ${more("learning", "School by school, assignments by subject, learners' own progress", `
-      ${card("School performance", "Completion and results side by side", table(
+    ${more("learning", "Schools, subjects, learners", `
+      ${card("School performance", "", table(
         ["School", "County", "Learners", "Handed in", "Average mark", "Library"],
         L.schools.map((s) => [schoolLink(s.school), esc(s.county), num(s.learners),
           s.assigned ? rate(s.completionRate) : "—",
           s.marked ? band.mark(s.averagePercent, s.band) : "—", mins(s.libraryMinutes)])), { wide: true })}
-      ${card("Assignments by subject", "Assignments set in each subject (drafts left out)",
+      ${card("Assignments by subject", "Drafts left out",
         barList(A.bySubject.map((s) => ({ ...s, href: linkTo(opts, "assignments", { subject: s.label }) })), { share: true, sort: true, noun: "assignments", act: "see its assignments" }))}
-      ${card("Learners' own progress", "Each learner's latest term against their first",
+      ${card("Learners' own progress", "Latest term against first",
         P.compared ? stackBar([
           { label: "Improved", value: P.improved, colour: "var(--band-1)" },
           { label: "Steady", value: P.steady, colour: "var(--neutral)" },
@@ -375,19 +372,19 @@ export function teachersHtml(d, opts = {}) {
     </div>
     <div class="chart-grid chart-pairs">
       ${melFirst("teacher_development")}
-      ${card("Training by county", "Share of each county's teachers who have attended a session",
+      ${card("Training by county", "% of teachers trained",
         barList(byPlace(d, Tr.byCounty, (c) => ({ label: c.label, value: c.share ?? 0, note: `${num(c.trained)} of ${num(c.teachers)}` })), { unit: "%", noun: "trained", ...PLACE })
         + seeAll(linkTo(opts, "training"), "The training register"))}
-      ${card("Sessions by kind", `The ${plural(Tr.sessions, "session")} on the register, by kind`,
+      ${card("Sessions by kind", `${plural(Tr.sessions, "session")}`,
         barList(Tr.byKind.map((k) => ({ label: KIND_LABEL[k.label] || k.label, value: k.value })), { share: true, sort: true, noun: "sessions" }))}
-      ${card("Teacher activity", `What the ${num(P.teachers)} active teachers do in the portal — share doing each`, barList([
+      ${card("Teacher activity", `${num(P.teachers)} active teachers`, barList([
         { label: "Active in any way", value: P.active.rate ?? 0, note: `${num(P.active.count)} teachers` },
         { label: "Set work", value: P.settingWork.rate ?? 0, note: `${num(P.settingWork.count)} teachers` },
         { label: "Marked work", value: P.marking.rate ?? 0, note: `${num(P.marking.count)} teachers` },
         { label: "Used digital resources", value: P.usingLibrary.rate ?? 0, note: `${num(P.usingLibrary.count)} teachers` },
         { label: "Answered forms", value: P.answeringForms.rate ?? 0, note: `${num(P.answeringForms.count)} teachers` },
       ], { unit: "%", noun: "of teachers" }))}
-      ${card("Active by county", `Share of each county's teachers active ${esc(T.activity.window)}`,
+      ${card("Active by county", `% active ${esc(T.activity.window)}`,
         barList(byPlace(d, T.activity.byCounty, (c) => ({ label: c.label, value: c.share ?? 0, note: `${num(c.active)} of ${num(c.teachers)}` })), { unit: "%", noun: "active", ...PLACE }))}
     </div>
     ${melLast("teacher_development")}`;
@@ -432,29 +429,29 @@ export function fieldOpsHtml(d, opts = {}) {
     </div>
     <div class="chart-grid">
       ${melFirst("field_operations")}
-      ${card("Visits by month", "Field visits recorded in each of the last 12 months. Pick a month to see only it",
+      ${card("Visits by month", "Last 12 months",
         lineChart(monthPoints(F.visitsByMonth), { noun: "visits", title: "Field visits by month", drill: true }) + seeAll(linkTo(opts, "field-visits"), "Every visit, newest first"))}
-      ${card("Schools not visited yet", `${V.schools.total - V.schools.visited} of ${V.schools.total} schools have no visit on record. Pick one to see it`,
+      ${card("Schools not visited yet", `${V.schools.total - V.schools.visited} of ${V.schools.total} schools`,
         V.schools.notVisited.length
           ? `<div class="intel-chips">${V.schools.notVisited.map((n) => `<button type="button" class="pill" data-pick-school="${esc(n)}">${esc(n)}</button>`).join(" ")}</div>`
           : empty("Every school in view has had a visit."))}
-      ${card("Visit types", "What the visits were for, and how many schools each reached",
+      ${card("Visit types", "",
         barList(V.byType.map((t) => ({ label: t.label, value: t.visits, note: plural(t.schools, "school"), href: linkTo(opts, "field-visits", { type: t.label }) })), { sort: true, noun: "visits", act: "see these visits" }))}
-      ${card("Visits by county", "Where the visits took place", barList(byPlace(d, V.byCounty), { share: true, sort: true, noun: "visits", ...PLACE }))}
-      ${card("Kobo submissions by month", "Survey submissions received in each of the last 12 months. Pick a month to see only it",
+      ${card("Visits by county", "", barList(byPlace(d, V.byCounty), { share: true, sort: true, noun: "visits", ...PLACE }))}
+      ${card("Kobo submissions by month", "Last 12 months",
         lineChart(monthPoints(K.byMonth), { noun: "submissions", title: "Kobo submissions by month", drill: true }) + seeAll(linkTo(opts, "kobo"), "Kobo submissions and their checks"))}
     </div>
-    ${more("field-operations", "Completed forms, Kobo surveys and their checks, visits by term, forms by audience", `
-      ${card("Completed forms", "How many of the people each form reaches have answered it", table(["Form", "For", "Expected", "Received", "Rate"],
+    ${more("field-operations", "Forms, Kobo, visits by term", `
+      ${card("Completed forms", "Answered, of those reached", table(["Form", "For", "Expected", "Received", "Rate"],
         Fm.responseRates.map((r) => [esc(r.label), esc(r.kind === "visit" ? "Visit form" : audience(r.audience)), num(r.expected), num(r.received), rate(r.rate)])), { wide: true })}
-      ${card("Kobo surveys", "Checked in the portal — only “counted” submissions reach the dashboards", table(["Survey", "Received", "Counted", "Failing checks", "Duplicates", "Rejected in Kobo", "Officers done"],
+      ${card("Kobo surveys", "Counted submissions only", table(["Survey", "Received", "Counted", "Failing checks", "Duplicates", "Rejected in Kobo", "Officers done"],
         K.forms.map((f) => [esc(f.title), num(f.submissions), num(f.counted), num(f.invalid), num(f.duplicate), num(f.rejected), num(f.officersDone)])), { wide: true })}
-      ${card("Kobo checks", `Submissions failing each check · ${plural(K.schoolsCovered, "school")} covered`,
+      ${card("Kobo checks", `${plural(K.schoolsCovered, "school")}`,
         barList(K.issuesByRule.map((r) => ({ label: KOBO_RULE_LABEL[r.rule] || r.rule, value: r.errors, note: r.warnings ? `+${plural(r.warnings, "warning")}` : "" })), { sort: true, noun: "failing", empty: "No submissions are failing a check." })
         + `<p class="chart-note">Review them on Kobo Surveys → Data pipeline, or in the <a href="#data-quality">Data Quality Center</a>.</p>`)}
-      ${card("Kobo submissions by county", "Where the submissions came from", barList(byPlace(d, K.byCounty), { share: true, sort: true, noun: "submissions", ...PLACE }))}
-      ${card("Visits by term", "Field visits recorded in each term. Pick a term to see only it", trendOrBars(termPoints(V.byTerm), { noun: "visits", title: "Field visits by term", drill: true }))}
-      ${card("Forms by audience", "Who the portal's forms are for", barList(Fm.byAudience.map((a) => ({ ...a, label: audience(a.label) })), { sort: true, noun: "forms" }))}`, { pairs: true })}
+      ${card("Kobo submissions by county", "", barList(byPlace(d, K.byCounty), { share: true, sort: true, noun: "submissions", ...PLACE }))}
+      ${card("Visits by term", "", trendOrBars(termPoints(V.byTerm), { noun: "visits", title: "Field visits by term", drill: true }))}
+      ${card("Forms by audience", "", barList(Fm.byAudience.map((a) => ({ ...a, label: audience(a.label) })), { sort: true, noun: "forms" }))}`, { pairs: true })}
     ${melLast("field_operations")}`;
 }
 
@@ -476,22 +473,22 @@ export function resourcesHtml(d, opts = {}) {
     </div>
     <div class="chart-grid chart-pairs">
       ${melFirst("digital_resources")}
-      ${card("Most-used content", "The resources opened most often. Pick one to find it in the library", table(["Resource", "Shelf", "Opens", "Readers", "Time"],
+      ${card("Most-used content", "", table(["Resource", "Shelf", "Opens", "Readers", "Time"],
         S.top.map((r) => { const href = linkTo(opts, "content", { q: r.title }); return [href ? `<a href="${esc(href)}">${esc(r.title)}</a>` : esc(r.title), esc(r.destination), num(r.opens), num(r.readers), mins(r.minutes)]; })), { wide: true })}
-      ${card("Opens by month", "Times a resource was opened in each of the last 12 months. Pick a month to see only it",
+      ${card("Opens by month", "Last 12 months",
         lineChart(monthPoints(S.byMonth, (m) => m.opens), { noun: "openings", title: "Resource openings by month", drill: true }))}
-      ${card("Usage by term", "Reading sessions, and the hours they added up to, in each term",
+      ${card("Usage by term", "Sessions and hours",
         S.byTerm.length
           ? `<div class="chart-subhead">Sessions</div>${trendOrBars(termPoints(S.byTerm, (t) => t.sessions, (t) => ({ note: `${plural(t.readers, "reader")}` })), { noun: "sessions", height: 84, title: "Reading sessions by term", drill: true })}
              <div class="chart-subhead">Hours</div>${trendOrBars(termPoints(S.byTerm, (t) => Math.round(t.minutes / 6) / 10), { noun: "hours", height: 84, title: "Reading hours by term", drill: true })}`
           : empty())}
     </div>
-    <p class="field-hint">Time: how long a resource stayed open — attention, not proof of reading.</p>
-    ${more("digital-resources", "What's on the shelves — resources by shelf, subject and type", `
-      ${card("Resources by shelf", "Published resources on each shelf", proportion(S.items.byDestination, { noun: "resources" }))}
-      ${card("Resources by subject", "Published resources in each subject",
+    <p class="field-hint">Time: how long a resource stayed open.</p>
+    ${more("digital-resources", "Shelves, subjects, types", `
+      ${card("Resources by shelf", "", proportion(S.items.byDestination, { noun: "resources" }))}
+      ${card("Resources by subject", "",
         barList(S.items.bySubject.map((s) => ({ ...s, href: linkTo(opts, "content", { q: s.label }) })), { share: true, sort: true, noun: "resources", act: "find them in the library" }))}
-      ${card("Resources by type", "Published resources of each type", barList(S.items.byType, { share: true, sort: true, noun: "resources" }))}`)}
+      ${card("Resources by type", "", barList(S.items.byType, { share: true, sort: true, noun: "resources" }))}`)}
     ${melLast("digital_resources")}`;
 }
 
@@ -513,15 +510,13 @@ export function melDashHtml(dash, { canManage = false } = {}) {
     <div class="mel-summary">
       <span class="pill ok">${s.met} met</span><span class="pill warm">${s.close} close</span>
       <span class="pill danger">${s.not_met} not met</span><span class="pill">${s.no_data} without data</span>
-      <span class="hint-inline">${esc(dash.period?.label || "")} · ${esc(dash.scope.label)}</span>
     </div>
     ${groups.map((g) => `
       <div class="mel-outcome">
         <h3><span class="hint-inline">${esc(g.programme)} ·</span> ${g.outcome.code ? `<span class="code-chip">${esc(g.outcome.code)}</span> ` : ""}${esc(g.outcome.title)}</h3>
         ${targetList(g.rows.map(indicatorRow), { fmt: fmtValue, keepEmpty: true })}
       </div>`).join("")}
-    ${TARGET_KEY}
-    <p class="chart-note"><b>Met</b>: 100%+ of target · <b>close</b>: 80%+. Recorded actuals where entered, otherwise live from the data.</p>`;
+    <p class="chart-note"><i class="tg-key" aria-hidden="true"></i>Bar: actual · line: target · <b>met</b> 100%+ · <b>close</b> 80%+ · recorded where entered, otherwise live.</p>`;
 }
 
 /** One indicator: trend over time, and by county and school. */
@@ -541,7 +536,7 @@ export function melIndicatorHtml(ind, trend, breakdown) {
       ${ind.achievement ? `<p style="margin:.4rem 0">${ragPill(ind.achievement)} <span class="hint-inline">${fmtValue(ind.value, unit)} against a target of ${fmtValue(ind.target?.value, unit)}</span></p>` : ""}
     </div>
     <div class="chart-grid">
-      ${card("Trend over time", `The actual each term, against that term's target · ${esc(trend?.scope?.label || "")}`,
+      ${card("Trend over time", esc(trend?.scope?.label || ""),
         trend ? lineChart(points, { unit: unit === "percent" ? "%" : "", target: "Target", name: "Actual", height: 190, title: `${ind.name} by term`, empty: "No values for any term yet." }) : skeleton(3, { avatar: false }), { wide: true })}
       ${card("County comparison", breakdown ? `Each county's progress to its target · ${esc(breakdown.period.label)}` : "", breakdown ? targetList(counties, { fmt: fmtValue }) : skeleton(3, { avatar: false }))}
       ${card("School comparison", breakdown ? `Schools with a value or a target · ${esc(breakdown.period.label)}` : "", breakdown ? targetList(schools.slice(0, 25), { fmt: fmtValue }) + TARGET_KEY : skeleton(3, { avatar: false }))}

@@ -597,7 +597,7 @@ them. Every page and every permission is as it was; nothing was removed.
 **The sidebar is the whole map.** Each row is an area. An area with one page
 is a link; an area with several opens in place to list them, with a chevron.
 The area you're in is open and lit; the page you're on has the orange edge.
-Areas you open stay open (remembered per workspace). The tab strip above the
+One area is open at a time — the one you're in, or the one you just opened (§23). The tab strip above the
 page is gone — its pages are in the sidebar instead, so nothing is listed
 twice.
 
@@ -632,14 +632,14 @@ once it's open — never twice.
 
 | Workspace | Areas (pages inside) |
 | --- | --- |
-| Platform Administration | Overview · Users & roles (Accounts, Permissions, Notifications sent) · Organisation setup (Counties & schools, Academic calendar, Classes, Subjects) · Data & integrations (KoboToolbox, Forms, Data quality, Device sync) · Dashboards & reports (Executive overview, Reach, Learning, Teacher development, Field operations, Digital resources, Survey results, M&E reports, Exports) · Audit & security (Audit log, Account activity) |
+| Platform Administration | Overview · Users & roles (Accounts, Permissions, Notifications sent) · Organisation setup (Counties & schools, Academic calendar, Classes, Subjects) · Data & integrations (KoboToolbox, Forms, Data quality, Device sync) · Dashboards & reports (Executive overview, Survey results, M&E reports, Exports) · Audit & security (Audit log, Account activity) |
 | Programme Administration | Dashboard · Schools (All schools, All teachers, Find a learner, Field visits, Counties & schools, Academic calendar) · Teaching & learning (Assignments & assessments, Results, Content library) · Surveys & forms (Forms, Kobo surveys, Survey results) · Data quality (Data issues, Device sync) · Reports · Users (Accounts, Notifications sent) |
-| Monitoring & Evaluation | M&E overview · Results framework (Programmes & indicators, Indicator results) · Dashboards & reports (Executive overview, Reach, Learning, Teacher development, Field operations, Digital resources, M&E reports, Exports) · Data quality · Surveys & forms (Survey results, Kobo review, Form responses) · Schools (All schools, All teachers, Find a learner, Field visits) · Teaching & learning (Assignments & assessments, Results, Training register, Content library) |
+| Monitoring & Evaluation | M&E overview · Results framework (Programmes & indicators, Indicator results) · Dashboards & reports (Executive overview, M&E reports, Exports) · Data quality · Surveys & forms (Survey results, Kobo review, Form responses) · Schools (All schools, All teachers, Find a learner, Field visits) · Teaching & learning (Assignments & assessments, Results, Training register, Content library) |
 | Learning & Education | Dashboard · Schools (All schools, All teachers, Find a learner, Field visits, Device sync) · Teaching & learning (Assignments & assessments, Results, Training register) · Content library (Library, Subjects) · Forms · Dashboards & reports (Teacher development, Digital resources, Exports) |
 | Field Operations | Dashboard · My schools (Schools, Teachers) · My visits · Surveys & forms (Kobo surveys, Forms) · Reports |
 | School Management | Dashboard · My school (Teachers, Learners & classes, Assignments & results, Visits) · Learning resources · Reports |
-| Teaching & Learning | Dashboard · My classes (Classes, Class roster) · Assessments · Results · Learning resources (Library, Reading activity) · Reports |
-| My Learning | Home · My classes · My assignments · My progress (Progress, Reading activity) · Library |
+| Teaching & Learning | Dashboard · My classes (Classes, Class roster) · Assessments · Results · Library · Reports |
+| My Learning | Home · My classes · My assignments · My progress · Library |
 
 Still at most seven areas for every role, and each page in one area of its
 workspace (`navigation_test.ts`). A class's page (`#classes`) stays out of
@@ -983,3 +983,47 @@ page, so nothing can no longer be done.
 Checked by a script over every workspace: no page is listed twice
 (`navigation_test.ts` holds the rule). Buttons repeated on a page are all
 per-row (one per school, class or indicator).
+
+## 23. Fewer words, fewer menu rows, 16 October 2026
+
+"Too wordy, too many menus." What changed — every page, figure and action
+is still there:
+
+**Menus**
+- The five area dashboards (Reach, Learning, Teacher development, Field
+  operations, Digital resources) are cards on the Executive overview, so
+  they open from there, not as five more rows: Super Admin and M&E list
+  18 pages instead of 23. Old links and drill-downs still open them, and
+  the sidebar shows the one you're on while you're there.
+- Reading activity was a page of its own and a section of the dashboard
+  for teachers and learners; it is now at the foot of the Library, as it
+  already was for school heads (old `#activity` links go there).
+- **One area open at a time.** Opening an area closes the one before, so
+  the sidebar is the areas plus one short list — not every list you've
+  ever opened.
+
+**Words**
+- No sentence under the page heading: the heading and breadcrumb say what
+  the page is; the old sentence is the heading's tooltip.
+- Under the greeting: who you are and the term — the workspace's question
+  and the second "school · county · class" line (already said above it)
+  are gone.
+- The sync chip is a word and a time: "● Synced 8:52 PM", "2 waiting",
+  "Offline". The full sentence is its tooltip and what a screen reader
+  hears.
+- Chart captions are numbers or nothing: "Last 12 months", "45 active",
+  "1 of 3 schools" — no "Pick a month to see only it" (the names and
+  points are the links), no caption that repeats the chart's title.
+- Programme-area cards end in an arrow, not "Open reach →".
+- Notes that only described the page went (notifications, schools,
+  survey results, device sync, exports, training, classes); the ones that
+  prevent a mistake stayed, shorter ("2–4 letters. Can't be changed
+  later.", "Learners don't see these.").
+- Repeats: the M&E overview's period and place said twice, two key lines
+  for one chart, a reading session's date twice ("Started … · Finished …").
+- The teacher's dashboard shows the first five pieces of work to mark and
+  the last five marked, with "see all" — the whole queue is Assessments.
+  On a phone the dashboard is 3,930 px long instead of 4,663.
+
+Counted on the 55 pages: words other than data 4,387 → 3,839 (the top of
+each page 668 → 448, notes 487 → 360, chart titles and captions 690 → 556).

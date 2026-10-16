@@ -105,7 +105,6 @@ export async function renderSyncProblems(el, { hours = 48, perms = new Set() } =
           <label class="hint-inline" for="spbHours">Unsent for</label>
           <select id="spbHours">${HOURS.map(([h, l]) => `<option value="${h}"${h === hours ? " selected" : ""}>${l} or more</option>`).join("")}</select>
           <span id="spbLive"></span></span></div>
-      <p class="hint" style="margin-top:0">Waiting for a connection, refused, or in conflict. A device that goes quiet stays listed.</p>
       <div id="spbStuck">${skeleton(3, { avatar: false })}</div>
     </div>
     ${perms.has("sync.monitor") ? `<div class="panel">
@@ -117,7 +116,6 @@ export async function renderSyncProblems(el, { hours = 48, perms = new Set() } =
     </div>` : ""}
     <div class="panel">
       <div class="panel-head"><h2>Sync failures and conflicts</h2><span class="chart-meta" style="margin:0">Last 7 days</span></div>
-      <p class="hint" style="margin-top:0">What the server refused or found in conflict, and what the person chose.</p>
       <div id="spbEvents">${skeleton(3, { avatar: false })}</div>
     </div>`;
   /* Read when the page opens, on Refresh, when the threshold changes, and by

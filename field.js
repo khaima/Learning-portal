@@ -68,9 +68,8 @@ async function main() {
       }
     },
   });
-  const countyLine = user.county || "No county set";
-  $("#topSub").textContent = countyLine;
-  currentTermLabel().then((term) => { if (term) $("#topSub").textContent = `${countyLine} · ${term}`; });
+  // Who and where is the line above (nav.js); this one adds the term.
+  currentTermLabel().then((term) => { if (term) $("#topSub").textContent = term; });
 
   /* Schools come from the Education Team's school list (the same one every
      County → School picker uses); "visits this term" is the officer's own

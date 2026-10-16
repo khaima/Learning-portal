@@ -91,7 +91,7 @@ async function main() {
   $("#sideName").textContent = user.fullName;
   $("#sideMeta").textContent = ROLE_LABEL[user.role] || "";
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
-  $("#topSub").textContent = ws.question;
+  $("#topSub").textContent = "";
 
   /* ------------------------------------------------------------ global filters
      One filter bar drives every page that has real, scopeable data behind
@@ -434,7 +434,7 @@ async function main() {
     for (const m of $$("details[data-more]")) m.open = moreOpen.has(m.dataset.more);
     const scope = d.scope.school || (d.scope.county ? `${d.scope.county} County` : "every school");
     for (const m of $$("[data-imp-meta]")) m.textContent = scope;
-    if (d.currentTerm) $("#topSub").textContent = `${ws.question} · ${d.currentTerm}`;
+    if (d.currentTerm) $("#topSub").textContent = d.currentTerm;
     fillMelSlots({ quiet });
     renderAttention();
     if (!quiet) impactLive.ok();
@@ -830,7 +830,7 @@ async function main() {
     return { scopeType: "programme", scopeId: "", label: "Whole programme" };
   }
   function renderMelReportScope() {
-    $("#melRepScope").textContent = has("me.reports.manage") ? `A new report covers: ${melReportScope().label} (change it with the county / school filter at the top).` : "";
+    $("#melRepScope").textContent = has("me.reports.manage") ? `Covers: ${melReportScope().label}` : "";
   }
   async function renderMelReports() {
     if (!has("me.view")) return;
@@ -1877,7 +1877,7 @@ async function main() {
       return;
     }
     const last = d.runs[0];
-    $("#ntfMeta").textContent = last ? `Last run ${new Date(last.startedAt).toLocaleString([], { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })} (${last.trigger === "schedule" ? "hourly" : last.trigger === "user" ? "when someone opened them" : "run now"})${last.error ? " — failed" : ""}` : "Not run yet";
+    $("#ntfMeta").textContent = last ? `Last run ${new Date(last.startedAt).toLocaleString([], { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}${last.error ? " — failed" : ""}` : "Not run yet";
     const when = (iso) => new Date(iso).toLocaleString([], { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
     $("#ntfLog").innerHTML = `
       <p class="hint">${d.total} notification${d.total === 1 ? "" : "s"}${d.total ? ` · ${d.unread} unread` : ""}${d.total > d.notifications.length ? ` · showing the latest ${d.notifications.length}` : ""}.</p>
@@ -3360,7 +3360,7 @@ async function main() {
       const next = String(Number(currentYear || new Date().getFullYear()) + 1);
       const hasNext = years.some((y) => y.id === next);
       $("#calendarText").textContent = currentYear
-        ? `Now: the ${currentYear} school year${currentTerm ? `, Term ${String(currentTerm).replace(/^\d{4}-T/, "")}` : ""}. Start ${next} when the new year begins; school heads then add classes and promote learners.`
+        ? `Now: ${currentYear}${currentTerm ? `, Term ${String(currentTerm).replace(/^\d{4}-T/, "")}` : ""}`
         : "No school year is set yet.";
       $("#startNextYear").textContent = hasNext ? `Switch the portal to ${next}` : `Start the ${next} school year`;
       $("#startNextYear").hidden = false;

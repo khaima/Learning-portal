@@ -49,7 +49,7 @@ async function main() {
   enableSortableTables(document.querySelector(".app-main") || document.body); // sorting, phone layouts, "Show all"
   mountNavigation(user); // the menu (navigation.js)
   const termLabel = user.term ? `${user.academicYear} Term ${String(user.term).replace(/^\d{4}-T/, "")}` : user.academicYear || "";
-  $("#topSub").textContent = [schoolLine(user), user.className || user.grade, termLabel].filter(Boolean).join(" · ");
+  $("#topSub").textContent = termLabel; // who, class and school are the line above
 
   /* ------------------------------------------------------------ my class
      The class this learner is enrolled in this year, from their school's
@@ -265,8 +265,8 @@ async function main() {
     }
     const row = (it) => `
       <div class="task-row">
-        <div style="flex:1"><b>${esc(it.title || "Resource")}</b><span>Started ${new Date(it.startedAt).toLocaleString()}${
-          it.completedAt ? " · Finished " + new Date(it.completedAt).toLocaleString() : " · In progress"}</span></div>
+        <div style="flex:1"><b>${esc(it.title || "Resource")}</b><span>${new Date(it.startedAt).toLocaleString([], { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}${
+          it.completedAt ? "" : " · In progress"}</span></div>
         <span class="bar-num">${it.durationSeconds != null ? formatDuration(it.durationSeconds) : "—"}</span>
       </div>`;
     const badgeChips = (usage.badges || []).slice(0, 6).map((b) => `
@@ -296,7 +296,7 @@ async function main() {
       card.innerHTML = `
         <p class="continue-eyebrow">Continue learning</p>
         <h2>${esc(inProgressItem.title)}</h2>
-        <p>${esc(inProgressItem.subject || "")}${inProgressItem.subject ? " · " : ""}you started this earlier — pick up where you left off.</p>
+        <p>${esc(inProgressItem.subject || "")}${inProgressItem.subject ? " · " : ""}pick up where you left off.</p>
         ${libraryFilesHtml(inProgressItem)}
       `;
       return;

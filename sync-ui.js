@@ -33,6 +33,15 @@ function syncLine(st) {
   return st.lastSync ? `Synced ${fmtSyncTime(st.lastSync)} · nothing waiting` : "Nothing waiting to sync";
 }
 
+/** The chip's word and its detail: "Synced" 7:53 PM, "2 waiting", "Offline" 2 waiting, "Needs attention" 1 to check. */
+function chipWords(st, label, stuck) {
+  if (stuck) return [label, `${stuck} to check`];
+  if (!st.online) return [label, st.pending ? `${st.pending} waiting` : ""];
+  if (st.syncing) return [label, ""];
+  if (st.pending) return [`${st.pending} waiting`, ""];
+  return st.lastSync ? ["Synced", fmtSyncTime(st.lastSync)] : ["Up to date", ""];
+}
+
 function chipState(st) {
   if (st.conflicts || st.failed) return { cls: "attention", label: st.online ? "Needs attention" : "Offline" };
   if (st.syncing) return { cls: "syncing", label: "Syncing…" };
@@ -51,9 +60,8 @@ export function mountSyncStatus() {
     const { cls, label } = chipState(st);
     const stuck = st.conflicts + st.failed;
     chip.dataset.state = cls;
-    chip.innerHTML = `<i class="sync-dot" aria-hidden="true"></i><b>${label}</b>
-      <span class="sync-meta">${esc(syncLine(st))}${stuck ? ` · ${stuck} to check` : ""}</span>
-      <span class="sync-count" aria-hidden="true">${st.pending || stuck ? st.pending + stuck : ""}</span>`;
+    const [word, more] = chipWords(st, label, stuck);
+    chip.innerHTML = `<i class="sync-dot" aria-hidden="true"></i><b>${esc(word)}</b>${more ? `<span class="sync-meta">${esc(more)}</span>` : ""}`;
     chip.title = `${label}. ${syncLine(st)}.`;
     chip.setAttribute("aria-label", `Sync center — ${label}. ${syncLine(st)}${stuck ? `, ${stuck} to check` : ""}`);
   };

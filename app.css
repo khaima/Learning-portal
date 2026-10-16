@@ -1147,7 +1147,8 @@ a.btn.form-open{ margin-bottom:.2rem; }
 .intel-area b{ font-size:1rem; margin-bottom:.3rem; }
 .intel-area span{ font-size:.84rem; color:var(--ink-soft); }
 .intel-area span strong{ color:var(--ink); font-size:.95rem; }
-.intel-area em{ font-style:normal; font-size:.78rem; font-weight:600; color:var(--brand-fg); margin-top:.3rem; }
+.intel-area{ position:relative; }
+.intel-area em{ position:absolute; top:1rem; right:1.1rem; font-style:normal; font-size:1rem; font-weight:700; color:var(--brand-fg); } /* the card is the link: an arrow, not words */
 .chart-grid .intel-wide{ flex-basis:100%; }
 .intel-chips{ display:flex; flex-wrap:wrap; gap:.4rem; }
 .intel-chips .pill{ border:0; cursor:pointer; font:inherit; font-size:.78rem; }

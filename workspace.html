@@ -159,7 +159,6 @@
           <div class="panel-head"><h2 data-page-title>Training register</h2>
             <span class="dq-head-actions"><label class="q-choice" style="margin:0;font-size:.82rem"><input type="checkbox" id="trArchived"> Show archived</label>
               <button type="button" class="btn btn-outline q-small" id="trNewBtn" hidden>Record a session</button></span></div>
-          <p class="hint" style="margin-top:0">Nothing is deleted; every change is logged.</p>
           <div id="trainingList"><div data-skeleton="list"></div></div>
         </div>
       </section>
@@ -183,7 +182,6 @@
             <label for="srPicker">Survey / questionnaire</label>
             <select id="srPicker"></select>
           </div>
-          <p class="hint" style="margin-top:0">Counts only submissions that passed checks or were accepted.</p>
           <p class="chart-meta" id="srMeta"></p>
           <div id="srBody"><div data-skeleton="charts"></div></div>
         </div>
@@ -276,7 +274,7 @@
             <span class="dq-head-actions"><span class="chart-meta" id="dqMeta" style="margin:0"></span><span id="dqLive"></span>
               <button type="button" class="btn btn-outline q-small" id="dqScanBtn">Scan now</button></span>
           </div>
-          <p class="hint page-note">Nothing is deleted; every fix is logged. The period is when an issue was first found.</p>
+          <p class="hint page-note">Nothing is deleted; every fix is logged.</p>
           <div id="dqTop"><div data-skeleton="cards" data-rows="3"></div></div>
         </div>
         <div class="panel">
@@ -352,7 +350,6 @@
       <section class="dash-page" data-page="schools" hidden>
         <div class="panel">
           <div class="panel-head"><h2>School list</h2><span class="shelf-count" id="schoolListCount"></span></div>
-          <p class="shelf-sub">Every school list in the portal uses these. People get a code under their school's (e.g. NRK-001-T01).</p>
           <form id="addSchoolForm" class="school-add">
             <select id="as_county" aria-label="County" required></select>
             <input id="as_name" type="text" placeholder="School name, e.g. Aitong Primary" maxlength="80" aria-label="School name" required>
@@ -365,7 +362,7 @@
               <input id="ac_code" type="text" placeholder="Code, e.g. SMB" maxlength="4" aria-label="County code (2–4 letters)" required>
               <button class="btn btn-outline" type="submit">Add county</button>
             </form>
-            <p class="field-hint">2–4 letters, e.g. SMB. It starts every school code in the county and can't be changed.</p>
+            <p class="field-hint">2–4 letters, e.g. SMB. Can't be changed later.</p>
           </details>
           <div id="schoolList"><div data-skeleton="list"></div></div>
         </div>
@@ -383,7 +380,6 @@
             <h2 data-page-title>Staff accounts</h2>
             <span class="chart-meta" id="usersMeta" style="margin:0"></span>
           </div>
-          <p class="kobo-note">Passwords are never visible. Reset password sends a link or makes a one-time password.</p>
 
           <!-- Invitations (users.invite) -->
           <div id="invitePanel" hidden style="margin-bottom:1rem">
@@ -535,7 +531,7 @@
             <h2>Content usage report</h2>
             <span class="chart-meta" id="usageMeta" style="margin:0"></span>
           </div>
-          <p class="kobo-note">Time spent runs from opening a resource to returning to the portal — an estimate, not reading time.</p>
+          <p class="kobo-note">Time spent is an estimate, not reading time.</p>
           <div id="usageBody"><div data-skeleton="dashboard"></div></div>
         </div>
       </section>
@@ -575,7 +571,7 @@
                 <div class="field" id="fb_due_field">
                   <label for="fb_due">Due date <span class="hint-inline">— optional</span></label>
                   <input id="fb_due" type="date">
-                  <p class="field-hint">Reminders go out 3 days before the due date, and when it's overdue.</p>
+                  <p class="field-hint">Reminded 3 days before, and when overdue.</p>
                 </div>
                 <div class="field" id="fb_visit_field">
                   <label for="fb_visit">Visit type</label>
@@ -644,7 +640,7 @@
                 <button class="btn btn-outline" type="button" id="koboViewBtn" style="flex:none">View</button>
                 <button class="btn btn-outline" type="submit" style="flex:none">Attach</button>
               </div>
-              <p class="kobo-note" style="margin-bottom:0"><b>View</b> previews the questions. <b>Attach</b> sends the survey to field officers.</p>
+              <p class="kobo-note" style="margin-bottom:0"><b>Attach</b> sends a survey to field officers.</p>
               <p class="kobo-note" style="margin-bottom:0">
                 Connected to <b id="koboServerEcho">—</b> · hidden question
                 <code id="koboFieldEcho2">officer_ref</code>.
@@ -662,7 +658,6 @@
           <div class="panel-head"><h2 data-page-title>Notifications</h2>
             <span class="dq-head-actions"><span class="chart-meta" id="ntfMeta" style="margin:0"></span>
               <button type="button" class="btn btn-outline q-small" id="ntfRunBtn">Run now</button></span></div>
-          <p class="hint" style="margin-top:0">Sent hourly: work due, forms due, visits missing forms, Kobo submissions, accounts to approve.</p>
           <div class="filter-bar-row" style="margin-bottom:.8rem">
             <div class="field"><label for="ntf_kind">Kind</label><select id="ntf_kind">
               <option value="">All kinds</option><option value="assignments_due">Assignments due tomorrow</option><option value="to_mark">Work waiting to be marked</option>

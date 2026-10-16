@@ -99,6 +99,9 @@ const PAGES = {
 };
 /** A console page as a menu item, optionally relabelled or as a filtered view. */
 const c = (page, extra = {}) => ({ page, ...PAGES[page], ...extra });
+/* The five area dashboards are cards on the Executive overview, which leads to
+   each one: they open from there (and old links), not as five more menu rows. */
+const AREA_DASHBOARDS = () => ["reach", "learning", "teacher-development", "field-operations", "digital-resources"].map((p) => c(p, { hidden: true }));
 
 /* ---- the menus: one entry per area (docs/NAVIGATION.md §15) ----
    A workspace's `groups` are its sidebar entries, in order — at most seven.
@@ -133,8 +136,7 @@ export const WORKSPACES = {
         c("kobo"), c("forms"), c("data-quality"), c("sync-problems"),
       ]),
       entry("analytics", "Dashboards & reports", "chart", [
-        c("overview"), c("reach"), c("learning"), c("teacher-development"), c("field-operations"), c("digital-resources"),
-        c("survey-results"), c("mel-reports"), c("reports", { label: "Exports" }),
+        c("overview"), c("survey-results"), c("mel-reports"), c("reports", { label: "Exports" }), ...AREA_DASHBOARDS(),
       ]),
       entry("security", "Audit & security", "shield", [
         c("audit"), c("account-activity"), // security events: the audit log's own "Show" choice
@@ -168,8 +170,7 @@ export const WORKSPACES = {
       entry("overview", "M&E overview", "target", [c("me-dashboard", { label: "M&E overview" })]),
       entry("framework", "Results framework", "layers", [c("mel-framework", { label: "Programmes & indicators" }), c("mel-results")]),
       entry("analytics", "Dashboards & reports", "chart", [
-        c("overview"), c("reach"), c("learning"), c("teacher-development"), c("field-operations"), c("digital-resources"),
-        c("mel-reports"), c("reports", { label: "Exports" }),
+        c("overview"), c("mel-reports"), c("reports", { label: "Exports" }), ...AREA_DASHBOARDS(),
       ]),
       entry("data-quality", "Data quality", "check", [c("data-quality")], { badge: "dataQuality" }),
       entry("surveys", "Surveys & forms", "survey", [c("survey-results"), c("kobo", { label: "Kobo review", purpose: "Kobo submissions waiting for a decision before they are counted." }),
@@ -234,6 +235,7 @@ export const WORKSPACES = {
   },
   teacher: {
     title: "Teaching & Learning", page: "teacher.html", roles: ["teacher"],
+    aliases: { activity: "resources" }, // reading activity is on the Library page
     question: "What is happening in my classes and with my learners?",
     groups: [
       entry("dashboard", "Dashboard", "dashboard", [{ page: "home", label: "Dashboard", icon: "dashboard" }]),
@@ -245,25 +247,20 @@ export const WORKSPACES = {
         purpose: "Set work for your classes, and mark what learners hand in." }], { badge: "toMark" }),
       entry("results", "Results", "results", [{ page: "results", label: "Results & progress", icon: "results",
         purpose: "How your learners are doing: work handed in and marks." }]),
-      entry("resources", "Learning resources", "book", [
-        { page: "resources", label: "Library", icon: "book", purpose: "Resources for you, and the library your learners see." },
-        { page: "activity", label: "Reading activity", icon: "clock", purpose: "What you've read in the library, and for how long." },
-      ]),
+      entry("resources", "Library", "book", [{ page: "resources", label: "Library", icon: "book", purpose: "Resources for you, and the library your learners see." }]),
       entry("reports", "Reports", "download", [{ page: "reports", label: "Reports", icon: "download", purpose: "Download your classes' data as Excel, CSV or PDF." }]),
     ],
   },
   learner: {
     title: "My Learning", page: "learner.html", roles: ["learner"],
+    aliases: { activity: "resources" }, // reading activity is on the Library page
     question: "What do I need to learn, complete and improve?",
     groups: [
       entry("home", "Home", "home", [{ page: "home", label: "Home", icon: "home" }]),
       entry("classes", "My classes", "classes", [{ page: "my-learning", label: "My classes", icon: "classes", purpose: "Your classes, their subjects and your teachers." }]),
       entry("assignments", "My assignments", "assignment", [{ page: "assignments", label: "My assignments", icon: "assignment",
         purpose: "Work your teachers have set. Open one to start." }]),
-      entry("progress", "My progress", "results", [
-        { page: "my-progress", label: "Progress", icon: "results", heading: "My progress", purpose: "How much of your work is handed in, and your marks." },
-        { page: "activity", label: "Reading activity", icon: "clock", purpose: "What you've read in the library, and for how long." },
-      ]),
+      entry("progress", "My progress", "results", [{ page: "my-progress", label: "My progress", icon: "results", purpose: "How much of your work is handed in, and your marks." }]),
       entry("library", "Library", "book", [{ page: "resources", label: "Library", icon: "book", purpose: "Readings, videos and worksheets for you to explore." }]),
     ],
   },
