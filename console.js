@@ -2378,7 +2378,9 @@ async function main() {
           <button type="button" data-act="cancel-rename">Cancel</button>
         </div>
       </div>`;
-    const people = (s.teachers || 0) + (s.heads || 0) + (s.learners || 0);
+    // The counts shown are active staff and enrolled learners; anyone still
+    // placed here, whatever their status, stops the school being removed.
+    const people = s.placed ?? (s.teachers || 0) + (s.heads || 0) + (s.learners || 0);
     return `
       <div class="school-item" data-school-id="${esc(s.id)}" data-people="${people}" data-name="${esc(s.name)}">
         <span class="code-chip">${esc(s.code)}</span>

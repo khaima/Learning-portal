@@ -1462,18 +1462,23 @@ app.get("/schools", async (c) => {
     visible = schools.filter((s) => sc.schoolIds.has(String(s.id)));
     countyNames = countiesInScope(sc, visible as { id: string; county: string }[], countyNames);
   }
-  // Head counts per school only for an active account that manages schools.
+  // Head counts per school only for an active account that manages schools:
+  // active teachers and heads and enrolled learners, as on the school's
+  // profile. `placed` is everyone still in the school whatever their
+  // status — what stops it being removed (DELETE /schools/:id).
   if (active && effectivePermissions(me!.role, access!.grants).has("schools.manage")) {
     const [{ data: profs }, { data: learners }] = await Promise.all([
-      selectAll(() => admin.from("profiles").select("school_id, role").not("school_id", "is", null).order("id")),
-      selectAll(() => admin.from("learners").select("school_id").not("school_id", "is", null).eq("enrollment_status", "ACTIVE").order("id")),
+      selectAll(() => admin.from("profiles").select("school_id, role, status").not("school_id", "is", null).order("id")),
+      selectAll(() => admin.from("learners").select("school_id, enrollment_status").not("school_id", "is", null).order("id")),
     ]);
-    const count = (rows: Record<string, unknown>[] | null, id: unknown, role?: string) =>
-      (rows ?? []).filter((r) => r.school_id === id && (!role || r.role === role)).length;
+    const count = (rows: Record<string, unknown>[] | null, id: unknown, keep: (r: Record<string, unknown>) => boolean = () => true) =>
+      (rows ?? []).filter((r) => r.school_id === id && keep(r)).length;
+    const activeAs = (role: string) => (r: Record<string, unknown>) => r.role === role && (r.status ?? "active") === "active";
     for (const s of visible) {
-      s.teachers = count(profs, s.id, "teacher");
-      s.heads = count(profs, s.id, "school_leader");
-      s.learners = count(learners, s.id);
+      s.teachers = count(profs, s.id, activeAs("teacher"));
+      s.heads = count(profs, s.id, activeAs("school_leader"));
+      s.learners = count(learners, s.id, (l) => (l.enrollment_status ?? ACTIVE) === ACTIVE);
+      s.placed = count(profs, s.id) + count(learners, s.id);
     }
   }
   return c.json({
@@ -4453,7 +4458,7 @@ app.get("/stats", requirePermission("stats.view"), async (c) => {
   };
 
   const [profs, learnersRaw, asg, reportsRaw, forms, responses, library, schoolsReg, countiesReg] = await Promise.all([
-    selectAll(() => admin.from("profiles").select("id, role, county, school, school_id, teacher_type").order("id")),
+    selectAll(() => admin.from("profiles").select("id, role, status, county, school, school_id, teacher_type").order("id")),
     selectAll(() => admin.from("learners").select("id, teacher_id, grade, school, school_id, created_at").eq("enrollment_status", "ACTIVE").order("id")),
     loadWork({}).then((w) => ({ data: w, error: null }), (e) => ({ data: null, error: { message: (e as Error).message } })),
     selectAll(() => admin.from("field_reports").select("county, visit_type, school, school_id, created_at").order("id")),
@@ -4499,7 +4504,11 @@ app.get("/stats", requirePermission("stats.view"), async (c) => {
   const teacherCounty: Record<string, string> = {};
   for (const p of allProfiles) teacherCounty[p.id as string] = (p.county as string) || "";
 
-  let staffRows = inCounty ? allProfiles.filter((p) => (p.county || "") === county) : allProfiles;
+  // Staff counted are active accounts only, never pending, suspended,
+  // rejected or deactivated ones. (A learner still takes the county of
+  // whoever added them, active or not — teacherCounty above.)
+  const activeProfiles = allProfiles.filter((p) => (p.status ?? "active") === "active");
+  let staffRows = inCounty ? activeProfiles.filter((p) => (p.county || "") === county) : activeProfiles;
   let learnerRows = inCounty
     ? allLearners.filter((l) => teacherCounty[l.teacher_id as string] === county)
     : allLearners;
@@ -4634,7 +4643,7 @@ app.get("/school/overview", requirePermission("school.overview.view"), async (c)
   // share a name never get mixed together. Visits logged before schools
   // had records are matched by name + county as a fallback.
   const [profs, learnersRaw, reportsById, reportsByName, asg] = await Promise.all([
-    selectAll(() => admin.from("profiles").select("id, teacher_type").eq("role", "teacher").eq("school_id", schoolRec.id).order("id")),
+    selectAll(() => admin.from("profiles").select("id, teacher_type, status").eq("role", "teacher").eq("school_id", schoolRec.id).order("id")),
     selectAll(() => admin.from("learners").select("id, grade").eq("school_id", schoolRec.id).eq("enrollment_status", "ACTIVE").order("id")),
     selectAll(() => admin.from("field_reports").select("*").eq("school_id", schoolRec.id).order("id")),
     selectAll(() => admin.from("field_reports").select("*").is("school_id", null).eq("school", school).eq("county", county).order("id")),
@@ -4644,7 +4653,9 @@ app.get("/school/overview", requirePermission("school.overview.view"), async (c)
     return c.json({ error: "Could not load the school overview" }, 500);
   }
 
-  const teacherRows = profs.data ?? [];
+  // "On staff" means an active account, as on the school's profile — not
+  // one still pending, or suspended, rejected or deactivated.
+  const teacherRows = (profs.data ?? []).filter((p) => (p.status ?? "active") === "active");
   const learnerRows = learnersRaw.data ?? [];
   const visitRows = [...(reportsById.data ?? []), ...(reportsByName.data ?? [])]
     .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
