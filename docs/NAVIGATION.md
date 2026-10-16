@@ -632,12 +632,12 @@ once it's open — never twice.
 
 | Workspace | Areas (pages inside) |
 | --- | --- |
-| Platform Administration | Overview · Users & roles (Accounts, Approvals, Permissions, Notifications sent) · Organisation setup (Counties & schools, Academic calendar, Classes, Subjects) · Data & integrations (KoboToolbox, Forms, Data quality, Device sync) · Dashboards & reports (Executive overview, Reach, Learning, Teacher development, Field operations, Digital resources, Survey results, M&E reports, Exports) · Audit & security (Audit log, Security events, Account activity) |
-| Programme Administration | Dashboard · Schools (All schools, All teachers, Find a learner, Field visits, Counties & schools, Academic calendar) · Teaching & learning (Assignments & assessments, Results, Content library) · Surveys & forms (Forms, Kobo surveys, Survey results) · Data quality (Data issues, Device sync) · Reports · Users (Accounts, Approvals, Notifications sent) |
+| Platform Administration | Overview · Users & roles (Accounts, Permissions, Notifications sent) · Organisation setup (Counties & schools, Academic calendar, Classes, Subjects) · Data & integrations (KoboToolbox, Forms, Data quality, Device sync) · Dashboards & reports (Executive overview, Reach, Learning, Teacher development, Field operations, Digital resources, Survey results, M&E reports, Exports) · Audit & security (Audit log, Account activity) |
+| Programme Administration | Dashboard · Schools (All schools, All teachers, Find a learner, Field visits, Counties & schools, Academic calendar) · Teaching & learning (Assignments & assessments, Results, Content library) · Surveys & forms (Forms, Kobo surveys, Survey results) · Data quality (Data issues, Device sync) · Reports · Users (Accounts, Notifications sent) |
 | Monitoring & Evaluation | M&E overview · Results framework (Programmes & indicators, Indicator results) · Dashboards & reports (Executive overview, Reach, Learning, Teacher development, Field operations, Digital resources, M&E reports, Exports) · Data quality · Surveys & forms (Survey results, Kobo review, Form responses) · Schools (All schools, All teachers, Find a learner, Field visits) · Teaching & learning (Assignments & assessments, Results, Training register, Content library) |
 | Learning & Education | Dashboard · Schools (All schools, All teachers, Find a learner, Field visits, Device sync) · Teaching & learning (Assignments & assessments, Results, Training register) · Content library (Library, Subjects) · Forms · Dashboards & reports (Teacher development, Digital resources, Exports) |
 | Field Operations | Dashboard · My schools (Schools, Teachers) · My visits · Surveys & forms (Kobo surveys, Forms) · Reports |
-| School Management | Dashboard · My school (Profile, Teachers, Learners & classes, Assignments & results, Visits) · Learning resources · Reports |
+| School Management | Dashboard · My school (Teachers, Learners & classes, Assignments & results, Visits) · Learning resources · Reports |
 | Teaching & Learning | Dashboard · My classes (Classes, Class roster) · Assessments · Results · Learning resources (Library, Reading activity) · Reports |
 | My Learning | Home · My classes · My assignments · My progress (Progress, Reading activity) · Library |
 
@@ -964,3 +964,22 @@ figure changed.
 | M&E overview | 47-word About box + 40-word note | A link to record actuals, and the key |
 | Content library | 43 words on "time spent" | "an estimate, not reading time" |
 | Workspace questions | M&E 15 words, Education 13 | 7 and 9 (docs/RBAC.md updated) |
+
+## 22. One action, one place in the menus, 16 October 2026
+
+Every menu was checked for two entries that open the same page or do the
+same thing. Each pair is now one entry; what the second one did is on the
+page, so nothing can no longer be done.
+
+| Was | Now | What the merged entry did, and where it is now |
+| --- | --- | --- |
+| Account menu **Notifications** and the bell | The bell | Same panel. The account menu keeps My profile and Sign out |
+| Account menu **Sync center** and the sync chip | The sync chip | Same panel. The chip is named "Sync center — …" for screen readers |
+| **Accounts** and **Approvals** (Super Admin, Admin) | Accounts, with the approvals count | Approvals was Accounts filtered to waiting requests. Those are listed first anyway, and "N waiting for approval" in the count line shows just them. Old `#users?status=pending` links still filter |
+| **Audit log** and **Security events** (Super Admin) | Audit log | Security events was the log filtered. A **Show** choice on the page (All changes / Security events); `#audit?kind=security` still opens it filtered |
+| School head's **Profile**, beside Learners & classes, Visits and the Dashboard | Not listed | Its classes and learners by grade are on Learners & classes, its headline numbers on the Dashboard. Its visit part — total, last visit, Kobo submissions, the latest visits with who made them, who supports the school — is now the **Visits** page, which shows the dashboard's saved copy first, so it still works offline. Old links to `#school-profile` still open it |
+| Counties & schools: a second **Schools** list, to "View school" | The School list | The same schools twice. Choosing a school in the filters above still shows its figures under the list; the panel's "← All schools" was the × on the filter tag |
+
+Checked by a script over every workspace: no page is listed twice
+(`navigation_test.ts` holds the rule). Buttons repeated on a page are all
+per-row (one per school, class or indicator).

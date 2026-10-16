@@ -462,7 +462,7 @@ in-memory world in `test_world.ts`.
 `education.js`). New console pages: Platform overview, Administration
 overview, Academic calendar, Classes, Subjects, Learners, Teachers, School
 profiles, Assignments & assessments, Results, Training register, Field
-visits, Survey results, Permissions, Audit log / Security events, Account
+visits, Survey results, Permissions, Audit log (with security events), Account
 activity. Field officers gained Visit forms (was Reports), School profiles,
 Teachers and My activity; school heads gained School profile; every role
 gained My profile.

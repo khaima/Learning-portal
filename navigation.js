@@ -108,8 +108,9 @@ const c = (page, extra = {}) => ({ page, ...PAGES[page], ...extra });
    (navigation_test.ts holds that). The same page has the same name in
    every workspace, unless what the role does there is different (Kobo
    review for M&E). Names are plain words, not the portal's internals.
-   Account things — profile, notifications, the Sync center, sign out — are
-   in the menu under the person's name, not here. */
+   Account things are not here: profile and sign out are in the menu under
+   the person's name; notifications and the Sync center are the bell and the
+   sync chip in the top bar. One action, one place in the menus. */
 const entry = (id, label, icon, items, extra = {}) => ({ id, label, icon, items, ...extra });
 
 export const WORKSPACES = {
@@ -121,9 +122,7 @@ export const WORKSPACES = {
     groups: [
       entry("overview", "Overview", "dashboard", [c("platform-overview", { label: "Overview" })]),
       entry("users", "Users & roles", "users", [
-        c("users", { label: "Accounts", badge: undefined }), // the approvals count belongs on Approvals
-        c("users", { label: "Approvals", icon: "approve", hash: "#users?status=pending", heading: "Waiting for approval",
-          purpose: "People who asked to join. Approve or reject each request." }),
+        c("users", { label: "Accounts" }), // waiting requests are listed first, and its count filters to them
         c("permissions"),
         c("notifications", { label: "Notifications sent" }),
       ], { badge: "approvals" }),
@@ -138,8 +137,7 @@ export const WORKSPACES = {
         c("survey-results"), c("mel-reports"), c("reports", { label: "Exports" }),
       ]),
       entry("security", "Audit & security", "shield", [
-        c("audit"), c("audit", { label: "Security events", icon: "alert", hash: "#audit?kind=security",
-          purpose: "Changes to who can sign in and what they may do." }), c("account-activity"),
+        c("audit"), c("account-activity"), // security events: the audit log's own "Show" choice
       ]),
     ],
   },
@@ -158,9 +156,7 @@ export const WORKSPACES = {
       entry("data-quality", "Data quality", "check", [c("data-quality", { label: "Data issues" }), c("sync-problems")], { badge: "dataQuality" }),
       entry("reports", "Reports", "download", [c("reports", { label: "Reports" })]),
       entry("users", "Users", "users", [
-        c("users", { label: "Accounts", badge: undefined }), // the approvals count belongs on Approvals
-        c("users", { label: "Approvals", icon: "approve", hash: "#users?status=pending", heading: "Waiting for approval",
-          purpose: "People who asked to join. Approve or reject each request." }),
+        c("users", { label: "Accounts" }), // waiting requests are listed first, and its count filters to them
         c("notifications", { label: "Notifications sent" }),
       ], { badge: "approvals" }),
     ],
@@ -224,11 +220,12 @@ export const WORKSPACES = {
     groups: [
       entry("dashboard", "Dashboard", "dashboard", [{ page: "overview", label: "Dashboard", icon: "dashboard" }]),
       entry("school", "My school", "school", [
-        { page: "school-profile", label: "Profile", icon: "school", heading: "School profile", purpose: "Your school's classes, learners by grade, and recent visits." },
         { page: "teachers", label: "Teachers", icon: "teacher", purpose: "Your school's teachers, by type." },
         { page: "learners", label: "Learners & classes", icon: "cap", purpose: "Your school's learners and classes." },
         { page: "learning", label: "Assignments & results", icon: "results", purpose: "Work set in your school: handed in, and marks." },
         { page: "visits", label: "Visits", icon: "pin", purpose: "Field officers' visits to your school." },
+        // Its classes and learners are on Learners & classes, its visits on Visits; old links still open it.
+        { page: "school-profile", label: "Profile", icon: "school", heading: "School profile", purpose: "Your school's classes, learners by grade, and recent visits.", hidden: true },
       ]),
       entry("resources", "Learning resources", "book", [{ page: "resources", label: "Learning resources", icon: "book",
         purpose: "Resources for you, your teachers and your learners." }]),

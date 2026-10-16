@@ -20,7 +20,7 @@ import { startLibraryInteraction, completeLibraryInteraction, awardLibraryBadge,
 import { openViewer, openYouTubeViewer, viewableKind, isViewerOpen, currentOpenId, showBadgeCelebration } from "./viewer.js";
 import * as sync from "./sync.js";
 import { mountSyncStatus, openSyncPanel } from "./sync-ui.js";
-import { mountBell, openNotifications } from "./notify-ui.js";
+import { mountBell } from "./notify-ui.js";
 import { ICON, menuFor, ROLE_WORKSPACE, WORKSPACES, workspacesFor } from "./navigation.js";
 import { rawRequest } from "./api.js";
 
@@ -268,9 +268,10 @@ const ROLE_TEXT = {
   field_officer: "Field Officer", school_leader: "School Head", teacher: "Teacher", learner: "Learner",
 };
 
-/* Under the person's name: their profile, notifications (also the bell),
-   the Sync center (also the sync chip), and Sign out — the same on every
-   dashboard, so none of it takes a row in the menu. */
+/* Under the person's name: their profile and Sign out — the same on every
+   dashboard, so neither takes a row in the menu. Notifications and the Sync
+   center aren't repeated here: they're the bell and the sync chip, in the
+   top bar of every page. */
 function mountAccountMenu() {
   const menu = $("#sideMenu");
   if (!menu || menu.querySelector("[data-account-links]")) return;
@@ -278,12 +279,9 @@ function mountAccountMenu() {
   box.className = "side-menu-links";
   box.dataset.accountLinks = "";
   box.innerHTML = `
-    <a class="side-menu-link" href="#profile">${iconSvg("user")}My profile</a>
-    <a class="side-menu-link" href="#" data-open-notifications>${iconSvg("bell")}Notifications</a>
-    <a class="side-menu-link" href="#" data-open-sync-center>${iconSvg("sync")}Sync center</a>`;
+    <a class="side-menu-link" href="#profile">${iconSvg("user")}My profile</a>`;
   menu.prepend(box);
   menu.addEventListener("click", (e) => {
-    if (e.target.closest("[data-open-notifications]")) { e.preventDefault(); openNotifications(); }
     if (e.target.closest("a")) { menu.hidden = true; $("#sideUserBtn")?.setAttribute("aria-expanded", "false"); }
   });
 }

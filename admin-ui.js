@@ -633,9 +633,7 @@ export function schoolProfileHtml(d, { heading = true, link = () => "" } = {}) {
       ${kpiCard({ label: "Teachers", icon: "teacher", value: count(d.teachers), href: link("teachers"),
         sub: d.heads.length ? `School head: ${esc(d.heads.join(", "))}` : warnText("No school head yet") })}
       ${kpiCard({ label: "Learners", icon: "cap", value: count(d.learners), href: link("learners"), sub: `${d.classes.length} classes this year` })}
-      ${kpiCard({ label: "Field visits", icon: "pin", value: count(d.visits.total), href: link("visits"),
-        sub: d.visits.last ? `Last visit ${esc(ago(d.visits.last).toLowerCase())}` : "None yet" })}
-      ${kpiCard({ label: "Kobo submissions", icon: "survey", value: count(d.kobo.submissions), sub: `${d.kobo.counted} counted` })}
+      ${visitCards(d, link)}
     </div>
     <div class="body-grid">
       <div>
@@ -645,11 +643,27 @@ export function schoolProfileHtml(d, { heading = true, link = () => "" } = {}) {
         ${table(["Grade", "Learners"], d.learnersByGrade.map((g) => [esc(g.grade), g.learners]), "No learners enrolled yet — teachers add them to their classes.")}
       </div>
       <div>
-        <h3 class="mini-head">Recent visits</h3>
-        ${table(["Date", "Type", "Officer"], d.visits.recent.map((v) => [esc(fmtDay(v.date)), esc(v.type), esc(v.officer || "—")]), "No visits recorded yet.")}
-        <p class="hint">${d.supportedBy.length ? `Supported by ${esc(d.supportedBy.join(", "))}.` : "No field officer is assigned to this school yet."}</p>
+        ${recentVisits(d)}
       </div>
     </div>`;
+}
+const visitCards = (d, link = () => "") => `
+      ${kpiCard({ label: "Field visits", icon: "pin", value: count(d.visits.total), href: link("visits"),
+        sub: d.visits.last ? `Last visit ${esc(ago(d.visits.last).toLowerCase())}` : "None yet" })}
+      ${kpiCard({ label: "Kobo submissions", icon: "survey", value: count(d.kobo.submissions), sub: `${d.kobo.counted} counted` })}`;
+const recentVisits = (d) => `
+        <h3 class="mini-head">Recent visits${d.visits.total > d.visits.recent.length ? ` <span class="hint-inline">· latest ${d.visits.recent.length} of ${count(d.visits.total)}</span>` : ""}</h3>
+        ${table(["Date", "Type", "Officer"], d.visits.recent.map((v) => [esc(fmtDay(v.date)), esc(v.type), esc(v.officer || "—")]), "No visits recorded yet.")}
+        <p class="hint">${d.supportedBy.length ? `Supported by ${esc(d.supportedBy.join(", "))}.` : "No field officer is assigned to this school yet."}</p>`;
+/** A school head's Visits page: how many, the latest and who made them, who supports the school —
+    the visit part of the school page. False (and `el` left as it is) when it can't be read. */
+export async function renderSchoolVisits(el, schoolId) {
+  if (!schoolId) return false;
+  try {
+    const d = await apiGet(`/schools/${encodeURIComponent(schoolId)}/profile`);
+    el.innerHTML = `<div class="stat-row">${visitCards(d)}</div>${recentVisits(d)}`;
+    return true;
+  } catch { return false; }
 }
 
 /* ------------------------------------------------------------------ Schools: one module, everywhere

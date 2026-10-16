@@ -1010,26 +1010,16 @@ async function main() {
     const heading = $("#schoolsHeading");
     const body = $("#schoolsBody");
 
-    if (!s.school) {
-      heading.textContent = s.county ? `Schools — ${s.county}` : "Schools";
-      const schools = s.schools || [];
-      body.innerHTML = schools.length
-        ? schools.map((name) => `
-            <div class="task-row">
-              <div style="flex:1"><b>${esc(name)}</b></div>
-              <button type="button" class="pill" style="border:0;cursor:pointer" data-view-school="${esc(name)}">View school</button>
-            </div>`).join("")
-        : `<div class="empty-state">${emptyMsg("No schools recorded yet.")}</div>`;
-      return;
-    }
+    // Every school is in the School list above; with one picked in the filters, its figures show here.
+    body.closest(".panel").hidden = !s.school;
+    if (!s.school) return;
 
     heading.textContent = s.school;
     const r = s.byRole || {};
     const learnerTotal = (s.learnersByGrade || []).reduce((a, d) => a + d.value, 0);
     const pct = s.assignmentsTotal ? Math.round((s.assignmentsDone / s.assignmentsTotal) * 100) : null;
+    // Back to every school: the × on its filter tag above.
     body.innerHTML = `
-      <button type="button" id="schoolsBack" style="background:none;border:0;padding:0;color:var(--brand);font-weight:600;cursor:pointer;font-family:inherit;font-size:.82rem;margin-bottom:.7rem">← All schools</button>
-      <p class="hint" style="margin-top:0">${esc(s.school)}${s.county ? " · " + esc(s.county) : ""}</p>
       <div class="chart-stats" style="grid-template-columns:repeat(5,1fr)">
         <div><b>${r.teacher || 0}</b><span>Teachers</span></div>
         <div><b>${learnerTotal}</b><span>Learners</span></div>
@@ -1042,24 +1032,6 @@ async function main() {
   }
 
   $("#schoolsBody").addEventListener("click", (e) => {
-    const viewBtn = e.target.closest("[data-view-school]");
-    if (viewBtn) {
-      pickSchoolFilter(viewBtn.dataset.viewSchool);
-      updateFilterSummary();
-      renderStats();
-      renderUsersList();
-      renderUsage();
-      return;
-    }
-    if (e.target.id === "schoolsBack") {
-      gf.school = "";
-      renderGlobalFilterOptions();
-      updateFilterSummary();
-      renderStats();
-      renderUsersList();
-      renderUsage();
-      return;
-    }
     if (e.target.id === "schoolViewStaff") {
       $("#usersSearch").value = gf.school;
       location.hash = "#users";
@@ -2770,9 +2742,10 @@ async function main() {
     if (role) filtered = filtered.filter((u) => u.role === role);
 
     const pendingCount = allUsers.filter((u) => u.status === "pending").length;
-    $("#usersMeta").textContent = (filtered.length === allUsers.length
+    $("#usersMeta").innerHTML = esc(filtered.length === allUsers.length
       ? `${allUsers.length} account${allUsers.length === 1 ? "" : "s"}`
-      : `${filtered.length} of ${allUsers.length} accounts`) + (pendingCount ? ` · ${pendingCount} waiting for approval` : "");
+      : `${filtered.length} of ${allUsers.length} accounts`) + (pendingCount && status !== "pending"
+      ? ` · <button type="button" class="link-btn" data-users-pending>${pendingCount} waiting for approval</button>` : pendingCount ? ` · ${pendingCount} waiting for approval` : "");
 
     if (!filtered.length) {
       list.innerHTML = `<div class="empty-state">${emptyMsg("No accounts match your search.")}</div>`;
@@ -2808,6 +2781,12 @@ async function main() {
   $("#usersSearch").addEventListener("input", renderUsersList);
   $("#usersSort").addEventListener("change", renderUsersList);
   $("#usersStatus").addEventListener("change", renderUsersList);
+  $("#usersMeta").addEventListener("click", (e) => {
+    if (!e.target.closest("[data-users-pending]")) return;
+    const sel = $("#usersStatus");
+    sel.value = "pending";
+    sel.dispatchEvent(new Event("change", { bubbles: true })); // the list, and the control showing it's set
+  });
   $("#usersRole").addEventListener("change", renderUsersList);
 
   /* Status changes and approvals: what each one says before it happens. */
@@ -3138,9 +3117,10 @@ async function main() {
     if (!canOpen("audit")) return;
     auditShown = true;
     auditKind = kind;
-    $("#auditTitle").textContent = kind === "security" ? "Security events" : "Audit log";
+    $("#auditKind").value = kind;
+    $("#auditKind").classList.toggle("is-set", !!kind);
     $("#auditHint").textContent = kind === "security"
-      ? "Accounts approved, suspended or reactivated; roles, schools and data scope changed; permissions granted or revoked; passwords set; the Kobo connection. This record can't be edited or deleted."
+      ? "Changes to who can sign in and what they may do. This record can't be edited or deleted."
       : "This record can't be edited or deleted.";
     if (!more) { auditBefore = null; $("#auditList").innerHTML = skeleton(3, { avatar: false }); }
     try {
@@ -3158,6 +3138,7 @@ async function main() {
   // After an account change: refresh the log if it's been opened.
   function renderAuditPanel() { if (auditShown) renderAuditPage(); }
   $("#auditMore").addEventListener("click", () => renderAuditPage({ more: true }));
+  $("#auditKind").addEventListener("change", (e) => renderAuditPage({ kind: e.target.value }));
 
   /* ---- invitations ---- */
   function syncInviteFields() {

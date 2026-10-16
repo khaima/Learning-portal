@@ -60,6 +60,14 @@ Deno.test("menus: at most 7 rows, one home per page, and no two rows with the sa
   }
 });
 
+Deno.test("menus: one action, one place — no page listed twice, even as a filtered view, in any workspace", () => {
+  for (const [id, ws] of Object.entries(WORKSPACES) as [string, { groups: Entry[] }][]) {
+    const listed = ws.groups.flatMap((g) => g.items).filter((i) => i.page && !(i as { hidden?: boolean }).hidden).map((i) => i.page);
+    const twice = listed.filter((page, n) => listed.indexOf(page) !== n);
+    assertEquals(twice, [], `${id}: listed more than once — merge them, and put the filter on the page`);
+  }
+});
+
 Deno.test("menus: the field officer's menu is the small, task-focused one", () => {
   const rows = menuFor("field", permsOf("field_officer")).map((g: Entry) => g.label);
   assertEquals(rows, ["Dashboard", "My schools", "My visits", "Surveys & forms", "Reports"]);

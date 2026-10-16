@@ -55,6 +55,7 @@ export function mountSyncStatus() {
       <span class="sync-meta">${esc(syncLine(st))}${stuck ? ` · ${stuck} to check` : ""}</span>
       <span class="sync-count" aria-hidden="true">${st.pending || stuck ? st.pending + stuck : ""}</span>`;
     chip.title = `${label}. ${syncLine(st)}.`;
+    chip.setAttribute("aria-label", `Sync center — ${label}. ${syncLine(st)}${stuck ? `, ${stuck} to check` : ""}`);
   };
   render(sync.status());
   sync.onChange(render);

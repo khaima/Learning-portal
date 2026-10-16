@@ -45,9 +45,13 @@ async function main() {
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
   // The menu (navigation.js). Everything here is this school's only — the server makes sure.
   enableSortableTables(document.querySelector(".app-main") || document.body); // sorting, phone layouts, "Show all"
+  // My school › Visits: the dashboard's copy first (it works offline), then — with a connection —
+  // the school page's fuller view: totals, Kobo submissions, who visited and who supports the school.
+  let visitsDetailed = false;
   mountNavigation(user, {
     onPage(page) {
       if (page === "school-profile") adminUi().then((m) => m.renderSchoolProfile($("#spBody"), user.schoolId)).catch(pageFailed($("#spBody")));
+      if (page === "visits") adminUi().then((m) => m.renderSchoolVisits($("#visitList"), user.schoolId)).then((ok) => { if (ok) visitsDetailed = true; }).catch(() => {});
     },
   });
   $("#topSub").textContent = schoolLine(user);
@@ -122,7 +126,7 @@ async function main() {
   }
 
   function renderVisits() {
-    $("#visitList").innerHTML = overview.visits.length
+    if (!visitsDetailed) $("#visitList").innerHTML = overview.visits.length
       ? overview.visits.map(visitRow).join("")
       : `<div class="empty-state"><b>No field visits recorded yet.</b><div>Visits by your field officer appear here once they're filed.</div></div>`;
     $("#visitSummary").innerHTML = overview.visits.length
@@ -192,12 +196,13 @@ async function main() {
   // overview-driven panel with the same error+retry when that happens;
   // reporting status/attention (forms-derived) still render normally.
   let overviewFailed = false;
-  const OVERVIEW_TARGETS = ["#statRow", "#learningByGrade", "#learnersByGrade", "#teacherStatRow", "#teacherTypeList", "#visitSummary", "#visitList"];
+  const OVERVIEW_TARGETS = ["#statRow", "#learningByGrade", "#learnersByGrade", "#teacherStatRow", "#teacherTypeList", "#visitSummary"];
 
   function renderAllOverview() {
     if (overviewFailed) {
       const msg = errorState("Couldn't load your school's data — check your connection and try again.", loadOverview);
       OVERVIEW_TARGETS.forEach((sel) => { const el = $(sel); if (el) el.innerHTML = msg; });
+      if (!visitsDetailed) $("#visitList").innerHTML = msg;
     } else {
       renderKpis();
       renderLearningByGrade();
