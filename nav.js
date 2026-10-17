@@ -331,17 +331,14 @@ export function mountNavigation(user, { workspace, onPage } = {}) {
     main.appendChild(sec);
   }
 
-  // ---- the menu: a row per area. An area with one page is a link; an area
-  // with several opens in place to list them — one at a time: the one you're
-  // in, or the one you just opened, so the menu stays short. On the collapsed
-  // icon rail an area's pages appear beside it on hover or focus; in the
-  // phone drawer the areas open in place. Someone who may open more than
-  // one workspace (a Super Admin) switches between them at the top.
+  // ---- the menu: one row per area, each a link to the area's first page.
+  // Nothing opens under it: the area's pages are tabs across the top of the
+  // page (drawTabs). Someone who may open more than one workspace (a Super
+  // Admin) switches between them at the top.
   const items = groups.flatMap((g) => g.items);
   const switchable = workspacesFor(user.role);
   const badgeCounts = {};
   const badgeHtml = (key) => (key ? `<span class="nav-badge" data-badge="${escText(key)}"${badgeCounts[key] ? "" : " hidden"}>${escText(badgeText(badgeCounts[key]))}</span>` : "");
-  const chevron = `<svg class="icon chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>`;
   nav.setAttribute("aria-label", `${ws.title} menu`);
   nav.innerHTML = (switchable.length > 1 ? `
     <details class="ws-switch">
@@ -352,32 +349,14 @@ export function mountNavigation(user, { workspace, onPage } = {}) {
     </details>` : "")
     + `<ul class="side-items">${groups.map((g) => {
       const label = escText(g.label);
-      if (g.items.length === 1) {
-        return `<li class="side-entry" data-entry="${escText(g.id)}"><a class="side-link" href="${escText(hrefOf(g.items[0]))}" title="${label}">${iconSvg(g.icon)}<span class="side-label">${label}</span>${badgeHtml(g.badge || g.items[0].badge)}</a></li>`;
-      }
-      const sub = `side-sub-${escText(g.id)}`;
-      return `<li class="side-entry has-sub" data-entry="${escText(g.id)}">
-        <button type="button" class="side-link side-toggle" aria-expanded="false" aria-controls="${sub}" title="${label}">${iconSvg(g.icon)}<span class="side-label">${label}</span>${badgeHtml(g.badge)}${chevron}</button>
-        <ul class="side-sub" id="${sub}"><li class="side-sub-title" aria-hidden="true">${label}</li>${g.items.map((it, i) =>
-          `<li${it.hidden ? " hidden" : ""}><a class="side-sublink" href="${escText(hrefOf(it))}" data-item="${i}">${escText(it.label)}${badgeHtml(it.badge)}</a></li>`).join("")}</ul>
-      </li>`;
+      const first = g.items.find((it) => !it.hidden) || g.items[0];
+      const tabs = g.items.filter((it) => !it.hidden).length > 1;
+      return `<li class="side-entry${tabs ? " has-tabs" : ""}" data-entry="${escText(g.id)}"><a class="side-link" href="${escText(hrefOf(first))}" title="${label}">${iconSvg(g.icon)}<span class="side-label">${label}</span>${badgeHtml(g.badge || (tabs ? "" : first.badge))}</a></li>`;
     }).join("")}</ul>`
     + `<button type="button" class="side-rail-btn" title="Collapse the menu" aria-label="Collapse the menu">
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg><span class="side-label">Collapse menu</span></button>`;
 
-  const setOpen = (li, on) => {
-    li.classList.toggle("open", on);
-    li.querySelector(":scope > .side-toggle")?.setAttribute("aria-expanded", String(on));
-  };
   nav.addEventListener("click", (e) => {
-    const toggle = e.target.closest(".side-toggle");
-    if (toggle) {
-      const li = toggle.closest(".side-entry");
-      const on = !li.classList.contains("open");
-      if (on) for (const other of nav.querySelectorAll(".side-entry.open")) setOpen(other, false);
-      setOpen(li, on);
-      return;
-    }
     if (e.target.closest(".side-rail-btn")) {
       const rail = !$(".app-shell").classList.contains("nav-rail");
       $(".app-shell").classList.toggle("nav-rail", rail);
@@ -394,38 +373,38 @@ export function mountNavigation(user, { workspace, onPage } = {}) {
     trail.setAttribute("aria-label", "Where you are");
     ($(".app-top", main) ?? main.firstElementChild)?.after(trail);
   }
+  // ---- the pages of the area you're in, as tabs across the top of the page
+  let tabsBar = $(".area-tabs");
+  if (!tabsBar && main) {
+    tabsBar = document.createElement("nav");
+    tabsBar.className = "area-tabs";
+    tabsBar.hidden = true;
+    ($(".app-top", main) ?? main.firstElementChild)?.after(tabsBar); // above the trail
+  }
+  function drawTabs(g, item) {
+    if (!tabsBar) return;
+    // A page kept for old links (or opened from a dashboard's card) is a tab only while it's the one open.
+    const list = g ? g.items.filter((it) => !it.hidden || it === item) : [];
+    tabsBar.hidden = list.length < 2;
+    if (tabsBar.hidden) { tabsBar.innerHTML = ""; return; }
+    tabsBar.setAttribute("aria-label", g.label);
+    tabsBar.innerHTML = list.map((it) => `<a class="area-tab" href="${escText(hrefOf(it))}"${it === item ? ' aria-current="page"' : ""}${it.purpose ? ` title="${escText(it.purpose)}"` : ""}>${escText(it.label)}${badgeHtml(it.badge)}</a>`).join("");
+  }
+
   function drawTrail(g, item, page, via = null) {
     if (!trail) return;
-    const home = groups[0];
     // Opened from a dashboard: the trail is the way back to it — the dashboard
     // keeps the county, school and dates it had.
     if (via) {
-      const [vg, vi] = via;
-      const viaDeeper = vg.items.length > 1 && vi.label !== vg.label && vg !== home;
+      const [, vi] = via;
       trail.hidden = false;
-      trail.innerHTML = `<ol class="crumbs">${[
-        `<li><a href="${escText(hrefOf(home.items[0]))}">${escText(ws.title)}</a></li>`,
-        ...(viaDeeper ? [`<li><a href="${escText(hrefOf(vg.items[0]))}">${escText(vg.label)}</a></li>`] : []),
-        vg === home && vg.items.length === 1 ? "" : `<li><a href="${escText(hrefOf(vi))}">${escText(vi.label)}</a></li>`,
-        `<li aria-current="page">${escText(item?.label || g?.label || page)}</li>`,
-      ].join("")}</ol>`;
+      trail.innerHTML = `<ol class="crumbs"><li><a href="${escText(hrefOf(vi))}">${escText(vi.label)}</a></li><li aria-current="page">${escText(item?.label || g?.label || page)}</li></ol>`;
       return;
     }
-    if (page === "profile") {
-      trail.hidden = false;
-      trail.innerHTML = `<ol class="crumbs"><li><a href="${escText(hrefOf(home.items[0]))}">${escText(ws.title)}</a></li><li aria-current="page">My profile</li></ol>`;
-      return;
-    }
-    if (!g || (g === home && g.items.length === 1)) { trail.hidden = true; trail.innerHTML = ""; return; }
-    // An area's page named like the area ("My visits") ends the trail at the area.
-    const deeper = g.items.length > 1 && item && item.label !== g.label;
-    const crumbs = [
-      `<li><a href="${escText(hrefOf(home.items[0]))}">${escText(ws.title)}</a></li>`,
-      deeper ? `<li><a href="${escText(hrefOf(g.items[0]))}">${escText(g.label)}</a></li>` : `<li aria-current="page">${escText(g.label)}</li>`,
-      ...(deeper ? [`<li aria-current="page">${escText(item.label)}</li>`] : []),
-    ];
-    trail.hidden = false;
-    trail.innerHTML = `<ol class="crumbs">${crumbs.join("")}</ol>`;
+    // Otherwise the menu and the tabs say where you are. The trail waits for
+    // a page that goes deeper — a school inside All schools (extendTrail).
+    trail.hidden = true;
+    trail.innerHTML = page === "profile" || !g ? "" : `<ol class="crumbs"><li aria-current="page">${escText(item?.label || g.label)}</li></ol>`;
   }
 
   // ---- which pages this person may open: every item of every entry
@@ -457,25 +436,15 @@ export function mountNavigation(user, { workspace, onPage } = {}) {
     }
     pages.forEach((p) => { p.hidden = p.dataset.page !== page; });
     const [g, item] = page === "profile" ? [null, null] : locate(page, raw);
-    // The area you're in is marked and open; inside it, the page you're on.
+    // The area you're in is lit in the menu; its pages are the tabs above the page.
     for (const li of entries) {
       const here = li.dataset.entry === g?.id;
       li.classList.toggle("current", here);
-      if (!li.classList.contains("has-sub")) {
-        const link = li.querySelector(":scope > .side-link");
-        if (here) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
-        continue;
-      }
-      setOpen(li, here);
-      const list = byEntry.get(li.dataset.entry).items;
-      const at = here ? list.indexOf(item) : -1;
-      for (const a of li.querySelectorAll(".side-sublink")) {
-        const i = Number(a.dataset.item);
-        if (i === at) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
-        // A page kept for old links is listed only while it's the one open.
-        if (list[i].hidden) a.parentElement.hidden = i !== at;
-      }
+      const link = li.querySelector(":scope > .side-link");
+      if (here) link.setAttribute("aria-current", byEntry.get(li.dataset.entry).items.length === 1 ? "page" : "true");
+      else link.removeAttribute("aria-current");
     }
+    drawTabs(g, item);
     const viaPage = params.get("via");
     const via = viaPage && viaPage !== page && allowed.has(viaPage) ? locate(viaPage, viaPage) : [null, null];
     drawTrail(g, item, page, via[0] && via[1] ? via : null);
@@ -489,7 +458,10 @@ export function mountNavigation(user, { workspace, onPage } = {}) {
       filterBar.dataset.fields = item?.filters ? fields.join(" ") : "";
     }
     const home = page === landing;
-    const heading = page === "profile" ? "My profile" : item?.heading || item?.label || g?.label || ws.title;
+    // An area with tabs is named once, above them; the tab says which of its pages this is.
+    const tabbed = g && tabsBar && !tabsBar.hidden;
+    const pageName = page === "profile" ? "My profile" : item?.heading || item?.label || g?.label || ws.title;
+    const heading = tabbed ? g.label : pageName;
     const purpose = page === "profile" ? "Your details, what your role lets you do, and your password." : item?.purpose || "";
     homeHead.forEach((el) => { el.hidden = !home; });
     if (pageHead) {
@@ -501,7 +473,7 @@ export function mountNavigation(user, { workspace, onPage } = {}) {
       pageHead.querySelector(".top-purpose").hidden = true;
     }
     main?.classList.toggle("is-home", home);
-    document.title = `${heading} — ${ws.title}`;
+    document.title = `${pageName} — ${ws.title}`;
     window.scrollTo(0, 0);
     if (page === "profile") {
       import("./profile-ui.js").then((m) => m.renderProfile($('.dash-page[data-page="profile"]'), user)).catch(() => {});
@@ -542,6 +514,7 @@ export function extendTrail(parts) {
   const ol = $(".page-trail .crumbs");
   if (!ol) return;
   ol.querySelectorAll("[data-extra]").forEach((li) => li.remove());
+  if (parts.length) ol.closest(".page-trail").hidden = false;
   const last = ol.querySelector("li[aria-current]");
   if (last && parts.length) {
     last.removeAttribute("aria-current");
@@ -623,8 +596,8 @@ if (appShell && appTop && appSide) {
   closeBtn.addEventListener("click", () => closeMenu({ refocus: true }));
   backdrop.addEventListener("click", () => closeMenu());
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu({ refocus: true }); });
-  // Picking a page closes the drawer; opening or closing an area doesn't.
-  $(".side-nav")?.addEventListener("click", (e) => { if (e.target.closest("a.side-link, a.side-sublink, a.ws-link")) closeMenu(); });
+  // Picking an area (or another workspace) closes the drawer.
+  $(".side-nav")?.addEventListener("click", (e) => { if (e.target.closest("a.side-link, a.ws-link")) closeMenu(); });
   setInert();
 }
 

@@ -13,8 +13,8 @@
    (docs/RBAC.md has the full model.)
 
    Entry (a sidebar row): { id, label, icon, items: [Item…], badge? } — one
-           item is a page; several make an area that opens in the sidebar
-           to list them (docs/NAVIGATION.md §15).
+           item is a page; several make an area, a sidebar link whose pages
+           are tabs across the top of the page (docs/NAVIGATION.md §24).
    Item:  { page, label, icon, needs?: [any of these permissions],
            hash?: "#page?param=…" (a filtered view of a page),
            hidden?: true (opens — old links, links from inside the area —
@@ -105,9 +105,9 @@ const AREA_DASHBOARDS = () => ["reach", "learning", "teacher-development", "fiel
 
 /* ---- the menus: one entry per area (docs/NAVIGATION.md §15) ----
    A workspace's `groups` are its sidebar entries, in order — at most seven.
-   An entry with one item is a page; an entry with several is an AREA that
-   opens in the sidebar to list its pages (nav.js), with a breadcrumb above
-   each page. A page has one home per workspace: it's in one entry only
+   An entry with one item is a page; an entry with several is an AREA: its
+   sidebar link opens the first page, and its pages are tabs across the top
+   (nav.js). A page has one home per workspace: it's in one entry only
    (navigation_test.ts holds that). The same page has the same name in
    every workspace, unless what the role does there is different (Kobo
    review for M&E). Names are plain words, not the portal's internals.

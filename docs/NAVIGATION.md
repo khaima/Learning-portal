@@ -597,7 +597,7 @@ them. Every page and every permission is as it was; nothing was removed.
 **The sidebar is the whole map.** Each row is an area. An area with one page
 is a link; an area with several opens in place to list them, with a chevron.
 The area you're in is open and lit; the page you're on has the orange edge.
-One area is open at a time — the one you're in, or the one you just opened (§23). The tab strip above the
+(Superseded by §24: the sidebar now lists only the areas; an area's pages are tabs across the top of the page.) The tab strip above the
 page is gone — its pages are in the sidebar instead, so nothing is listed
 twice.
 
@@ -1027,3 +1027,41 @@ is still there:
 
 Counted on the 55 pages: words other than data 4,387 → 3,839 (the top of
 each page 668 → 448, notes 487 → 360, chart titles and captions 690 → 556).
+
+## 24. Areas in the sidebar, their pages as tabs, 17 October 2026
+
+Asked for: menus that don't drop down — click **Schools** and the Schools
+pages appear across the top of the page.
+
+**The sidebar is the areas, nothing else.** Each row is a link; clicking
+an area opens its first page. Nothing opens under it, so the sidebar is
+never longer than seven rows (plus the workspace switch for a Super Admin).
+The phone drawer is the same short list, and the folded icon rail needs no
+pop-outs.
+
+**An area's pages are tabs across the top**, under its name:
+
+    Schools
+    All schools   All teachers   Find a learner   Field visits   Counties & schools   Academic calendar
+    ───────────   ━━━━━━━━━━━━
+
+- The area is the page heading; the tab you're on is underlined (and says
+  which page it is to a screen reader, `aria-current="page"`). The page's
+  one-line purpose is the tab's tooltip.
+- A count (approvals, Kobo submissions to review) is on its tab while you're
+  in the area, on the sidebar row otherwise — never twice.
+- A page kept for old links, or opened from a dashboard's card (Reach and
+  the other area dashboards), is a tab only while it's the one open.
+- An area with one page has no tabs.
+- On a phone the tabs wrap onto further rows as chips — every page in
+  view, nothing to scroll sideways to find.
+
+**The breadcrumb only where it adds something:** after drilling down from
+a dashboard it is the way back ("Executive overview › Reach", keeping the
+filters), and inside a school it is "All schools › Aitong Primary ›
+Teachers" above the school's own tabs. Otherwise the lit sidebar row and
+the tabs say where you are. (A school's page lost its "← All schools" link:
+the breadcrumb and the All schools tab already go there.)
+
+Built in `nav.js` (`drawTabs`), styled as `.area-tabs` in `app.css`; the
+menus themselves (`navigation.js`) are unchanged.

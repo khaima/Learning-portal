@@ -707,7 +707,6 @@ export async function renderSchoolsModule(el, { params = new URLSearchParams(), 
   const at = (t) => `${base}?school=${encodeURIComponent(id)}${t === "overview" ? "" : `&tab=${t}`}`;
   el.innerHTML = `
     <div class="school-head">
-      <a class="back-link" href="${esc(base)}">← All schools</a>
       <div class="school-title"><h2>${esc(school.name)}</h2>
         <span class="chart-meta" style="margin:0"><span class="code-chip">${esc(school.code)}</span> · ${esc(school.county)} County</span></div>
       <div class="school-actions">${actions(school)}</div>

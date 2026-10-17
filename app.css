@@ -177,7 +177,8 @@
   .panel-head a,.panel-head button:not(.btn):not(.live-btn),.intel-link,.cc-go,.link-btn,.th-sort,.page-trail a,.chart-note a,.bars-link{ min-height:44px; display:inline-flex; align-items:center; }
   .page-trail .crumbs{ row-gap:0; }
   .filter-summary .gf-x{ min-width:36px; min-height:36px; }
-  .side-link,.side-sublink,.side-toggle{ min-height:44px; }
+  .side-link,.area-tab{ min-height:44px; }
+  input[type=file]{ min-height:44px; } /* the upload's own button */
   .live-btn{ min-height:40px; }
   .toast-close{ min-width:40px; min-height:40px; }
   input[type=checkbox],input[type=radio]{ width:1.5rem; height:1.5rem; }
@@ -187,7 +188,7 @@
   summary{ min-height:44px; display:flex; align-items:center; }
   .chart-card-head a,.app-side :is(a,button,summary){ min-height:44px; }
   .chart-card-head a{ display:inline-flex; align-items:center; }
-  .app-side :is(a,button):not(.side-link):not(.side-sublink):not(.side-toggle){ display:flex; align-items:center; }
+  .app-side :is(a,button):not(.side-link){ display:flex; align-items:center; }
   /* Every other button on a page, and the links that act as one (a title in a table, "see all"). */
   .app-main button:not(.th-sort):not(.gf-x):not(.bars-link):not(.toast-close){ min-height:44px; min-width:44px; }
   .app-main td a,.shelf-more,.lib-card a{ min-height:44px; display:inline-flex; align-items:center; }
@@ -1367,12 +1368,10 @@ a.btn.form-open{ margin-bottom:.2rem; }
 .fc-due input{ border:1.5px solid var(--line); border-radius:var(--radius-sm); padding:.3rem .45rem; font:inherit; font-size:.8rem; background:var(--paper-raised); color:var(--ink); }
 
 /* ================================================================ ROLE MENUS (nav.js + navigation.js)
-   Each person's sidebar: a row per area (at most seven). An area with
-   several pages opens in place to list them — the one you're in is open,
-   ones you open stay open. The page you're on carries the orange edge; the
-   area it's in is lit. On wide screens the menu can fold to an icon rail,
-   where an area's pages appear beside it on hover or focus. Below 860px it
-   is the off-canvas drawer above. */
+   Each person's sidebar: a row per area (at most seven), each a link. The
+   area you're in is lit; its pages are the tabs across the top of the page
+   (.area-tabs). On wide screens the menu can fold to an icon rail. Below
+   860px it is the off-canvas drawer above. */
 .side-nav{ gap:.1rem; overflow-y:auto; min-height:0; }
 /* The menu runs the full height of the window, however short the page. */
 @media (min-width:861px){ .app-side{ height:100vh; max-height:100vh; position:sticky; top:0; } }
@@ -1380,25 +1379,9 @@ a.btn.form-open{ margin-bottom:.2rem; }
 .side-entry{ position:relative; }
 button.side-link{ width:100%; border:0; background:none; font:inherit; font-size:.87rem; text-align:left; }
 .side-link .side-label{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.side-link .chev{ width:15px; height:15px; flex:none; opacity:.55; transition:transform .15s ease; }
-.side-entry.open > .side-toggle .chev{ transform:rotate(90deg); }
-.side-entry.current > .side-toggle{ color:#fff; }
-.side-entry.current > .side-toggle .icon:not(.chev){ opacity:1; }
-.side-link[aria-current="page"]{ background:rgba(255,255,255,.14); color:#fff; box-shadow:inset 3px 0 0 var(--accent); }
-/* An open area's count shows on the page it belongs to, not twice. */
-.side-entry.open > .side-toggle .nav-badge{ display:none; }
-.side-sub{ display:none; flex-direction:column; gap:.06rem; list-style:none; margin:.1rem 0 .4rem 1.45rem; padding:0 0 0 .6rem; border-left:1px solid rgba(255,255,255,.16); }
-.side-entry.open > .side-sub{ display:flex; }
-.side-sub > li[hidden]{ display:none; }
-.side-sub-title{ display:none; }
-.side-sublink{
-  display:flex; align-items:center; gap:.5rem; padding:.42rem .6rem; border-radius:8px;
-  color:rgba(255,255,255,.74); font-size:.83rem; font-weight:500; line-height:1.3; text-decoration:none;
-}
-.side-sublink:hover{ background:rgba(255,255,255,.07); color:#fff; }
-.side-sublink:focus-visible{ outline:2px solid rgba(255,255,255,.55); outline-offset:1px; }
-.side-sublink[aria-current="page"]{ background:rgba(255,255,255,.14); color:#fff; font-weight:600; box-shadow:inset 3px 0 0 var(--accent); }
-.side-sublink .nav-badge{ margin-left:auto; }
+.side-link[aria-current]{ background:rgba(255,255,255,.14); color:#fff; box-shadow:inset 3px 0 0 var(--accent); }
+/* In an area with tabs, its count is on its tab, not twice. */
+.side-entry.has-tabs.current .nav-badge{ display:none; }
 .nav-badge{
   min-width:1.3rem; height:1.3rem; padding:0 .35rem; border-radius:999px; background:var(--accent-strong); color:#fff;
   font-size:.68rem; font-weight:700; display:inline-flex; align-items:center; justify-content:center; flex:none;
@@ -1414,19 +1397,9 @@ button.side-link{ width:100%; border:0; background:none; font:inherit; font-size
   .app-shell.nav-rail{ grid-template-columns:4.4rem 1fr; }
   .nav-rail .app-side{ z-index:30; padding-left:.6rem; padding-right:.6rem; }
   .nav-rail .side-nav{ overflow:visible; }
-  .nav-rail .wordmark-text, .nav-rail .side-label, .nav-rail .side-link .chev, .nav-rail .side-user div{ display:none; }
+  .nav-rail .wordmark-text, .nav-rail .side-label, .nav-rail .side-user div{ display:none; }
   .nav-rail .side-link{ justify-content:center; padding:.55rem; position:relative; }
   .nav-rail .nav-badge{ position:absolute; top:.15rem; right:.15rem; min-width:1rem; height:1rem; font-size:.6rem; padding:0 .25rem; }
-  .nav-rail .side-entry.open > .side-toggle .nav-badge:not([hidden]){ display:inline-flex; }
-  .nav-rail .side-entry.current > .side-toggle{ background:rgba(255,255,255,.14); box-shadow:inset 3px 0 0 var(--accent); }
-  /* On the rail an area's pages appear beside it, on hover or keyboard focus. */
-  .nav-rail .side-entry > .side-sub{ display:none; }
-  .nav-rail .side-entry.has-sub:hover > .side-sub,.nav-rail .side-entry.has-sub:focus-within > .side-sub{
-    display:flex; position:absolute; top:0; left:100%; z-index:5; min-width:13.5rem; margin:0; padding:.45rem;
-    border:1px solid rgba(255,255,255,.12); border-radius:10px; background:var(--panel-deep); box-shadow:0 12px 30px -10px rgba(0,0,0,.5);
-  }
-  .nav-rail .side-sub .nav-badge{ position:static; min-width:1.3rem; height:1.3rem; padding:0 .35rem; font-size:.68rem; }
-  .nav-rail .side-sub-title{ display:block; padding:.3rem .6rem .4rem; font-size:.66rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:rgba(255,255,255,.6); }
   .nav-rail .side-rail-btn{ justify-content:center; }
   .nav-rail .side-rail-btn .icon{ transform:rotate(180deg); }
 }
@@ -1441,9 +1414,30 @@ button.side-link{ width:100%; border:0; background:none; font:inherit; font-size
   .side-close:hover{ background:rgba(255,255,255,.18); }
   .side-close:focus-visible{ outline:2px solid rgba(255,255,255,.7); outline-offset:2px; }
   .app-side .wordmark{ padding-right:2.6rem; }
-  .side-link,.side-sublink{ min-height:44px; } /* finger-sized rows */
+  .side-link{ min-height:44px; } /* finger-sized rows */
 }
-@media (prefers-reduced-motion: reduce){ .side-link .chev{ transition:none; } }
+
+/* An area's pages, across the top of the page (nav.js drawTabs): every one
+   in view, the one you're on underlined. On a phone they wrap onto a second
+   row rather than scroll out of sight. */
+.area-tabs{ display:flex; flex-wrap:wrap; gap:.15rem 1.5rem; margin:-.2rem 0 1.2rem; border-bottom:1px solid var(--line); }
+.area-tabs[hidden]{ display:none; }
+.area-tab{
+  position:relative; display:inline-flex; align-items:center; gap:.45rem; padding:.55rem .1rem .7rem;
+  color:var(--ink-soft); font-size:.9rem; font-weight:600; text-decoration:none; white-space:nowrap;
+}
+.area-tab:hover{ color:var(--ink); }
+.area-tab[aria-current="page"]{ color:var(--brand-fg); }
+.area-tab[aria-current="page"]::after{ content:""; position:absolute; left:0; right:0; bottom:-1px; height:3px; border-radius:3px 3px 0 0; background:var(--accent); }
+.area-tab:focus-visible{ outline:2px solid var(--focus); outline-offset:2px; border-radius:4px; }
+@media (max-width:640px){
+  /* Wrapped rows: chips, so the one you're on doesn't rely on a line under it. */
+  .area-tabs{ gap:.4rem; padding-bottom:.8rem; }
+  .area-tab{ padding:.5rem .8rem; border-radius:999px; background:var(--paper-raised); border:1px solid var(--line); font-size:.84rem; min-height:44px; }
+  .area-tab[aria-current="page"]{ background:var(--brand-soft); border-color:var(--brand); }
+  .area-tab[aria-current="page"]::after{ content:none; }
+}
+@media print{ .area-tabs{ display:none; } }
 
 /* ---- one row per module (navigation.js); Switch workspace for a Super Admin ---- */
 .ws-switch{ margin:0 0 .6rem; border:1px solid rgba(255,255,255,.14); border-radius:10px; }
@@ -1500,8 +1494,6 @@ button.side-link{ width:100%; border:0; background:none; font:inherit; font-size
 
 /* ---- a school's page (admin-ui.js, Schools): back, name, actions, its tabs ---- */
 .school-head{ display:flex; flex-wrap:wrap; align-items:flex-end; gap:.4rem 1rem; margin-bottom:.8rem; }
-.school-head .back-link{ flex-basis:100%; font-size:.82rem; font-weight:600; color:var(--brand); text-decoration:none; }
-.school-head .back-link:hover{ text-decoration:underline; }
 .school-title{ flex:1; min-width:12rem; }
 .school-title h2{ margin:0 0 .15rem; }
 .school-actions{ display:flex; gap:.5rem; flex-wrap:wrap; }
