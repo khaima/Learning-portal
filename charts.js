@@ -368,7 +368,7 @@ export function heatmap(rows, cols, { corner = "", caption = "", noun = "", tota
     average mark, in tens. Columns side by side on one scale, each with its
     count, the ranges' edges beneath. Colour only where the ranges mean
     something of their own (the achievement bands), named in the key.
-      bins   [{ from, to, value, colour? }]   in order
+      bins   [{ from, to, value, colour? }]   in order; the last `to` may be null ("60 or more")
       unit   "%" after the last edge and in the tooltip
       noun   what is counted ("learners")
       key    [{ label, colour, value }]   what the colours mean, with their counts */
@@ -378,7 +378,7 @@ export function histogram(bins, { unit = "", noun = "", key = [], title = "", em
   if (!total) return none(empty);
   const top = niceTop(Math.max(...list.map((b) => b.value)));
   const yLabels = [top, top / 2, 0].map((v) => show(v));
-  const range = (b) => `${b.from}–${b.to}${unit}`;
+  const range = (b) => (b.to == null ? `${b.from}${unit} or more` : `${b.from}–${b.to}${unit}`);
   const edges = [...list.map((b) => b.from), list.at(-1).to];
   const said = `${title ? `${title}: ` : ""}${list.map((b) => `${range(b)}: ${num(b.value)}`).join(", ")}`;
   return `<div class="hist" role="img" aria-label="${esc(said)}">
@@ -386,8 +386,29 @@ export function histogram(bins, { unit = "", noun = "", key = [], title = "", em
     <div class="hist-plot"><i class="lc-grid" style="bottom:100%"></i><i class="lc-grid" style="bottom:50%"></i>${list.map((b) => `<div class="hist-col"${
       tip(range(b), [[num(b.value), noun, b.colour], [`${share(b.value, total)}%`, `of ${num(total)}`]])}>${
       b.value ? `<b>${num(b.value)}</b><i style="height:${((b.value / top) * 100).toFixed(1)}%;background:${b.colour || "var(--chart-1)"}"></i>` : ""}</div>`).join("")}</div>
-    <div class="hist-x" aria-hidden="true">${edges.map((e, i) => `<span>${num(e)}${i === edges.length - 1 ? unit : ""}</span>`).join("")}</div>
+    <div class="hist-x" aria-hidden="true">${edges.map((e, i) => `<span>${e == null ? "" : `${num(e)}${i === edges.length - 1 ? unit : ""}`}</span>`).join("")}</div>
   </div>${key.length ? keyList(key, total, { colours: [], noun, compact: true }) : ""}`;
+}
+
+/* ------------------------------------------------------------ how learners' marks spread */
+
+/** Learners' averages in tens, each range with the band it falls in — as the API's marksHistogram. */
+export function marksBins(averages, bands = []) {
+  const byMin = [...bands].sort((a, b) => b.minPercent - a.minPercent);
+  const bandOf = (p) => byMin.find((b) => p >= b.minPercent)?.code ?? byMin.at(-1)?.code ?? null;
+  return Array.from({ length: 10 }, (_, i) => ({
+    from: i * 10, to: i === 9 ? 100 : i * 10 + 9, band: bandOf(i * 10),
+    value: averages.filter((v) => (i === 9 ? v >= 90 : v >= i * 10 && v < i * 10 + 10)).length,
+  }));
+}
+/** The marks histogram every page uses: the ranges coloured by band (bands best first, as the
+    API sends them), the band totals in the key. */
+export function marksSpread(bins, bands = [], { empty = "No marked work yet." } = {}) {
+  const colourOf = (code) => { const i = bands.findIndex((b) => b.code === code); return i >= 0 ? `var(--band-${i + 1})` : "var(--chart-1)"; };
+  return histogram(bins.map((b) => ({ ...b, colour: colourOf(b.band) })), {
+    unit: "%", noun: "learners", title: "Learners by average mark", empty,
+    key: bands.map((b, i) => ({ label: `${b.code} — ${b.label}`, colour: `var(--band-${i + 1})`, value: bins.filter((x) => x.band === b.code).reduce((t, x) => t + x.value, 0) })),
+  });
 }
 
 /* ------------------------------------------------------------ tooltips

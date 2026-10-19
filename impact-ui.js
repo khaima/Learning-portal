@@ -28,7 +28,7 @@
 import { esc, formatDuration, skeleton } from "./util.js";
 import { fmtValue, ragPill } from "./mel-format.js";
 import { ICON } from "./navigation.js";
-import { barList as bars0, heatmap as heat0, histogram as hist0, lineChart as line0, monthPoints, proportion as parts0, stackBar as stack0, TARGET_KEY, targetList, termPoints, trendOrBars as trend0 } from "./charts.js";
+import { barList as bars0, heatmap as heat0, lineChart as line0, marksSpread, monthPoints, proportion as parts0, stackBar as stack0, TARGET_KEY, targetList, termPoints, trendOrBars as trend0 } from "./charts.js";
 import { kpiCard, periodTrend, termName } from "./kpi.js";
 
 const pct = (v) => (v == null ? "—" : `${Math.round(v)}%`);
@@ -106,7 +106,6 @@ const trendOrBars = (points, o = {}) => trend0(points, { empty: none(o.noun), ..
 const proportion = (parts, o = {}) => parts0(parts, { empty: none(o.noun), ...o });
 const stackBar = (parts, o = {}) => stack0(parts, { empty: none(o.noun), ...o });
 const heatmap = (rows, cols, o = {}) => heat0(rows, cols, { empty: none(o.noun), ...o });
-const histogram = (bins, o = {}) => hist0(bins, { empty: none(o.noun), ...o });
 const empty = (msg) => `<div class="chart-empty">${esc(msg ?? none())}</div>`;
 
 /** The detail behind a page — long tables and narrower breakdowns — closed
@@ -193,36 +192,62 @@ export function themeIndicatorsHtml(dash, theme, { canManage = false } = {}) {
     term, and when the portal is used. (An API from before them: none.)
     `place(kind, name)`, where given, makes a county's or school's name a link
     (the Super Admin's Overview, which has no filters of its own to narrow). */
+/* ---- the grids and spreads, shared by the overview and the area dashboards ---- */
+
+/** A grid's rows by place: a county's name narrows the dashboard to it, a
+    school's to that school — or, with `place(kind, name)`, opens that link. */
+function placeRows(d, grid, place = null) {
+  const s = d.scope || {};
+  const byCounty = grid.rowsAre === "county";
+  return grid.rows.map((r) => ({ ...r,
+    ...(place ? { href: place(byCounty ? "county" : "school", r.label) }
+      : byCounty && !s.county ? { drill: { county: r.label } } : !byCounty && !s.school ? { pickSchool: r.label } : {}) }));
+}
+const placeAct = (grid) => (grid.rowsAre === "county" ? "show only this county" : "show only this school");
+/** Twelve months as heatmap columns. Plain headings: twelve can't be finger-sized (a month line picks one). */
+const monthCols = (months) => monthPoints(months.map((m) => ({ label: m, value: 0 }))).map(({ drill: _, ...m }) => ({ ...m, short: m.label.slice(0, 1) }));
+/** Field visits by place × month. */
+function visitsHeatCard(d, place = null) {
+  const V = d.overview?.visits;
+  if (!V) return "";
+  const byCounty = V.rowsAre === "county";
+  return card("Field visits by place and month", `${byCounty ? "Counties" : "Schools"} · last 12 months`,
+    heatmap(placeRows(d, V, place), monthCols(V.months), { corner: byCounty ? "County" : "School", caption: "Field visits each month", noun: "visits", act: placeAct(V) }), { wide: true });
+}
+/** Each learner's average mark, in tens, coloured by the band it falls in; the band totals in the key. */
+function marksCard(d, M) {
+  if (!M) return "";
+  return card("Learners' average marks", M.learners ? `${plural(M.learners, "learner")} · median ${M.median}%` : "",
+    marksSpread(M.bins, d.learning?.bands || [], { empty: `No marked work${where}.` }));
+}
+/** Counts by day of the week × three-hour block (Kenyan time). */
+function whenCard(A, title, sub, noun, caption) {
+  if (!A) return "";
+  return card(title, sub, heatmap(A.days.map((day, i) => ({ label: day, values: A.cells[i] })), A.blocks.map((b) => ({ label: b, short: b.split("–")[0], full: `${b} h` })),
+    { corner: "", caption, noun }), { wide: true });
+}
+/** Active learners by place × grade. */
+function gradesHeatCard(d) {
+  const G = d.reach?.gradeByPlace;
+  if (!G) return "";
+  const byCounty = G.rowsAre === "county";
+  return card("Learners by place and grade", byCounty ? "Counties" : "Schools",
+    heatmap(placeRows(d, G), G.grades.map((g) => ({ label: g, short: g.replace(/^Grade\s*/i, ""), full: g })),
+      { corner: byCounty ? "County" : "School", caption: "Active learners by place and grade", noun: "learners", act: placeAct(G) }), { wide: true });
+}
+
+/** The overview's pictures, under the key figures: where and when the visits
+    happen, how learners' marks spread, how much work is handed in term by
+    term, and when the portal is used. (An API from before them: none.)
+    `place(kind, name)`, where given, makes a county's or school's name a link
+    (the Super Admin's Overview, which has no filters of its own to narrow). */
 function overviewCharts(d, { place = null } = {}) {
   const O = d.overview;
   if (!O) return "";
-  const s = d.scope || {};
-  // Visits: a county's row narrows the dashboard to it; narrowed, the rows are its schools.
-  const byCounty = O.visits.rowsAre === "county";
-  const visitRows = O.visits.rows.map((r) => ({ ...r,
-    ...(place ? { href: place(byCounty ? "county" : "school", r.label) }
-      : byCounty && !s.county ? { drill: { county: r.label } } : !byCounty && !s.school ? { pickSchool: r.label } : {}) }));
-  // Month headings are plain: twelve of them can't be finger-sized (Field operations' line picks a month).
-  const months = monthPoints(O.visits.months.map((m) => ({ label: m, value: 0 }))).map(({ drill: _, ...m }) => ({ ...m, short: m.label.slice(0, 1) }));
-  const visits = card("Field visits by place and month", `${byCounty ? "Counties" : "Schools"} · last 12 months`,
-    heatmap(visitRows, months, { corner: byCounty ? "County" : "School", caption: "Field visits each month", noun: "visits",
-      act: byCounty ? "show only this county" : "show only this school" }), { wide: true });
-  // Marks: each learner's average, in tens, coloured by the band it falls in.
-  const bands = d.learning.bands || [];
-  const colourOf = (code) => { const i = bands.findIndex((b) => b.code === code); return i >= 0 ? `var(--band-${i + 1})` : "var(--chart-1)"; };
-  const M = O.marks;
-  const marks = card("Learners' average marks", M.learners ? `${plural(M.learners, "learner")} · median ${M.median}%` : "",
-    histogram(M.bins.map((b) => ({ ...b, colour: colourOf(b.band) })), { unit: "%", noun: "learners", title: "Learners by average mark", empty: `No marked work${where}.`,
-      key: bands.map((b, i) => ({ label: `${b.code} — ${b.label}`, colour: `var(--band-${i + 1})`, value: M.bins.filter((x) => x.band === b.code).reduce((t, x) => t + x.value, 0) })) }));
-  // Completion, term by term.
   const handedIn = card("Work handed in", "By term",
     trendOrBars(termPoints(d.learning.progress.byTerm, (t) => t.completionRate), { unit: "%", noun: "handed in", title: "Work handed in by term", drill: !place, empty: `No work set${where}.` }));
-  // When: resources opened, work handed in and marked — by day and time of day.
-  const A = O.activity;
-  const when = card("When the portal is used", "Opened, handed in and marked · Kenyan time",
-    heatmap(A.days.map((day, i) => ({ label: day, values: A.cells[i] })), A.blocks.map((b) => ({ label: b, short: b.split("–")[0], full: `${b} h` })),
-      { corner: "", caption: "Portal use by day of the week and time of day", noun: "actions" }), { wide: true });
-  return visits + marks + handedIn + when;
+  return visitsHeatCard(d, place) + marksCard(d, O.marks) + handedIn
+    + whenCard(O.activity, "When the portal is used", "Opened, handed in and marked · Kenyan time", "actions", "Portal use by day of the week and time of day");
 }
 /** The same pictures for the Super Admin's Overview: a county or school opens the Executive overview narrowed to it. */
 export function overviewPictures(d, href = (kind, name) => `#overview?${kind}=${encodeURIComponent(name)}&via=platform-overview`) {
@@ -333,6 +358,7 @@ export function reachHtml(d, opts = {}) {
       ${card("Learner growth", "",
         trendOrBars(termPoints(R.growth, (t) => t.learners, (t) => ({ note: `${num(t.joined)} joined this term` })), { noun: "learners on roll", title: "Learners on roll by term", drill: true }))}
       ${card("Grade distribution", "", barList(R.grades, { share: true, noun: "learners" }))}
+      ${gradesHeatCard(d)}
     </div>
     ${more("reach", "Gender, roles, employment", `
       ${card("Learners by gender", "Where recorded", genderHtml(R.gender.learners, "learners"), { wide: true })}
@@ -373,6 +399,7 @@ export function learningHtml(d, opts = {}) {
       ${card("Results by grade", "Average mark",
         barList(L.resultsByGrade.map((r) => ({ ...r, note: `${num(r.n)} marked` })), { unit: "%", noun: "average mark" })
         + (byBand ? `<div class="chart-subhead">All marked work, by band</div>${byBand}` : ""))}
+      ${marksCard(d, d.overview?.marks)}
       ${card("Learner progress", "Average mark by term",
         trendOrBars(termPoints(terms, (t) => t.averagePercent, (t) => ({ note: `${num(t.marked)} marked${t.band ? ` · ${t.band}` : ""}` })), { unit: "%", noun: "average mark", title: "Average mark by term", drill: true }))}
       ${card("Subject performance", "", table(
@@ -482,7 +509,7 @@ export function fieldOpsHtml(d, opts = {}) {
           : empty("Every school in view has had a visit."))}
       ${card("Visit types", "",
         barList(V.byType.map((t) => ({ label: t.label, value: t.visits, note: plural(t.schools, "school"), href: linkTo(opts, "field-visits", { type: t.label }) })), { sort: true, noun: "visits", act: "see these visits" }))}
-      ${card("Visits by county", "", barList(byPlace(d, V.byCounty), { share: true, sort: true, noun: "visits", ...PLACE }))}
+      ${d.overview ? visitsHeatCard(d) : card("Visits by county", "", barList(byPlace(d, V.byCounty), { share: true, sort: true, noun: "visits", ...PLACE }))}
       ${card("Kobo submissions by month", "Last 12 months",
         lineChart(monthPoints(K.byMonth), { noun: "submissions", title: "Kobo submissions by month", drill: true }) + seeAll(linkTo(opts, "kobo"), "Kobo submissions and their checks"))}
     </div>
@@ -522,6 +549,7 @@ export function resourcesHtml(d, opts = {}) {
         S.top.map((r) => { const href = linkTo(opts, "content", { q: r.title }); return [href ? `<a href="${esc(href)}">${esc(r.title)}</a>` : esc(r.title), esc(r.destination), num(r.opens), num(r.readers), mins(r.minutes)]; })), { wide: true })}
       ${card("Opens by month", "Last 12 months",
         lineChart(monthPoints(S.byMonth, (m) => m.opens), { noun: "openings", title: "Resource openings by month", drill: true }))}
+      ${whenCard(S.when, "When resources are opened", "Kenyan time", "openings", "Resources opened by day of the week and time of day")}
       ${card("Usage by term", "Sessions and hours",
         S.byTerm.length
           ? `<div class="chart-subhead">Sessions</div>${trendOrBars(termPoints(S.byTerm, (t) => t.sessions, (t) => ({ note: `${plural(t.readers, "reader")}` })), { noun: "sessions", height: 84, title: "Reading sessions by term", drill: true })}

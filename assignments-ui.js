@@ -14,6 +14,7 @@
    ============================================================ */
 
 import { esc, toast, friendlyError, skeleton, errorState, confirmDialog } from "./util.js";
+import { marksBins, marksSpread } from "./charts.js";
 import { openContentPanel, closeViewer } from "./viewer.js";
 import { normalizeLibraryAudience } from "./data.js";
 import {
@@ -87,6 +88,10 @@ export function resultsTableHtml(data) {
   if (!data?.rows?.length) {
     return `<div class="empty-state">No results yet — they appear once published work is due or handed in.</div>`;
   }
+  // By learner: how their marks spread, above the table (each learner's average on marked work, in tens).
+  const marked = data.by === "learner" ? data.rows.filter((r) => r.achievement.marked && r.achievement.averagePercent != null) : [];
+  const spread = marked.length ? `<div class="results-spread"><div class="chart-subhead">Learners' average marks · ${marked.length} with marked work</div>
+    ${marksSpread(marksBins(marked.map((r) => r.achievement.averagePercent), data.bands || []), data.bands || [])}</div>` : "";
   const bandsKey = (data.bands || []).map((b) => `<b>${esc(b.code)}</b> ${esc(b.label)} (${b.minPercent}%+)`).join(" · ");
   const row = (label, r, tag = "td") => `
     <tr>
@@ -96,7 +101,7 @@ export function resultsTableHtml(data) {
       <td class="lms-gap">${r.achievement.marked}</td><td class="lms-strong">${pct(r.achievement.averagePercent)}</td>
       <td>${r.achievement.band ? esc(r.achievement.band) : "—"}</td>
     </tr>`;
-  return `
+  return `${spread}
     <div class="lms-table-wrap">
       <table class="lms-table">
         <thead>

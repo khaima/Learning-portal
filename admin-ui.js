@@ -15,7 +15,7 @@ import { resultsTableHtml } from "./assignments-ui.js";
 import { extendTrail, withVia } from "./nav.js";
 import { ICON } from "./navigation.js";
 import { agoTag, liveStatus, swap } from "./live.js";
-import { lineChart, stackBar } from "./charts.js";
+import { barList, heatmap, histogram, lineChart, monthPoints, stackBar } from "./charts.js";
 import { kpiCard } from "./kpi.js";
 
 const fmtDay = (v) => (v ? new Date(v).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—");
@@ -475,17 +475,45 @@ export function renderPlatformOverview(el, { describe } = {}) {
 }
 
 /* ------------------------------------------------------------------ Administration overview */
+const chartCard = (title, meta, body, { wide = false } = {}) => `<div class="chart-card${wide ? " intel-wide" : ""}">
+  <div class="chart-card-head"><b>${esc(title)}</b>${meta ? `<span>${meta}</span>` : ""}</div>${body}</div>`;
+
+/** The dashboard's pictures (GET /admin/overview → charts): where and when field visits happen,
+    how big the classes are, learners per teacher and enrolment by school and grade. */
+function adminCharts(d) {
+  const C = d.charts;
+  if (!C) return ""; // an API from before them
+  const V = C.visits;
+  const byCounty = V.rowsAre === "county";
+  const months = monthPoints(V.months.map((m) => ({ label: m, value: 0 }))).map(({ drill: _, ...m }) => ({ ...m, short: m.label.slice(0, 1) }));
+  // A place's row opens its field visits.
+  const visits = chartCard("Field visits by place and month", `${byCounty ? "Counties" : "Schools"} · last 12 months`,
+    heatmap(V.rows.map((r) => ({ ...r, href: withVia(`#field-visits?${byCounty ? "county" : "school"}=${encodeURIComponent(r.label)}`, "admin-overview") })), months,
+      { corner: byCounty ? "County" : "School", caption: "Field visits each month", noun: "visits", empty: "No field visits recorded yet." }), { wide: true });
+  const classes = C.classSizes.reduce((t, b) => t + b.value, 0);
+  const sizes = chartCard("Class sizes", classes ? `${plural(classes, "class", "classes")} this year` : "",
+    histogram(C.classSizes, { noun: "classes", title: "Classes by number of learners", empty: "No classes this year yet." }));
+  const ratio = chartCard("Learners per teacher", "Active teachers, school by school",
+    barList(C.perTeacher.map((r) => ({ label: r.label, value: r.value ?? 0, note: r.teachers ? `${plural(r.learners, "learner")} · ${plural(r.teachers, "teacher")}` : "no active teacher" })),
+      { noun: "learners per teacher", empty: "No schools yet." }));
+  const E = C.enrolment;
+  const enrol = chartCard("Learners by school and grade", "Active learners",
+    heatmap(E.rows, E.grades.map((g) => ({ label: g, short: g.replace(/^Grade\s*/i, ""), full: g })),
+      { corner: "School", caption: "Active learners by school and grade", noun: "learners", empty: "No learners enrolled yet." }), { wide: true });
+  return `<div class="chart-grid admin-charts">${visits}${sizes}${ratio}${enrol}</div>`;
+}
+
 export function renderAdminOverview(el) {
   return liveLoad(el, "/admin/overview", (d) => {
     const o = d.organisation, p = d.people, ops = d.operations;
     const attention = [
-      p.pending && [`${p.pending} account(s) waiting for approval`, "#users?status=pending"],
-      o.fieldOfficersWithoutSchools && [`${o.fieldOfficersWithoutSchools} field officer(s) without assigned schools`, "#users?role=field_officer"],
-      o.schoolsWithoutHead && [`${o.schoolsWithoutHead} school(s) without a school head`, "#school-profiles"],
-      o.teachersWithoutClasses && [`${o.teachersWithoutClasses} teacher(s) not teaching any class`, "#teachers"],
-      p.learnersWithoutClass && [`${p.learnersWithoutClass} learner(s) not in a class`, "#learners"],
-      ops.koboNeedsReview && [`${ops.koboNeedsReview} Kobo submission(s) need review`, "#kobo"],
-      ops.dataQualityHigh && [`${ops.dataQualityHigh} high-severity data issue(s)`, "#data-quality?severity=HIGH"],
+      p.pending && [`${plural(p.pending, "account")} waiting for approval`, "#users?status=pending"],
+      o.fieldOfficersWithoutSchools && [`${plural(o.fieldOfficersWithoutSchools, "field officer")} without assigned schools`, "#users?role=field_officer"],
+      o.schoolsWithoutHead && [`${plural(o.schoolsWithoutHead, "school")} without a school head`, "#school-profiles"],
+      o.teachersWithoutClasses && [`${plural(o.teachersWithoutClasses, "teacher")} not teaching any class`, "#teachers"],
+      p.learnersWithoutClass && [`${plural(p.learnersWithoutClass, "learner")} not in a class`, "#learners"],
+      ops.koboNeedsReview && [`${plural(ops.koboNeedsReview, "Kobo submission")} ${ops.koboNeedsReview === 1 ? "needs" : "need"} review`, "#kobo"],
+      ops.dataQualityHigh && [`${plural(ops.dataQualityHigh, "high-severity data issue")}`, "#data-quality?severity=HIGH"],
     ].filter(Boolean);
     return `
       <div class="panel-head" style="margin-bottom:.6rem"><h2 style="margin:0">Administration overview</h2>
@@ -509,7 +537,8 @@ export function renderAdminOverview(el) {
         ${attention.length ? `<div>${attention.map(([t, link]) => `<div class="task-row" data-key="${esc(link)}"><div style="flex:1"><b>${esc(t)}</b></div>
           <div class="roster-actions"><a class="intel-link" href="${esc(withVia(link, "admin-overview"))}">Open</a></div></div>`).join("")}</div>`
           : `<div class="empty-state">Nothing needs attention right now.</div>`}
-      </div>`;
+      </div>
+      ${adminCharts(d)}`;
   }, { every: OVERVIEW_EVERY_MS });
 }
 

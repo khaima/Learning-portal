@@ -76,6 +76,7 @@ function byColumn(tr) {
 }
 /* A value is a number when it's only figures and units: 42, 1,204, 85%, +3 pts, 8 of 10, 3h 20m. */
 const isNumber = (v) => /\d/.test(v) && !v.replace(/(\d)\s*(pts?|hrs?|mins?|h|m)\b/gi, "$1").replace(/\bof\b/g, "").replace(/[\d\s.,%+\-−–·()/:]/g, "");
+const PLAIN_PCT = /^(\d+(?:\.\d+)?)%$/;
 /** Columns of numbers line up on the right, so they compare at a glance; words read from the left,
     and a column of long entries (a list of classes) wraps rather than pushing the table off the page. */
 function alignColumns(t) {
@@ -91,6 +92,14 @@ function alignColumns(t) {
     }
     const long = !numeric && vals.some((v) => v.length > 40);
     for (const r of rows) if (r[c] && r[c].classList.contains("wrap") !== long) r[c].classList.toggle("wrap", long);
+    // A column of rates ("71%"): each with a short bar, so they compare at a glance (the number stays what it sorts by).
+    if (numeric && vals.length >= 2 && vals.every((v) => PLAIN_PCT.test(v))) {
+      for (const r of rows) {
+        const cell = r[c];
+        const v = cell?.children.length ? null : PLAIN_PCT.exec(cell?.textContent.trim() || "");
+        if (v) cell.innerHTML = `<span class="cell-rate">${v[0]}<i style="--w:${Math.min(100, Number(v[1])).toFixed(0)}%" aria-hidden="true"></i></span>`;
+      }
+    }
   }
 }
 

@@ -15,12 +15,30 @@
  *                learners' average marks as a histogram, portal use by day × time
  */
 import { buildIntelligence, type IntelligenceFilter, type IntelligenceInput } from "./intelligence.ts";
-import { bandFor } from "./lms.ts";
+import { marksHistogram } from "./lms.ts";
 
 // deno-lint-ignore no-explicit-any
 type Row = Record<string, any>;
 
 export type ImpactInput = IntelligenceInput & { trainings: Row[]; trainingAttendance: Row[] };
+
+/** The days of the week and three-hour blocks a "when" heatmap is drawn on (Kenyan time). */
+const DAY_BLOCKS = {
+  days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+  blocks: ["0–3", "3–6", "6–9", "9–12", "12–15", "15–18", "18–21", "21–24"],
+  timezone: "EAT",
+};
+/** Counts by day (Monday first) × three-hour block, in Kenyan time (EAT, UTC+3), of the moments `keep` lets through. */
+function dayBlocks(moments: unknown[], keep: (v: unknown) => boolean): number[][] {
+  const cells = Array.from({ length: 7 }, () => Array(8).fill(0) as number[]);
+  for (const ts of moments) {
+    const t = Date.parse(String(ts ?? ""));
+    if (Number.isNaN(t) || !keep(ts)) continue;
+    const local = new Date(t + 3 * 3600e3);
+    cells[(local.getUTCDay() + 6) % 7][Math.floor(local.getUTCHours() / 3)]++;
+  }
+  return cells;
+}
 
 /** Below this, a count is shown as "<5" so no individual can be picked out. */
 export const SMALL_NUMBER = 5;
@@ -359,43 +377,45 @@ export function buildImpact(d: ImpactInput, f: IntelligenceFilter = {}, now = ne
     if (!markedBy.has(s.learner_id)) markedBy.set(s.learner_id, []);
     markedBy.get(s.learner_id)!.push(Number(s.percentage));
   }
-  const averages = [...markedBy.values()].map((p) => p.reduce((t, x) => t + x, 0) / p.length).sort((a, b) => a - b);
-  const mid = averages.length / 2;
-  const median = averages.length ? Math.round(averages.length % 2 ? averages[Math.floor(mid)] : (averages[mid - 1] + averages[mid]) / 2) : null;
-  const bins = Array.from({ length: 10 }, (_, i) => ({
-    from: i * 10, to: i === 9 ? 100 : i * 10 + 9,
-    value: averages.filter((v) => (i === 9 ? v >= 90 : v >= i * 10 && v < i * 10 + 10)).length,
-    band: bandFor(i * 10, d.bands),
-  }));
+  const marksSpread = marksHistogram([...markedBy.values()].map((p) => p.reduce((t, x) => t + x, 0) / p.length), d.bands);
 
   // When the portal is used: resources opened, work handed in and work marked,
   // by day of the week and three-hour block, in Kenyan time (EAT, UTC+3).
-  const EAT_MS = 3 * 3600e3;
-  const cells = Array.from({ length: 7 }, () => Array(8).fill(0) as number[]);
-  const at = (ts: unknown) => {
-    const t = Date.parse(String(ts ?? ""));
-    if (Number.isNaN(t) || !inRange(ts)) return;
-    const local = new Date(t + EAT_MS);
-    cells[(local.getUTCDay() + 6) % 7][Math.floor(local.getUTCHours() / 3)]++;
-  };
-  for (const i of lib) at(i.started_at);
+  const when: unknown[] = lib.map((i) => i.started_at);
   for (const s of d.submissions) {
-    if (s.submitted_at && learnerIds.has(s.learner_id)) at(s.submitted_at);
-    if (s.marked_at && teacherIds.has(s.marked_by)) at(s.marked_at);
+    if (s.submitted_at && learnerIds.has(s.learner_id)) when.push(s.submitted_at);
+    if (s.marked_at && teacherIds.has(s.marked_by)) when.push(s.marked_at);
   }
+  const cells = dayBlocks(when, inRange);
   const overview = {
     visits: { months: last12, rowsAre: byCounty ? "county" : "school", rows: visitRows },
-    marks: { learners: averages.length, median, bins },
-    activity: {
-      days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-      blocks: ["0–3", "3–6", "6–9", "9–12", "12–15", "15–18", "18–21", "21–24"],
-      cells, total: cells.flat().reduce((t, n) => t + n, 0), timezone: "EAT",
-    },
+    marks: marksSpread,
+    activity: { ...DAY_BLOCKS, cells, total: cells.flat().reduce((t, n) => t + n, 0) },
+  };
+  // Digital resources: when they're opened (the library sessions alone).
+  const libCells = dayBlocks(lib.map((i) => i.started_at), inRange);
+  const resourcesWhen = { ...DAY_BLOCKS, cells: libCells, total: libCells.flat().reduce((t, n) => t + n, 0) };
+  // Reach: active learners by place and grade (the counties, or narrowed, the schools).
+  const gradeKey = (g: unknown) => {
+    const t = String(g ?? "");
+    const pp = /^pp\s*(\d)/i.exec(t);
+    if (pp) return -10 + Number(pp[1]);
+    const n = /(\d+)/.exec(t);
+    return n ? Number(n[1]) : 99;
+  };
+  const grades = [...new Set(learners.map((l) => l.grade as string).filter(Boolean))].sort((a, b) => gradeKey(a) - gradeKey(b) || a.localeCompare(b));
+  const placeOfLearner = (l: Row) => (byCounty ? countyOfSchool.get(l.school_id) : nameOfSchool.get(l.school_id));
+  const gradeByPlace = {
+    grades, rowsAre: byCounty ? "county" : "school",
+    rows: places.map((label) => {
+      const at = learners.filter((l) => placeOfLearner(l) === label);
+      return { label, values: grades.map((g) => at.filter((l) => l.grade === g).length), total: at.length };
+    }).sort((a, b) => b.total - a.total || a.label.localeCompare(b.label)),
   };
 
   return {
     scope: intel.scope, currentTerm: intel.currentTerm, generatedAt: now.toISOString(),
-    executive, reach, learning, teachers: teachersOut, fieldOps, resources, overview,
+    executive, reach: { ...reach, gradeByPlace }, learning, teachers: teachersOut, fieldOps, resources: { ...resources, when: resourcesWhen }, overview,
     // Still used by the overview's "needs attention" and the Data quality link.
     dataCollection: { notSchoolScoped: intel.dataCollection.notSchoolScoped },
   };

@@ -179,6 +179,8 @@
   .filter-summary .gf-x{ min-width:36px; min-height:36px; }
   .side-link,.area-tab{ min-height:44px; }
   input[type=file]{ min-height:44px; } /* the upload's own button */
+  .bars-link{ min-width:44px; } /* a short name ("ICT") is still a finger's width */
+  .dq-row input[data-dq-select]{ width:44px; height:44px; margin:0; } /* the issue's select box, finger-sized */
   .live-btn{ min-height:40px; }
   .toast-close{ min-width:40px; min-height:40px; }
   input[type=checkbox],input[type=radio]{ width:1.5rem; height:1.5rem; }
@@ -1868,8 +1870,11 @@ h2,h3{ font-family:inherit; letter-spacing:-.01em; }
 /* The key: what each colour or line is, with its numbers where it's a share. */
 .chart-key{ list-style:none; display:flex; flex-wrap:wrap; gap:.3rem 1.1rem; margin:.7rem 0 0; padding:0; font-size:.76rem; color:var(--ink-soft); }
 .chart-key li{ display:flex; align-items:center; gap:.45rem; }
-/* The Executive overview's pictures, between Needs attention and the programme areas. */
-.exec-charts{ margin:1.1rem 0 1.4rem; }
+/* The Executive overview's pictures, between Needs attention and the programme areas; the admin dashboard's under its Needs attention. */
+.exec-charts,.admin-charts{ margin:1.1rem 0 1.4rem; }
+/* A results table shown by learner: how their marks spread, above it. */
+.results-spread{ margin:0 0 1.1rem; }
+.results-spread .hist{ margin-top:.9rem; }
 /* ---- heatmap (charts.js): a table of counts, one hue from light to dark */
 .hm-wrap{ margin-top:.5rem; overflow-x:auto; }
 .heatmap{ width:100%; border-collapse:separate; border-spacing:2px; table-layout:fixed; font-size:.74rem; font-variant-numeric:tabular-nums; }
@@ -1901,7 +1906,9 @@ h2,h3{ font-family:inherit; letter-spacing:-.01em; }
   .heatmap .hm-total{ width:2.1rem; padding-left:.2rem; }
 }
 /* ---- histogram (charts.js): columns side by side on one scale */
-.hist{ display:grid; grid-template-columns:auto minmax(0,1fr); grid-template-rows:150px auto; column-gap:.5rem; margin-top:1.35rem; }
+.hist{ display:grid; grid-template-columns:auto minmax(0,1fr); grid-template-rows:150px auto; column-gap:.5rem; margin-top:1.35rem; container:hist / inline-size; }
+/* A narrow histogram names every other edge: 0, 20, 40 … */
+@container hist (max-width:420px){ .hist-x span:nth-child(even){ visibility:hidden; } }
 .hist-plot{ position:relative; display:flex; align-items:stretch; gap:2px; border-bottom:1px solid color-mix(in srgb, var(--ink-soft) 40%, var(--line)); }
 .hist-col{ position:relative; flex:1; min-width:0; display:flex; flex-direction:column; justify-content:flex-end; }
 .hist-col b{ margin-bottom:.2rem; font-size:.68rem; line-height:1; text-align:center; color:var(--ink); font-variant-numeric:tabular-nums; }

@@ -18,6 +18,7 @@ import { freshness } from "./api.js";
 import { liveStatus, redraw } from "./live.js";
 import { enableSortableTables } from "./tables.js";
 import { kpiCard } from "./kpi.js";
+import { marksSpread } from "./charts.js";
 
 // Coming back to the page reads it again if what's shown is older than this.
 const RETURN_MS = 5 * 60_000;
@@ -64,7 +65,7 @@ async function main() {
   let overview = {
     teacherCount: 0, learnerCount: 0, teachersByType: [],
     assignmentsTotal: 0, assignmentsDone: 0, gradeBreakdown: [],
-    visits: [], visitsTotal: 0, visitedThisTerm: false,
+    visits: [], visitsTotal: 0, visitedThisTerm: false, marks: null, bands: [],
   };
   let formsCache = [];
   let responsesCache = [];
@@ -99,6 +100,13 @@ async function main() {
           ${withWork ? `<div class="class-bar"><i style="width:${pct}%"></i></div>` : ""}</div>
         ${withWork ? `<div class="class-meta"><b>${pct}%</b>handed in</div>` : ""}
       </div>`;
+  }
+
+  /* How the school's marks spread: each learner's average on marked work, in tens, coloured by band. */
+  function renderMarks() {
+    const m = overview.marks;
+    $("#headMarksMeta").textContent = m?.learners ? `${m.learners} learner${m.learners === 1 ? "" : "s"} · median ${m.median}%` : "";
+    $("#headMarks").innerHTML = m ? marksSpread(m.bins, overview.bands || []) : emptyState("No marked work yet.");
   }
 
   function renderLearningByGrade() {
@@ -196,7 +204,7 @@ async function main() {
   // overview-driven panel with the same error+retry when that happens;
   // reporting status/attention (forms-derived) still render normally.
   let overviewFailed = false;
-  const OVERVIEW_TARGETS = ["#statRow", "#learningByGrade", "#learnersByGrade", "#teacherStatRow", "#teacherTypeList", "#visitSummary"];
+  const OVERVIEW_TARGETS = ["#statRow", "#learningByGrade", "#headMarks", "#learnersByGrade", "#teacherStatRow", "#teacherTypeList", "#visitSummary"];
 
   function renderAllOverview() {
     if (overviewFailed) {
@@ -206,6 +214,7 @@ async function main() {
     } else {
       renderKpis();
       renderLearningByGrade();
+      renderMarks();
       renderLearnersByGrade();
       renderTeachers();
       renderVisits();

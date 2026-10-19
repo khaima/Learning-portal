@@ -138,6 +138,31 @@ export function autoMark(q: Pick<Question, "type" | "answerKey" | "maxMarks">, r
 
 export const percentOf = (marks: number, max: number) => (max > 0 ? round2(Math.min(100, Math.max(0, (marks / max) * 100))) : 0);
 
+/** Each learner's average mark on their marked work (a learner with none isn't there). */
+export function averagesOf(pairs: Pair[]): number[] {
+  const marks = new Map<string, number[]>();
+  for (const p of pairs) {
+    if (p.sub?.status !== "marked" || p.sub.percentage == null) continue;
+    if (!marks.has(p.learnerId)) marks.set(p.learnerId, []);
+    marks.get(p.learnerId)!.push(Number(p.sub.percentage));
+  }
+  return [...marks.values()].map((m) => m.reduce((t, x) => t + x, 0) / m.length);
+}
+
+/** Learners' average marks in tens — how the marks spread, not only their mean — with the
+    median and the band each range falls in. */
+export function marksHistogram(averages: number[], bands: Band[]) {
+  const sorted = [...averages].sort((a, b) => a - b);
+  const mid = sorted.length / 2;
+  const median = sorted.length ? Math.round(sorted.length % 2 ? sorted[Math.floor(mid)] : (sorted[mid - 1] + sorted[mid]) / 2) : null;
+  const bins = Array.from({ length: 10 }, (_, i) => ({
+    from: i * 10, to: i === 9 ? 100 : i * 10 + 9,
+    value: sorted.filter((v) => (i === 9 ? v >= 90 : v >= i * 10 && v < i * 10 + 10)).length,
+    band: bandFor(i * 10, bands),
+  }));
+  return { learners: sorted.length, median, bins };
+}
+
 /** The highest band this percentage reaches. */
 export function bandFor(percent: number | null, bands: Band[]): string | null {
   if (percent == null) return null;

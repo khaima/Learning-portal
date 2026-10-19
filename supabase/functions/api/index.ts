@@ -26,7 +26,7 @@ import {
 import { ASSIGNABLE_ROLES, countiesInScope, inPlaceScope, matchCounty, narrowInput, type PlaceScope, placeScopeFor, type ScopeRow } from "./scope.ts";
 import {
   ASSIGNMENT_STATUSES, type AssignmentStatus, autoMark, type Band, bandFor, cleanQuestions, cleanResponse,
-  groupResults, isAutoMarked, isLate, MAX_FILES_PER_ANSWER, pairsOf, percentOf, type Question,
+  averagesOf, groupResults, isAutoMarked, isLate, marksHistogram, MAX_FILES_PER_ANSWER, pairsOf, percentOf, type Question,
   RESULT_DIMENSIONS, type ResultAssignment, type ResultDimension, type ResultSubmission, round2, summarize,
   expectedFrom,
 } from "./lms.ts";
@@ -4663,6 +4663,8 @@ app.get("/school/overview", requirePermission("school.overview.view"), async (c)
   const pairs = asg.data?.pairs ?? [];
   const bands = await loadBands();
   const work = summarize(pairs, bands);
+  // How the school's marks spread: each learner's average on marked work, in tens.
+  const marks = marksHistogram(averagesOf(pairs), bands);
 
   // Per grade: learners, completion (work handed in) and achievement (marks
   // on marked work) — reported side by side, never combined.
@@ -4706,6 +4708,7 @@ app.get("/school/overview", requirePermission("school.overview.view"), async (c)
     visits: visitRows.slice(0, 10).map(mapReport),
     visitsTotal: visitRows.length,
     visitedThisTerm,
+    marks,
   });
 });
 
@@ -8082,7 +8085,7 @@ app.get("/admin/overview", requirePermission("users.view"), async (c) => {
   const cal = await currentCalendar();
   const [profs, learners, schools, classes, ct, visits, forms, kobo, dq] = await Promise.all([
     selectAll(() => admin.from("profiles").select("id, role, status, school_id, county").order("id")),
-    selectAll(() => admin.from("learners").select("id, school_id, enrollment_status, class_id").order("id")),
+    selectAll(() => admin.from("learners").select("id, school_id, enrollment_status, class_id, grade").order("id")),
     selectAll(() => admin.from("schools").select("id, name, county").order("id")),
     selectAll(() => admin.from("classes").select("id, school_id, academic_year_id, archived_at").order("id")),
     selectAll(() => admin.from("class_teachers").select("class_id, teacher_id, ended_at").order("class_id")),
@@ -8104,9 +8107,58 @@ app.get("/admin/overview", requirePermission("users.view"), async (c) => {
   const placed = new Set((assigned ?? []).map((r) => r.profile_id));
   const termStart = cal.termId ? (await admin.from("terms").select("starts_on").eq("id", cal.termId).maybeSingle()).data?.starts_on ?? null : null;
   const count = (role: string) => active.filter((p) => p.role === role).length;
+
+  // ---- the dashboard's pictures (admin-ui.js), all within the caller's area
+  const learnersHere = (learners.data ?? []).filter((l) => here(l.school_id) && (l.enrollment_status ?? ACTIVE) === ACTIVE);
+  // Field visits by place and month: the counties, or — an area of one county — its schools, every one.
+  const today = new Date();
+  const last12 = Array.from({ length: 12 }, (_, i) => new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 11 + i, 1)).toISOString().slice(0, 7));
+  const byCounty = new Set(mySchools.map((s) => s.county)).size > 1;
+  const schoolName = new Map((schools.data ?? []).map((s) => [s.id, s.name as string]));
+  const visitsHere = (visits.data ?? []).filter((v) => here(v.school_id, v.county));
+  const placeOf = (v: Record<string, any>) => (byCounty ? v.county : schoolName.get(v.school_id));
+  const places = byCounty ? [...new Set(mySchools.map((s) => s.county as string).filter(Boolean))] : mySchools.map((s) => s.name as string);
+  const visitRows = places.map((label) => {
+    const at = visitsHere.filter((v) => placeOf(v) === label);
+    return { label, values: last12.map((m) => at.filter((v) => String(v.created_at).slice(0, 7) === m).length), total: at.length };
+  }).sort((a, b) => b.total - a.total || a.label.localeCompare(b.label));
+  // Class sizes: this year's classes by how many learners are in each, in tens.
+  const size = new Map(yearClasses.map((k) => [k.id, 0]));
+  for (const l of learnersHere) if (size.has(l.class_id)) size.set(l.class_id, size.get(l.class_id)! + 1);
+  const sizes = [...size.values()];
+  const classSizes = Array.from({ length: 7 }, (_, i) => ({
+    from: i * 10, to: i === 6 ? null : i * 10 + 9, value: sizes.filter((n) => (i === 6 ? n >= 60 : n >= i * 10 && n < i * 10 + 10)).length,
+  }));
+  // Learners per active teacher, school by school.
+  const perTeacher = mySchools.map((s) => {
+    const teachers = active.filter((p) => p.role === "teacher" && p.school_id === s.id).length;
+    const n = learnersHere.filter((l) => l.school_id === s.id).length;
+    return { label: s.name as string, learners: n, teachers, value: teachers ? Math.round((n / teachers) * 10) / 10 : null };
+  }).sort((a, b) => (b.value ?? -1) - (a.value ?? -1) || a.label.localeCompare(b.label));
+  // Learners by school and grade (pre-primary first, then Grade 1 upward).
+  const gradeKey = (g: unknown) => {
+    const t = String(g ?? "");
+    const pp = /^pp\s*(\d)/i.exec(t);
+    if (pp) return -10 + Number(pp[1]);
+    const n = /(\d+)/.exec(t);
+    return n ? Number(n[1]) : 99;
+  };
+  const grades = [...new Set(learnersHere.map((l) => l.grade as string).filter(Boolean))].sort((a, b) => gradeKey(a) - gradeKey(b) || a.localeCompare(b));
+  const enrolment = {
+    grades,
+    rows: mySchools.map((s) => {
+      const at = learnersHere.filter((l) => l.school_id === s.id);
+      return { label: s.name as string, values: grades.map((g) => at.filter((l) => l.grade === g).length), total: at.length };
+    }).sort((a, b) => b.total - a.total || a.label.localeCompare(b.label)),
+  };
+
   return c.json({
     scope: { global: sc.global, label: sc.label },
     currentTerm: cal.termId,
+    charts: {
+      visits: { months: last12, rowsAre: byCounty ? "county" : "school", rows: visitRows },
+      classSizes, perTeacher, enrolment,
+    },
     people: {
       teachers: count("teacher"), heads: count("school_leader"), fieldOfficers: count("field_officer"),
       programmeStaff: sc.global ? active.filter((p) => ["admin", "me", "education_team", "super_admin"].includes(p.role)).length : null,

@@ -184,6 +184,23 @@ read it row by row); on a phone the columns are headed by their short form
 aren't links there — twelve can't be finger-sized; Field operations' line
 picks a month.
 
+### Administration overview, area dashboards, results (19 October 2026)
+
+| Where | Added |
+| --- | --- |
+| Administration overview (`admin-ui.js`, GET /admin/overview → `charts`) | Field visits by place × month (heatmap; a place opens its visits) · Class sizes (histogram of this year's classes by learners, in tens; the last range "60 or more") · Learners per teacher (bars, school by school, active teachers) · Learners by school and grade (heatmap) |
+| Reach | Learners by place and grade (heatmap; `reach.gradeByPlace`) |
+| Learning | Learners' average marks (histogram, by band) |
+| Field operations | Field visits by place × month (heatmap), in place of the bars by county — its last column is the same totals |
+| Digital resources | When resources are opened (day × time heatmap; `resources.when`) |
+| School head › Assignments & results | The school's marks (histogram; /school/overview `marks`) |
+| Any results table shown by learner (teacher's Results, admin's Results) | The learners' marks histogram above the table, from the table's own rows |
+| Every table | A column of plain percentages gets a short bar beside each value (`tables.js`, the `cell-rate` look the dashboards' tables already had); the number is still what it sorts by |
+
+One marks histogram everywhere: `charts.js` `marksSpread()` (and
+`marksBins()` where the averages are on the page); the API's
+`marksHistogram()` in `lms.ts`.
+
 ### Survey results (`console.js`)
 
 | Question | Before | Now |

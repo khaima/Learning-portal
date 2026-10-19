@@ -240,6 +240,21 @@ Deno.test("overview: portal use by day and three-hour block, in Kenyan time", ()
   assertEquals(a.cells.flat().reduce((t, n) => t + n, 0), a.total);
 });
 
+Deno.test("reach: learners by county and grade; narrowed, by school", () => {
+  const g = buildImpact(world(), {}, NOW).reach.gradeByPlace;
+  assertEquals(g.grades, ["Grade 4", "Grade 5"]);
+  assertEquals(g.rows.map((r) => [r.label, r.values]), [["Narok", [7, 0]], ["Laikipia", [0, 1]]], "active learners only");
+  const narok = buildImpact(world(), { county: "Narok" }, NOW).reach.gradeByPlace;
+  assertEquals([narok.rowsAre, narok.rows.map((r) => [r.label, r.total])], ["school", [["Aitong", 7], ["Olpusimoru", 0]]]);
+});
+
+Deno.test("digital resources: when resources are opened, by day and time (library sessions only)", () => {
+  const w = buildImpact(world(), {}, NOW).resources.when;
+  assertEquals(w.total, 4);
+  assertEquals([w.days.length, w.blocks.length, w.timezone], [7, 8, "EAT"]);
+  assert(w.cells[3][1] >= 1, "Thursday 3 Sept, 03:00 in Nairobi");
+});
+
 Deno.test("digital resources: published items, opens, hours, readers, most used", () => {
   const r = buildImpact(world(), {}, NOW).resources;
   assertEquals(r.items.total, 3, "the draft isn't a resource yet");
