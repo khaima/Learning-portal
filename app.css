@@ -1865,6 +1865,58 @@ h2,h3{ font-family:inherit; letter-spacing:-.01em; }
 /* The key: what each colour or line is, with its numbers where it's a share. */
 .chart-key{ list-style:none; display:flex; flex-wrap:wrap; gap:.3rem 1.1rem; margin:.7rem 0 0; padding:0; font-size:.76rem; color:var(--ink-soft); }
 .chart-key li{ display:flex; align-items:center; gap:.45rem; }
+/* The Executive overview's pictures, between Needs attention and the programme areas. */
+.exec-charts{ margin:1.1rem 0 1.4rem; }
+/* ---- heatmap (charts.js): a table of counts, one hue from light to dark */
+.hm-wrap{ margin-top:.5rem; overflow-x:auto; }
+.heatmap{ width:100%; border-collapse:separate; border-spacing:2px; table-layout:fixed; font-size:.74rem; font-variant-numeric:tabular-nums; }
+.heatmap th{ padding:.15rem .2rem; font-weight:600; color:var(--ink-soft); text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.heatmap thead th small{ display:block; font-size:.62rem; font-weight:500; }
+.heatmap thead .bars-link{ color:inherit; font-weight:600; }
+.heatmap .hm-corner,.heatmap tbody th{ width:7.5rem; text-align:left; }
+.heatmap tbody th{ color:var(--ink); }
+.heatmap .bars-link{ background:none; border:0; padding:0; font:inherit; font-weight:600; color:var(--brand-fg); cursor:pointer; text-align:left; }
+.heatmap .bars-link:hover{ text-decoration:underline; text-underline-offset:2px; }
+@media (pointer:coarse){ .heatmap tbody .bars-link{ min-width:44px; min-height:44px; } }
+.heatmap td.hm{ height:2rem; border-radius:4px; text-align:center; font-weight:700; }
+.heatmap td.hm:hover,.heatmap td.hm.is-on{ box-shadow:inset 0 0 0 2px var(--ink); }
+.heatmap .hm-total{ width:3rem; padding-left:.4rem; text-align:right; font-weight:700; color:var(--ink); }
+.hm-0{ background:var(--paper-sunk); }
+.hm-1{ background:var(--seq-4); color:var(--hm-ink-1); }
+.hm-2{ background:var(--seq-3); color:var(--hm-ink-2); }
+.hm-3{ background:var(--seq-2); color:var(--hm-ink-3); }
+.hm-4{ background:var(--seq-1); color:var(--hm-ink-4); }
+.hm-key i{ width:14px; height:14px; }
+.heatmap .hm-short{ display:none; }
+@media (max-width:640px){
+  .heatmap{ font-size:.64rem; border-spacing:1px; }
+  .heatmap .hm-long{ position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+  .heatmap .hm-short{ display:inline; }
+  .heatmap thead th small{ display:none; }
+  .heatmap .hm-corner,.heatmap tbody th{ width:4.4rem; }
+  .heatmap td.hm{ height:1.7rem; border-radius:3px; }
+  .heatmap .hm-total{ width:2.1rem; padding-left:.2rem; }
+}
+/* ---- histogram (charts.js): columns side by side on one scale */
+.hist{ display:grid; grid-template-columns:auto minmax(0,1fr); grid-template-rows:150px auto; column-gap:.5rem; margin-top:1.35rem; }
+.hist-plot{ position:relative; display:flex; align-items:stretch; gap:2px; border-bottom:1px solid color-mix(in srgb, var(--ink-soft) 40%, var(--line)); }
+.hist-col{ position:relative; flex:1; min-width:0; display:flex; flex-direction:column; justify-content:flex-end; }
+.hist-col b{ margin-bottom:.2rem; font-size:.68rem; line-height:1; text-align:center; color:var(--ink); font-variant-numeric:tabular-nums; }
+.hist-col i{ display:block; border-radius:4px 4px 0 0; }
+.hist-col:hover i,.hist-col.is-on i{ box-shadow:0 0 0 2px var(--paper-raised), 0 0 0 4px var(--ink-soft); }
+.hist-x{ grid-column:2; display:flex; justify-content:space-between; padding-top:.3rem; font-size:.68rem; color:var(--ink-soft); font-variant-numeric:tabular-nums; }
+.hist-x span{ width:0; display:flex; justify-content:center; white-space:nowrap; }
+/* The narrowest phones: the names and totals take less room, so every cell keeps its count;
+   the histogram's axis names every other edge. */
+@media (max-width:400px){
+  .heatmap{ font-size:.58rem; }
+  .heatmap .hm-corner,.heatmap tbody th{ width:3.2rem; }
+  .heatmap .hm-total{ width:1.8rem; }
+  .heatmap th{ padding:.15rem 0; text-overflow:clip; }
+  .heatmap thead th{ font-size:.54rem; }
+  .heatmap td.hm{ height:1.5rem; border-radius:2px; }
+  .hist-x span:nth-child(even){ visibility:hidden; }
+}
 .chart-key i{ flex:none; width:10px; height:10px; border-radius:3px; }
 .chart-key .key-line{ width:18px; height:0; border-radius:0; border-top:2px solid var(--chart-1); }
 .chart-key .key-dash{ border-top:2px dashed var(--chart-2); }

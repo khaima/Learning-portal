@@ -406,6 +406,7 @@ async function main() {
     if (!quiet) {
       impactLive.start();
       $("#statRow").innerHTML = skeletonCards(5);
+      if ($("#execCharts")) $("#execCharts").innerHTML = skeletonCharts(2);
       for (const p of pagesHere) $(`#imp-${p}`).innerHTML = skeletonDashboard();
     }
     let d, imp;
@@ -419,6 +420,7 @@ async function main() {
       const msg = errorState(friendlyError(err, "Couldn't load this data."), renderImpact);
       $("#statRow").innerHTML = msg;
       $("#intelAreas").innerHTML = "";
+      if ($("#execCharts")) $("#execCharts").innerHTML = "";
       for (const p of pagesHere) $(`#imp-${p}`).innerHTML = msg;
       return;
     }
@@ -429,6 +431,7 @@ async function main() {
       const o = imp.executiveHtml(d, { canOpen, via: "overview" });
       put($("#statRow"), o.headline + dqSlot());
       put($("#intelAreas"), o.areas);
+      put($("#execCharts"), o.charts);
     }
     for (const p of pagesHere) put($(`#imp-${p}`), imp[IMP_PAGES[p]](d, { canOpen, via: p }));
     for (const m of $$("details[data-more]")) m.open = moreOpen.has(m.dataset.more);

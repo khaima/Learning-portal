@@ -28,7 +28,7 @@
 import { esc, formatDuration, skeleton } from "./util.js";
 import { fmtValue, ragPill } from "./mel-format.js";
 import { ICON } from "./navigation.js";
-import { barList as bars0, lineChart as line0, monthPoints, proportion as parts0, stackBar as stack0, TARGET_KEY, targetList, termPoints, trendOrBars as trend0 } from "./charts.js";
+import { barList as bars0, heatmap as heat0, histogram as hist0, lineChart as line0, monthPoints, proportion as parts0, stackBar as stack0, TARGET_KEY, targetList, termPoints, trendOrBars as trend0 } from "./charts.js";
 import { kpiCard, periodTrend, termName } from "./kpi.js";
 
 const pct = (v) => (v == null ? "—" : `${Math.round(v)}%`);
@@ -105,6 +105,8 @@ const lineChart = (points, o = {}) => line0(points, { empty: none(o.noun), ...o 
 const trendOrBars = (points, o = {}) => trend0(points, { empty: none(o.noun), ...o });
 const proportion = (parts, o = {}) => parts0(parts, { empty: none(o.noun), ...o });
 const stackBar = (parts, o = {}) => stack0(parts, { empty: none(o.noun), ...o });
+const heatmap = (rows, cols, o = {}) => heat0(rows, cols, { empty: none(o.noun), ...o });
+const histogram = (bins, o = {}) => hist0(bins, { empty: none(o.noun), ...o });
 const empty = (msg) => `<div class="chart-empty">${esc(msg ?? none())}</div>`;
 
 /** The detail behind a page — long tables and narrower breakdowns — closed
@@ -186,6 +188,40 @@ export function themeIndicatorsHtml(dash, theme, { canManage = false } = {}) {
 
 /* ------------------------------------------------------------ 1. executive overview */
 
+/** The overview's pictures, under the key figures: where and when the visits
+    happen, how learners' marks spread, how much work is handed in term by
+    term, and when the portal is used. (An API from before them: none.) */
+function overviewCharts(d) {
+  const O = d.overview;
+  if (!O) return "";
+  const s = d.scope || {};
+  // Visits: a county's row narrows the dashboard to it; narrowed, the rows are its schools.
+  const byCounty = O.visits.rowsAre === "county";
+  const visitRows = O.visits.rows.map((r) => ({ ...r,
+    ...(byCounty && !s.county ? { drill: { county: r.label } } : !byCounty && !s.school ? { pickSchool: r.label } : {}) }));
+  // Month headings are plain: twelve of them can't be finger-sized (Field operations' line picks a month).
+  const months = monthPoints(O.visits.months.map((m) => ({ label: m, value: 0 }))).map(({ drill: _, ...m }) => ({ ...m, short: m.label.slice(0, 1) }));
+  const visits = card("Field visits by place and month", `${byCounty ? "Counties" : "Schools"} · last 12 months`,
+    heatmap(visitRows, months, { corner: byCounty ? "County" : "School", caption: "Field visits each month", noun: "visits",
+      act: byCounty ? "show only this county" : "show only this school" }), { wide: true });
+  // Marks: each learner's average, in tens, coloured by the band it falls in.
+  const bands = d.learning.bands || [];
+  const colourOf = (code) => { const i = bands.findIndex((b) => b.code === code); return i >= 0 ? `var(--band-${i + 1})` : "var(--chart-1)"; };
+  const M = O.marks;
+  const marks = card("Learners' average marks", M.learners ? `${plural(M.learners, "learner")} · median ${M.median}%` : "",
+    histogram(M.bins.map((b) => ({ ...b, colour: colourOf(b.band) })), { unit: "%", noun: "learners", title: "Learners by average mark",
+      key: bands.map((b, i) => ({ label: `${b.code} — ${b.label}`, colour: `var(--band-${i + 1})`, value: M.bins.filter((x) => x.band === b.code).reduce((t, x) => t + x.value, 0) })) }));
+  // Completion, term by term.
+  const handedIn = card("Work handed in", "By term",
+    trendOrBars(termPoints(d.learning.progress.byTerm, (t) => t.completionRate), { unit: "%", noun: "handed in", title: "Work handed in by term", drill: true }));
+  // When: resources opened, work handed in and marked — by day and time of day.
+  const A = O.activity;
+  const when = card("When the portal is used", "Opened, handed in and marked · Kenyan time",
+    heatmap(A.days.map((day, i) => ({ label: day, values: A.cells[i] })), A.blocks.map((b) => ({ label: b, short: b.split("–")[0], full: `${b} h` })),
+      { corner: "", caption: "Portal use by day of the week and time of day", noun: "actions" }), { wide: true });
+  return visits + marks + handedIn + when;
+}
+
 export function executiveHtml(d, opts = {}) {
   forScope(d);
   const E = d.executive, R = d.reach, L = d.learning, T = d.teachers, F = d.fieldOps, S = d.resources;
@@ -201,6 +237,7 @@ export function executiveHtml(d, opts = {}) {
   // (console.js adds data quality beside them). Every other figure sits
   // with its own area below, once — not as a tile and again in a card.
   return {
+    charts: overviewCharts(d),
     headline: [
       kpiCard({ label: "Schools", icon: "school", value: num(E.schools), href: linkTo(opts, "school-profiles"),
         sub: `${E.schoolsVisited.visited} visited · ${pct(E.schoolsVisited.coverage)} coverage` }),

@@ -207,6 +207,39 @@ Deno.test("field operations: visits by month, completed visit forms, Kobo by cou
   assertEquals(buildImpact(world(), { county: "Narok" }, NOW).fieldOps.kobo.byCounty, [{ label: "Narok", value: 1 }]);
 });
 
+Deno.test("overview: visits by county and month, then by school once narrowed", () => {
+  const v = buildImpact(world(), {}, NOW).overview.visits;
+  assertEquals(v.rowsAre, "county");
+  assertEquals(v.months.length, 12);
+  assertEquals(v.rows.map((r) => [r.label, r.total]), [["Narok", 2], ["Laikipia", 1]], "most visited first");
+  assertEquals(v.rows[0].values[v.months.indexOf("2026-06")], 1);
+  assertEquals(v.rows[0].values[v.months.indexOf("2026-09")], 1);
+  const narok = buildImpact(world(), { county: "Narok" }, NOW).overview.visits;
+  assertEquals(narok.rowsAre, "school");
+  assertEquals(narok.rows.map((r) => [r.label, r.total]), [["Aitong", 2], ["Olpusimoru", 0]], "a school not visited is still a row");
+});
+
+Deno.test("overview: learners' average marks in tens, with the median and each bin's band", () => {
+  const m = buildImpact(world(), {}, NOW).overview.marks;
+  // l1 (40, 70) → 55, l2 (80, 60) → 70, l3 50, l8 30; l4 only started.
+  assertEquals(m.learners, 4);
+  assertEquals(m.median, 53);
+  assertEquals(m.bins.length, 10);
+  assertEquals(m.bins.map((b) => b.value), [0, 0, 0, 1, 0, 2, 0, 1, 0, 0]);
+  assertEquals([m.bins[3].band, m.bins[5].band, m.bins[8].band, m.bins[0].band], ["AE", "ME", "EE", "BE"]);
+  assertEquals(buildImpact(world(), { school: "Ndaragwa" }, NOW).overview.marks.bins[3].value, 1);
+});
+
+Deno.test("overview: portal use by day and three-hour block, in Kenyan time", () => {
+  const a = buildImpact(world(), {}, NOW).overview.activity;
+  // 4 resources opened + 6 pieces of work handed in + 6 marked.
+  assertEquals(a.total, 16);
+  assertEquals([a.cells.length, a.cells[0].length], [7, 8]);
+  // i1: Thursday 3 Sept, 00:00 UTC = 03:00 in Nairobi → Thursday, 3–6.
+  assert(a.cells[3][1] >= 1);
+  assertEquals(a.cells.flat().reduce((t, n) => t + n, 0), a.total);
+});
+
 Deno.test("digital resources: published items, opens, hours, readers, most used", () => {
   const r = buildImpact(world(), {}, NOW).resources;
   assertEquals(r.items.total, 3, "the draft isn't a resource yet");

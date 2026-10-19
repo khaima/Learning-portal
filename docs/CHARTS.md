@@ -14,6 +14,8 @@ does that better, there is no chart.
 | How far towards the target? | A **bar filling towards a line** | `targetList` |
 | What share of one whole? (two to four parts) | A **donut** | `donut`, `proportion` |
 | What share, on a scale that has an order? | **One bar, split in order** | `stackBar` |
+| How many, in each cell of a grid (a place × a month, a day × a time)? | A **heatmap** | `heatmap` |
+| How are the values spread (each learner's average mark)? | A **histogram** | `histogram` |
 | What are the exact figures? | A **table** | — |
 
 Rules that go with them:
@@ -134,7 +136,8 @@ blindness and contrast validator against the card surface:
 | `--chart-2` | The dashed target line on a trend. |
 | `--cat-1` … `--cat-4` | The parts of a donut, always in this order (blue, orange, purple, green). A part keeps its colour when another part is empty. |
 | `--band-1` … `--band-4` | The four achievement bands, best to weakest. |
-| `--seq-1` … `--seq-4` | One hue, strongest to weakest, for an ordered scale (how recently staff signed in). |
+| `--seq-1` … `--seq-4` | One hue, strongest to weakest, for an ordered scale (how recently staff signed in) and a heatmap's four shades. |
+| `--hm-ink-1` … `--hm-ink-4` | The count printed on each heatmap shade: 4.5:1 or more on its shade in both themes (checked). |
 | `--success`, `--accent`, `--danger` | Target met, close, not met. |
 | `--neutral` | "No change" in a better / same / worse split. |
 
@@ -157,6 +160,25 @@ hardest to tell apart for the most common kinds of colour blindness.
 | M&E indicators, target against actual | Bars on different scales, target line in a different place on each row | Every bar fills towards the same target line; value, target and status in words |
 | Indicator trend | A large drawing with five gridlines; its labels grew with the screen | Line (actual) and dashed line (target), three gridlines, fixed-size labels |
 | Subject, school and form tables | Plain percentages | Percentages with a thin bar, band codes with their full name on hover |
+
+### Executive overview (`impact-ui.js`, 19 October 2026)
+
+Four pictures under Needs attention, computed by the API (`impact.ts`
+`overview`):
+
+| Chart | Picture | How to read it |
+| --- | --- | --- |
+| Field visits by place and month | Heatmap: counties (or, narrowed to a county, its schools — every one, so a school not visited is a row of blanks) × the last 12 months | Darker is more visits; every cell prints its count, a row ends with its total. A county's name narrows the dashboard to it, a school's to that school. |
+| Learners' average marks | Histogram: each learner's average on marked work, in tens | Columns on one scale with their counts; coloured by the band each range falls in, with the band totals in the key; the median above. |
+| Work handed in | Line by term (bars under three terms) | As on Learning. |
+| When the portal is used | Heatmap: day of the week × three-hour block, Kenyan time (EAT) | Resources opened, work handed in and work marked. |
+
+Heatmap rules: one hue, at most four shades plus "none", each shade an
+equal run of whole counts named in the key; it is a table (screen readers
+read it row by row); on a phone the columns are headed by their short form
+(N, D, J… / 0, 3, 6…) and the counts stay in the cells. Month headings
+aren't links there — twelve can't be finger-sized; Field operations' line
+picks a month.
 
 ### Survey results (`console.js`)
 

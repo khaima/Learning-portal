@@ -9,6 +9,8 @@
      progress to a target     targetList   a bar that fills towards a marked line
      parts of one whole       donut        four parts at most; more become bars
      an ordered scale         stackBar     one bar, split in order
+     counts on a grid         heatmap      a table of cells, one hue light → dark
+     how values spread        histogram    columns side by side, one scale
      detailed values          a table      (not here)
 
    Each chart is an HTML string, like the rest of the portal. It can be
@@ -304,6 +306,86 @@ export function stackBar(parts, { noun = "", empty = "Nothing recorded yet.", ti
   return `<div class="stack" role="img" aria-label="${esc(`${title ? `${title} — ` : ""}${said}`)}">${list.filter((p) => p.value > 0).map((p) =>
     `<span style="flex:${p.value};background:${p.colour}"${tip(p.label, [[num(p.value), noun], [`${share(p.value, total)}%`, `of ${num(total)}`]])}></span>`).join("")}</div>
   ${keyList(list.map((p) => ({ ...p, label: p.short ? `${p.short} — ${p.label}` : p.label })), total, { colours: [], noun, compact })}`;
+}
+
+/* ------------------------------------------------------------ counts on a grid */
+
+/** A heatmap's shades: one hue in up to four steps for 1…max, each an equal
+    run of whole counts ("1–2", "3–4" …); a cell of nothing has none. The
+    busiest step is always the darkest, however many steps there are. */
+function shadeSteps(max) {
+  const w = Math.max(1, Math.ceil(max / 4));
+  const steps = [];
+  for (let lo = 1; lo <= max; lo += w) steps.push([lo, Math.min(max, lo + w - 1)]);
+  return steps;
+}
+
+/** A heatmap: a count in each cell of a grid — a place by month, a day by a
+    time of day — one hue from light (a few) to dark (many), a plain cell for
+    none. It is a table, so it reads as one without the colour: every cell
+    prints its count, the key names what each shade covers, and a screen
+    reader reads it row by row.
+      rows     [{ label, values: [n…], total?, drill?, pickSchool? }]
+               drill: the row's name narrows the dashboard ({ county }); pickSchool: to that school
+      cols     [{ label, short?, sub?, full?, drill? }]   headings (short: on a phone; full: in the
+               tooltip; drill: narrows the dates)
+      corner   the rows' heading ("County")
+      caption  what the grid counts, read out with the table
+      noun     what a cell counts ("visits")
+      totals   a last column with each row's total
+      act      what picking a row's name does, for screen readers */
+export function heatmap(rows, cols, { corner = "", caption = "", noun = "", totals = true, act = "", empty = "Nothing recorded yet." } = {}) {
+  const list = rows || [];
+  const max = Math.max(0, ...list.flatMap((r) => r.values));
+  if (!max) return none(empty);
+  const steps = shadeSteps(max);
+  const shadeOf = (i) => 4 - steps.length + 1 + i;
+  const shade = (v) => (v ? shadeOf(steps.findIndex(([lo, hi]) => v >= lo && v <= hi)) : 0);
+  const range = ([lo, hi]) => (lo === hi ? num(lo) : `${num(lo)}–${num(hi)}`);
+  const pick = (attr, value, html, how) => `<button type="button" class="bars-link" ${attr}="${esc(value)}">${html}${how ? `<span class="sr-only">: ${esc(how)}</span>` : ""}</button>`;
+  // On a phone a column is headed by its short form ("N", "6"); the whole name stays for screen readers.
+  const colName = (c) => (c.short ? `<span class="hm-long">${esc(c.label)}</span><span class="hm-short" aria-hidden="true">${esc(c.short)}</span>` : esc(c.label));
+  const head = `<tr><th scope="col" class="hm-corner">${esc(corner)}</th>${cols.map((c) => `<th scope="col">${
+    c.drill ? pick("data-drill", JSON.stringify(c.drill), colName(c), "show only this period") : colName(c)}${c.sub ? `<small>${esc(c.sub)}</small>` : ""}</th>`).join("")}${
+    totals ? `<th scope="col" class="hm-total">Total</th>` : ""}</tr>`;
+  const body = list.map((r) => {
+    const name = r.drill ? pick("data-drill", JSON.stringify(r.drill), esc(r.label), act) : r.pickSchool ? pick("data-pick-school", r.pickSchool, esc(r.label), act) : esc(r.label);
+    const total = r.total ?? r.values.reduce((t, v) => t + v, 0);
+    return `<tr><th scope="row">${name}</th>${r.values.map((v, i) => `<td class="hm hm-${shade(v)}"${
+      tip(`${r.label} · ${cols[i].full || cols[i].label}`, [[num(v), noun]])}>${v ? num(v) : '<span class="sr-only">0</span>'}</td>`).join("")}${
+      totals ? `<td class="hm-total">${num(total)}</td>` : ""}</tr>`;
+  }).join("");
+  const key = `<ul class="chart-key hm-key" aria-hidden="true"><li><i class="hm-0"></i>None</li>${
+    steps.map((s, i) => `<li><i class="hm-${shadeOf(i)}"></i>${range(s)}</li>`).join("")}<li>${esc(noun)} in a cell</li></ul>`;
+  return `<div class="hm-wrap"><table class="heatmap">${caption ? `<caption class="sr-only">${esc(caption)}</caption>` : ""}<thead>${head}</thead><tbody>${body}</tbody></table></div>${key}`;
+}
+
+/* ------------------------------------------------------------ how values spread */
+
+/** A histogram: how many fall in each range of a measure — learners by their
+    average mark, in tens. Columns side by side on one scale, each with its
+    count, the ranges' edges beneath. Colour only where the ranges mean
+    something of their own (the achievement bands), named in the key.
+      bins   [{ from, to, value, colour? }]   in order
+      unit   "%" after the last edge and in the tooltip
+      noun   what is counted ("learners")
+      key    [{ label, colour, value }]   what the colours mean, with their counts */
+export function histogram(bins, { unit = "", noun = "", key = [], title = "", empty = "Nothing recorded yet." } = {}) {
+  const list = bins || [];
+  const total = list.reduce((t, b) => t + (b.value || 0), 0);
+  if (!total) return none(empty);
+  const top = niceTop(Math.max(...list.map((b) => b.value)));
+  const yLabels = [top, top / 2, 0].map((v) => show(v));
+  const range = (b) => `${b.from}–${b.to}${unit}`;
+  const edges = [...list.map((b) => b.from), list.at(-1).to];
+  const said = `${title ? `${title}: ` : ""}${list.map((b) => `${range(b)}: ${num(b.value)}`).join(", ")}`;
+  return `<div class="hist" role="img" aria-label="${esc(said)}">
+    <div class="lc-y" style="width:${(Math.max(...yLabels.map((l) => l.length)) * 0.58 + 0.2).toFixed(2)}em" aria-hidden="true">${yLabels.map((l, i) => `<span style="bottom:${100 - i * 50}%">${esc(l)}</span>`).join("")}</div>
+    <div class="hist-plot"><i class="lc-grid" style="bottom:100%"></i><i class="lc-grid" style="bottom:50%"></i>${list.map((b) => `<div class="hist-col"${
+      tip(range(b), [[num(b.value), noun, b.colour], [`${share(b.value, total)}%`, `of ${num(total)}`]])}>${
+      b.value ? `<b>${num(b.value)}</b><i style="height:${((b.value / top) * 100).toFixed(1)}%;background:${b.colour || "var(--chart-1)"}"></i>` : ""}</div>`).join("")}</div>
+    <div class="hist-x" aria-hidden="true">${edges.map((e, i) => `<span>${num(e)}${i === edges.length - 1 ? unit : ""}</span>`).join("")}</div>
+  </div>${key.length ? keyList(key, total, { colours: [], noun, compact: true }) : ""}`;
 }
 
 /* ------------------------------------------------------------ tooltips

@@ -36,6 +36,7 @@ Rules that follow from this:
 | --- | --- | --- |
 | Schools, Learners, Teachers, Completion, Average mark, Data quality | Primary | One row of six tiles. |
 | Needs attention | Primary | Straight under the tiles (it was last on the page). Up to four grouped items with a count and a link each. |
+| Four pictures (19 October 2026) | Secondary | Under Needs attention: field visits by place × month (heatmap), learners' average marks (histogram, by band), work handed in by term (line), when the portal is used — day × time of day (heatmap). See docs/CHARTS.md. |
 | Active users | Secondary | A line in the Reach card (was a tile). |
 | Field visits, Kobo submissions | Secondary | Lines in the Field operations card (were tiles; field visits was also already in the card). |
 | Library use | Secondary | A line in the Digital resources card (was a tile). |
