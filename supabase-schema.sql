@@ -825,11 +825,13 @@ create table if not exists public.assignment_questions (
   position      int  not null,
   type          text not null check (type in (
                   'multiple_choice', 'multiple_response', 'short_answer',
-                  'true_false', 'file_upload', 'teacher_marked')),
+                  'true_false', 'file_upload', 'teacher_marked',
+                  'matching', 'ordering', 'fill_blanks', 'numeric', 'rubric')),
   prompt        text not null check (length(btrim(prompt)) between 1 and 2000),
   options       jsonb not null default '[]'::jsonb,
   answer_key    jsonb,
   max_marks     numeric(6,2) not null check (max_marks > 0),
+  meta          jsonb not null default '{}'::jsonb, -- CBE details and settings (20261020090000_cbe_questions)
   created_at    timestamptz not null default now(),
   unique (assignment_id, position)
 );
@@ -876,6 +878,7 @@ create table if not exists public.submission_answers (
   auto_marks    numeric(6,2),                -- set on submit for auto-marked types
   marks         numeric(6,2),                -- the teacher's mark (overrides auto_marks)
   feedback      text,
+  rubric        jsonb,                       -- rubric tasks: the level chosen per criterion
   updated_at    timestamptz not null default now(),
   unique (submission_id, question_id)
 );

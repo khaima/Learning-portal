@@ -25,7 +25,7 @@ import {
 } from "./permissions.ts";
 import { ASSIGNABLE_ROLES, countiesInScope, inPlaceScope, matchCounty, narrowInput, type PlaceScope, placeScopeFor, type ScopeRow } from "./scope.ts";
 import {
-  ASSIGNMENT_STATUSES, type AssignmentStatus, autoMark, type Band, bandFor, cleanQuestions, cleanResponse,
+  ASSIGNMENT_STATUSES, type AssignmentStatus, autoMark, type Band, bandFor, cleanQuestions, cleanResponse, cleanRubricLevels, rubricMarks,
   averagesOf, groupResults, isAutoMarked, isLate, marksHistogram, MAX_FILES_PER_ANSWER, pairsOf, percentOf, type Question,
   RESULT_DIMENSIONS, type ResultAssignment, type ResultDimension, type ResultSubmission, round2, summarize,
   expectedFrom,
@@ -3379,18 +3379,24 @@ const mapAssignmentRow = (r: Record<string, any>, n: Awaited<ReturnType<typeof a
   closedAt: r.closed_at ?? null,
 });
 
-const mapQuestion = (q: Record<string, any>, withKey: boolean) => ({
-  id: q.id,
-  position: q.position,
-  type: q.type,
-  prompt: q.prompt,
-  options: q.options ?? [],
-  maxMarks: Number(q.max_marks),
-  autoMarked: isAutoMarked({ type: q.type, answerKey: q.answer_key }),
-  ...(withKey ? { answerKey: q.answer_key ?? null } : {}),
-});
+/** A question for the screen. Staff get the answer key; a learner never does, and reads the
+    explanation and the options' feedback only once the work is marked (`revealed`). */
+const mapQuestion = (q: Record<string, any>, withKey: boolean, revealed = false) => {
+  const { explanation, optionFeedback, ...meta } = (q.meta ?? {}) as Record<string, unknown>;
+  return {
+    id: q.id,
+    position: q.position,
+    type: q.type,
+    prompt: q.prompt,
+    options: q.options ?? [],
+    maxMarks: Number(q.max_marks),
+    autoMarked: isAutoMarked({ type: q.type, answerKey: q.answer_key }),
+    meta: withKey || revealed ? { ...meta, ...(explanation ? { explanation } : {}), ...(optionFeedback ? { optionFeedback } : {}) } : meta,
+    ...(withKey ? { answerKey: q.answer_key ?? null } : {}),
+  };
+};
 const toQuestion = (q: Record<string, any>): Question => ({
-  id: q.id, type: q.type, prompt: q.prompt, options: q.options ?? [], answerKey: q.answer_key ?? null, maxMarks: Number(q.max_marks),
+  id: q.id, type: q.type, prompt: q.prompt, options: q.options ?? [], answerKey: q.answer_key ?? null, maxMarks: Number(q.max_marks), meta: q.meta ?? {},
 });
 
 /** A submission; the marks only when `showMarks` (staff, or the learner
@@ -3581,7 +3587,7 @@ async function saveQuestions(assignmentId: string, questions: Omit<Question, "id
   if (questions.length) {
     const { error } = await admin.from("assignment_questions").insert(questions.map((q, i) => ({
       id: rid("q"), assignment_id: assignmentId, position: i + 1, type: q.type, prompt: q.prompt,
-      options: q.options, answer_key: q.answerKey, max_marks: q.maxMarks,
+      options: q.options, answer_key: q.answerKey, max_marks: q.maxMarks, meta: q.meta ?? {},
     })));
     if (error) throw new Error(error.message);
   }
@@ -3834,6 +3840,7 @@ async function submissionDetail(s: Record<string, any>, a: Record<string, any>) 
       autoMarks: x.auto_marks == null ? null : Number(x.auto_marks),
       marks: x.marks == null ? null : Number(x.marks),
       feedback: x.feedback ?? null,
+      rubric: x.rubric ?? null,
     }))),
   };
 }
@@ -3865,34 +3872,42 @@ app.post("/submissions/:id/mark", requirePermission("assignments.grade"), async 
       conflict: { kind: "marked_elsewhere", server: await submissionDetail(s, a) },
     }, 409);
   }
-  const given = new Map<string, { marks?: unknown; feedback?: unknown }>();
+  const given = new Map<string, { marks?: unknown; feedback?: unknown; rubric?: unknown }>();
   for (const x of Array.isArray(b.answers) ? b.answers : []) if (x && typeof x.questionId === "string") given.set(x.questionId, x);
   const questions = await questionsOf(a.id);
   const { data: answers } = await admin.from("submission_answers").select("*").eq("submission_id", s.id);
   const now = new Date().toISOString();
   let total = 0, max = 0;
-  const writes: { id: string | null; questionId: string; marks: number; feedback: string | null }[] = [];
+  const writes: { id: string | null; questionId: string; marks: number; feedback: string | null; rubric?: number[] | null }[] = [];
   for (const q of questions) {
     const ans = (answers ?? []).find((x: Record<string, unknown>) => x.question_id === q.id);
     const g = given.get(q.id);
     const qMax = Number(q.max_marks);
     let m: number | null = null;
+    // A rubric task: a level (4 EE … 1 BE) for each criterion; the marks follow from them.
+    let levels: number[] | null | undefined;
+    if (q.type === "rubric" && g?.rubric !== undefined && g.rubric !== null) {
+      levels = cleanRubricLevels(g.rubric, (q.meta?.rubric ?? []).length);
+      if (!levels) return c.json({ error: `Question ${q.position}: choose a level for every criterion` }, 400);
+    }
     if (g?.marks !== undefined && g.marks !== null && g.marks !== "") {
       const v = Number(g.marks);
       if (!Number.isFinite(v) || v < 0 || v > qMax) return c.json({ error: `Question ${q.position}: marks must be between 0 and ${qMax}` }, 400);
       m = round2(v);
-    } else if (ans?.marks != null) m = Number(ans.marks);
+    } else if (levels) m = rubricMarks(levels, qMax);
+    else if (ans?.marks != null) m = Number(ans.marks);
     else if (ans?.auto_marks != null) m = Number(ans.auto_marks);
     else if (!ans && isAutoMarked({ type: q.type, answerKey: q.answer_key })) m = 0; // left blank
     if (m == null) return c.json({ error: `Question ${q.position} still needs a mark` }, 400);
     const fb = g?.feedback !== undefined ? (String(g.feedback ?? "").trim().slice(0, 2000) || null) : (ans?.feedback ?? null);
-    writes.push({ id: ans?.id ?? null, questionId: q.id, marks: m, feedback: fb });
+    writes.push({ id: ans?.id ?? null, questionId: q.id, marks: m, feedback: fb, ...(levels ? { rubric: levels } : {}) });
     total += m;
     max += qMax;
   }
   for (const w of writes) {
-    if (w.id) await admin.from("submission_answers").update({ marks: w.marks, feedback: w.feedback, updated_at: now }).eq("id", w.id);
-    else await admin.from("submission_answers").insert({ id: rid("ans"), submission_id: s.id, question_id: w.questionId, response: null, marks: w.marks, feedback: w.feedback });
+    const levels = w.rubric ? { rubric: w.rubric } : {};
+    if (w.id) await admin.from("submission_answers").update({ marks: w.marks, feedback: w.feedback, ...levels, updated_at: now }).eq("id", w.id);
+    else await admin.from("submission_answers").insert({ id: rid("ans"), submission_id: s.id, question_id: w.questionId, response: null, marks: w.marks, feedback: w.feedback, ...levels });
   }
   const pct = percentOf(total, max);
   const patch = {
@@ -3984,8 +3999,8 @@ async function learnerAssignmentView(me: Record<string, any>, a: Record<string, 
   return {
     assignment: mapAssignmentRow(a, names),
     resource,
-    // Never the answer key.
-    questions: questions.map((q) => mapQuestion(q, false)),
+    // Never the answer key; the explanation and option feedback once it's marked.
+    questions: questions.map((q) => mapQuestion(q, false, marked)),
     submission: learnerSubmission(s),
     completion: completionOf(s),
     cannotWork: cannotWork(me, a),
@@ -3993,7 +4008,7 @@ async function learnerAssignmentView(me: Record<string, any>, a: Record<string, 
       questionId: x.question_id,
       response: x.response ?? null,
       files: await signFiles((x.files ?? []) as LibFile[], false),
-      ...(marked ? { marks: x.marks != null ? Number(x.marks) : x.auto_marks != null ? Number(x.auto_marks) : null, feedback: x.feedback ?? null } : {}),
+      ...(marked ? { marks: x.marks != null ? Number(x.marks) : x.auto_marks != null ? Number(x.auto_marks) : null, feedback: x.feedback ?? null, rubric: x.rubric ?? null } : {}),
     }))),
   };
 }
@@ -4032,10 +4047,10 @@ async function saveAnswers(me: Record<string, any>, a: Record<string, any>, s: R
   for (const x of raw) {
     const q = questions.find((y) => y.id === x?.questionId);
     if (!q) return "That answer is for a question this assignment doesn't have";
-    const response = cleanResponse({ type: q.type, options: q.options ?? [] }, x.response);
+    const response = cleanResponse({ type: q.type, options: q.options ?? [], prompt: q.prompt }, x.response);
     if (response === undefined) return `Question ${q.position}: that isn't a valid answer`;
     let files: LibFile[] = [];
-    if (q.type === "file_upload") {
+    if (q.type === "file_upload" || q.type === "rubric") {
       files = (Array.isArray(x.files) ? x.files : [])
         .filter((f: Record<string, unknown>) => typeof f?.path === "string" && (f.path as string).startsWith(prefix) && !(f.path as string).includes(".."))
         .slice(0, MAX_FILES_PER_ANSWER)

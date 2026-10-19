@@ -10,6 +10,9 @@
      achievement — the marks earned on work that has been marked.
    Handing work in is never shown as doing well in it.
 
+   The kinds of question — how each is built, answered, read and marked —
+   are in question-types.js.
+
    The API decides who may see or change what; these are only screens.
    ============================================================ */
 
@@ -17,6 +20,12 @@ import { esc, toast, friendlyError, skeleton, errorState, confirmDialog } from "
 import { marksBins, marksSpread } from "./charts.js";
 import { openContentPanel, closeViewer } from "./viewer.js";
 import { normalizeLibraryAudience } from "./data.js";
+import { getProfile } from "./auth.js";
+import {
+  QUESTION_GROUPS, TYPE_LABEL, blankQuestion, retype, toEditable, toSaved, editorBody, moreOptions, applyEdit, applyAction,
+  promptText, tagsHtml, rubricTable, rubricMarks, responseView, keyText, learnerInput, collectAnswer, isBlank, moveItem,
+  afterMarking, chosenLevels,
+} from "./question-types.js";
 import {
   getSubjects, getLibrary, libraryFilesHtml,
   getAssignment, createAssignment, updateAssignment, setAssignmentStatus, deleteAssignment,
@@ -24,15 +33,6 @@ import {
   getMyAssignment, startAssignment, saveAssignmentAnswers, submitAssignment, uploadAnswerFile,
 } from "./store.js";
 
-export const QUESTION_TYPES = [
-  { value: "multiple_choice", label: "Multiple choice (one answer)" },
-  { value: "multiple_response", label: "Multiple response (tick all that apply)" },
-  { value: "true_false", label: "True / false" },
-  { value: "short_answer", label: "Short answer" },
-  { value: "teacher_marked", label: "Written task (you mark it)" },
-  { value: "file_upload", label: "File upload (you mark it)" },
-];
-const TYPE_LABEL = Object.fromEntries(QUESTION_TYPES.map((t) => [t.value, t.label]));
 export const STATUS_LABEL = { draft: "Draft", published: "Published", closed: "Closed" };
 export const COMPLETION_LABEL = { not_started: "Not started", in_progress: "In progress", submitted: "Handed in", marked: "Marked" };
 
@@ -120,43 +120,9 @@ export function resultsTableHtml(data) {
 
 /* ------------------------------------------------------------ teacher: build / edit an assignment */
 
-const blankQuestion = (type = "multiple_choice") => ({
-  type, prompt: "", maxMarks: 1,
-  options: type === "multiple_choice" || type === "multiple_response" ? ["", ""] : [],
-  answerKey: type === "multiple_response" ? [] : type === "true_false" ? true : type === "short_answer" ? [] : type === "multiple_choice" ? 0 : null,
-});
-
 function questionCardHtml(q, i, total) {
-  const typeOpts = QUESTION_TYPES.map((t) => `<option value="${t.value}"${t.value === q.type ? " selected" : ""}>${esc(t.label)}</option>`).join("");
-  let body = "";
-  if (q.type === "multiple_choice" || q.type === "multiple_response") {
-    const multi = q.type === "multiple_response";
-    body = `
-      <p class="field-hint" style="margin:.2rem 0 .4rem">${multi ? "Tick every right answer." : "Choose the right answer."}</p>
-      ${q.options.map((o, j) => `
-        <div class="q-opt">
-          <input type="${multi ? "checkbox" : "radio"}" name="key-${i}" data-key="${j}" aria-label="Right answer"
-            ${multi ? ((q.answerKey || []).includes(j) ? "checked" : "") : q.answerKey === j ? "checked" : ""}>
-          <input type="text" data-opt="${j}" value="${esc(o)}" placeholder="Option ${j + 1}" maxlength="300">
-          ${q.options.length > 2 ? `<button type="button" class="q-icon" data-act="rm-opt" data-j="${j}" aria-label="Remove option">✕</button>` : ""}
-        </div>`).join("")}
-      ${q.options.length < 10 ? `<button type="button" class="btn btn-ghost q-small" data-act="add-opt">+ Add option</button>` : ""}`;
-  } else if (q.type === "true_false") {
-    body = `
-      <div class="q-opt-row">
-        <label><input type="radio" name="tf-${i}" data-tf="true" ${q.answerKey === true ? "checked" : ""}> True is right</label>
-        <label><input type="radio" name="tf-${i}" data-tf="false" ${q.answerKey === false ? "checked" : ""}> False is right</label>
-      </div>`;
-  } else if (q.type === "short_answer") {
-    body = `
-      <div class="field" style="margin:.4rem 0 0"><label>Accepted answers <span class="hint-inline">— optional, separate with ;</span></label>
-        <input type="text" data-f="accepted" value="${esc((q.answerKey || []).join("; "))}" placeholder="e.g. 20; twenty">
-        <p class="field-hint">Matching answers are marked automatically (ignoring capitals and spaces). Leave empty to mark it yourself.</p></div>`;
-  } else if (q.type === "file_upload") {
-    body = `<p class="field-hint">Learners upload a file — a photo of their work, a document. You mark it.</p>`;
-  } else {
-    body = `<p class="field-hint">Learners write their answer. You mark it.</p>`;
-  }
+  const typeOpts = QUESTION_GROUPS.map(([group, list]) => `<optgroup label="${esc(group)}">${list.map(([v, l]) =>
+    `<option value="${v}"${v === q.type ? " selected" : ""}>${esc(l)}</option>`).join("")}</optgroup>`).join("");
   return `
     <div class="q-card" data-q="${i}">
       <div class="q-head">
@@ -164,15 +130,19 @@ function questionCardHtml(q, i, total) {
         <select data-f="type" aria-label="Question type">${typeOpts}</select>
         <label class="q-marks">Marks <input type="number" data-f="maxMarks" min="0.5" max="1000" step="0.5" value="${esc(q.maxMarks)}"></label>
         <span class="q-tools">
-          ${i > 0 ? `<button type="button" class="q-icon" data-act="up" aria-label="Move up">↑</button>` : ""}
-          ${i < total - 1 ? `<button type="button" class="q-icon" data-act="down" aria-label="Move down">↓</button>` : ""}
-          <button type="button" class="q-icon danger" data-act="remove" aria-label="Remove question">✕</button>
+          ${i > 0 ? `<button type="button" class="q-icon" data-act="up" aria-label="Move question ${i + 1} up">↑</button>` : ""}
+          ${i < total - 1 ? `<button type="button" class="q-icon" data-act="down" aria-label="Move question ${i + 1} down">↓</button>` : ""}
+          <button type="button" class="q-icon danger" data-act="remove" aria-label="Remove question ${i + 1}">✕</button>
         </span>
       </div>
-      <textarea data-f="prompt" rows="2" maxlength="2000" placeholder="Write the question…">${esc(q.prompt)}</textarea>
-      ${body}
+      <textarea data-f="prompt" rows="2" maxlength="2000" aria-label="Question ${i + 1}" placeholder="${q.type === "fill_blanks"
+        ? "Write the sentence, with each answer in [brackets]…" : q.type === "rubric" ? "Describe the task — what learners make, do or say…" : "Write the question…"}">${esc(q.prompt)}</textarea>
+      ${editorBody(q, i)}
+      ${moreOptions(q)}
     </div>`;
 }
+/** A focus target after adding a part: the new part's text box. */
+const NEW_PART = { "add-opt": "[data-opt]", "add-left": "[data-left]", "add-right": "[data-right]", "add-step": "[data-step]", "add-crit": "[data-crit]" };
 
 /** Create (existing = null) or edit an assignment. `classes` are the
     classes this teacher teaches (with their subjects); `terms` the school
@@ -191,7 +161,7 @@ export async function openAssignmentEditor({ classes, terms = [], existing = nul
   const a = existing?.assignment;
   const locked = !!a && a.status !== "draft"; // questions and class are fixed once learners have it
   let questions = existing
-    ? existing.questions.map((q) => ({ type: q.type, prompt: q.prompt, maxMarks: q.maxMarks, options: [...(q.options || [])], answerKey: q.answerKey }))
+    ? existing.questions.map(toEditable)
     : [blankQuestion()];
 
   return new Promise((resolve) => {
@@ -252,66 +222,53 @@ export async function openAssignmentEditor({ classes, terms = [], existing = nul
       if (locked) {
         qBox.innerHTML = existing.questions.map((q, i) => `
           <div class="q-card"><div class="q-head"><b>Question ${i + 1}</b><span class="hint-inline">${esc(TYPE_LABEL[q.type] || q.type)} · ${num(q.maxMarks)} mark${q.maxMarks === 1 ? "" : "s"}</span></div>
-          <p style="margin:.2rem 0 0;white-space:pre-wrap">${esc(q.prompt)}</p></div>`).join("");
+          <p style="margin:.2rem 0 0;white-space:pre-wrap">${esc(promptText(q))}</p>${tagsHtml(q)}</div>`).join("");
       } else {
         qBox.innerHTML = questions.length
           ? questions.map((q, i) => questionCardHtml(q, i, questions.length)).join("")
           : `<div class="empty-state">No questions yet — add at least one before publishing.</div>`;
       }
-      panel.querySelector("[data-total]").textContent = `${questions.length} question${questions.length === 1 ? "" : "s"} · ${num(totalMarks())} marks`;
+      showTotal();
     }
+    const showTotal = () => { panel.querySelector("[data-total]").textContent = `${questions.length} question${questions.length === 1 ? "" : "s"} · ${num(totalMarks())} marks`; };
     renderQuestions();
 
     if (!locked) {
-      // Typing updates the list in place; structural changes re-render.
-      qBox.addEventListener("input", (e) => {
-        const card = e.target.closest("[data-q]");
+      // Typing updates the question in place; ticks, choices and new parts draw the card again when they must.
+      const onEdit = (e) => {
+        const el = e.target;
+        const card = el.closest("[data-q]");
         if (!card) return;
-        const q = questions[Number(card.dataset.q)];
-        const f = e.target.dataset.f;
-        if (f === "prompt") q.prompt = e.target.value;
-        else if (f === "maxMarks") { q.maxMarks = Number(e.target.value); panel.querySelector("[data-total]").textContent = `${questions.length} question${questions.length === 1 ? "" : "s"} · ${num(totalMarks())} marks`; }
-        else if (f === "accepted") q.answerKey = e.target.value.split(";").map((s) => s.trim()).filter(Boolean);
-        else if (e.target.dataset.opt !== undefined) q.options[Number(e.target.dataset.opt)] = e.target.value;
-      });
-      qBox.addEventListener("change", (e) => {
-        const card = e.target.closest("[data-q]");
-        if (!card) return;
+        const typing = el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && el.type !== "checkbox" && el.type !== "radio");
+        if ((e.type === "input") !== typing) return;
         const i = Number(card.dataset.q);
-        const q = questions[i];
-        if (e.target.dataset.f === "type") {
-          const next = blankQuestion(e.target.value);
-          next.prompt = q.prompt;
-          next.maxMarks = q.maxMarks;
-          if ((next.type === "multiple_choice" || next.type === "multiple_response") && q.options?.length >= 2) next.options = q.options;
-          questions[i] = next;
-          renderQuestions();
-        } else if (e.target.dataset.key !== undefined) {
-          const j = Number(e.target.dataset.key);
-          if (q.type === "multiple_choice") q.answerKey = j;
-          else q.answerKey = e.target.checked ? [...new Set([...(q.answerKey || []), j])] : (q.answerKey || []).filter((k) => k !== j);
-        } else if (e.target.dataset.tf !== undefined) {
-          q.answerKey = e.target.dataset.tf === "true";
-        }
-      });
+        if (el.dataset.f === "type") { questions[i] = retype(questions[i], el.value); renderQuestions(); return; }
+        const did = applyEdit(questions[i], el, card);
+        if (did === "render") renderQuestions();
+        else if (did === "total") showTotal();
+      };
+      qBox.addEventListener("input", onEdit);
+      qBox.addEventListener("change", onEdit);
+      // "More" stays open (or shut) when the card is drawn again.
+      qBox.addEventListener("toggle", (e) => {
+        const card = e.target.matches?.("details.q-more") && e.target.closest("[data-q]");
+        if (card) questions[Number(card.dataset.q)]._open = e.target.open;
+      }, true);
       qBox.addEventListener("click", (e) => {
         const btn = e.target.closest("button[data-act]");
         const card = btn?.closest("[data-q]");
         if (!card) return;
         const i = Number(card.dataset.q);
-        const q = questions[i];
         const act = btn.dataset.act;
+        const j = Number(btn.dataset.j);
         if (act === "remove") questions.splice(i, 1);
         else if (act === "up" && i > 0) [questions[i - 1], questions[i]] = [questions[i], questions[i - 1]];
         else if (act === "down" && i < questions.length - 1) [questions[i + 1], questions[i]] = [questions[i], questions[i + 1]];
-        else if (act === "add-opt") q.options.push("");
-        else if (act === "rm-opt") {
-          const j = Number(btn.dataset.j);
-          q.options.splice(j, 1);
-          if (q.type === "multiple_choice") q.answerKey = q.answerKey === j ? 0 : q.answerKey > j ? q.answerKey - 1 : q.answerKey;
-          else q.answerKey = (q.answerKey || []).filter((k) => k !== j).map((k) => (k > j ? k - 1 : k));
-        }
+        else if (!applyAction(questions[i], act, j)) return;
         renderQuestions();
+        const again = qBox.querySelector(`[data-q="${i}"]`);
+        if (NEW_PART[act]) [...(again?.querySelectorAll(NEW_PART[act]) || [])].pop()?.focus();
+        else if (act === "step-up" || act === "step-down") again?.querySelector(`[data-step="${act === "step-up" ? j - 1 : j + 1}"]`)?.focus();
       });
       panel.querySelector('[data-act="add-q"]').addEventListener("click", () => {
         questions.push(blankQuestion(questions[questions.length - 1]?.type || "multiple_choice"));
@@ -338,7 +295,7 @@ export async function openAssignmentEditor({ classes, terms = [], existing = nul
       };
       if (!locked) {
         fields.classId = classSel.value;
-        fields.questions = questions.map((q) => ({ ...q, maxMarks: Number(q.maxMarks) }));
+        fields.questions = questions.map(toSaved);
       }
       if (!fields.termId) delete fields.termId; // let the server pick it from the dates
       const buttons = form.querySelectorAll("button");
@@ -362,32 +319,6 @@ export async function openAssignmentEditor({ classes, terms = [], existing = nul
 }
 
 /* ------------------------------------------------------------ teacher / head: one assignment */
-
-function responseHtml(q, ans, { withKey }) {
-  if (!ans || (ans.response == null && !(ans.files || []).length)) return `<span class="hint-inline">No answer</span>`;
-  const r = ans.response;
-  const mark = (ok) => (withKey ? (ok ? ' <span class="q-right">✓</span>' : ' <span class="q-wrong">✗</span>') : "");
-  switch (q.type) {
-    case "multiple_choice":
-      return `${esc(q.options[r] ?? "—")}${withKey && q.answerKey != null ? mark(r === q.answerKey) : ""}`;
-    case "multiple_response":
-      return (Array.isArray(r) ? r : []).map((k) => `${esc(q.options[k] ?? "—")}${withKey ? mark((q.answerKey || []).includes(k)) : ""}`).join(", ") || "—";
-    case "true_false":
-      return `${r ? "True" : "False"}${withKey && typeof q.answerKey === "boolean" ? mark(r === q.answerKey) : ""}`;
-    case "file_upload":
-      return (ans.files || []).map((f) => `<a href="${esc(f.downloadUrl || f.viewUrl || "#")}" target="_blank" rel="noopener">${esc(f.name)}</a>`).join("<br>") || "—";
-    default:
-      return `<span style="white-space:pre-wrap">${esc(r)}</span>`;
-  }
-}
-
-function keyHtml(q) {
-  if (q.type === "multiple_choice" && q.answerKey != null) return `Answer: ${esc(q.options[q.answerKey] ?? "")}`;
-  if (q.type === "multiple_response") return `Answers: ${(q.answerKey || []).map((k) => esc(q.options[k] ?? "")).join(", ")}`;
-  if (q.type === "true_false") return `Answer: ${q.answerKey ? "True" : "False"}`;
-  if (q.type === "short_answer" && (q.answerKey || []).length) return `Accepted: ${(q.answerKey || []).map(esc).join("; ")}`;
-  return "Marked by the teacher";
-}
 
 /** The assignment's page: details, questions, and the class roster with
     each learner's work. `canManage` (its teacher) can edit, publish and
@@ -429,9 +360,12 @@ export async function openAssignmentDetail(id, { canManage = false, canMark = fa
     ${d.questions.length ? d.questions.map((q, i) => `
       <div class="q-card">
         <div class="q-head"><b>${i + 1}.</b><span class="hint-inline">${esc(TYPE_LABEL[q.type] || q.type)} · ${num(q.maxMarks)} mark${q.maxMarks === 1 ? "" : "s"}</span></div>
-        <p style="margin:.2rem 0;white-space:pre-wrap">${esc(q.prompt)}</p>
-        ${q.options?.length && q.type !== "true_false" ? `<ol class="q-list">${q.options.map((o) => `<li>${esc(o)}</li>`).join("")}</ol>` : ""}
-        <p class="field-hint" style="margin:0">${keyHtml(q)}</p>
+        <p style="margin:.2rem 0;white-space:pre-wrap">${esc(promptText(q))}</p>
+        ${q.type === "multiple_choice" || q.type === "multiple_response" ? `<ol class="q-list q-list-abc">${q.options.map((o) => `<li>${esc(o)}</li>`).join("")}</ol>` : ""}
+        ${q.type === "rubric" ? rubricTable(q) : ""}
+        <p class="field-hint" style="margin:0">${keyText(q)}</p>
+        ${q.meta?.explanation ? `<p class="q-explain"><b>Why:</b> ${esc(q.meta.explanation)}</p>` : ""}
+        ${tagsHtml(q)}
       </div>`).join("") : `<div class="empty-state">No questions yet.</div>`}
     ${a.status === "draft" ? "" : `
     <h3 style="margin:1rem 0 .4rem">Learners</h3>
@@ -510,13 +444,15 @@ export async function openMarking(submissionId, { canMark = false, onDone = () =
         return `
         <div class="q-card" data-qid="${esc(q.id)}">
           <div class="q-head"><b>${i + 1}.</b><span class="hint-inline">${esc(TYPE_LABEL[q.type] || q.type)} · out of ${num(q.maxMarks)}</span></div>
-          <p style="margin:.2rem 0;white-space:pre-wrap">${esc(q.prompt)}</p>
-          <div class="q-answer">${responseHtml(q, x, { withKey: true })}</div>
-          ${q.autoMarked ? `<p class="field-hint" style="margin:.2rem 0">${keyHtml(q)} · marked automatically${x?.autoMarks != null ? `: ${num(x.autoMarks)}` : ""} — you can change it</p>` : ""}
+          ${q.type === "fill_blanks" ? "" : `<p style="margin:.2rem 0;white-space:pre-wrap">${esc(q.prompt)}</p>`}
+          <div class="q-answer">${responseView(q, x, { withKey: true })}</div>
+          ${q.autoMarked ? `<p class="field-hint" style="margin:.2rem 0">${keyText(q)} · marked automatically${x?.autoMarks != null ? `: ${num(x.autoMarks)}` : ""} — you can change it</p>` : ""}
+          ${q.type === "rubric" ? `${editable ? `<p class="field-hint" style="margin:.5rem 0 .2rem">Choose a level for each criterion — the marks follow.</p>` : ""}
+            ${rubricTable(q, { chosen: x?.rubric, pick: editable, name: `rb-${q.id}` })}` : ""}
           ${editable ? `
           <div class="lms-grid-mark">
             <div class="field" style="margin:0"><label>Marks (0–${num(q.maxMarks)})</label>
-              <input type="number" data-marks min="0" max="${q.maxMarks}" step="0.5" value="${m ?? ""}" ${q.autoMarked ? "" : "required"}></div>
+              <input type="number" data-marks min="0" max="${q.maxMarks}" step="any" value="${m ?? ""}" ${q.autoMarked ? "" : "required"}></div>
             <div class="field" style="margin:0"><label>Feedback <span class="hint-inline">— optional</span></label>
               <input type="text" data-fb maxlength="2000" value="${esc(x?.feedback || "")}"></div>
           </div>` : `
@@ -543,18 +479,44 @@ export async function openMarking(submissionId, { canMark = false, onDone = () =
     totalEl.innerHTML = `Total: <b>${num(got)} / ${num(max)}</b> (${pct(max ? (got / max) * 100 : 0)})${missing ? ` · ${missing} still to mark` : ""}`;
   };
   form.addEventListener("input", showTotal);
+  // A rubric's levels fill in its marks.
+  const byId = Object.fromEntries(d.questions.map((q) => [q.id, q]));
+  form.addEventListener("change", (e) => {
+    const pick = e.target.closest("[data-rubric]");
+    const card = pick?.closest("[data-qid]");
+    if (!card) return;
+    for (const td of card.querySelectorAll(".q-rubric td")) td.classList.toggle("is-chosen", !!td.querySelector("input:checked"));
+    const q = byId[card.dataset.qid];
+    const levels = chosenLevels(card, q);
+    if (levels) card.querySelector("[data-marks]").value = rubricMarks(levels, q.maxMarks);
+    showTotal();
+  });
   showTotal();
   panel.querySelector("[data-cancel]").addEventListener("click", () => closeViewer());
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const err = panel.querySelector("[data-error]");
     err.hidden = true;
+    const cards = [...form.querySelectorAll("[data-qid]")];
+    // A rubric is all or nothing: a level for every criterion, or none (and the marks typed).
+    const half = cards.findIndex((card) => byId[card.dataset.qid].type === "rubric" && card.querySelector("[data-rubric]:checked") && !chosenLevels(card, byId[card.dataset.qid]));
+    if (half >= 0) {
+      err.textContent = `Question ${half + 1}: choose a level for every criterion.`;
+      err.hidden = false;
+      cards[half].scrollIntoView({ block: "center" });
+      return;
+    }
     const body = {
-      answers: [...form.querySelectorAll("[data-qid]")].map((card) => ({
-        questionId: card.dataset.qid,
-        marks: card.querySelector("[data-marks]").value === "" ? null : Number(card.querySelector("[data-marks]").value),
-        feedback: card.querySelector("[data-fb]").value,
-      })),
+      answers: cards.map((card) => {
+        const q = byId[card.dataset.qid];
+        const levels = q.type === "rubric" ? chosenLevels(card, q) : null;
+        return {
+          questionId: card.dataset.qid,
+          marks: card.querySelector("[data-marks]").value === "" ? null : Number(card.querySelector("[data-marks]").value),
+          feedback: card.querySelector("[data-fb]").value,
+          ...(levels ? { rubric: levels } : {}),
+        };
+      }),
       feedback: panel.querySelector("#mk_fb").value,
     };
     const btn = form.querySelector("[type=submit]");
@@ -578,30 +540,17 @@ export async function openMarking(submissionId, { canMark = false, onDone = () =
 
 /* ------------------------------------------------------------ learner: do an assignment */
 
-function learnerQuestionHtml(q, i, ans, editable, marked) {
-  const r = ans?.response;
-  let input = "";
-  if (!editable) {
-    input = `<div class="q-answer">${responseHtml(q, ans, { withKey: false })}</div>`;
-  } else if (q.type === "multiple_choice") {
-    input = q.options.map((o, j) => `<label class="q-choice"><input type="radio" name="a-${esc(q.id)}" value="${j}" ${r === j ? "checked" : ""}> ${esc(o)}</label>`).join("");
-  } else if (q.type === "multiple_response") {
-    input = q.options.map((o, j) => `<label class="q-choice"><input type="checkbox" value="${j}" ${(Array.isArray(r) ? r : []).includes(j) ? "checked" : ""}> ${esc(o)}</label>`).join("");
-  } else if (q.type === "true_false") {
-    input = `<label class="q-choice"><input type="radio" name="a-${esc(q.id)}" value="true" ${r === true ? "checked" : ""}> True</label>
-      <label class="q-choice"><input type="radio" name="a-${esc(q.id)}" value="false" ${r === false ? "checked" : ""}> False</label>`;
-  } else if (q.type === "file_upload") {
-    input = `<div data-files>${(ans?.files || []).map((f) => `<span class="pill">${esc(f.name)}</span>`).join(" ") || '<span class="hint-inline">No file yet</span>'}</div>
-      <label class="btn btn-outline q-small" style="margin-top:.4rem">Upload a file<input type="file" data-upload hidden></label>`;
-  } else {
-    input = `<textarea rows="${q.type === "short_answer" ? 2 : 5}" maxlength="5000" placeholder="Your answer…">${esc(typeof r === "string" ? r : "")}</textarea>`;
-  }
+/** What a learner is asked to do, beside the marks. */
+const HOW = { multiple_response: "Tick all that apply", matching: "Match each one", ordering: "Put in order", fill_blanks: "Fill in the blanks", numeric: "A number", rubric: "Marked with a rubric" };
+
+function learnerQuestionHtml(q, i, ans, editable, marked, seed) {
   return `
     <div class="q-card" data-qid="${esc(q.id)}" data-type="${esc(q.type)}">
-      <div class="q-head"><b>${i + 1}.</b><span class="hint-inline">${q.type === "multiple_response" ? "Tick all that apply · " : ""}${num(q.maxMarks)} mark${q.maxMarks === 1 ? "" : "s"}</span></div>
-      <p style="margin:.2rem 0 .5rem;white-space:pre-wrap">${esc(q.prompt)}</p>
-      ${input}
-      ${marked ? `<p class="field-hint" style="margin:.4rem 0 0">Marks: <b>${ans?.marks == null ? "—" : num(ans.marks)}</b> / ${num(q.maxMarks)}${ans?.feedback ? ` · ${esc(ans.feedback)}` : ""}</p>` : ""}
+      <div class="q-head"><b>${i + 1}.</b><span class="hint-inline">${HOW[q.type] ? `${HOW[q.type]} · ` : ""}${num(q.maxMarks)} mark${q.maxMarks === 1 ? "" : "s"}</span></div>
+      ${q.type === "fill_blanks" ? "" : `<p style="margin:.2rem 0 .5rem;white-space:pre-wrap">${esc(q.prompt)}</p>`}
+      ${editable ? learnerInput(q, ans, { seed }) : `<div class="q-answer">${responseView(q, ans)}</div>`}
+      ${marked ? `<p class="field-hint" style="margin:.4rem 0 0">Marks: <b>${ans?.marks == null ? "—" : num(ans.marks)}</b> / ${num(q.maxMarks)}${ans?.feedback ? ` · ${esc(ans.feedback)}` : ""}</p>
+        ${afterMarking(q, ans)}` : ""}
     </div>`;
 }
 
@@ -614,6 +563,8 @@ export async function openLearnerAssignment(id, { onChange = () => {} } = {}) {
     panel.innerHTML = errorState(friendlyError(err), () => openLearnerAssignment(id, { onChange }));
     return;
   }
+  // Shuffled options come in the same order for this learner every time.
+  const seed = `${(await getProfile().catch(() => null))?.id || ""}|${id}`;
   // Files picked so far for each file question (kept between saves).
   // (A file chosen offline keeps its pendingUpload reference until it's uploaded at sync.)
   const files = Object.fromEntries(d.answers.map((x) => [x.questionId, (x.files || []).map((f) => ({
@@ -648,7 +599,7 @@ export async function openLearnerAssignment(id, { onChange = () => {} } = {}) {
         ? (d.cannotWork ? "" : `<p>${d.questions.length} question${d.questions.length === 1 ? "" : "s"}. Save your answers as you go with “Save progress”, then hand it in.</p>
             <button class="btn btn-primary" type="button" data-start>Start</button>`)
         : `<form class="fill-form" data-work>
-            ${d.questions.map((q, i) => learnerQuestionHtml(q, i, answers[q.id] ? { ...answers[q.id], files: answers[q.id].files } : null, editable, marked)).join("")}
+            ${d.questions.map((q, i) => learnerQuestionHtml(q, i, answers[q.id] ? { ...answers[q.id], files: answers[q.id].files } : null, editable, marked, seed)).join("")}
             ${editable ? `
               <div class="field-error" data-error hidden></div>
               <div class="lms-actions">
@@ -662,21 +613,13 @@ export async function openLearnerAssignment(id, { onChange = () => {} } = {}) {
 
   /** The answers currently on the form. */
   function collect() {
-    return [...panel.querySelectorAll("[data-qid]")].map((card) => {
-      const qid = card.dataset.qid;
-      const type = card.dataset.type;
-      let response = null;
-      if (type === "multiple_choice") { const c = card.querySelector("input:checked"); response = c ? Number(c.value) : null; }
-      else if (type === "multiple_response") response = [...card.querySelectorAll("input:checked")].map((c) => Number(c.value));
-      else if (type === "true_false") { const c = card.querySelector("input:checked"); response = c ? c.value === "true" : null; }
-      else if (type === "file_upload") return { questionId: qid, response: null, files: files[qid] || [] };
-      else response = card.querySelector("textarea")?.value ?? null;
-      return { questionId: qid, response };
-    });
+    return [...panel.querySelectorAll("[data-qid]")].map((card) => collectAnswer(card, files));
   }
   const showError = (msg) => { const e = panel.querySelector("[data-error]"); if (e) { e.textContent = msg; e.hidden = false; } };
 
   panel.addEventListener("click", async (e) => {
+    const move = e.target.closest("[data-move]");
+    if (move) { moveItem(move); return; }
     if (e.target.closest("[data-start]")) {
       e.target.disabled = true;
       try {
@@ -727,7 +670,7 @@ export async function openLearnerAssignment(id, { onChange = () => {} } = {}) {
     if (!e.target.matches("[data-work]")) return;
     e.preventDefault();
     const answers = collect();
-    const blank = answers.filter((x) => x.files ? !x.files.length : x.response == null || x.response === "" || (Array.isArray(x.response) && !x.response.length)).length;
+    const blank = answers.filter(isBlank).length;
     const ok = await confirmDialog({
       title: "Hand it in?",
       body: `${blank ? `${blank} question${blank === 1 ? " is" : "s are"} still blank. ` : ""}You can't change your answers after handing in.`,
