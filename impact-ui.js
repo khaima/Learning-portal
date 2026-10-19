@@ -212,11 +212,11 @@ function overviewCharts(d, { place = null } = {}) {
   const colourOf = (code) => { const i = bands.findIndex((b) => b.code === code); return i >= 0 ? `var(--band-${i + 1})` : "var(--chart-1)"; };
   const M = O.marks;
   const marks = card("Learners' average marks", M.learners ? `${plural(M.learners, "learner")} · median ${M.median}%` : "",
-    histogram(M.bins.map((b) => ({ ...b, colour: colourOf(b.band) })), { unit: "%", noun: "learners", title: "Learners by average mark",
+    histogram(M.bins.map((b) => ({ ...b, colour: colourOf(b.band) })), { unit: "%", noun: "learners", title: "Learners by average mark", empty: `No marked work${where}.`,
       key: bands.map((b, i) => ({ label: `${b.code} — ${b.label}`, colour: `var(--band-${i + 1})`, value: M.bins.filter((x) => x.band === b.code).reduce((t, x) => t + x.value, 0) })) }));
   // Completion, term by term.
   const handedIn = card("Work handed in", "By term",
-    trendOrBars(termPoints(d.learning.progress.byTerm, (t) => t.completionRate), { unit: "%", noun: "handed in", title: "Work handed in by term", drill: !place }));
+    trendOrBars(termPoints(d.learning.progress.byTerm, (t) => t.completionRate), { unit: "%", noun: "handed in", title: "Work handed in by term", drill: !place, empty: `No work set${where}.` }));
   // When: resources opened, work handed in and marked — by day and time of day.
   const A = O.activity;
   const when = card("When the portal is used", "Opened, handed in and marked · Kenyan time",
