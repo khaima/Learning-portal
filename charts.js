@@ -325,8 +325,9 @@ function shadeSteps(max) {
     none. It is a table, so it reads as one without the colour: every cell
     prints its count, the key names what each shade covers, and a screen
     reader reads it row by row.
-      rows     [{ label, values: [n…], total?, drill?, pickSchool? }]
-               drill: the row's name narrows the dashboard ({ county }); pickSchool: to that school
+      rows     [{ label, values: [n…], total?, drill?, pickSchool?, href? }]
+               drill: the row's name narrows the dashboard ({ county }); pickSchool: to that school;
+               href: it opens that page
       cols     [{ label, short?, sub?, full?, drill? }]   headings (short: on a phone; full: in the
                tooltip; drill: narrows the dates)
       corner   the rows' heading ("County")
@@ -349,7 +350,8 @@ export function heatmap(rows, cols, { corner = "", caption = "", noun = "", tota
     c.drill ? pick("data-drill", JSON.stringify(c.drill), colName(c), "show only this period") : colName(c)}${c.sub ? `<small>${esc(c.sub)}</small>` : ""}</th>`).join("")}${
     totals ? `<th scope="col" class="hm-total">Total</th>` : ""}</tr>`;
   const body = list.map((r) => {
-    const name = r.drill ? pick("data-drill", JSON.stringify(r.drill), esc(r.label), act) : r.pickSchool ? pick("data-pick-school", r.pickSchool, esc(r.label), act) : esc(r.label);
+    const name = r.href ? `<a class="bars-link" href="${esc(r.href)}">${esc(r.label)}</a>`
+      : r.drill ? pick("data-drill", JSON.stringify(r.drill), esc(r.label), act) : r.pickSchool ? pick("data-pick-school", r.pickSchool, esc(r.label), act) : esc(r.label);
     const total = r.total ?? r.values.reduce((t, v) => t + v, 0);
     return `<tr><th scope="row">${name}</th>${r.values.map((v, i) => `<td class="hm hm-${shade(v)}"${
       tip(`${r.label} · ${cols[i].full || cols[i].label}`, [[num(v), noun]])}>${v ? num(v) : '<span class="sr-only">0</span>'}</td>`).join("")}${

@@ -190,15 +190,18 @@ export function themeIndicatorsHtml(dash, theme, { canManage = false } = {}) {
 
 /** The overview's pictures, under the key figures: where and when the visits
     happen, how learners' marks spread, how much work is handed in term by
-    term, and when the portal is used. (An API from before them: none.) */
-function overviewCharts(d) {
+    term, and when the portal is used. (An API from before them: none.)
+    `place(kind, name)`, where given, makes a county's or school's name a link
+    (the Super Admin's Overview, which has no filters of its own to narrow). */
+function overviewCharts(d, { place = null } = {}) {
   const O = d.overview;
   if (!O) return "";
   const s = d.scope || {};
   // Visits: a county's row narrows the dashboard to it; narrowed, the rows are its schools.
   const byCounty = O.visits.rowsAre === "county";
   const visitRows = O.visits.rows.map((r) => ({ ...r,
-    ...(byCounty && !s.county ? { drill: { county: r.label } } : !byCounty && !s.school ? { pickSchool: r.label } : {}) }));
+    ...(place ? { href: place(byCounty ? "county" : "school", r.label) }
+      : byCounty && !s.county ? { drill: { county: r.label } } : !byCounty && !s.school ? { pickSchool: r.label } : {}) }));
   // Month headings are plain: twelve of them can't be finger-sized (Field operations' line picks a month).
   const months = monthPoints(O.visits.months.map((m) => ({ label: m, value: 0 }))).map(({ drill: _, ...m }) => ({ ...m, short: m.label.slice(0, 1) }));
   const visits = card("Field visits by place and month", `${byCounty ? "Counties" : "Schools"} · last 12 months`,
@@ -213,13 +216,18 @@ function overviewCharts(d) {
       key: bands.map((b, i) => ({ label: `${b.code} — ${b.label}`, colour: `var(--band-${i + 1})`, value: M.bins.filter((x) => x.band === b.code).reduce((t, x) => t + x.value, 0) })) }));
   // Completion, term by term.
   const handedIn = card("Work handed in", "By term",
-    trendOrBars(termPoints(d.learning.progress.byTerm, (t) => t.completionRate), { unit: "%", noun: "handed in", title: "Work handed in by term", drill: true }));
+    trendOrBars(termPoints(d.learning.progress.byTerm, (t) => t.completionRate), { unit: "%", noun: "handed in", title: "Work handed in by term", drill: !place }));
   // When: resources opened, work handed in and marked — by day and time of day.
   const A = O.activity;
   const when = card("When the portal is used", "Opened, handed in and marked · Kenyan time",
     heatmap(A.days.map((day, i) => ({ label: day, values: A.cells[i] })), A.blocks.map((b) => ({ label: b, short: b.split("–")[0], full: `${b} h` })),
       { corner: "", caption: "Portal use by day of the week and time of day", noun: "actions" }), { wide: true });
   return visits + marks + handedIn + when;
+}
+/** The same pictures for the Super Admin's Overview: a county or school opens the Executive overview narrowed to it. */
+export function overviewPictures(d, href = (kind, name) => `#overview?${kind}=${encodeURIComponent(name)}&via=platform-overview`) {
+  forScope(d);
+  return overviewCharts(d, { place: href });
 }
 
 export function executiveHtml(d, opts = {}) {

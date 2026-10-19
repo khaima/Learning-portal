@@ -1591,6 +1591,9 @@ a.stat-tile.stat-link.intel-warn:hover,a.stat-tile.stat-link.intel-warn:focus-vi
 .cc-users,.cc-data,.cc-system{ grid-column:span 2; }
 .cc-actions{ grid-column:span 4; }
 .cc-changes{ grid-column:span 2; }
+/* The programme in pictures (the Executive overview's charts), the whole width. */
+.cc-grid > .cc-pics{ grid-column:1 / -1; }
+.cc-pics .pov-panel-head{ display:flex; align-items:center; justify-content:space-between; gap:.6rem; flex-wrap:wrap; }
 .pov-panel-head h3{ display:flex; align-items:center; gap:.5rem; }
 .pov-panel-head h3 .icon{ width:1.05rem; height:1.05rem; color:var(--brand); }
 /* A figure: the number on the left; what it is, its context and its page on the right. */

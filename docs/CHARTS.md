@@ -173,6 +173,10 @@ Four pictures under Needs attention, computed by the API (`impact.ts`
 | Work handed in | Line by term (bars under three terms) | As on Learning. |
 | When the portal is used | Heatmap: day of the week × three-hour block, Kenyan time (EAT) | Resources opened, work handed in and work marked. |
 
+The same four are on the Super Admin's **Overview** (its first page), in a
+"Programme at a glance" panel under the activity cards; there a county's
+or school's name opens the Executive overview narrowed to it.
+
 Heatmap rules: one hue, at most four shades plus "none", each shade an
 equal run of whole counts named in the key; it is a table (screen readers
 read it row by row); on a phone the columns are headed by their short form

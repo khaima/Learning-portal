@@ -8,7 +8,7 @@
    Each page shows what the API returns for this person — already limited to
    their permissions and data scope on the server. Buttons appear only for
    what they may do, and the API checks every one again. */
-import { esc, skeleton, skeletonTable, skeletonCards, errorState, emptyState, friendlyError, toast, confirmDialog } from "./util.js";
+import { esc, skeleton, skeletonTable, skeletonCards, skeletonCharts, errorState, emptyState, friendlyError, toast, confirmDialog } from "./util.js";
 import { apiGet, apiSend } from "./api.js";
 import { openContentPanel, closeViewer } from "./viewer.js";
 import { resultsTableHtml } from "./assignments-ui.js";
@@ -379,6 +379,12 @@ function overviewHtml(d, x, describe) {
             state: `${plural(d.access.grants, "extra permission")} · ${plural(d.access.scopedStaff, "person", "people")} with a narrowed scope` })}
         </section>
 
+        ${x.pics === null ? "" : `<section class="pov-panel cc-pics" aria-labelledby="cc-pics-title">
+          <div class="pov-panel-head"><h3 id="cc-pics-title">${icon("chart")}Programme at a glance</h3>
+            <a class="cc-go" href="#overview?via=platform-overview">Executive overview<span aria-hidden="true"> →</span></a></div>
+          <div class="chart-grid">${x.pics ?? skeletonCharts(2)}</div>
+        </section>`}
+
         <section class="pov-panel pov-attention cc-actions" aria-labelledby="pov-attention-title">${actionsPanel(d.checks, queue)}</section>
 
         <section class="pov-panel cc-changes" aria-labelledby="cc-changes-title">
@@ -413,6 +419,8 @@ export function renderPlatformOverview(el, { describe } = {}) {
     audit: apiGet("/audit?limit=200").catch(() => null),
     act: apiGet("/security/activity").catch(() => null),
     kobo: d.integrations.kobo.connected ? apiGet("/kobo/forms").catch(() => null) : Promise.resolve(null),
+    // The programme in pictures (impact-ui.js, loaded only here): the Executive overview's heatmaps and histogram.
+    pics: Promise.all([apiGet("/impact"), import("./impact-ui.js")]).then(([imp, m]) => m.overviewPictures(imp) || null).catch(() => null),
   });
 
   /* Refresh (the button, or by itself): everything is read first, with the
