@@ -110,6 +110,9 @@ async function startedWork(submit = false): Promise<Ids> {
   return { submission: started.submission?.id ?? started.id };
 }
 
+/** Today in Kenya — the day a register is for. */
+const TODAY = new Date(Date.now() + 3 * 3600e3).toISOString().slice(0, 10);
+
 const ROUTES: RouteSpec[] = [
   // Only someone whose account predates school codes still picks a school.
   r("PUT", "/me/school", ["teacher", "school_leader"], { schoolId: "sch_1" }, undefined, {
@@ -194,6 +197,12 @@ const ROUTES: RouteSpec[] = [
   }),
   r("POST", "/learner/assignments/:id/submit", ["learner"], {}, "/learner/assignments/asg_1/submit", { setup: () => startedWork() }),
   r("GET", "/results", [...LEARNER_VIEWERS, "learner"]),
+  r("GET", "/results/compare", LEARNER_VIEWERS, undefined, "/results/compare?rows=class"),
+  // Class attendance: a teacher takes their class's register; heads and the programme roles see it.
+  r("GET", "/attendance/register", LEARNER_VIEWERS, undefined, "/attendance/register?classId=cls_1"),
+  r("PUT", "/attendance/register", ["teacher"], { classId: "cls_1", date: TODAY, marks: [{ learnerId: "learner-id", status: "present" }] }),
+  r("GET", "/attendance/today", LEARNER_VIEWERS, undefined, "/attendance/today?schoolId=sch_1"),
+  r("GET", "/attendance/summary", LEARNER_VIEWERS, undefined, "/attendance/summary?schoolId=sch_1"),
   r("GET", "/field-reports", [...ANALYSTS, "field_officer"]),
   r("POST", "/field-reports", ["field_officer"], { schoolId: "sch_1", visitType: "Learning", responses: [] }),
   r("GET", "/stats", STATS),

@@ -3511,6 +3511,7 @@ async function main() {
           $("#resNote").hidden = !notes.length;
           $("#resNote").textContent = notes.length ? `These results cover ${notes.join("; and ")}.` : "";
           A.renderResults($("#resBody"), { by: $("#resBy").value, schoolId: $("#resSchool").value, termId });
+          A.renderCompare($("#resCompare"), { schoolId: $("#resSchool").value, termId });
         };
         if (first) { $("#resBy").addEventListener("change", redraw); $("#resSchool").addEventListener("change", redraw); }
         redraw();

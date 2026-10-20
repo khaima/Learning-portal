@@ -859,6 +859,23 @@ export function renderResults(el, { by = "school", schoolId = "", termId = "" } 
     () => renderResults(el, { by, schoolId, termId }));
 }
 
+/** Which subject does best (compare-ui.js): across the schools in view, or — one school chosen — its grades and classes. */
+let compareFor = { schoolId: "", termId: "" };
+let compareMounted = null;
+export async function renderCompare(el, { schoolId = "", termId = "" } = {}) {
+  const one = !!schoolId;
+  const remount = !compareMounted || compareMounted.el !== el || compareMounted.one !== one;
+  compareFor = { schoolId, termId };
+  if (!remount) { compareMounted.c.refresh(); return; }
+  try {
+    const m = await import("./compare-ui.js");
+    const load = (rows) => apiGet(`/results/compare?${new URLSearchParams(Object.entries({ rows, ...compareFor }).filter(([, v]) => v))}`);
+    compareMounted = { el, one, c: m.mountCompare(el, { load, choices: one ? [["grade", "Grade"], ["class", "Class"]] : [["school", "School"], ["grade", "Grade"]] }) };
+  } catch (err) {
+    el.innerHTML = errorState(friendlyError(err));
+  }
+}
+
 /* ------------------------------------------------------------------ Field visits (everyone's, in scope) */
 let visitsCache = null;
 export async function renderFieldVisits(el, f = {}, { fresh = false } = {}) {

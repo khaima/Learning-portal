@@ -495,3 +495,53 @@ export function groupResults(pairs: Pair[], by: ResultDimension, bands: Band[], 
   }
   return [...groups.entries()].map(([key, list]) => ({ key, ...summarize(list, bands, now) }));
 }
+
+/* ------------------------------------------------------------ comparing subjects */
+
+/** With fewer marked pieces of work than this, an average isn't ranked against others: a few
+    marks say more about those learners than about the subject. */
+export const MIN_TO_COMPARE = 5;
+
+/** One group's results, ready to compare: completion and achievement, and whether there's
+    enough marked work behind the average to rank it. */
+function compared(pairs: Pair[], bands: Band[], now: Date) {
+  const s = summarize(pairs, bands, now);
+  return {
+    assigned: s.completion.assigned, completionRate: s.completion.rate,
+    marked: s.achievement.marked, averagePercent: s.achievement.averagePercent, band: s.achievement.band, bands: s.achievement.bands,
+    learners: new Set(pairs.filter((p) => p.sub?.status === "marked").map((p) => p.learnerId)).size,
+    enough: s.achievement.marked >= MIN_TO_COMPARE,
+  };
+}
+const split = (pairs: Pair[], by: ResultDimension) => {
+  const out = new Map<string, Pair[]>();
+  for (const p of pairs) {
+    const k = keyOf(p, by);
+    if (!out.has(k)) out.set(k, []);
+    out.get(k)!.push(p);
+  }
+  return out;
+};
+
+/** Subjects side by side: overall (and term by term), and within each row — a grade, a class or
+    a school — so a page can say which subject does best, and where. `best` and `weakest` are
+    only among subjects with enough marked work; with fewer than two of those there's no weakest. */
+export function compareResults(pairs: Pair[], rowsBy: ResultDimension, bands: Band[], now = new Date()) {
+  const subjects = [...split(pairs, "subject")].map(([key, list]) => ({
+    key, ...compared(list, bands, now),
+    terms: [...split(list, "term")].filter(([term]) => term !== "(no term)")
+      .map(([term, tl]) => ({ key: term, ...compared(tl, bands, now) })).filter((t) => t.marked)
+      .sort((a, b) => a.key.localeCompare(b.key)),
+  }));
+  const rows = [...split(pairs, rowsBy)];
+  const ranked = subjects.filter((s) => s.enough).sort((a, b) => b.averagePercent! - a.averagePercent!);
+  return {
+    min: MIN_TO_COMPARE,
+    overall: compared(pairs, bands, now),
+    subjects,
+    rows: rows.map(([key, list]) => ({ key, ...compared(list, bands, now) })),
+    cells: rows.flatMap(([row, list]) => [...split(list, "subject")].map(([subject, sl]) => ({ row, subject, ...compared(sl, bands, now) }))),
+    best: ranked[0]?.key ?? null,
+    weakest: ranked.length > 1 ? ranked[ranked.length - 1].key : null,
+  };
+}

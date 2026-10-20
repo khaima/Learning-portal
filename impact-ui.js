@@ -30,6 +30,7 @@ import { fmtValue, ragPill } from "./mel-format.js";
 import { ICON } from "./navigation.js";
 import { barList as bars0, heatmap as heat0, lineChart as line0, marksSpread, monthPoints, proportion as parts0, stackBar as stack0, TARGET_KEY, targetList, termPoints, trendOrBars as trend0 } from "./charts.js";
 import { kpiCard, periodTrend, termName } from "./kpi.js";
+import { compareHtml } from "./compare-ui.js";
 
 const pct = (v) => (v == null ? "—" : `${Math.round(v)}%`);
 const num = (v) => (v == null ? "—" : Number(v).toLocaleString());
@@ -402,6 +403,7 @@ export function learningHtml(d, opts = {}) {
       ${marksCard(d, d.overview?.marks)}
       ${card("Learner progress", "Average mark by term",
         trendOrBars(termPoints(terms, (t) => t.averagePercent, (t) => ({ note: `${num(t.marked)} marked${t.band ? ` · ${t.band}` : ""}` })), { unit: "%", noun: "average mark", title: "Average mark by term", drill: true }))}
+      ${L.compare ? subjectsCard(L.compare, L.bands) : ""}
       ${card("Subject performance", "", table(
         ["Subject", "Handed in", "Average mark", "Marked"],
         L.subjects.map((s) => [esc(s.label), s.assigned ? rate(s.completionRate) : "—", s.marked ? band.mark(s.averagePercent, s.band) : "—", num(s.marked)]))
@@ -422,6 +424,15 @@ export function learningHtml(d, opts = {}) {
           { label: "Declined", value: P.declined, colour: "var(--band-4)" },
         ], { noun: "learners", title: "Learners' own progress" }) + `<p class="chart-note">Of ${plural(P.compared, "learner")} with marked work in two or more terms.</p>` : empty("Shows once learners have marked work in two terms."))}`)}
     ${melLast("learning")}`;
+}
+
+/** Which subject does best: across the schools in view — or, with one school in view, its grades. */
+function subjectsCard(cmp, bands = []) {
+  const bySchool = (cmp.school?.rows || []).filter((r) => r.marked).length >= 2;
+  const d = bySchool ? cmp.school : cmp.grade;
+  if (!d) return "";
+  return card("Which subject does best?", bySchool ? "subjects across schools" : "subjects across grades",
+    compareHtml({ ...d, bands }, { rowsBy: bySchool ? "school" : "grade" }), { wide: true });
 }
 
 /* ------------------------------------------------------------ 4. teacher development */

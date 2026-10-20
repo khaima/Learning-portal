@@ -28,8 +28,12 @@ import {
   ASSIGNMENT_STATUSES, type AssignmentStatus, autoMark, type Band, bandFor, cleanQuestions, cleanResponse, cleanRubricLevels, rubricMarks,
   averagesOf, groupResults, isAutoMarked, isLate, marksHistogram, MAX_FILES_PER_ANSWER, pairsOf, percentOf, type Question,
   RESULT_DIMENSIONS, type ResultAssignment, type ResultDimension, type ResultSubmission, round2, summarize,
-  expectedFrom,
+  expectedFrom, compareResults, type Pair,
 } from "./lms.ts";
+import {
+  attendanceAndMarks, changesOf, cleanMarks, countsOf, eatDay, FOLLOW_UP_RATE, FOLLOW_UP_STREAK, isDay, learnerRecord,
+  type LearnerInfo, MIN_DAYS, type RegisterRow, schoolDays, summarizeAttendance,
+} from "./attendance.ts";
 import { buildIntelligence, VISIT_TYPES as INTEL_VISIT_TYPES } from "./intelligence.ts";
 import { buildImpact, GENDERS } from "./impact.ts";
 import { type Jwk, verifyAccessToken } from "./jwt.ts";
@@ -4217,7 +4221,6 @@ app.post("/learner/assignments/:id/submit", requirePermission("assignments.submi
 app.get("/results", requirePermission("assignments.view.own", "assignments.manage", "assignments.view.school", "assignments.view.all"), async (c) => {
   const by = String(c.req.query("by") ?? "subject") as ResultDimension;
   if (!RESULT_DIMENSIONS.includes(by)) return c.json({ error: `by must be one of ${RESULT_DIMENSIONS.join(", ")}` }, 400);
-  const f = (k: string) => String(c.req.query(k) ?? "");
   const isLearner = c.get("actor").role === "learner";
   let work: Awaited<ReturnType<typeof loadWork>>;
   try {
@@ -4225,25 +4228,14 @@ app.get("/results", requirePermission("assignments.view.own", "assignments.manag
       if (by === "learner" || by === "school") return c.json({ error: "Not available" }, 400);
       work = await loadWork({ learnerId: c.get("actor").id });
     } else {
-      const scope = await assignmentScope(c);
-      if (scope.kind === "none") return c.json({ by, rows: [], overall: null, bands: await loadBands() });
-      work = await loadWork({
-        schoolId: scope.kind === "all" ? (f("schoolId") || null) : scope.schoolId,
-        classIds: scope.kind === "teacher" ? scope.classIds : null,
-        learnerId: f("learnerId") || null,
-      });
-      // Only work set in the caller's school / classes — whichever learner.
-      work.pairs = work.pairs.filter((p) => inAssignmentScope(scope, { school_id: p.a.schoolId, class_id: p.a.classId }));
+      const scoped = await staffWork(c);
+      if (!scoped) return c.json({ by, rows: [], overall: null, bands: await loadBands() });
+      work = scoped;
     }
   } catch (e) {
     return c.json({ error: (e as Error).message }, 500);
   }
-  const pairs = work.pairs.filter((p) =>
-    (!f("classId") || p.a.classId === f("classId")) &&
-    (!f("subjectId") || p.a.subjectId === f("subjectId")) &&
-    (!f("grade") || p.a.grade === f("grade")) &&
-    (!f("termId") || p.a.termId === f("termId")) &&
-    (!f("academicYearId") || p.a.yearId === f("academicYearId")));
+  const pairs = work.pairs.filter(resultFilter(c));
   const bands = await loadBands();
   const rows = groupResults(pairs, by, bands);
   const labels = await resultLabels(by, rows.map((r) => r.key), work.assignments);
@@ -4253,6 +4245,68 @@ app.get("/results", requirePermission("assignments.view.own", "assignments.manag
     overall: summarize(pairs, bands),
     rows: rows.map((r) => ({ ...r, label: labels[r.key] ?? r.key }))
       .sort((x, y) => String(x.label).localeCompare(String(y.label))),
+  });
+});
+
+/** The work a member of staff may see results for: their area, school or classes — whichever learner.
+    Null when they may see none. */
+// deno-lint-ignore no-explicit-any
+async function staffWork(c: any) {
+  const scope = await assignmentScope(c);
+  if (scope.kind === "none") return null;
+  const f = (k: string) => String(c.req.query(k) ?? "");
+  const work = await loadWork({
+    schoolId: scope.kind === "all" ? (f("schoolId") || null) : scope.schoolId,
+    classIds: scope.kind === "teacher" ? scope.classIds : null,
+    learnerId: f("learnerId") || null,
+  });
+  work.pairs = work.pairs.filter((p) => inAssignmentScope(scope, { school_id: p.a.schoolId, class_id: p.a.classId }));
+  return work;
+}
+/** The page's filters on results: ?classId= ?subjectId= ?grade= ?termId= ?academicYearId=. */
+// deno-lint-ignore no-explicit-any
+const resultFilter = (c: any) => {
+  const f = (k: string) => String(c.req.query(k) ?? "");
+  return (p: Pair) =>
+    (!f("classId") || p.a.classId === f("classId")) &&
+    (!f("subjectId") || p.a.subjectId === f("subjectId")) &&
+    (!f("grade") || p.a.grade === f("grade")) &&
+    (!f("termId") || p.a.termId === f("termId")) &&
+    (!f("academicYearId") || p.a.yearId === f("academicYearId"));
+};
+
+/* Which subject does best, and where: each subject's results overall and
+   term by term, and within each grade, class or school (?rows=), from the
+   same work as /results and filtered the same way. An average on fewer than
+   `min` marked pieces of work comes with enough: false — it's shown, never
+   ranked. */
+app.get("/results/compare", requirePermission("assignments.manage", "assignments.view.school", "assignments.view.all"), async (c) => {
+  const rowsBy = String(c.req.query("rows") ?? "grade") as ResultDimension;
+  if (!["grade", "class", "school"].includes(rowsBy)) return c.json({ error: "rows must be grade, class or school" }, 400);
+  const bands = await loadBands();
+  let pairs: Pair[] = [], assignments: Record<string, any>[] = [];
+  try {
+    const work = await staffWork(c);
+    if (work) { pairs = work.pairs.filter(resultFilter(c)); assignments = work.assignments; }
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+  const cmp = compareResults(pairs, rowsBy, bands);
+  const [subjectName, rowName] = await Promise.all([
+    resultLabels("subject", cmp.subjects.map((s) => s.key), assignments),
+    resultLabels(rowsBy, cmp.rows.map((r) => r.key), assignments),
+  ]);
+  const byAverage = (a: { enough: boolean; averagePercent: number | null; label: string }, b: typeof a) =>
+    Number(b.enough) - Number(a.enough) || (b.averagePercent ?? -1) - (a.averagePercent ?? -1) || a.label.localeCompare(b.label);
+  return c.json({
+    rowsBy, bands, min: cmp.min, overall: cmp.overall,
+    best: cmp.best ? { key: cmp.best, label: subjectName[cmp.best] ?? cmp.best } : null,
+    weakest: cmp.weakest ? { key: cmp.weakest, label: subjectName[cmp.weakest] ?? cmp.weakest } : null,
+    subjects: cmp.subjects.map((s) => ({ ...s, label: subjectName[s.key] ?? s.key, terms: s.terms.map((t) => ({ ...t, label: termLabel(t.key) ?? t.key })) }))
+      .sort(byAverage),
+    rows: cmp.rows.map((r) => ({ ...r, label: rowName[r.key] ?? r.key }))
+      .sort((a, b) => String(a.label).localeCompare(String(b.label), undefined, { numeric: true })),
+    cells: cmp.cells,
   });
 });
 
@@ -4270,6 +4324,367 @@ async function resultLabels(by: ResultDimension, keys: string[], assignments: Re
     default: return Object.fromEntries(keys.map((k) => [k, k]));
   }
 }
+
+// ---- class attendance ----
+/* The daily register (attendance.ts). A teacher takes it for a class they
+   teach; a school head sees every class in their school; the programme
+   roles see the schools in their area. A register is corrected, never
+   deleted, and every change is audited. Days are Kenya's (EAT). */
+
+/** Whose registers the caller sees — the same shapes as assignments. */
+// deno-lint-ignore no-explicit-any
+async function attendanceScope(c: any): Promise<AssignmentScope> {
+  const a = c.get("actor") as Actor;
+  if (actorCan(c, "attendance.view.all")) return { kind: "all", within: a.scope };
+  if (actorCan(c, "attendance.view.school")) return a.schoolId ? { kind: "school", schoolId: a.schoolId } : { kind: "none" };
+  if (actorCan(c, "attendance.take")) {
+    return a.schoolId ? { kind: "teacher", teacherId: a.id, schoolId: a.schoolId, classIds: await classesTaughtBy(a.id) } : { kind: "none" };
+  }
+  return { kind: "none" };
+}
+// deno-lint-ignore no-explicit-any
+const classInView = (s: AssignmentScope, cls: Record<string, any>) => inAssignmentScope(s, { school_id: cls.school_id, class_id: cls.id });
+// deno-lint-ignore no-explicit-any
+const takesRegister = (s: AssignmentScope, cls: Record<string, any>) => s.kind === "teacher" && classInView(s, cls);
+
+/** A school year's terms, first to last. */
+async function termsOfYear(yearId: string) {
+  const { data } = await admin.from("terms").select("*").eq("academic_year_id", yearId);
+  return (data ?? []).sort((a, b) => String(a.starts_on).localeCompare(String(b.starts_on)));
+}
+/** The first day a class's register can be for: the start of its school year (or a year back). */
+const earliestDay = (terms: Record<string, any>[], todayIs: string) =>
+  (terms[0]?.starts_on as string | undefined) ?? new Date(Date.parse(`${todayIs}T00:00:00Z`) - 365 * 864e5).toISOString().slice(0, 10);
+
+/** Learners' marks on these registers (a mark has no id of its own: ordered by its key). */
+async function marksOf(registerIds: string[]) {
+  const out: Record<string, any>[] = [];
+  for (let i = 0; i < registerIds.length; i += 150) {
+    const chunk = registerIds.slice(i, i + 150);
+    const { data, error } = await selectAll(() => admin.from("attendance_marks").select("register_id, learner_id, status, reason, note")
+      .in("register_id", chunk).order("register_id").order("learner_id"));
+    if (error) throw new Error(error.message);
+    out.push(...data);
+  }
+  return out;
+}
+async function staffNamesOf(ids: unknown[]) {
+  const list = [...new Set(ids.filter(Boolean))] as string[];
+  if (!list.length) return {} as Record<string, string>;
+  const { data } = await admin.from("profiles").select("id, full_name").in("id", list);
+  return Object.fromEntries((data ?? []).map((p) => [p.id, p.full_name])) as Record<string, string>;
+}
+
+/** A class's register for a day, as the page shows it: everyone in the class now (and anyone
+    marked that day who has left since), their mark, and their term up to the day before. */
+// deno-lint-ignore no-explicit-any
+async function registerView(cls: Record<string, any>, date: string, scope: AssignmentScope) {
+  const todayIs = eatDay();
+  const terms = await termsOfYear(cls.academic_year_id);
+  const term = terms.find((t) => t.starts_on <= date && date <= t.ends_on) ?? null;
+  const since = term?.starts_on ?? new Date(Date.parse(`${date}T00:00:00Z`) - 60 * 864e5).toISOString().slice(0, 10);
+  const [{ data: reg }, { data: current }, past] = await Promise.all([
+    admin.from("attendance_registers").select("*").eq("class_id", cls.id).eq("taken_on", date).maybeSingle(),
+    admin.from("learners").select("id, full_name, learner_code, gender").eq("class_id", cls.id).eq("enrollment_status", ACTIVE),
+    selectAll(() => admin.from("attendance_registers").select("id, taken_on").eq("class_id", cls.id)
+      .gte("taken_on", since).lt("taken_on", date).order("taken_on").order("id")),
+  ]);
+  if (past.error) throw new Error(past.error.message);
+  const marks = reg ? await marksOf([reg.id]) : [];
+  const history = await marksOf(past.data.map((r) => r.id as string));
+  const dayOf = new Map(past.data.map((r) => [r.id, r.taken_on as string]));
+  const byLearner = new Map<string, { day: string; status: string }[]>();
+  for (const m of history) {
+    if (!byLearner.has(m.learner_id)) byLearner.set(m.learner_id, []);
+    byLearner.get(m.learner_id)!.push({ day: dayOf.get(m.register_id)!, status: m.status });
+  }
+  const inClass = new Set((current ?? []).map((l) => l.id as string));
+  const leftIds = marks.map((m) => m.learner_id as string).filter((id) => !inClass.has(id));
+  const left = leftIds.length ? await selectIn("learners", "id", leftIds, "id, full_name, learner_code, gender") : [];
+  const markOf = new Map(marks.map((m) => [m.learner_id, m]));
+  const names = await staffNamesOf([reg?.taken_by, reg?.updated_by]);
+  const earliest = earliestDay(terms, todayIs);
+  return {
+    class: { id: cls.id, name: cls.name, grade: cls.grade, schoolId: cls.school_id },
+    date, today: todayIs, earliest,
+    schoolDay: schoolDays(date, date, terms).length === 1, // a weekday in a term
+    term: term ? { id: term.id, label: termLabel(term.id) ?? term.id, startsOn: term.starts_on } : null,
+    canTake: takesRegister(scope, cls) && !cls.archived_at && date <= todayIs && date >= earliest,
+    register: reg ? {
+      id: reg.id, takenAt: reg.taken_at, takenBy: names[reg.taken_by] ?? null,
+      updatedAt: reg.updated_at, updatedBy: names[reg.updated_by] ?? null, offlineAt: reg.client_saved_at ?? null,
+    } : null,
+    counts: countsOf(marks.map((m) => m.status as string)),
+    followUp: { rate: FOLLOW_UP_RATE, streak: FOLLOW_UP_STREAK, minDays: MIN_DAYS },
+    learners: [...(current ?? []), ...left].map((l) => {
+      const m = markOf.get(l.id);
+      const rec = learnerRecord(byLearner.get(l.id) ?? []);
+      return {
+        id: l.id, fullName: l.full_name, learnerCode: l.learner_code ?? null, left: !inClass.has(l.id),
+        status: m?.status ?? null, reason: m?.reason ?? null, note: m?.note ?? null,
+        before: { days: rec.days, rate: rec.rate, streak: rec.streak, recent: rec.recent, followUp: rec.followUp },
+      };
+    }).sort((a, b) => Number(a.left) - Number(b.left) || String(a.fullName).localeCompare(String(b.fullName))),
+  };
+}
+
+/* One class's register for a day (?date=, today by default): who's in the
+   class, their marks, and how each has come this term. */
+app.get("/attendance/register", requirePermission("attendance.take", "attendance.view.school", "attendance.view.all"), async (c) => {
+  const scope = await attendanceScope(c);
+  const cls = await loadClass(c.req.query("classId"));
+  if (!cls || !classInView(scope, cls)) return c.json({ error: "Class not found" }, 404);
+  const date = String(c.req.query("date") || eatDay());
+  if (!isDay(date)) return c.json({ error: "Choose a day" }, 400);
+  if (date > eatDay()) return c.json({ error: "That day hasn't come yet" }, 400);
+  try {
+    return c.json(await registerView(cls, date, scope));
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+/* Take (or correct) a register: { classId, date, marks: [{ learnerId,
+   status, reason?, note? }], baseUpdatedAt, clientSavedAt? }. Only a teacher
+   of the class. Learners left off keep the mark they had. `baseUpdatedAt`
+   is when the register was last changed as this device saw it (null: not
+   taken yet) — if someone else has changed it since, the save is refused
+   as a clash (409, with the register as it is now) rather than
+   overwriting their marks; force: true sends it anyway ("Keep my marks"). */
+app.put("/attendance/register", requirePermission("attendance.take"), async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const scope = await attendanceScope(c);
+  const cls = await loadClass(b.classId);
+  if (!cls || !classInView(scope, cls)) return c.json({ error: "Class not found" }, 404);
+  if (!takesRegister(scope, cls)) return c.json({ error: "Only a teacher of this class can take its register" }, 403);
+  if (cls.archived_at) return c.json({ error: "This class is archived" }, 409);
+  const date = String(b.date ?? "");
+  const todayIs = eatDay();
+  if (!isDay(date)) return c.json({ error: "Choose a day" }, 400);
+  if (date > todayIs) return c.json({ error: "That day hasn't come yet" }, 400);
+  if (date < earliestDay(await termsOfYear(cls.academic_year_id), todayIs)) return c.json({ error: "That's before this class's school year" }, 400);
+  const actor = c.get("actor");
+  const [{ data: found }, { data: current }] = await Promise.all([
+    admin.from("attendance_registers").select("*").eq("class_id", cls.id).eq("taken_on", date).maybeSingle(),
+    admin.from("learners").select("id").eq("class_id", cls.id).eq("enrollment_status", ACTIVE),
+  ]);
+  let reg = found;
+  const kept = reg ? await marksOf([reg.id]) : [];
+  const marks = cleanMarks(b.marks, new Set([...(current ?? []).map((l) => l.id as string), ...kept.map((m) => m.learner_id as string)]));
+  if (typeof marks === "string") return c.json({ error: marks }, 400);
+  const clash = async () => c.json({
+    error: "Someone else changed this register after you opened it. Open it again to see their marks, then make your changes.",
+    conflict: { kind: "register_changed", server: await registerView(cls, date, scope) },
+  }, 409);
+  if (reg && b.force !== true && "baseUpdatedAt" in b && reg.updated_by !== actor.id && changedSince(reg.updated_at, b.baseUpdatedAt)) return await clash();
+  const now = new Date().toISOString();
+  const offlineAt = b.clientSavedAt && Date.parse(b.clientSavedAt) <= Date.now() + 5 * 60e3 && Date.parse(b.clientSavedAt) < Date.parse(now) - 60e3
+    ? new Date(b.clientSavedAt).toISOString() : null;
+  const first = !reg;
+  if (!reg) {
+    const { data, error } = await admin.from("attendance_registers").insert({
+      id: rid("reg"), class_id: cls.id, school_id: cls.school_id, taken_on: date,
+      taken_by: actor.id, taken_at: now, updated_by: actor.id, updated_at: now, client_saved_at: offlineAt,
+    }).select().single();
+    if (error) return isUniqueViolation(error) ? await clash() : c.json({ error: error.message }, 400);
+    reg = data;
+  }
+  const before = new Map(kept.map((m) => [m.learner_id as string, m as { status: string; reason: string | null; note: string | null }]));
+  const changes = changesOf(before, marks);
+  if (!changes.length && !first) return c.json(await registerView(cls, date, scope));
+  const changed = new Set(changes.map((x) => x.learnerId));
+  const rows = marks.filter((m) => changed.has(m.learnerId))
+    .map((m) => ({ register_id: reg.id, learner_id: m.learnerId, status: m.status, reason: m.reason, note: m.note, updated_at: now }));
+  if (rows.length) {
+    const { error } = await admin.from("attendance_marks").upsert(rows, { onConflict: "register_id,learner_id" });
+    if (error) return c.json({ error: error.message }, 500);
+  }
+  // The register's own counts, from every mark on it now.
+  const all = new Map(kept.map((m) => [m.learner_id as string, m.status as string]));
+  for (const m of marks) all.set(m.learnerId, m.status);
+  const counts = countsOf([...all.values()]);
+  const { error: uErr } = await admin.from("attendance_registers").update({
+    present: counts.present, late: counts.late, absent: counts.absent, excused: counts.excused,
+    updated_by: actor.id, updated_at: now, ...(offlineAt ? { client_saved_at: offlineAt } : {}),
+  }).eq("id", reg.id);
+  if (uErr) return c.json({ error: uErr.message }, 500);
+  const base = { classId: cls.id, className: cls.name, date, present: counts.present, late: counts.late, absent: counts.absent, excused: counts.excused, ...(offlineAt ? { takenOffline: offlineAt } : {}) };
+  if (first) await audit(c, "attendance.taken", "attendance_register", reg.id, base);
+  else await audit(c, "attendance.corrected", "attendance_register", reg.id, { ...base, changed: changes.length, changes: changes.slice(0, 60) });
+  return c.json(await registerView(cls, date, scope));
+});
+
+/** The classes whose registers the caller sees this school year: a teacher's own, a school's,
+    or (programme roles) one school's in their area — never every class at once. */
+// deno-lint-ignore no-explicit-any
+async function attendanceClasses(scope: AssignmentScope, schoolId: string): Promise<Record<string, any>[]> {
+  if (scope.kind === "none") return [];
+  const school = scope.kind === "all" ? schoolId : scope.schoolId;
+  if (!school || (scope.kind === "all" && !inPlaceScope(scope.within, school))) return [];
+  const { yearId } = await currentCalendar();
+  const { data } = await selectAll(() => {
+    let q = admin.from("classes").select("*").eq("school_id", school).is("archived_at", null).order("id");
+    if (yearId) q = q.eq("academic_year_id", yearId);
+    return q;
+  });
+  return (data ?? []).filter((k) => classInView(scope, k))
+    .sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true }));
+}
+
+/* The day's registers (?date=, today by default): each class in view —
+   taken or not, and how many came. A teacher sees their own classes, a
+   school head their school's, the programme roles one school's (?schoolId=). */
+app.get("/attendance/today", requirePermission("attendance.take", "attendance.view.school", "attendance.view.all"), async (c) => {
+  const scope = await attendanceScope(c);
+  const date = String(c.req.query("date") || eatDay());
+  if (!isDay(date) || date > eatDay()) return c.json({ error: "Choose a day up to today" }, 400);
+  const classes = await attendanceClasses(scope, String(c.req.query("schoolId") ?? ""));
+  const ids = classes.map((k) => k.id as string);
+  const [regs, learners] = await Promise.all([
+    ids.length ? selectAll(() => admin.from("attendance_registers").select("*").in("class_id", ids).eq("taken_on", date).order("id")) : { data: [], error: null },
+    ids.length ? selectAll(() => admin.from("learners").select("id, class_id").in("class_id", ids).eq("enrollment_status", ACTIVE).order("id")) : { data: [], error: null },
+  ]);
+  if (regs.error || learners.error) return c.json({ error: (regs.error ?? learners.error)!.message }, 500);
+  const names = await staffNamesOf(regs.data.map((r) => r.taken_by));
+  const rows = classes.map((k) => {
+    const r = regs.data.find((x) => x.class_id === k.id);
+    const n = countsOf([]);
+    const counts = r ? { ...n, present: r.present, late: r.late, absent: r.absent, excused: r.excused, marks: r.present + r.late + r.absent + r.excused } : null;
+    return {
+      id: k.id, name: k.name, grade: k.grade, schoolId: k.school_id,
+      learners: learners.data.filter((l) => l.class_id === k.id).length,
+      canTake: takesRegister(scope, k),
+      register: r && counts ? {
+        takenAt: r.taken_at, takenBy: names[r.taken_by] ?? null, updatedAt: r.updated_at,
+        ...counts, rate: counts.marks ? Math.round(((counts.present + counts.late) / counts.marks) * 1000) / 10 : null,
+      } : null,
+    };
+  });
+  const taken = rows.filter((r) => r.register);
+  const due = rows.filter((r) => r.learners || r.register); // a class with no learners has no register to take
+  const sum = (k: "present" | "late" | "absent" | "excused" | "marks") => taken.reduce((t, r) => t + (r.register![k] as number), 0);
+  const marked = sum("marks");
+  return c.json({
+    date, today: eatDay(), schoolDay: schoolDays(date, date).length === 1,
+    classes: rows,
+    totals: {
+      classes: due.length, taken: taken.length, learners: rows.reduce((t, r) => t + r.learners, 0),
+      present: sum("present"), late: sum("late"), absent: sum("absent"), excused: sum("excused"), marks: marked,
+      rate: marked ? Math.round(((sum("present") + sum("late")) / marked) * 1000) / 10 : null,
+    },
+  });
+});
+
+/* Attendance over a stretch (?from= ?to=, this term so far by default):
+   overall, by day and weekday, by class, grade or school (?by=), and — for
+   one class (?classId=) or one school — by learner, with those to follow up,
+   the reasons for absences, how learners' marks compare with how often they
+   came, and (one class, two months at most) the register sheet. */
+app.get("/attendance/summary", requirePermission("attendance.take", "attendance.view.school", "attendance.view.all"), async (c) => {
+  const scope = await attendanceScope(c);
+  const q = (k: string) => String(c.req.query(k) ?? "");
+  const todayIs = eatDay();
+  const by = (q("by") || (scope.kind === "all" && !q("schoolId") && !q("classId") ? "school" : "class")) as "class" | "grade" | "school";
+  if (!["class", "grade", "school"].includes(by)) return c.json({ error: "by must be class, grade or school" }, 400);
+  // The classes in view: one, one school's, or (programme roles, no school chosen) every school in their area.
+  let classes: Record<string, any>[] = [];
+  if (q("classId")) {
+    const cls = await loadClass(q("classId"));
+    if (!cls || !classInView(scope, cls)) return c.json({ error: "Class not found" }, 404);
+    classes = [cls];
+  } else if (scope.kind === "all" && !q("schoolId")) {
+    const { yearId } = await currentCalendar();
+    const { data } = await selectAll(() => {
+      let x = admin.from("classes").select("*").is("archived_at", null).order("id");
+      if (yearId) x = x.eq("academic_year_id", yearId);
+      return x;
+    });
+    classes = (data ?? []).filter((k) => classInView(scope, k));
+  } else {
+    classes = await attendanceClasses(scope, q("schoolId"));
+  }
+  if (q("grade")) classes = classes.filter((k) => k.grade === q("grade"));
+  // The stretch: this term so far, unless the page says otherwise.
+  const yearIds = [...new Set(classes.map((k) => k.academic_year_id as string))];
+  const terms = (await Promise.all(yearIds.map(termsOfYear))).flat();
+  const term = terms.find((t) => t.starts_on <= todayIs && todayIs <= t.ends_on);
+  const to = isDay(q("to")) && q("to") <= todayIs ? q("to") : todayIs;
+  let from = isDay(q("from")) ? q("from") : (term?.starts_on ?? new Date(Date.parse(`${to}T00:00:00Z`) - 30 * 864e5).toISOString().slice(0, 10));
+  if (from > to) from = to;
+  if (Date.parse(to) - Date.parse(from) > 366 * 864e5) return c.json({ error: "Choose a year or less" }, 400);
+  const ids = classes.map((k) => k.id as string);
+  const regs: Record<string, any>[] = [];
+  for (let i = 0; i < ids.length; i += 150) {
+    const chunk = ids.slice(i, i + 150);
+    const { data, error } = await selectAll(() => admin.from("attendance_registers").select("id, class_id, school_id, taken_on, present, late, absent, excused")
+      .in("class_id", chunk).gte("taken_on", from).lte("taken_on", to).order("taken_on").order("id"));
+    if (error) return c.json({ error: error.message }, 500);
+    regs.push(...data);
+  }
+  // Groups, with how many classes each has (for the registers due) — a class with no learners has no register to take.
+  const classById = new Map(classes.map((k) => [k.id as string, k]));
+  const withLearners = new Set<string>();
+  for (let i = 0; i < ids.length; i += 150) {
+    const { data, error } = await selectAll(() => admin.from("learners").select("id, class_id").in("class_id", ids.slice(i, i + 150)).eq("enrollment_status", ACTIVE).order("id"));
+    if (error) return c.json({ error: error.message }, 500);
+    for (const l of data) withLearners.add(l.class_id as string);
+  }
+  const schoolIds = [...new Set(classes.map((k) => k.school_id as string))];
+  const schoolName = by === "school" && schoolIds.length
+    ? Object.fromEntries((await selectIn("schools", "id", schoolIds, "id, name")).map((s) => [s.id, s.name])) : {};
+  const keyOf = (k: Record<string, any>) => (by === "class" ? k.id : by === "grade" ? k.grade : k.school_id) as string;
+  const groups = new Map<string, { label: string; classes: number }>();
+  for (const k of classes) {
+    const key = keyOf(k);
+    const label = by === "class" ? k.name : by === "grade" ? k.grade : (schoolName[k.school_id] ?? k.school_id);
+    groups.set(key, { label, classes: (groups.get(key)?.classes ?? 0) + (withLearners.has(k.id) ? 1 : 0) });
+  }
+  // The learners: for one class, or one school's classes (never a whole area's).
+  const oneSchool = schoolIds.length === 1;
+  let marks: Record<string, any>[] | undefined;
+  let learners: Map<string, LearnerInfo> | undefined;
+  let linked = null;
+  if (oneSchool) {
+    marks = await marksOf(regs.map((r) => r.id as string));
+    const learnerIds = [...new Set(marks.map((m) => m.learner_id as string))];
+    const people = learnerIds.length ? await selectIn("learners", "id", learnerIds, "id, full_name, learner_code, class_id, enrollment_status") : [];
+    learners = new Map(people.map((l) => [l.id as string, {
+      name: l.full_name, code: l.learner_code ?? null, className: classById.get(l.class_id)?.name ?? null,
+      left: l.enrollment_status !== ACTIVE || !classById.has(l.class_id),
+    }]));
+  }
+  const summary = summarizeAttendance({
+    registers: regs as RegisterRow[], days: schoolDays(from, to, terms), groupOf: (r) => keyOf(classById.get(r.class_id) ?? { id: r.class_id, grade: "", school_id: r.school_id }),
+    groups, marks: marks as never, learners,
+    grid: !!q("classId") && Date.parse(to) - Date.parse(from) <= 62 * 864e5,
+  });
+  // Do learners who come more often do better? Their marks on work handed in over the same days.
+  if (oneSchool && summary.learners.length) {
+    const rates = new Map(summary.learners.filter((l) => l.days >= MIN_DAYS && l.rate != null).map((l) => [l.id, l.rate as number]));
+    if (rates.size) {
+      const subs = await selectIn("assignment_submissions", "learner_id", [...rates.keys()], "learner_id, status, percentage, submitted_at");
+      const got = new Map<string, number[]>();
+      for (const s of subs) {
+        if (s.status !== "marked" || s.percentage == null) continue;
+        const day = String(s.submitted_at ?? "").slice(0, 10);
+        if (day < from || day > to) continue;
+        if (!got.has(s.learner_id)) got.set(s.learner_id, []);
+        got.get(s.learner_id)!.push(Number(s.percentage));
+      }
+      linked = attendanceAndMarks(rates, new Map([...got].map(([id, xs]) => [id, xs.reduce((t, x) => t + x, 0) / xs.length])));
+    }
+  }
+  return c.json({
+    from, to, today: todayIs, by,
+    term: term ? { id: term.id, label: termLabel(term.id) ?? term.id, startsOn: term.starts_on } : null,
+    followUp: { rate: FOLLOW_UP_RATE, streak: FOLLOW_UP_STREAK, minDays: MIN_DAYS },
+    learnersShown: oneSchool,
+    ...summary,
+    groups: summary.groups.sort((a, b) => String(a.label).localeCompare(String(b.label), undefined, { numeric: true })),
+    learners: summary.learners.slice(0, 1000),
+    attendanceAndMarks: linked,
+  });
+});
 
 // ---- field reports (staff only) ----
 

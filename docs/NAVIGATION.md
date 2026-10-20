@@ -1065,3 +1065,18 @@ the breadcrumb and the All schools tab already go there.)
 
 Built in `nav.js` (`drawTabs`), styled as `.area-tabs` in `app.css`; the
 menus themselves (`navigation.js`) are unchanged.
+
+## 25. Attendance, 20 October 2026
+
+One more tab in an area each role already has — no new menu rows:
+
+- **Teacher:** My classes › Classes · Class roster · **Attendance** (the
+  register). Home's *Today's registers* panel and each class's *Register*
+  button open it on that class (`#attendance?class=…`); a *Here today* card
+  joins the figures on Home.
+- **School head:** My school › Teachers · Learners & classes ·
+  **Attendance** · Assignments & results · Visits. The dashboard gets a
+  *Registers today* panel and a *Here today* card.
+- **Which subject does best?** sits at the top of the results pages that
+  exist already (teacher, school head, programme Results) and on the
+  Learning dashboard — no page of its own.

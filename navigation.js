@@ -223,6 +223,7 @@ export const WORKSPACES = {
       entry("school", "My school", "school", [
         { page: "teachers", label: "Teachers", icon: "teacher", purpose: "Your school's teachers, by type." },
         { page: "learners", label: "Learners & classes", icon: "cap", purpose: "Your school's learners and classes." },
+        { page: "attendance", label: "Attendance", icon: "check", purpose: "Registers taken each day, and who comes." },
         { page: "learning", label: "Assignments & results", icon: "results", purpose: "Work set in your school: handed in, and marks." },
         { page: "visits", label: "Visits", icon: "pin", purpose: "Field officers' visits to your school." },
         // Its classes and learners are on Learners & classes, its visits on Visits; old links still open it.
@@ -242,6 +243,7 @@ export const WORKSPACES = {
       entry("classes", "My classes", "classes", [
         { page: "my-classes", label: "Classes", icon: "classes", heading: "My classes", purpose: "The classes you teach this year." },
         { page: "my-learners", label: "Class roster", icon: "cap", purpose: "Your learners and their sign-ins." },
+        { page: "attendance", label: "Attendance", icon: "check", purpose: "Take the register each day, and see who comes." },
       ]),
       entry("assessments", "Assessments", "assignment", [{ page: "assignments", label: "Assessments", icon: "assignment", badge: "toMark",
         purpose: "Set work for your classes, and mark what learners hand in." }], { badge: "toMark" }),

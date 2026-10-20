@@ -14,7 +14,9 @@ does that better, there is no chart.
 | How far towards the target? | A **bar filling towards a line** | `targetList` |
 | What share of one whole? (two to four parts) | A **donut** | `donut`, `proportion` |
 | What share, on a scale that has an order? | **One bar, split in order** | `stackBar` |
+| …the same scale, for several groups side by side (bands by subject)? | **A split bar per group**, one key | `stackRows` |
 | How many, in each cell of a grid (a place × a month, a day × a time)? | A **heatmap** | `heatmap` |
+| What value, in each cell of a grid (the average mark, a subject × a grade)? | A **heatmap with a scale** — shaded by band | `heatmap(…, { scale })` |
 | How are the values spread (each learner's average mark)? | A **histogram** | `histogram` |
 | What are the exact figures? | A **table** | — |
 
@@ -38,6 +40,9 @@ Rules that go with them:
   numbers on the axis; percentages always run 0–100.
 - **Two measures, two charts.** Sessions and hours sit one under the
   other, never on two scales in one plot.
+- **Too few to compare is said, not ranked.** A heatmap cell (or a subject)
+  with fewer than 5 marked pieces of work is printed with an asterisk and a
+  dashed edge, and the key says why; rankings leave it out.
 
 ## Reading a chart without hovering, or without colour
 

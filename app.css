@@ -182,6 +182,8 @@
   .bars-link{ min-width:44px; } /* a short name ("ICT") is still a finger's width */
   .dq-row input[data-dq-select]{ width:44px; height:44px; margin:0; } /* the issue's select box, finger-sized */
   .q-icon{ min-width:44px; min-height:44px; } /* move, remove */
+  .reg-marks .reg-opt span{ min-height:44px; } /* present, late, absent */
+  .reg-daynav input[type=date],.compare-pick select,.reg-why,.reg-find{ min-height:44px; }
   .q-choice,.q-switches label,.q-comps label,.q-pick,.q-opt-row label{ min-height:44px; align-items:center; }
   .q-more > summary{ padding:.75rem 0; } /* keeps its ▸ marker */
   .live-btn{ min-height:40px; }
@@ -1203,6 +1205,111 @@ a.btn.form-open{ margin-bottom:.2rem; }
   .q-opt-fb{ width:100%; margin-left:0; }
 }
 
+/* ---------------------------------------------------------------- class attendance (attendance-ui.js)
+   The register: a row per learner, three marks to choose from (big enough
+   for a thumb), a reason when they're away; the counts above it change as
+   the teacher marks, and Save stays at the foot of the screen. */
+.reg-pick{ align-items:flex-end; }
+.reg-daynav{ display:flex; align-items:center; gap:.3rem; flex-wrap:nowrap; }
+.reg-pick .field:has(.reg-daynav){ max-width:none; }
+.reg-daynav input[type=date]{ width:auto; flex:0 1 10.5rem; min-width:0; border:1.5px solid var(--line); background:var(--paper-raised); color:var(--ink); border-radius:var(--radius-sm); padding:.35rem .5rem; font:inherit; font-size:.88rem; }
+.reg-daynav .q-icon{ font-size:1.05rem; line-height:1; padding:.25rem .55rem; }
+.reg-head{ display:flex; justify-content:space-between; align-items:flex-start; gap:.6rem 1rem; flex-wrap:wrap; margin:.4rem 0 .6rem; }
+.reg-title{ margin:0; font-size:1.15rem; }
+.reg-sub{ margin:.1rem 0 0; color:var(--ink-soft); font-size:.84rem; }
+.reg-counts{ display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:.4rem; margin:.2rem 0 .7rem; }
+.reg-count{ background:var(--paper-sunk); border-radius:var(--radius-sm); padding:.45rem .5rem; text-align:center; border-top:3px solid transparent; }
+.reg-count b{ display:block; font-size:1.25rem; line-height:1.1; font-variant-numeric:tabular-nums; color:var(--ink); }
+.reg-count span{ font-size:.72rem; color:var(--ink-soft); }
+.reg-count.is-present{ border-top-color:var(--success-fg); }
+.reg-count.is-late{ border-top-color:var(--accent-fg); }
+.reg-count.is-absent{ border-top-color:var(--danger-fg); }
+.reg-count.is-excused{ border-top-color:var(--ink-soft); }
+.reg-count.is-unmarked{ border-top-color:var(--brand); background:var(--brand-soft); }
+.reg-tools{ display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; justify-content:space-between; margin-bottom:.4rem; }
+.reg-find{ flex:0 1 16rem; min-width:0; border:1.5px solid var(--line); background:var(--paper-raised); color:var(--ink); border-radius:var(--radius-sm); padding:.4rem .6rem; font:inherit; font-size:.88rem; }
+.reg-list{ list-style:none; margin:0; padding:0; }
+.reg-row{ display:grid; grid-template-columns:minmax(0,1fr) auto; grid-template-areas:"who marks" "why why"; gap:.3rem .8rem; align-items:center;
+  padding:.5rem .4rem .5rem .7rem; border-bottom:1px solid var(--line); border-left:4px solid transparent; }
+.reg-row[data-status="present"]{ border-left-color:var(--success-fg); }
+.reg-row[data-status="late"]{ border-left-color:var(--accent-fg); }
+.reg-row[data-status="absent"]{ border-left-color:var(--danger-fg); }
+.reg-row[data-status="excused"]{ border-left-color:var(--ink-soft); }
+.reg-who{ grid-area:who; min-width:0; }
+.reg-who > b{ font-size:.94rem; }
+.reg-before{ display:flex; flex-wrap:wrap; align-items:center; gap:.2rem .5rem; font-size:.74rem; color:var(--ink-soft); margin-top:.1rem; }
+.reg-flag{ font-size:.7rem; }
+.reg-dots{ display:inline-flex; gap:3px; }
+.reg-dot{ width:9px; height:9px; border-radius:50%; background:var(--paper-sunk); border:1px solid var(--line); }
+.reg-dot.is-present{ background:var(--success-fg); border-color:var(--success-fg); }
+.reg-dot.is-late{ background:var(--accent-fg); border-color:var(--accent-fg); }
+.reg-dot.is-absent{ background:var(--danger-fg); border-color:var(--danger-fg); }
+.reg-dot.is-excused{ background:var(--paper-raised); border-color:var(--ink-soft); }
+.reg-marks{ grid-area:marks; display:flex; gap:.3rem; }
+.reg-opt{ position:relative; display:flex; cursor:pointer; } /* the radio covers the whole button: all of it is the target */
+.reg-opt input{ position:absolute; inset:0; width:100%; height:100%; opacity:0; margin:0; cursor:pointer; }
+.reg-opt span{ display:inline-flex; align-items:center; justify-content:center; min-height:36px; padding:.3rem .7rem; border-radius:999px; border:1.5px solid var(--line);
+  background:var(--paper-raised); color:var(--ink); font-size:.84rem; font-weight:600; white-space:nowrap; }
+.reg-opt input:focus-visible + span{ outline:2px solid var(--brand); outline-offset:2px; }
+.reg-opt:hover span{ border-color:var(--ink-soft); }
+.reg-opt.is-present input:checked + span{ background:var(--success-soft); border-color:var(--success-fg); color:var(--success-fg); }
+.reg-opt.is-late input:checked + span{ background:var(--accent-soft); border-color:var(--accent-fg); color:var(--accent-fg); }
+.reg-opt.is-absent input:checked + span{ background:var(--danger-soft); border-color:var(--danger-fg); color:var(--danger-fg); }
+.reg-why{ grid-area:why; justify-self:end; max-width:100%; border:1.5px solid var(--line); background:var(--paper-raised); color:var(--ink); border-radius:var(--radius-sm); padding:.3rem .5rem; font:inherit; font-size:.82rem; }
+.reg-mark{ font-size:.82rem; font-weight:600; padding:.2rem .6rem; border-radius:999px; background:var(--paper-sunk); white-space:nowrap; }
+.reg-mark.is-present{ background:var(--success-soft); color:var(--success-fg); }
+.reg-mark.is-late{ background:var(--accent-soft); color:var(--accent-fg); }
+.reg-mark.is-absent{ background:var(--danger-soft); color:var(--danger-fg); }
+.reg-list.is-read .reg-row{ grid-template-areas:"who marks"; }
+.reg-save{ position:sticky; bottom:0; z-index:2; display:flex; justify-content:flex-end; align-items:center; gap:.8rem; flex-wrap:wrap;
+  margin:.6rem -.2rem 0; padding:.6rem .2rem; background:var(--paper-raised); border-top:1px solid var(--line); }
+/* Learners to follow up. */
+.reg-follow{ list-style:none; margin:0; padding:0; }
+.reg-follow li{ display:flex; justify-content:space-between; align-items:center; gap:.6rem; padding:.45rem 0; border-bottom:1px solid var(--line); font-size:.86rem; }
+.reg-follow li:last-child{ border-bottom:0; }
+.reg-follow-meta{ display:flex; flex-wrap:wrap; align-items:center; gap:.4rem; font-size:.74rem; color:var(--ink-soft); margin-top:.1rem; }
+.reg-follow-fig{ display:flex; flex-direction:column; align-items:flex-end; gap:.15rem; font-variant-numeric:tabular-nums; }
+/* The register sheet: a letter per learner per day. */
+.reg-sheet > summary{ cursor:pointer; list-style:revert; }
+.sheet-wrap{ overflow-x:auto; margin-top:.5rem; }
+.sheet{ border-collapse:separate; border-spacing:2px; font-size:.74rem; font-variant-numeric:tabular-nums; }
+.sheet th{ font-weight:600; color:var(--ink-soft); padding:.1rem .25rem; text-align:center; white-space:nowrap; }
+.sheet thead th small{ display:block; font-size:.62rem; font-weight:500; }
+.sheet tbody th{ position:sticky; left:0; z-index:1; background:var(--paper-raised); color:var(--ink); text-align:left; min-width:8rem; }
+.sheet td{ width:1.6rem; height:1.6rem; text-align:center; border-radius:3px; font-weight:700; background:var(--paper-sunk); }
+.sheet td.sheet-present{ background:var(--success-soft); color:var(--success-fg); }
+.sheet td.sheet-late{ background:var(--accent-soft); color:var(--accent-fg); }
+.sheet td.sheet-absent{ background:var(--danger-soft); color:var(--danger-fg); }
+.sheet td.sheet-excused{ background:var(--paper-sunk); color:var(--ink-soft); }
+.sheet td.sheet-rate{ width:auto; padding:0 .3rem; background:none; color:var(--ink); }
+@media (max-width:640px){
+  .panel .reg-pick.filter-bar-row{ grid-template-columns:1fr; }
+  .reg-daynav input[type=date]{ flex:1 1 auto; }
+  .reg-counts{ grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .reg-row{ grid-template-columns:minmax(0,1fr); grid-template-areas:"who" "marks" "why"; }
+  .reg-marks{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .reg-opt span{ width:100%; }
+  .reg-why{ justify-self:stretch; }
+  .reg-list.is-read .reg-row{ grid-template-areas:"who" "marks"; }
+  .reg-list.is-read .reg-mark{ justify-self:start; }
+}
+
+/* ---------------------------------------------------------------- which subject does best (compare-ui.js) */
+.res-compare{ margin:.2rem 0 1.2rem; padding-bottom:1rem; border-bottom:1px solid var(--line); }
+.compare-head{ display:flex; justify-content:space-between; align-items:center; gap:.5rem 1rem; flex-wrap:wrap; margin-bottom:.6rem; }
+.compare-head h3{ margin:0; font-size:1rem; }
+.compare-pick{ display:inline-flex; align-items:center; gap:.4rem; font-size:.8rem; color:var(--ink-soft); }
+.compare-pick select{ border:1.5px solid var(--line); background:var(--paper-raised); color:var(--ink); border-radius:var(--radius-sm); padding:.3rem .5rem; font:inherit; font-size:.84rem; }
+.compare-answer{ margin-bottom:.8rem; }
+.compare-none{ margin:.2rem 0 .8rem; padding:.6rem .8rem; background:var(--paper-sunk); border-radius:var(--radius-sm); font-size:.88rem; }
+.compare-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr)); gap:1rem 1.6rem; }
+.compare-part{ min-width:0; }
+.compare-part .chart-subhead span{ font-weight:400; color:var(--ink-soft); }
+.compare-wide{ grid-column:1 / -1; }
+.compare-best{ list-style:none; margin:.6rem 0 0; padding:0; display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,15rem),1fr)); gap:.35rem 1rem; font-size:.82rem; }
+.compare-best li{ display:flex; flex-direction:column; padding:.35rem .5rem; background:var(--paper-sunk); border-radius:var(--radius-sm); }
+.compare-best span{ color:var(--ink-soft); }
+
 /* ---------------------------------------------------------------- programme intelligence
    (intelligence-ui.js) — the Education Team's four areas. */
 .side-group{
@@ -1965,6 +2072,12 @@ h2,h3{ font-family:inherit; letter-spacing:-.01em; }
 .hm-2{ background:var(--seq-3); color:var(--hm-ink-2); }
 .hm-3{ background:var(--seq-2); color:var(--hm-ink-3); }
 .hm-4{ background:var(--seq-1); color:var(--hm-ink-4); }
+/* A value too little to compare (a heatmap with a scale): a dashed edge and its asterisk. */
+.heatmap td.hm-few{ outline:1.5px dashed var(--ink-soft); outline-offset:-4px; font-weight:600; }
+.heatmap td.hm-few span{ margin-left:1px; }
+/* stackRows: a bar per group, one key beneath. */
+.stack-rows{ display:grid; gap:.55rem; margin-bottom:.4rem; }
+.stack-row .bars-head{ margin-bottom:.2rem; }
 .hm-key i{ width:14px; height:14px; }
 .heatmap .hm-short{ display:none; }
 @media (max-width:640px){

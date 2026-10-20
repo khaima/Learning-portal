@@ -270,6 +270,9 @@ Generated from `permissions.ts` (role permissions; explicit grants come on top):
 | Mark work for their classes <br>`assignments.grade` |  |  |  |  |  |  | ✓ |  |
 | See their own assignments and results <br>`assignments.view.own` |  |  |  |  |  |  |  | ✓ |
 | Do and hand in assignments <br>`assignments.submit` |  |  |  |  |  |  |  | ✓ |
+| See class attendance in every school in scope <br>`attendance.view.all` | ✓ | ✓ | ✓ | ✓ |  |  |  |  |
+| See class attendance in their own school <br>`attendance.view.school` |  |  |  |  |  | ✓ |  |  |
+| Take the register for their classes <br>`attendance.take` |  |  |  |  |  |  | ✓ |  |
 | Upload, publish and edit content <br>`library.manage` | ✓ |  |  | ✓ |  |  |  |  |
 | Read the Digital Library <br>`library.read.learner` | ✓ | ✓ | ✓ | ✓ |  | ✓ | ✓ | ✓ |
 | Read Teacher Resources <br>`library.read.staff` | ✓ | ✓ | ✓ | ✓ |  | ✓ | ✓ |  |

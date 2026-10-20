@@ -88,6 +88,11 @@ function conflictHtml(it) {
     return `<p>This was already handed in from another device, so this copy can't be sent. Your teacher has the version that was handed in.</p>
       <div class="lms-actions">${btn("theirs", "OK — remove this copy")}</div>`;
   }
+  if (c.kind === "register_changed") {
+    const r = c.server?.register;
+    return `<p>Someone else changed this register after you opened it${r?.updatedBy ? ` (${esc(r.updatedBy)})` : ""}. Keep your marks, or theirs?</p>
+      <div class="lms-actions">${btn("mine", "Keep my marks", "btn-primary")}${btn("theirs", "Keep theirs")}</div>`;
+  }
   if (c.kind === "marked_elsewhere") {
     const s = c.server?.submission;
     return `<p>Someone marked this while you were offline${s?.marks != null ? ` (${s.marks}/${s.maxMarks}${s.markerName ? ` by ${esc(s.markerName)}` : ""})` : ""}.</p>

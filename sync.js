@@ -40,7 +40,7 @@ export const APP_VERSION = "2026.10.07a";
 /* What each kind of queued activity counts as, in the Sync center. */
 const AREA = {
   "learner-work": "learning", mark: "learning", reading: "learning",
-  "field-visit": "school", "form-response": "school",
+  "field-visit": "school", "form-response": "school", register: "school",
 };
 export const areaOf = (kind) => AREA[kind] || "other";
 

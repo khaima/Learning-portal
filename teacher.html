@@ -48,6 +48,11 @@
         <div class="stat-row" id="statRow"></div>
 
         <div class="panel">
+          <div class="panel-head"><h2>Today's registers</h2><a href="#attendance">Attendance</a></div>
+          <div id="homeRegisters"><div data-skeleton="list"></div></div>
+        </div>
+
+        <div class="panel">
           <div class="panel-head"><h2>Work to mark</h2><a href="#assignments">View all</a></div>
           <div class="panel-search"><input type="search" id="gradingSearch" placeholder="Search by learner or assignment…"></div>
           <div id="gradingQueue"><div data-skeleton="list"></div></div>
@@ -91,6 +96,10 @@
           <div class="panel-head"><h2 data-page-title>My classes</h2></div>
           <div id="classList"><div data-skeleton="list"></div></div>
         </div>
+      </section>
+
+      <section class="dash-page" data-page="attendance" hidden>
+        <div id="attendanceRoot"><div class="panel"><div data-skeleton="list"></div></div></div>
       </section>
 
       <section class="dash-page" data-page="my-learners" hidden>
@@ -182,6 +191,8 @@
             <div class="field"><label for="rf_subject">Subject</label><select id="rf_subject"><option value="">All subjects</option></select></div>
             <div class="field"><label for="rf_term">Term</label><select id="rf_term"><option value="">All terms</option></select></div>
           </div>
+          <div class="res-compare" id="compareBox"><div data-skeleton="charts" data-rows="1"></div></div>
+          <h3 class="chart-subhead">Handed in and marks, in full</h3>
           <div id="resultsTable"><div data-skeleton="table"></div></div>
         </div>
       </section>

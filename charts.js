@@ -8,8 +8,9 @@
      comparing groups         barList      one colour; length does the telling
      progress to a target     targetList   a bar that fills towards a marked line
      parts of one whole       donut        four parts at most; more become bars
-     an ordered scale         stackBar     one bar, split in order
+     an ordered scale         stackBar     one bar, split in order (stackRows: one per group)
      counts on a grid         heatmap      a table of cells, one hue light → dark
+                                           (scale: a measure in each cell — average marks)
      how values spread        histogram    columns side by side, one scale
      detailed values          a table      (not here)
 
@@ -308,6 +309,30 @@ export function stackBar(parts, { noun = "", empty = "Nothing recorded yet.", ti
   ${keyList(list.map((p) => ({ ...p, label: p.short ? `${p.short} — ${p.label}` : p.label })), total, { colours: [], noun, compact })}`;
 }
 
+/** One stacked bar per group, every bar the whole of its group — the same ordered parts
+    (the achievement bands) side by side, one key beneath. Each row says one figure of its
+    own on the right (e.g. "64% at ME or above").
+      rows   [{ label, parts: [n…] (in the order of `parts`), figure?, figureNote?, note? }]
+      parts  [{ label, short?, colour }]
+      noun   what is counted ("marked") */
+export function stackRows(rows, parts, { noun = "", empty = "Nothing recorded yet.", title = "" } = {}) {
+  const list = (rows || []).filter((r) => r.parts.some((v) => v > 0));
+  if (!list.length) return none(empty);
+  const all = parts.map((p, i) => ({ ...p, value: list.reduce((t, r) => t + (r.parts[i] || 0), 0) }));
+  const grand = all.reduce((t, p) => t + p.value, 0);
+  return `<div class="stack-rows" role="list"${title ? ` aria-label="${esc(title)}"` : ""}>${list.map((r) => {
+    const total = r.parts.reduce((t, v) => t + (v || 0), 0);
+    const said = parts.map((p, i) => `${p.short || p.label}: ${num(r.parts[i] || 0)} (${share(r.parts[i] || 0, total)}%)`).join(", ");
+    return `<div class="stack-row" role="listitem">
+      <div class="bars-head"><span class="bars-label">${esc(r.label)}</span>
+        <span class="bars-val">${r.figure != null ? `<b>${esc(r.figure)}</b>` : ""}${r.figureNote ? `<small>${esc(r.figureNote)}</small>` : ""}${r.note ? `<small>${esc(r.note)}</small>` : ""}</span></div>
+      <div class="stack" role="img" aria-label="${esc(`${r.label} — ${said}`)}">${parts.map((p, i) => (r.parts[i] > 0
+        ? `<span style="flex:${r.parts[i]};background:${p.colour}"${tip(`${r.label} · ${p.short ? `${p.short} — ` : ""}${p.label}`, [[num(r.parts[i]), noun], [`${share(r.parts[i], total)}%`, `of ${num(total)}`]])}></span>` : "")).join("")}</div>
+    </div>`;
+  }).join("")}</div>
+  ${keyList(all.map((p) => ({ ...p, label: p.short ? `${p.short} — ${p.label}` : p.label })), grand, { colours: [], noun, compact: true })}`;
+}
+
 /* ------------------------------------------------------------ counts on a grid */
 
 /** A heatmap's shades: one hue in up to four steps for 1…max, each an equal
@@ -334,15 +359,23 @@ function shadeSteps(max) {
       caption  what the grid counts, read out with the table
       noun     what a cell counts ("visits")
       totals   a last column with each row's total
-      act      what picking a row's name does, for screen readers */
-export function heatmap(rows, cols, { corner = "", caption = "", noun = "", totals = true, act = "", empty = "Nothing recorded yet." } = {}) {
+      act      what picking a row's name does, for screen readers
+      scale    a measure in each cell instead of a count — an average mark — shaded by
+               the step it reaches: [{ from, label }] lowest first, up to four (the
+               achievement bands). A cell is then a number, null (nothing to show: "—")
+               or { value, note?, few? }: few marks it as too little to compare — it's
+               printed with an asterisk, lighter, and the key says why.
+      unit     "%" after each value (with a scale) */
+export function heatmap(rows, cols, { corner = "", caption = "", noun = "", totals = true, act = "", empty = "Nothing recorded yet.", scale = null, unit = "", fewNote = "" } = {}) {
   const list = rows || [];
-  const max = Math.max(0, ...list.flatMap((r) => r.values));
-  if (!max) return none(empty);
-  const steps = shadeSteps(max);
+  const valueOf = (v) => (v != null && typeof v === "object" ? v.value : v);
+  const max = Math.max(0, ...list.flatMap((r) => r.values.map((v) => valueOf(v) ?? 0)));
+  if (scale ? !list.some((r) => r.values.some((v) => valueOf(v) != null)) : !max) return none(empty);
+  const steps = scale ? scale.slice(-4).map((s, i, all) => [s.from, all[i + 1] ? all[i + 1].from : Infinity, s.label]) : shadeSteps(max);
   const shadeOf = (i) => 4 - steps.length + 1 + i;
-  const shade = (v) => (v ? shadeOf(steps.findIndex(([lo, hi]) => v >= lo && v <= hi)) : 0);
-  const range = ([lo, hi]) => (lo === hi ? num(lo) : `${num(lo)}–${num(hi)}`);
+  const shade = (v) => (v == null || (!scale && !v) ? 0 : shadeOf(Math.max(0, steps.findIndex(([lo, hi]) => (scale ? v >= lo && v < hi : v >= lo && v <= hi)))));
+  const range = ([lo, hi, label]) => (scale ? label : lo === hi ? num(lo) : `${num(lo)}–${num(hi)}`);
+  const cellText = (v) => (scale ? (v == null ? "—" : show(v, unit)) : v ? num(v) : '<span class="sr-only">0</span>');
   const pick = (attr, value, html, how) => `<button type="button" class="bars-link" ${attr}="${esc(value)}">${html}${how ? `<span class="sr-only">: ${esc(how)}</span>` : ""}</button>`;
   // On a phone a column is headed by its short form ("N", "6"); the whole name stays for screen readers.
   const colName = (c) => (c.short ? `<span class="hm-long">${esc(c.label)}</span><span class="hm-short" aria-hidden="true">${esc(c.short)}</span>` : esc(c.label));
@@ -352,13 +385,19 @@ export function heatmap(rows, cols, { corner = "", caption = "", noun = "", tota
   const body = list.map((r) => {
     const name = r.href ? `<a class="bars-link" href="${esc(r.href)}">${esc(r.label)}</a>`
       : r.drill ? pick("data-drill", JSON.stringify(r.drill), esc(r.label), act) : r.pickSchool ? pick("data-pick-school", r.pickSchool, esc(r.label), act) : esc(r.label);
-    const total = r.total ?? r.values.reduce((t, v) => t + v, 0);
-    return `<tr><th scope="row">${name}</th>${r.values.map((v, i) => `<td class="hm hm-${shade(v)}"${
-      tip(`${r.label} · ${cols[i].full || cols[i].label}`, [[num(v), noun]])}>${v ? num(v) : '<span class="sr-only">0</span>'}</td>`).join("")}${
-      totals ? `<td class="hm-total">${num(total)}</td>` : ""}</tr>`;
+    const total = r.total ?? r.values.reduce((t, v) => t + (valueOf(v) ?? 0), 0);
+    return `<tr><th scope="row">${name}</th>${r.values.map((cell, i) => {
+      const v = valueOf(cell);
+      const few = !!(cell && typeof cell === "object" && cell.few);
+      const rows2 = [[scale ? (v == null ? "—" : show(v, unit)) : num(v), noun]];
+      if (cell && typeof cell === "object" && cell.note) rows2.push(["", cell.note]);
+      return `<td class="hm hm-${shade(v)}${few ? " hm-few" : ""}"${tip(`${r.label} · ${cols[i].full || cols[i].label}`, rows2, few ? fewNote : "")}>${cellText(v)}${few ? '<span aria-hidden="true">*</span>' : ""}</td>`;
+    }).join("")}${totals ? `<td class="hm-total">${num(total)}</td>` : ""}</tr>`;
   }).join("");
-  const key = `<ul class="chart-key hm-key" aria-hidden="true"><li><i class="hm-0"></i>None</li>${
-    steps.map((s, i) => `<li><i class="hm-${shadeOf(i)}"></i>${range(s)}</li>`).join("")}<li>${esc(noun)} in a cell</li></ul>`;
+  const anyFew = scale && list.some((r) => r.values.some((v) => v && typeof v === "object" && v.few));
+  const key = `<ul class="chart-key hm-key" aria-hidden="true"><li><i class="hm-0"></i>${scale ? "Nothing yet" : "None"}</li>${
+    steps.map((s, i) => `<li><i class="hm-${shadeOf(i)}"></i>${esc(range(s))}</li>`).join("")}<li>${esc(noun)} in a cell</li>${
+    anyFew ? `<li>* ${esc(fewNote || "too few to compare")}</li>` : ""}</ul>`;
   return `<div class="hm-wrap"><table class="heatmap">${caption ? `<caption class="sr-only">${esc(caption)}</caption>` : ""}<thead>${head}</thead><tbody>${body}</tbody></table></div>${key}`;
 }
 

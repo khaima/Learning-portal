@@ -580,8 +580,22 @@ Learners are managed by school and class: **school → academic year → term
 - **Building work** (teacher → Assignments → New assignment): class,
   subject, term, title, description, instructions, an optional Digital
   Library resource, opening and due dates, estimated time, and questions
-  of six types — multiple choice, multiple response, true/false, short
-  answer, a written task, or a file upload. A **draft** is private;
+  of eleven types (`question-types.js`):
+  - **choose or arrange** — multiple choice, multiple response, true/false,
+    **matching** (items to answers, with extra answers allowed) and **put in
+    order** (written in the right order, jumbled for each learner);
+  - **write the answer** — short answer, **fill in the blanks** (each answer
+    in `[brackets]` in the sentence, other accepted answers after a slash:
+    `[100/hundred]`) and a **number answer** (with an allowed difference and
+    a unit; a decimal comma is fine);
+  - **you mark it** — a written task, a file upload, and a **task with a
+    rubric** (a project, practical or oral: up to 8 criteria, each described
+    at the four CBE levels EE, ME, AE and BE).
+  Under **More**, any question can carry its CBE details — strand,
+  sub-strand, learning outcome, the seven core competencies, the level of
+  thinking — and an explanation learners read once it's marked. Choice
+  questions can shuffle their options for each learner and explain each
+  option. A **draft** is private;
   **publishing** (needs a question and a due date) opens it to everyone
   enrolled in the class; **closing** stops new work. Questions are fixed
   once it's published, so the marks learners work towards never change.
@@ -589,10 +603,15 @@ Learners are managed by school and class: **school → academic year → term
 - **Doing it** (learner → Assignments): open, start, save progress, upload
   files, hand in. The time is recorded and work handed in after the due
   date is flagged **late** (still accepted until the teacher closes it).
-- **Marking:** multiple choice, multiple response (all-or-nothing), true/
-  false and short answers with accepted answers are marked automatically on
-  hand-in; if every question is like that, the work is marked straight
-  away. Everything else waits in the teacher's **Work to mark** queue: marks
+- **Marking:** multiple choice, multiple response, true/false, matching,
+  ordering, fill in the blanks, number answers and short answers with
+  accepted answers are marked automatically on hand-in (part marks for part
+  of a match, an order, the blanks, or the ticks — a wrong tick takes one
+  away — where the teacher turns them on); if every question is like that,
+  the work is marked straight away. A rubric task is marked by choosing a
+  level for each criterion: 4 points at EE down to 1 at BE, and the marks
+  follow. A learner never sees an answer key; the explanation, the feedback
+  on the option they chose and the rubric levels come once it's marked. Everything else waits in the teacher's **Work to mark** queue: marks
   per question (automatic marks can be overridden), feedback per question
   and overall. Each mark records the percentage, the **band**, who marked
   it and when. Bands live in `grade_bands`: EE ≥ 80%, ME ≥ 50%, AE ≥ 30%,
@@ -606,8 +625,52 @@ Learners are managed by school and class: **school → academic year → term
     missing it.
   - **Achievement** — the average percentage on **marked** work, and its
     band. Work not handed in, or not yet marked, never counts as a score.
+- **Which subject does best?** Above each results table (the teacher's,
+  the school head's, the programme's) and on the Learning dashboard: the
+  subject doing best and the one needing most support, each subject's
+  average mark (best first, with its change on the term before), where each
+  subject's learners are by band, and every subject in every class, grade or
+  school on one grid with the best subject in each. A subject — or a cell —
+  needs at least 5 marked pieces of work to be ranked; fewer are shown with
+  an asterisk, never ranked (`GET /results/compare`, `lms.ts`
+  `compareResults`).
 - A learner's results stay with the school and class they did the work in,
   even after a transfer or promotion.
+
+### Class attendance
+
+- **The register** (teacher → My classes → Attendance, or *Register* on a
+  class, or *Take register* on Home): pick a class and a day (today, or any
+  earlier day of the school year), mark each learner **Present**, **Late**
+  or **Absent** — an absence can be **excused** with a reason (sick, family,
+  with permission, other) — and save. *Mark the rest present* does the
+  rest in one tap; anyone left unmarked is saved as absent only after the
+  teacher agrees. Beside each name: their last five school days and their
+  rate this term, flagged when they need following up.
+- **Corrections, not deletions.** Taking a day's register again corrects
+  it; one register per class per day, nothing is deleted, and each first
+  register and each correction is in the audit log (`attendance.taken`,
+  `attendance.corrected`, with who changed which learner from what to what).
+- **Offline.** Today's register for each class is kept on the device at
+  every sync; taken without a connection it waits in the Sync center and
+  is sent when there's one. If another teacher of the class changed the
+  register meanwhile, it comes back as a conflict — keep your marks or
+  theirs.
+- **What it adds up to** (the class this term, under the register; the
+  school head's *My school → Attendance*): the attendance rate, registers
+  taken of those due (a weekday in a term, for each class with learners),
+  learners to follow up — **below 90%** after five days on the register, or
+  **away three school days running** — attendance by day and by day of the
+  week, why learners were away, and the register sheet (a letter per
+  learner per day). Where at least two groups of three learners can be
+  compared, their **average marks by how often they came**. School heads
+  see every class's register for a day (open one to read it); the
+  programme roles' access is in the API (`attendance.view.all`).
+- Who: **teachers** take the registers of the classes they teach
+  (`attendance.take`); **school heads** see their school's
+  (`attendance.view.school`); Admin, M&E and the Education Team see their
+  area's (`attendance.view.all`). Learner rows are never shown across a
+  whole area — only for one class or one school.
 
 ## The backend
 
@@ -926,7 +989,10 @@ same data everywhere, because the database is the source of truth.
   assignment.
 - **Moving a learner to another class mid-year** updates their current
   enrollment rather than starting a new one, so work set earlier in the new
-  class can show as missing for them.
+  class can show as missing for them. For the same reason a past day's
+  register lists the class's learners now, plus anyone already marked that
+  day.
+- **One register a day per class**, not one per lesson.
 - **Exports need a connection.** Reports are made from the latest records,
   so they can't be exported offline. PDFs use the built-in Helvetica font,
   which covers English and Western European letters only.
@@ -1026,6 +1092,9 @@ the one-time mail setup in [`docs/AUTH.md`](docs/AUTH.md).) Before pushing,
 | `impact-ui.js` | The impact dashboards: executive overview, reach, learning, teacher development, field operations, digital resources, M&E |
 | `training-ui.js` | The training register: record a session, mark who attended, archive |
 | `assignments-ui.js` | Assignment builder, marking, results table, and the learner's assignment screen |
+| `question-types.js` | Every kind of question: how it's built, answered, read, keyed and marked (CBE formats, rubrics) |
+| `compare-ui.js` | Which subject does best: the answer, averages, bands by subject, subjects × grades/classes/schools |
+| `attendance-ui.js` | The class register (take, correct, offline), what registers add up to, the day's registers |
 | `learners-ui.js` | Shared learner dialogs: archive, history, transfer |
 | `base.css` / `app.css` | The design system (light + dark): what the sign-in page needs, and the dashboards' rest |
 | `serve.py` | Plain local server for the build in `dist/` (honours `$PORT`) |

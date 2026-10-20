@@ -114,7 +114,8 @@ async function request(method, path, body) {
    of figures for the Education Team aren't — they're only meaningful live. */
 const KEEP_OFFLINE = [
   /^\/schools$/, /^\/subjects$/, /^\/academic-years$/,
-  /^\/learner\/assignments(\/[^/?]+)?$/, /^\/results(\?.*)?$/,
+  /^\/learner\/assignments(\/[^/?]+)?$/, /^\/results(\?.*)?$/, /^\/results\/compare(\?.*)?$/,
+  /^\/attendance\/(register|today|summary)(\?.*)?$/,
   /^\/library(\?.*)?$/, /^\/library\/folders$/, /^\/library\/interactions\/mine$/,
   /^\/forms$/, /^\/responses$/, /^\/field-reports$/, /^\/kobo\/my-surveys$/,
   /^\/learners(\?.*)?$/, /^\/classes(\?.*)?$/, /^\/classes\/[^/?]+$/,

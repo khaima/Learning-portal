@@ -18,7 +18,7 @@
  */
 import { counts as koboCounts, RULES as KOBO_RULES } from "./kobo_pipeline.ts";
 import {
-  type Band, groupResults, pairsOf, round2, summarize,
+  type Band, compareResults, groupResults, pairsOf, round2, summarize,
   type ResultAssignment, type ResultSubmission, expectedFrom,
 } from "./lms.ts";
 
@@ -42,6 +42,22 @@ export type IntelligenceFilter = { county?: string | null; school?: string | nul
 
 const pct = (n: number, d: number) => (d > 0 ? round2((n / d) * 100) : null);
 const day = (v: unknown) => String(v ?? "").slice(0, 10);
+/** A subject comparison (lms.ts compareResults) with names for its subjects, rows and terms,
+    subjects best first (the ones with too little marked work last). */
+function labelledCompare(cmp: ReturnType<typeof compareResults>, subjectName: Record<string, string>, rowName: Record<string, string>) {
+  const subject = (k: string) => subjectName[k] ?? k;
+  return {
+    min: cmp.min, overall: cmp.overall,
+    best: cmp.best ? { key: cmp.best, label: subject(cmp.best) } : null,
+    weakest: cmp.weakest ? { key: cmp.weakest, label: subject(cmp.weakest) } : null,
+    subjects: cmp.subjects.map((x) => ({ ...x, label: subject(x.key), terms: x.terms.map((t) => ({ ...t, label: termLabel(t.key) })) }))
+      .sort((a, b) => Number(b.enough) - Number(a.enough) || (b.averagePercent ?? -1) - (a.averagePercent ?? -1) || a.label.localeCompare(b.label)),
+    rows: cmp.rows.map((r) => ({ ...r, label: rowName[r.key] ?? r.key }))
+      .sort((a, b) => String(a.label).localeCompare(String(b.label), undefined, { numeric: true })),
+    cells: cmp.cells,
+  };
+}
+
 const termLabel = (id: string) => {
   const m = /^(\d{4})-T(\d)$/.exec(id);
   return m ? `${m[1]} Term ${m[2]}` : id;
@@ -151,6 +167,11 @@ export function buildIntelligence(d: IntelligenceInput, f: IntelligenceFilter = 
       averagePercent: g.achievement.averagePercent, marked: g.achievement.marked, band: g.achievement.band,
     })).sort((a, b) => a.label.localeCompare(b.label)),
     learnersByGrade: tally(learners, (l) => l.grade || "(not set)"),
+    // Which subject does best, and where: subjects within each school and each grade.
+    compare: {
+      school: labelledCompare(compareResults(pairs, "school", d.bands, now), subjectName, Object.fromEntries(schools.map((s) => [s.id, s.name]))),
+      grade: labelledCompare(compareResults(pairs, "grade", d.bands, now), subjectName, {}),
+    },
     library: {
       sessions: lib.length,
       minutes: libMinutes(lib),

@@ -9,6 +9,7 @@ import {
   getSchoolOverview, getClasses, createClass, updateClass, assignClassTeacher, removeClassTeacher, promoteClass,
   getLearners, updateLearner, setLearnerStatus, getEnrollments,
   getSubjects, addClassSubject, removeClassSubject, getResults, getStaffAssignments, currentTermLabel,
+  getResultsCompare, getAttendanceToday,
 } from "./store.js";
 import { resultsTableHtml, openAssignmentDetail, assignmentStatusPill, fmtWhen } from "./assignments-ui.js";
 import { openContentPanel, closeViewer } from "./viewer.js";
@@ -25,6 +26,42 @@ const RETURN_MS = 5 * 60_000;
 // The school profile and teachers pages (admin-ui.js) load when first opened.
 const adminUi = () => import("./admin-ui.js");
 const pageFailed = (el) => (err) => { el.innerHTML = errorState(friendlyError(err, "Couldn't load this page — check your connection.")); };
+
+/* Attendance (attendance-ui.js) and which subject does best (compare-ui.js): loaded when first opened. */
+let schoolAttendance = null;
+function openSchoolAttendance() {
+  import("./attendance-ui.js").then((m) => {
+    if (schoolAttendance) schoolAttendance.refresh();
+    else schoolAttendance = m.mountSchoolAttendance($("#attendanceRoot"));
+  }).catch(pageFailed($("#attendanceRoot")));
+}
+let headCompare = null;
+function drawHeadCompare() {
+  if (headCompare) { headCompare.refresh(); return; }
+  import("./compare-ui.js").then((m) => {
+    headCompare = m.mountCompare($("#headCompare"), {
+      load: (rows) => getResultsCompare({ rows, classId: $("#hr_class").value, termId: $("#hr_term").value }),
+      choices: [["grade", "Grade"], ["class", "Class"]],
+    });
+  }).catch(pageFailed($("#headCompare")));
+}
+/** The day's registers on the dashboard, each one open to read. */
+let headToday = null;
+async function renderHeadRegisters(onLoaded = () => {}) {
+  const el = $("#headRegisters");
+  try {
+    const [m, d] = await Promise.all([import("./attendance-ui.js"), getAttendanceToday()]);
+    headToday = d;
+    el.innerHTML = m.todayHtml(d, { link: false });
+    onLoaded(d);
+  } catch (err) {
+    el.innerHTML = errorState(friendlyError(err), () => renderHeadRegisters(onLoaded));
+  }
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("#headRegisters [data-read-register]");
+  if (b) import("./attendance-ui.js").then((m) => m.openRegisterToRead(b.dataset.readRegister, headToday?.date)).catch(() => {});
+});
 
 /* A short label for the grade-row "avatar" swatch — "Grade 5" → "G5",
    anything without a number falls back to its first two letters, and an
@@ -53,6 +90,8 @@ async function main() {
     onPage(page) {
       if (page === "school-profile") adminUi().then((m) => m.renderSchoolProfile($("#spBody"), user.schoolId)).catch(pageFailed($("#spBody")));
       if (page === "visits") adminUi().then((m) => m.renderSchoolVisits($("#visitList"), user.schoolId)).then((ok) => { if (ok) visitsDetailed = true; }).catch(() => {});
+      if (page === "attendance") openSchoolAttendance();
+      if (page === "learning") drawHeadCompare();
     },
   });
   // Who and where is the line above (nav.js); this one adds the term.
@@ -87,8 +126,11 @@ async function main() {
         sub: total ? `${done} of ${total} pieces of work${c.missing ? ` · <b class="warn-text">${c.missing} missing</b>` : ""}` : "no assignments set yet" }),
       kpiCard({ label: "Average mark", icon: "results", value: achievement?.averagePercent != null ? `${Math.round(achievement.averagePercent)}%` : "—", href: "#learning",
         sub: achievement?.marked ? `${achievement.marked} marked${achievement.band ? ` · ${esc(achievement.band)}` : ""}` : "nothing marked yet" }),
+      kpiCard({ label: "Here today", icon: "check", value: headToday?.totals.marks ? `${Math.round(headToday.totals.rate)}%` : "—", href: "#attendance",
+        sub: headToday ? `${headToday.totals.taken} of ${headToday.totals.classes} register${headToday.totals.classes === 1 ? "" : "s"} taken` : "today's registers" }),
     ].join("");
   }
+  renderHeadRegisters(() => renderKpis());
 
   function gradeRow({ grade, learners, assignmentsTotal, assignmentsDone, marked, averagePercent, band }, withWork) {
     const pct = assignmentsTotal ? Math.round((assignmentsDone / assignmentsTotal) * 100) : 0;
@@ -398,6 +440,7 @@ async function main() {
     }
   }
   for (const sel of ["#hr_by", "#hr_class", "#hr_subject", "#hr_term"]) $(sel).addEventListener("change", () => { renderHeadResults(); renderHeadAssignments(); });
+  for (const sel of ["#hr_class", "#hr_term"]) $(sel).addEventListener("change", () => { if (headCompare) headCompare.refresh(); });
   getSubjects().then((list) => {
     $("#hr_subject").innerHTML = `<option value="">All subjects</option>${list.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join("")}`;
   }).catch(() => {});

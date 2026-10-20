@@ -8,7 +8,7 @@ import {
   getLibrary, getLibraryFolders, getForms, getResponses, mountLibraryShelves, libraryPreviewHtml,
   getLearners, addLearner, updateLearner, getMyLibraryUsage, getLearnerActivity,
   getClasses, setLearnerStatus, getSubjects, getStaffAssignments, getSubmissions, getSubmission, getResults,
-  addLearnersToClass, removeLearnerFromClass,
+  addLearnersToClass, removeLearnerFromClass, getResultsCompare, getAttendanceToday, getRegister,
 } from "./store.js";
 import { statusPill, openArchiveDialog, openHistoryPanel } from "./learners-ui.js";
 import {
@@ -32,6 +32,13 @@ sync.registerPrefetch(async () => {
   const subs = await getSubmissions({ limit: 500 });
   for (const x of subs.filter((s) => s.status === "submitted").slice(0, 40)) await getSubmission(x.id);
 });
+/* …and today's register for each class, so it can be taken without a connection. */
+sync.registerPrefetch(async () => {
+  const { classes } = await getClasses();
+  const today = new Date(Date.now() + 3 * 3600e3).toISOString().slice(0, 10); // Kenya's day
+  await getAttendanceToday().catch(() => {});
+  for (const c of (classes || []).slice(0, 12)) await getRegister(c.id, today).catch(() => {});
+});
 
 async function main() {
   const user = await requireRole("teacher");
@@ -42,7 +49,9 @@ async function main() {
   $("#sideMeta").textContent = `Teacher · ${user.userCode || user.county || "—"}`;
   $("#greeting").textContent = `Habari, ${(user.fullName || "there").split(" ")[0]}`;
   enableSortableTables(document.querySelector(".app-main") || document.body); // sorting, phone layouts, "Show all"
-  mountNavigation(user); // the menu (navigation.js)
+  // The menu (navigation.js). A page opened is set up once everything below is (onPageOpen, at the end).
+  let onPageOpen = () => {};
+  mountNavigation(user, { onPage: (page, params) => setTimeout(() => onPageOpen(page, params)) });
 
   /* ------------------------------------------------------------ KPI row
      Real counts only, from the same data as the lists below: work waiting
@@ -60,6 +69,8 @@ async function main() {
         sub: toMark ? "handed in, waiting for you" : "nothing waiting" }),
       kpiCard({ label: "Handed in this week", icon: "check", value: handedInThisWeek, href: "#assignments",
         sub: `since Monday${lastWeek != null ? ` · ${lastWeek} last week` : ""}` }),
+      kpiCard({ label: "Here today", icon: "check", value: todayRegisters?.totals.marks ? `${Math.round(todayRegisters.totals.rate)}%` : "—", href: "#attendance",
+        sub: todayRegisters ? `${todayRegisters.totals.taken} of ${todayRegisters.totals.classes} register${todayRegisters.totals.classes === 1 ? "" : "s"} taken` : "today's registers" }),
       kpiCard({ label: "Resources used", icon: "book", value: resourcesUsed, href: "#resources", sub: "by you, all time" }),
     ].join("");
   }
@@ -77,6 +88,7 @@ async function main() {
   let learnerCache = [];
   let activeCount = 0; // active learners, shown in the KPI tile whichever list is open
   let usageCache = null;
+  let todayRegisters = null; // today's registers (GET /attendance/today), for the KPI and Home
 
   async function renderClasses() {
     $("#classList").innerHTML = skeleton(2, { avatar: false });
@@ -104,6 +116,7 @@ async function main() {
             <div class="class-info"><b>${esc(c.name)}</b><span>${c.learnerCount} active learner${c.learnerCount === 1 ? "" : "s"} · ${esc(c.academicYear)}${subjects ? ` · ${esc(subjects)}` : ""}</span></div>
             <div class="class-meta"><b>${mine?.role === "class_teacher" ? "Class teacher" : "Subject teacher"}</b></div>
             <div class="roster-actions">
+              <button type="button" data-class-act="register">Register</button>
               <button type="button" data-class-act="learners">Learners</button>
               <button type="button" data-class-act="assign">Set work</button>
             </div>
@@ -123,7 +136,7 @@ async function main() {
     $("#rf_term").innerHTML = `<option value="">All terms</option>${classTerms.map((t) => `<option value="${esc(t.id)}">${esc(t.label || t.id)}</option>`).join("")}`;
     $("#rf_term").value = classTerms.some((t) => t.id === keepTerm) ? keepTerm : "";
   }
-  renderClasses();
+  const classesReady = renderClasses();
 
   for (const list of ["#classList", "#homeClassList"]) {
     $(list).addEventListener("click", (e) => {
@@ -132,6 +145,7 @@ async function main() {
       const cls = myClasses.find((c) => c.id === btn.closest("[data-class]").dataset.class);
       if (!cls) return;
       if (btn.dataset.classAct === "learners") openClassLearners(cls);
+      else if (btn.dataset.classAct === "register") location.hash = `attendance?class=${encodeURIComponent(cls.id)}`;
       else newAssignment(cls.id);
     });
   }
@@ -379,6 +393,45 @@ async function main() {
     }
   }
   for (const sel of ["#rf_by", "#rf_class", "#rf_subject", "#rf_term"]) $(sel).addEventListener("change", renderResults);
+  // Which subject does best: the same class and term as the results (loaded when the page is first opened).
+  let compare = null;
+  function drawCompare() {
+    if (compare) { compare.refresh(); return; }
+    import("./compare-ui.js").then((m) => {
+      compare = m.mountCompare($("#compareBox"), {
+        load: (rows) => getResultsCompare({ rows, classId: $("#rf_class").value, termId: $("#rf_term").value }),
+        choices: [["class", "Class"], ["grade", "Grade"]],
+      });
+    }).catch((err) => { $("#compareBox").innerHTML = errorState(friendlyError(err)); });
+  }
+  for (const sel of ["#rf_class", "#rf_term"]) $(sel).addEventListener("change", () => { if (compare) compare.refresh(); });
+
+  /* ------------------------------------------------------------ attendance
+     Today's registers on Home; the register itself on its own page (attendance-ui.js, loaded when needed). */
+  async function renderHomeRegisters() {
+    const el = $("#homeRegisters");
+    if (!todayRegisters) el.innerHTML = skeleton(2, { avatar: false });
+    try {
+      const [m, d] = await Promise.all([import("./attendance-ui.js"), getAttendanceToday()]);
+      todayRegisters = d;
+      el.innerHTML = m.todayHtml(d);
+      renderKpis();
+    } catch (err) {
+      el.innerHTML = errorState(friendlyError(err), renderHomeRegisters);
+    }
+  }
+  renderHomeRegisters();
+  let register = null;
+  async function openAttendance(classId, date) {
+    await classesReady;
+    let m;
+    try { m = await import("./attendance-ui.js"); } catch (err) {
+      $("#attendanceRoot").innerHTML = `<div class="panel">${errorState(friendlyError(err), () => openAttendance(classId, date))}</div>`;
+      return;
+    }
+    if (!register) register = m.mountRegister($("#attendanceRoot"), { classes: myClasses, classId, date });
+    else if (classId) register.open(classId, date || m.todayEAT());
+  }
   getSubjects().then((list) => {
     $("#rf_subject").innerHTML = `<option value="">All subjects</option>${list.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join("")}`;
   }).catch(() => {});
@@ -845,6 +898,12 @@ async function main() {
   loadSubmissions();
   loadAssignmentList();
   renderResults();
+
+  onPageOpen = (page, params) => {
+    if (page === "attendance") openAttendance(params.get("class") || "", params.get("date") || "");
+    if (page === "results") drawCompare();
+    if (page === "home" && todayRegisters) renderHomeRegisters(); // after a register is taken
+  };
 
   /* Content library lives in the real database (console.js writes it).
      Teacher Resources go to teachers and the head of institution only —

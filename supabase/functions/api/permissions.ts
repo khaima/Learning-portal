@@ -75,6 +75,10 @@ export const PERMISSIONS = [
   "assignments.grade",        // teacher: mark submissions in the classes they teach
   "assignments.view.school",  // school head: every assignment and result in their school
   "assignments.view.all",     // every school in scope
+  // class attendance: the daily register
+  "attendance.take",          // teacher: take (and correct) the register for the classes they teach
+  "attendance.view.school",   // school head: every class's registers and attendance in their school
+  "attendance.view.all",      // every school in scope
   // field visits
   "field_reports.create",     // field officer: at an assigned school
   "field_reports.view.own",
@@ -142,7 +146,7 @@ const ADMIN: Permission[] = [
   "learners.view.all", "learners.manage.all", "learners.transfer", "teachers.view",
   ...LIBRARY_READ, "library.usage.view",
   "forms.manage", "forms.responses.view",
-  "assignments.view.all", "field_reports.view.all", "stats.view",
+  "assignments.view.all", "attendance.view.all", "field_reports.view.all", "stats.view",
   "data_quality.view", "data_quality.manage",
   "kobo.sync", "kobo.review", "kobo.results.view",
   "sync.monitor", "sync.problems.view", "notifications.view.all",
@@ -156,7 +160,7 @@ const ADMIN: Permission[] = [
 const ME: Permission[] = [
   "intelligence.view", "learning.dashboard.view", "stats.view", "schools.profile.view",
   "learners.view.all", "teachers.view", ...LIBRARY_READ, "library.usage.view",
-  "forms.responses.view", "assignments.view.all", "field_reports.view.all",
+  "forms.responses.view", "assignments.view.all", "attendance.view.all", "field_reports.view.all",
   "data_quality.view", "data_quality.manage",
   "me.view", "me.framework.manage", "me.actuals.record", "me.actuals.verify", "me.reports.manage",
   "kobo.review", "kobo.results.view",
@@ -170,7 +174,7 @@ const EDUCATION_TEAM: Permission[] = [
   "learners.view.all", "teachers.view",
   ...LIBRARY_READ, "library.manage", "library.usage.view",
   "forms.manage", "forms.responses.view",
-  "assignments.view.all", "field_reports.view.all", "trainings.manage",
+  "assignments.view.all", "attendance.view.all", "field_reports.view.all", "trainings.manage",
   "sync.problems.view",
   "reports.export",
 ];
@@ -193,10 +197,10 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   school_leader: [
     "forms.respond", "school.overview.view", "schools.profile.view", "teachers.view",
     "learners.view.school", "learners.manage.school", "classes.manage.school",
-    "assignments.view.school", ...LIBRARY_READ, "reports.export",
+    "assignments.view.school", "attendance.view.school", ...LIBRARY_READ, "reports.export",
   ],
   teacher: [
-    "forms.respond", "learners.manage", "assignments.manage", "assignments.grade",
+    "forms.respond", "learners.manage", "assignments.manage", "assignments.grade", "attendance.take",
     "library.read.learner", "library.read.staff", "reports.export",
   ],
   learner: ["library.read.learner", "assignments.view.own", "assignments.submit"],
@@ -328,6 +332,9 @@ export const PERMISSION_GROUPS: { group: string; items: [Permission, string][] }
     ["assignments.grade", "Mark work for their classes"],
     ["assignments.view.own", "See their own assignments and results"],
     ["assignments.submit", "Do and hand in assignments"],
+    ["attendance.view.all", "See class attendance in every school in scope"],
+    ["attendance.view.school", "See class attendance in their own school"],
+    ["attendance.take", "Take the register for their classes"],
     ["library.manage", "Upload, publish and edit content"],
     ["library.read.learner", "Read the Digital Library"],
     ["library.read.staff", "Read Teacher Resources"],

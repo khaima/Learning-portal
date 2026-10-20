@@ -658,6 +658,69 @@ export async function uploadAnswerFile(assignmentId, questionId, file) {
 export async function getResults(params = {}) {
   return apiGet(`/results${qs(params)}`);
 }
+/** Subjects side by side — which does best, and where: within each grade, class or school
+    (`rows`), with getResults's filters. { rowsBy, bands, min, overall, best, weakest, subjects, rows, cells }. */
+export async function getResultsCompare(params = {}) {
+  return apiGet(`/results/compare${qs(params)}`);
+}
+
+/* ---- class attendance: the daily register ----
+   Taken online or offline. Without a connection a register is queued (one
+   queued copy per class and day — saving it again replaces it) and this
+   device's copy shows it, "waiting to sync". The queued copy carries the
+   time the register was last changed as this device saw it, so marks
+   changed by another teacher meanwhile come back as a conflict. */
+const registerPath = (classId, date) => `/attendance/register${qs({ classId, date })}`;
+/** One class's register for a day: { class, date, register, counts, learners, canTake, … }. */
+export async function getRegister(classId, date) {
+  return apiGet(registerPath(classId, date));
+}
+/** The day's registers for the classes in view: { date, classes, totals }. */
+export async function getAttendanceToday(params = {}) {
+  return apiGet(`/attendance/today${qs(params)}`);
+}
+/** Attendance over a stretch: totals, by day, weekday and group, learners to follow up, the sheet. */
+export async function getAttendanceSummary(params = {}) {
+  return apiGet(`/attendance/summary${qs(params)}`);
+}
+export async function saveRegister({ classId, date, marks, baseUpdatedAt = null, label = "Register" }) {
+  const path = registerPath(classId, date);
+  const body = { classId, date, marks, baseUpdatedAt };
+  const { data, queued } = await sync.send({
+    method: "PUT", path: "/attendance/register",
+    body, offlineBody: { ...body, clientSavedAt: new Date().toISOString() },
+    label, kind: "register", group: `register:${classId}:${date}`, dedupe: `register:${classId}:${date}`,
+    touches: [path], meta: { classId, date },
+    local: () => localRegister(path, marks),
+  });
+  if (queued && !data) throw new OfflineError("You're offline, and this register isn't on this device. Open it once while online to take it offline.");
+  return queued ? { ...data, queued: true } : data;
+}
+/** This device's copy of a register, with the marks just given, until they're sent. */
+async function localRegister(path, marks) {
+  const d = await offlineCopy(path);
+  if (!d) return null;
+  const v = structuredClone(d);
+  const given = new Map((marks || []).map((m) => [m.learnerId, m]));
+  for (const l of v.learners || []) {
+    const m = given.get(l.id);
+    if (m) Object.assign(l, { status: m.status, reason: m.reason ?? null, note: m.note ?? null });
+  }
+  const t = { marks: 0, present: 0, late: 0, absent: 0, excused: 0 };
+  for (const l of v.learners || []) if (l.status && l.status in t) { t.marks++; t[l.status]++; }
+  v.counts = { ...t, rate: t.marks ? Math.round(((t.present + t.late) / t.marks) * 1000) / 10 : null };
+  v.localSavedAt = new Date().toISOString();
+  v.pendingSync = true;
+  await keepOffline(path, v);
+  return v;
+}
+sync.registerKind("register", {
+  async applied(item, reply) { if (reply?.class) await keepOffline(registerPath(item.meta.classId, item.meta.date), reply); },
+  async settled(item, server) {
+    if (server?.class) await keepOffline(registerPath(item.meta.classId, item.meta.date), server);
+    else if (sync.isOnline()) await getRegister(item.meta.classId, item.meta.date).catch(() => {});
+  },
+});
 
 /* A school leader's own school in one call: real teacher/learner counts,
    assignment completion, a grade-level breakdown, and recent field visits

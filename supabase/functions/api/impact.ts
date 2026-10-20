@@ -227,6 +227,8 @@ export function buildImpact(d: ImpactInput, f: IntelligenceFilter = {}, now = ne
     bands: intel.learning.bands,
     resultsByGrade: intel.learning.byGrade.filter((g) => g.marked).map((g) => ({ label: g.label, value: g.averagePercent, n: g.marked, band: g.band })),
     subjects: intel.learning.bySubject,
+    // Which subject does best, and where (lms.ts compareResults): by school and by grade.
+    compare: intel.learning.compare,
     progress: {
       byTerm: intel.impact.assessment.byTerm,
       learners: { compared, improved, declined, steady: compared - improved - declined, improvedShare: pct(improved, compared) },
