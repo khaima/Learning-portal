@@ -88,6 +88,7 @@ const PAGES = {
   training: { label: "Training register", icon: "star", needs: ["trainings.manage", "intelligence.view"], purpose: "Training sessions and who attended." },
   forms: { label: "Forms", icon: "form", needs: ["forms.manage", "forms.responses.view"], purpose: "Send forms to staff, and read their responses." },
   "field-visits": { label: "Field visits", icon: "pin", needs: ["field_reports.view.all"], filters: ["county", "school", "term"], purpose: "Every visit filed in your area, newest first." },
+  "field-officers": { label: "Field officers", icon: "pin", needs: ["users.placement.assign"], purpose: "Which schools each field officer supports. Assign, add or take away." },
   kobo: { label: "KoboToolbox", icon: "survey", needs: ["kobo.configure", "kobo.manage", "kobo.review", "kobo.results.view"], badge: "koboReview", purpose: "Connect KoboToolbox, choose the surveys to collect, and review submissions." },
   "survey-results": { label: "Survey results", icon: "chart", needs: ["kobo.results.view"], filters: ["county", "school"], purpose: "What each Kobo survey's counted submissions say, question by question." },
   reports: { label: "Reports & exports", icon: "download", needs: ["reports.export"], purpose: "Download the portal's data as Excel, CSV or PDF." },
@@ -149,7 +150,7 @@ export const WORKSPACES = {
     groups: [
       entry("dashboard", "Dashboard", "dashboard", [c("admin-overview", { label: "Dashboard" })]),
       entry("schools", "Schools", "school", [
-        c("school-profiles"), c("teachers"), c("learners"), c("field-visits"),
+        c("school-profiles"), c("teachers"), c("learners"), c("field-officers"), c("field-visits"),
         c("classes", { hidden: true }), // a school's classes are on its page; the old address still works
         c("schools", { label: "Counties & schools" }), c("calendar"),
       ]),

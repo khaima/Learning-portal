@@ -93,7 +93,7 @@
           <div id="schoolRoster"><div data-skeleton="rows" data-rows="4"></div></div>
         </div>
 
-        <!-- Classes this year: create, assign a class teacher, promote -->
+        <!-- Classes this year: create, give it its teachers, promote -->
         <div class="panel">
           <div class="panel-head"><h2>Classes</h2><span class="chart-meta" id="classesMeta" style="margin:0"></span></div>
           <form id="newClassForm" class="school-add">
@@ -117,6 +117,10 @@
       </section>
 
       <section class="dash-page" data-page="teachers" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Teachers and their classes</h2></div>
+          <div id="teacherClasses"><div data-skeleton="list"></div></div>
+        </div>
         <div class="panel">
           <div class="panel-head"><h2>Teaching staff</h2></div>
           <div class="stat-row" id="teacherStatRow" style="margin-bottom:0"></div>

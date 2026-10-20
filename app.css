@@ -183,6 +183,9 @@
   .dq-row input[data-dq-select]{ width:44px; height:44px; margin:0; } /* the issue's select box, finger-sized */
   .q-icon{ min-width:44px; min-height:44px; } /* move, remove */
   .reg-marks .reg-opt span{ min-height:44px; } /* present, late, absent */
+  .fo-x{ width:2.25rem; height:2.25rem; } /* take a school / class away */
+  .fo-pick{ min-height:44px; align-items:center; }
+  .tc-gaps .link-btn{ min-height:44px; }
   .reg-daynav input[type=date],.compare-pick select,.reg-why,.reg-find{ min-height:44px; }
   .q-choice,.q-switches label,.q-comps label,.q-pick,.q-opt-row label{ min-height:44px; align-items:center; }
   .q-more > summary{ padding:.75rem 0; } /* keeps its ▸ marker */
@@ -1292,6 +1295,48 @@ a.btn.form-open{ margin-bottom:.2rem; }
   .reg-why{ justify-self:stretch; }
   .reg-list.is-read .reg-row{ grid-template-areas:"who" "marks"; }
   .reg-list.is-read .reg-mark{ justify-self:start; }
+}
+
+/* ---------------------------------------------------------------- who works where
+   Field officers and their schools (officers-ui.js), teachers and their classes
+   (class-teachers-ui.js): a row per person, their places as chips (✕ takes one away). */
+.fo-filters{ margin:.2rem 0 .8rem; }
+.fo-list{ display:grid; }
+.fo-row{ display:grid; grid-template-columns:minmax(10rem,14rem) minmax(0,1fr) auto; grid-template-areas:"who chips act"; gap:.4rem 1rem; align-items:center;
+  padding:.65rem 0; border-bottom:1px solid var(--line); }
+.fo-row:last-child{ border-bottom:0; }
+.fo-who{ grid-area:who; min-width:0; }
+.fo-who b{ display:block; }
+.fo-who span{ font-size:.78rem; color:var(--ink-soft); }
+.fo-chips{ grid-area:chips; display:flex; flex-wrap:wrap; gap:.35rem; min-width:0; }
+.fo-act{ grid-area:act; }
+.fo-chip{ display:inline-flex; align-items:center; gap:.3rem; background:var(--paper-sunk); border:1px solid var(--line); border-radius:999px; padding:.15rem .25rem .15rem .65rem; font-size:.8rem; }
+.fo-chip small{ color:var(--ink-soft); font-size:.7rem; }
+.fo-chip.is-county{ background:var(--brand-soft); border-color:transparent; padding-right:.65rem; }
+.fo-chip.is-county .fo-x{ margin-right:-.4rem; }
+.fo-chip.is-lead{ border-color:var(--brand); }
+.fo-x{ border:0; background:none; color:var(--ink-soft); cursor:pointer; font:inherit; font-size:.72rem; line-height:1; width:1.5rem; height:1.5rem; border-radius:50%; display:inline-grid; place-items:center; }
+.fo-x:hover{ background:var(--danger-soft); color:var(--danger-fg); }
+.fo-find{ width:100%; margin:0 0 .7rem; border:1.5px solid var(--line); background:var(--paper-raised); color:var(--ink); border-radius:var(--radius-sm); padding:.45rem .6rem; font:inherit; }
+.fo-county{ border:0; padding:0; margin:0 0 .8rem; }
+.fo-county legend{ padding:0; margin-bottom:.3rem; font-size:.88rem; }
+.fo-county legend label{ display:inline-flex; align-items:center; gap:.4rem; cursor:pointer; }
+.fo-pick{ display:flex; align-items:flex-start; gap:.55rem; padding:.35rem .2rem; cursor:pointer; font-size:.9rem; }
+.fo-pick input{ margin-top:.2rem; flex:none; }
+.fo-pick small{ display:block; color:var(--ink-soft); font-size:.74rem; }
+.fo-save{ position:sticky; bottom:0; background:var(--paper-raised); padding:.6rem 0; border-top:1px solid var(--line); margin-top:.6rem; align-items:center; }
+.tc-pick{ display:flex; align-items:center; justify-content:space-between; gap:.6rem; flex-wrap:wrap; border-bottom:1px solid var(--line); }
+.tc-pick select{ border:1.5px solid var(--line); background:var(--paper-raised); color:var(--ink); border-radius:var(--radius-sm); padding:.3rem .5rem; font:inherit; font-size:.82rem; }
+.tc-line{ flex:1 1 14rem; font-size:.84rem; line-height:1.5; }
+.tc-gaps{ margin:0 0 .4rem; font-size:.84rem; }
+.tc-gaps p{ margin:.2rem 0 .45rem; display:flex; flex-wrap:wrap; align-items:center; gap:.35rem; }
+/* A learner's missed work: what happens now, then what was asked. */
+.missed-note{ margin:.6rem 0; padding:.7rem .9rem; background:var(--paper-sunk); border-left:3px solid var(--accent-fg); border-radius:0 var(--radius-sm) var(--radius-sm) 0; font-size:.9rem; }
+.missed-qs{ margin:0; padding-left:1.3rem; }
+.missed-qs li{ margin-bottom:.55rem; }
+.missed-qs p{ margin:.1rem 0 0; white-space:pre-wrap; }
+@media (max-width:640px){
+  .fo-row{ grid-template-columns:minmax(0,1fr) auto; grid-template-areas:"who act" "chips chips"; }
 }
 
 /* ---------------------------------------------------------------- which subject does best (compare-ui.js) */

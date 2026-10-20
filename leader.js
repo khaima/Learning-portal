@@ -6,7 +6,7 @@ import { requireRole, signOut } from "./auth.js";
 import { normalizeLibraryAudience, GRADES, nextGrade } from "./data.js";
 import {
   getForms, getResponses, getLibrary, getLibraryFolders, mountLibraryShelves, libraryPreviewHtml, getMyLibraryUsage,
-  getSchoolOverview, getClasses, createClass, updateClass, assignClassTeacher, removeClassTeacher, promoteClass,
+  getSchoolOverview, getClasses, createClass, updateClass, promoteClass,
   getLearners, updateLearner, setLearnerStatus, getEnrollments,
   getSubjects, addClassSubject, removeClassSubject, getResults, getStaffAssignments, currentTermLabel,
   getResultsCompare, getAttendanceToday,
@@ -422,6 +422,7 @@ async function main() {
       $("#hr_term").value = terms.some((t) => t.id === keepT) ? keepT : "";
     }
     renderClassManager();
+    drawTeacherClasses();
     renderRoster();
   }
 
@@ -482,17 +483,17 @@ async function main() {
     }
     $("#classManager").innerHTML = classes.map((c) => {
       const ct = c.teachers.find((t) => t.role === "class_teacher");
-      const options = `<option value="">No class teacher</option>${schoolTeachers.map((t) =>
-        `<option value="${esc(t.id)}"${ct?.teacherId === t.id ? " selected" : ""}>${esc(t.fullName)}</option>`).join("")}`;
+      const st = c.teachers.filter((t) => t.role === "subject_teacher");
       return `
         <div class="task-row" data-class="${esc(c.id)}" style="flex-wrap:wrap">
           <div style="flex:1;min-width:12rem">
             <b>${esc(c.name)}</b>
             <span>${esc(c.grade)} · ${c.learnerCount} active learner${c.learnerCount === 1 ? "" : "s"}</span>
           </div>
-          <label class="field" style="margin:0;min-width:12rem"><span class="hint-inline">Class teacher</span>
-            <select data-class-teacher="${esc(c.id)}">${options}</select></label>
+          <div class="tc-line"><span class="hint-inline">Class teacher</span> <b>${ct ? esc(ct.name || "—") : '<span class="warn-text">None yet</span>'}</b>${
+            st.length ? `<br><span class="hint-inline">Subject teachers</span> ${esc(st.map((t) => t.name).join(", "))}` : ""}</div>
           <div class="roster-actions">
+            <button type="button" data-class-teachers="${esc(c.id)}">Teachers…</button>
             <button type="button" data-edit-class="${esc(c.id)}">Edit…</button>
             <button type="button" data-subjects="${esc(c.id)}">Subjects…</button>
             ${c.learnerCount ? `<button type="button" data-promote="${esc(c.id)}">Promote…</button>` : ""}
@@ -520,22 +521,24 @@ async function main() {
     }
   });
 
-  $("#classManager").addEventListener("change", async (e) => {
-    const sel = e.target.closest("[data-class-teacher]");
-    if (!sel) return;
-    const cls = classes.find((c) => c.id === sel.dataset.classTeacher);
-    const current = cls?.teachers.find((t) => t.role === "class_teacher");
-    sel.disabled = true;
-    try {
-      if (sel.value) await assignClassTeacher(cls.id, sel.value);
-      else if (current) await removeClassTeacher(cls.id, current.teacherId);
-      toast("Class teacher updated", sel.value ? `Learners in ${cls.name} now show on their roster.` : "", "success");
-      loadClasses();
-    } catch (err) {
-      sel.disabled = false;
-      toast("Couldn't change the class teacher", friendlyError(err), "error");
-    }
-  });
+  /* Who teaches which class (class-teachers-ui.js): on the Teachers page, teacher by teacher;
+     from a class's row here, class by class. Loaded when first needed. */
+  const classTeachersUi = () => import("./class-teachers-ui.js");
+  function drawTeacherClasses() {
+    classTeachersUi().then((m) => { $("#teacherClasses").innerHTML = m.teachersClassesHtml(schoolTeachers, classes); })
+      .catch(pageFailed($("#teacherClasses")));
+  }
+  async function onWhoTeaches(e) {
+    const b = e.target.closest("[data-class-teachers], [data-teacher-classes], [data-take-off]");
+    if (!b) return;
+    let m;
+    try { m = await classTeachersUi(); } catch (err) { toast("Couldn't open it", friendlyError(err), "error"); return; }
+    const teacher = (id) => schoolTeachers.find((t) => t.id === id);
+    if (b.dataset.classTeachers) m.openClassTeachers(classes.find((c) => c.id === b.dataset.classTeachers), { teachers: schoolTeachers, onDone: loadClasses });
+    else if (b.dataset.teacherClasses) m.openTeacherClasses(teacher(b.dataset.teacherClasses), { classes, onDone: loadClasses });
+    else m.takeOff(teacher(b.dataset.takeOff), classes.find((c) => c.id === b.dataset.class), loadClasses);
+  }
+  $("#teacherClasses").addEventListener("click", onWhoTeaches);
 
   /* Rename a class, or change its grade (only while it has no learners —
      otherwise learners move up by promotion). */
@@ -612,6 +615,7 @@ async function main() {
   }
 
   $("#classManager").addEventListener("click", async (e) => {
+    if (e.target.closest("[data-class-teachers]")) { onWhoTeaches(e); return; }
     const editBtn = e.target.closest("[data-edit-class]");
     if (editBtn) { openEditClass(classes.find((c) => c.id === editBtn.dataset.editClass)); return; }
     const subjBtn = e.target.closest("[data-subjects]");

@@ -554,6 +554,18 @@ function learnerQuestionHtml(q, i, ans, editable, marked, seed) {
     </div>`;
 }
 
+/** Work the learner can't start (closed, or not open yet): what happens now, and what was asked —
+    to read, not to answer. */
+function missedHtml(d) {
+  const closed = d.assignment.status === "closed" || (d.assignment.dueAt && new Date(d.assignment.dueAt) < new Date());
+  return `<div class="missed-note"><b>${esc(d.cannotWork)}</b> ${closed
+    ? "You didn't hand it in, so it counts as missing. If you'd still like to do it, ask your teacher — they can open it again."
+    : "You can start it once it opens."}</div>
+    ${d.questions.length ? `<h3 style="margin:1rem 0 .4rem">What was asked</h3>
+      <ol class="missed-qs">${d.questions.map((q) => `<li><span class="hint-inline">${esc(TYPE_LABEL[q.type] || q.type)} · ${num(q.maxMarks)} mark${q.maxMarks === 1 ? "" : "s"}</span>
+        <p>${esc(promptText(q))}</p></li>`).join("")}</ol>` : ""}`;
+}
+
 /** Opens one assignment for the signed-in learner. `onChange` after they
     start, save or hand in, so the lists behind can refresh. */
 export async function openLearnerAssignment(id, { onChange = () => {} } = {}) {
@@ -594,9 +606,9 @@ export async function openLearnerAssignment(id, { onChange = () => {} } = {}) {
       ${a.description ? `<p style="white-space:pre-wrap">${esc(a.description)}</p>` : ""}
       ${a.instructions ? `<p class="field-hint" style="white-space:pre-wrap"><b>What to do:</b> ${esc(a.instructions)}</p>` : ""}
       ${d.resource ? `<div class="task-row"><div style="flex:1"><b>${esc(d.resource.title)}</b><span>Read this first</span></div>${libraryFilesHtml(d.resource)}</div>` : ""}
-      ${d.cannotWork && d.completion !== "submitted" && d.completion !== "marked" ? `<p class="field-error">${esc(d.cannotWork)}</p>` : ""}
+      ${d.cannotWork && d.completion !== "submitted" && d.completion !== "marked" && d.completion !== "not_started" ? `<p class="field-error">${esc(d.cannotWork)}</p>` : ""}
       ${d.completion === "not_started"
-        ? (d.cannotWork ? "" : `<p>${d.questions.length} question${d.questions.length === 1 ? "" : "s"}. Save your answers as you go with “Save progress”, then hand it in.</p>
+        ? (d.cannotWork ? missedHtml(d) : `<p>${d.questions.length} question${d.questions.length === 1 ? "" : "s"}. Save your answers as you go with “Save progress”, then hand it in.</p>
             <button class="btn btn-primary" type="button" data-start>Start</button>`)
         : `<form class="fill-form" data-work>
             ${d.questions.map((q, i) => learnerQuestionHtml(q, i, answers[q.id] ? { ...answers[q.id], files: answers[q.id].files } : null, editable, marked, seed)).join("")}

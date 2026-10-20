@@ -198,6 +198,7 @@ const ROUTES: RouteSpec[] = [
   r("POST", "/learner/assignments/:id/submit", ["learner"], {}, "/learner/assignments/asg_1/submit", { setup: () => startedWork() }),
   r("GET", "/results", [...LEARNER_VIEWERS, "learner"]),
   r("GET", "/results/compare", LEARNER_VIEWERS, undefined, "/results/compare?rows=class"),
+  r("GET", "/field-officers", ADMINS),
   // Class attendance: a teacher takes their class's register; heads and the programme roles see it.
   r("GET", "/attendance/register", LEARNER_VIEWERS, undefined, "/attendance/register?classId=cls_1"),
   r("PUT", "/attendance/register", ["teacher"], { classId: "cls_1", date: TODAY, marks: [{ learnerId: "learner-id", status: "present" }] }),

@@ -8785,6 +8785,60 @@ app.put("/users/:id/scope", requirePermission("users.placement.assign"), async (
   return c.json({ scope: { global: scope.global, label: scope.label }, added: toAdd.length, ended: toEnd.length });
 });
 
+/* Field officers and the schools they support, both ways round: each
+   active officer with the schools and whole counties assigned to them (and
+   their visits this term), and each school in the caller's area with the
+   officers who cover it — by name, or through its county. Assigning and
+   removing go through PUT /users/:id/scope (ended, never deleted; audited). */
+app.get("/field-officers", requirePermission("users.placement.assign"), async (c) => {
+  const actor = c.get("actor");
+  const cal = await currentCalendar();
+  const [{ data: people }, { data: rows }, { data: allSchools }, { data: reports }, { data: term }] = await Promise.all([
+    admin.from("profiles").select("id, full_name, email, county, status, role").eq("role", "field_officer"),
+    admin.from("staff_scopes").select("profile_id, scope_type, county, school_id").is("ended_at", null),
+    admin.from("schools").select("id, name, code, county"),
+    selectAll(() => admin.from("field_reports").select("id, officer_id, school_id, created_at").order("id")),
+    cal.termId ? admin.from("terms").select("starts_on, ends_on").eq("id", cal.termId).maybeSingle() : { data: null },
+  ]);
+  const schools = (allSchools ?? []).filter((s) => inScope(c, s.id, s.county))
+    .sort((a, b) => String(a.county).localeCompare(String(b.county)) || String(a.name).localeCompare(String(b.name)));
+  const inTerm = (at: unknown) => !!term && String(at ?? "").slice(0, 10) >= term.starts_on && String(at ?? "").slice(0, 10) <= term.ends_on;
+  const officers = (people ?? []).filter((p) => (p.status ?? "active") === "active").map((p) => {
+    const mine = (rows ?? []).filter((r) => r.profile_id === p.id);
+    const counties = mine.filter((r) => r.scope_type === "county" && r.county).map((r) => r.county as string).sort();
+    const direct = new Set(mine.filter((r) => r.scope_type === "school" && r.school_id).map((r) => r.school_id as string));
+    const whole = new Set(counties.map((x) => x.toLowerCase()));
+    const visits = (reports ?? []).filter((v) => v.officer_id === p.id);
+    return {
+      p, counties, direct, whole,
+      covers: (allSchools ?? []).filter((s) => direct.has(s.id) || whole.has(String(s.county).toLowerCase())).map((s) => s.id as string),
+      visits: visits.filter((v) => inTerm(v.created_at)).length,
+      lastVisit: visits.map((v) => String(v.created_at)).sort().pop() ?? null,
+    };
+  // Those in the caller's area: their home county, or anything assigned to them, is in it.
+  }).filter((o) => scopeOf(c).global || inScope(c, null, o.p.county) || o.covers.some((id) => schools.some((s) => s.id === id)))
+    .sort((a, b) => String(a.p.full_name).localeCompare(String(b.p.full_name)));
+  const schoolName = new Map((allSchools ?? []).map((s) => [s.id, s]));
+  return c.json({
+    term: cal.termId ? termLabel(cal.termId) ?? cal.termId : null,
+    counties: [...new Set(schools.map((s) => s.county as string))].sort(),
+    officers: officers.map((o) => ({
+      id: o.p.id, name: o.p.full_name, email: o.p.email, homeCounty: o.p.county || null,
+      canEdit: canManageAccount(actor, o.p as { id: string; role: string }) && inScope(c, null, o.p.county),
+      counties: o.counties,
+      schools: [...o.direct].map((id) => schoolName.get(id)).filter(Boolean)
+        .map((s) => ({ id: s!.id, name: s!.name, code: s!.code, county: s!.county }))
+        .sort((a, b) => String(a.name).localeCompare(String(b.name))),
+      covers: o.covers.length, visits: o.visits, lastVisit: o.lastVisit,
+    })),
+    schools: schools.map((s) => ({
+      id: s.id, name: s.name, code: s.code, county: s.county,
+      officers: officers.filter((o) => o.covers.includes(s.id)).map((o) => ({ id: o.p.id, name: o.p.full_name, via: o.direct.has(s.id) ? "school" : "county" })),
+      visits: (reports ?? []).filter((v) => v.school_id === s.id && inTerm(v.created_at)).length,
+    })),
+  });
+});
+
 /* ---- explicit permission grants (Super Admin) ---- */
 
 app.post("/users/:id/grants", requirePermission("permissions.manage"), async (c) => {

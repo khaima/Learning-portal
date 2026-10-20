@@ -3452,6 +3452,10 @@ async function main() {
         A.renderPlatformOverview($("#pfBody"), { describe: (e) => ({ what: AUDIT_ACTION[e.action] || e.action, detail: auditDetail(e) }) });
         break;
       case "admin-overview": A.renderAdminOverview($("#aoBody")); break;
+      case "field-officers":
+        import("./officers-ui.js").then((m) => m.renderFieldOfficers($("#foBody")))
+          .catch(() => { $("#foBody").innerHTML = errorState("Couldn't open this page — check your connection.", () => onPage("field-officers", params)); });
+        break;
       case "permissions": A.renderPermissions($("#permBody"), { onRevoke: () => canOpen("users") && renderUsers() }); break;
       case "account-activity": A.renderAccountActivity($("#activityBody")); break;
       case "audit": renderAuditPage({ kind: params.get("kind") === "security" ? "security" : "" }); break;

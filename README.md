@@ -545,8 +545,27 @@ Learners are managed by school and class: **school → academic year → term
   May–Aug, Sep–Dec). Admins start the next year on **Schools → Academic
   year**; earlier classes and records stay under their own year.
 - **Classes:** school heads create their school's classes for the year
-  (Learners → Classes), give each a class teacher, and archive classes they
-  no longer use. Teachers see their classes under **My Classes**.
+  (My school → Learners & classes) and archive classes they no longer use.
+  Teachers see their classes under **My Classes**.
+- **Who teaches which class** (`class-teachers-ui.js`): a class has one
+  **class teacher** and any number of **subject teachers**; a teacher can
+  teach one class or several. On **My school → Teachers** the head sees each
+  teacher with their classes and gives classes several at a time (*Give
+  classes* / *Change classes*), changes a role, or takes one away (✕); a
+  class's **Teachers…** button does the same from the class's side. Classes
+  without a class teacher and teachers with no class are flagged. Giving a
+  class a new class teacher keeps the previous one on as a subject teacher
+  unless they're unticked. Taking a teacher off a class ends the assignment
+  (kept, with who and when, and audited); the class keeps its learners and
+  work.
+- **Field officers' schools** (Admin → Schools → **Field officers**,
+  `officers-ui.js`, `GET /field-officers`): each field officer with the
+  schools — or whole counties — they support, their visits this term and
+  their last visit; or each school with its officers, and the schools nobody
+  supports. Assign one school or several, a whole county, or take one away
+  (✕). It is the officer's data scope (`PUT /users/:id/scope`): what's taken
+  away is ended, never deleted, and each change is in the audit log. Their
+  visit form and dashboards show only their schools.
 - **Rosters:** a school head sees the whole school's roster and can move a
   learner between classes; a teacher sees the learners in classes they teach
   (plus any they added who aren't in a class yet). Admins and M&E can find a
@@ -1095,6 +1114,8 @@ the one-time mail setup in [`docs/AUTH.md`](docs/AUTH.md).) Before pushing,
 | `question-types.js` | Every kind of question: how it's built, answered, read, keyed and marked (CBE formats, rubrics) |
 | `compare-ui.js` | Which subject does best: the answer, averages, bands by subject, subjects × grades/classes/schools |
 | `attendance-ui.js` | The class register (take, correct, offline), what registers add up to, the day's registers |
+| `class-teachers-ui.js` | A school head's who-teaches-which-class: by teacher and by class, several at once |
+| `officers-ui.js` | Admin: field officers and the schools (or counties) they support, both ways round |
 | `learners-ui.js` | Shared learner dialogs: archive, history, transfer |
 | `base.css` / `app.css` | The design system (light + dark): what the sign-in page needs, and the dashboards' rest |
 | `serve.py` | Plain local server for the build in `dist/` (honours `$PORT`) |

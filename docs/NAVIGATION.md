@@ -1080,3 +1080,16 @@ One more tab in an area each role already has — no new menu rows:
 - **Which subject does best?** sits at the top of the results pages that
   exist already (teacher, school head, programme Results) and on the
   Learning dashboard — no page of its own.
+
+## 26. Who works where, 20 October 2026
+
+- **Admin › Schools › Field officers** (a tab, beside All teachers): field
+  officers and their schools, by officer or by school. Needs
+  `users.placement.assign`, so Admins and the Super Admin (through the
+  Programme Administration workspace). The same assignments are still on a
+  person's Access panel in Users › Accounts — one person at a time there,
+  everyone at once here.
+- **School head › My school › Teachers** now opens with *Teachers and their
+  classes*. The class list on Learners & classes swaps its class-teacher
+  drop-down for a line saying who teaches the class and a **Teachers…**
+  button that opens the same choice for that class.
