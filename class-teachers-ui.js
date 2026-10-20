@@ -8,10 +8,15 @@
    a time, change a role, or take one away. Taking one away ends the
    assignment — it's kept, with who and when, and in the audit log; the
    work they set stays with the class.
+
+   On the head's Dashboard: each grade with its classes and their teachers,
+   and "Assign teachers" — one teacher, several or all, to one class,
+   several, a whole grade or every class, in one go (POST /class-teachers,
+   which only adds).
    ============================================================ */
 
 import { esc, toast, friendlyError, confirmDialog } from "./util.js";
-import { assignClassTeacher, removeClassTeacher } from "./store.js";
+import { assignClassTeacher, removeClassTeacher, assignClassesInBulk } from "./store.js";
 import { openContentPanel, closeViewer } from "./viewer.js";
 
 const ROLE = { class_teacher: "Class teacher", subject_teacher: "Subject teacher" };
@@ -42,6 +47,131 @@ export function teachersClassesHtml(teachers, classes) {
         <div class="fo-act"><button type="button" class="btn btn-outline q-small" data-teacher-classes="${esc(t.id)}">${mine.length ? "Change classes" : "Give classes"}</button></div>
       </div>`;
     }).join("")}</div>`;
+}
+
+const gradeOrder = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true });
+
+/** The Dashboard panel: each grade with its classes, who is class teacher of each, and how many
+    subject teachers — and a button to assign teachers to that grade. */
+export function gradesHtml(teachers, classes) {
+  if (!classes.length) return `<div class="empty-state"><b>No classes this year yet.</b><div>Add them on My school › Learners &amp; classes, then assign teachers here.</div></div>`;
+  const grades = [...new Set(classes.map((c) => c.grade))].sort(gradeOrder);
+  const noCT = classes.filter((c) => !classTeacherOf(c)).length;
+  const free = teachers.filter((t) => !classesOf(t.id, classes).length).length;
+  return `<p class="hint" style="margin:0 0 .4rem">${plural(classes.length, "class", "classes")} in ${plural(grades.length, "grade")} · ${
+    noCT ? `<b class="warn-text">${plural(noCT, "class", "classes")} without a class teacher</b>` : "every class has a class teacher"} · ${
+    free ? `<b class="warn-text">${plural(free, "teacher")} with no class</b>` : `all ${plural(teachers.length, "teacher")} have classes`}</p>
+    <div class="fo-list">${grades.map((g) => {
+      const list = classes.filter((c) => c.grade === g).sort(byName);
+      const subj = new Set(list.flatMap((c) => c.teachers.filter((t) => t.role === "subject_teacher").map((t) => t.teacherId)));
+      const learners = list.reduce((t, c) => t + (c.learnerCount || 0), 0);
+      return `<div class="fo-row">
+        <div class="fo-who"><b>${esc(g)}</b><span>${plural(list.length, "class", "classes")} · ${plural(learners, "learner")}${subj.size ? ` · ${plural(subj.size, "subject teacher")}` : ""}</span></div>
+        <div class="fo-chips">${list.map((c) => {
+          const ct = classTeacherOf(c);
+          return `<span class="fo-chip${ct ? " is-lead" : " is-gap"}">${esc(c.name)}<small>${ct ? esc(ct.name || "—") : "no class teacher"}</small></span>`;
+        }).join("")}</div>
+        <div class="fo-act"><button type="button" class="btn btn-outline q-small" data-bulk-grade="${esc(g)}" aria-label="${esc(`Assign teachers to ${g}`)}">Assign teachers</button></div>
+      </div>`;
+    }).join("")}</div>`;
+}
+
+/** Assign teachers to classes — one teacher, several or all; one class, several, a whole grade or
+    every class — as subject teachers or as class teacher. `grades`: grades ticked to start with. */
+export function openBulkAssign({ teachers, classes, grades: start = [], onDone }) {
+  const panel = openContentPanel({ title: "Assign teachers", html: "" });
+  if (!teachers.length || !classes.length) {
+    panel.innerHTML = `<div class="empty-state">${teachers.length ? "No classes this year yet — add them on Learners &amp; classes." : "No teachers in the school yet."}</div>`;
+    return;
+  }
+  const people = [...teachers].sort((a, b) => String(a.fullName).localeCompare(String(b.fullName)));
+  const grades = [...new Set(classes.map((c) => c.grade))].sort(gradeOrder);
+  panel.innerHTML = `
+    <p class="hint" style="margin-top:0">Choose the teachers and the classes — one, several, a whole grade or every class. This only adds: nobody comes off a class here.</p>
+    <form data-bulk>
+      <fieldset class="fo-county"><legend><b>1. Teachers</b></legend>
+        <label class="fo-pick tc-all"><input type="checkbox" data-all-teachers><span><b>All teachers</b><small>${plural(people.length, "teacher")}</small></span></label>
+        <div class="bk-list">${people.map((t) => `<label class="fo-pick"><input type="checkbox" data-teacher="${esc(t.id)}"><span>${esc(t.fullName)}<small>${
+          plural(classesOf(t.id, classes).length, "class", "classes")} now</small></span></label>`).join("")}</div>
+      </fieldset>
+      <fieldset class="fo-county"><legend><b>2. Classes</b></legend>
+        <label class="fo-pick tc-all"><input type="checkbox" data-all-classes><span><b>All classes</b><small>${plural(classes.length, "class", "classes")}</small></span></label>
+        ${grades.map((g) => `<div class="bk-grade" data-grade-set="${esc(g)}">
+          <label class="fo-pick"><input type="checkbox" data-grade="${esc(g)}"${start.includes(g) ? " checked" : ""}><span><b>All of ${esc(g)}</b></span></label>
+          <div class="bk-list">${classes.filter((c) => c.grade === g).sort(byName).map((c) => {
+            const ct = classTeacherOf(c);
+            return `<label class="fo-pick"><input type="checkbox" data-class="${esc(c.id)}"${start.includes(g) ? " checked" : ""}><span>${esc(c.name)}<small>${ct ? `class teacher: ${esc(ct.name || "—")}` : "no class teacher"}</small></span></label>`;
+          }).join("")}</div></div>`).join("")}
+      </fieldset>
+      <fieldset class="fo-county"><legend><b>3. As</b></legend>
+        <label class="fo-pick"><input type="radio" name="bk_role" value="subject_teacher" checked><span>Subject teachers<small>Beside whoever already teaches the class.</small></span></label>
+        <label class="fo-pick"><input type="radio" name="bk_role" value="class_teacher"><span>Class teacher<small>One teacher. The class teacher it replaces stays on as a subject teacher.</small></span></label>
+      </fieldset>
+      <p class="tc-summary" data-summary aria-live="polite"></p>
+      <div class="lms-actions fo-save"><button type="submit" class="btn btn-primary">Assign</button><button type="button" class="btn btn-ghost" data-cancel>Cancel</button></div>
+    </form>`;
+  const form = panel.querySelector("[data-bulk]");
+  const picked = (sel, key) => [...form.querySelectorAll(`${sel}:checked`)].map((b) => b.dataset[key]);
+  const role = () => form.querySelector("[name=bk_role]:checked").value;
+  function sync() {
+    for (const set of form.querySelectorAll("[data-grade-set]")) {
+      const boxes = [...set.querySelectorAll("[data-class]")];
+      set.querySelector("[data-grade]").checked = boxes.every((b) => b.checked);
+    }
+    form.querySelector("[data-all-classes]").checked = [...form.querySelectorAll("[data-class]")].every((b) => b.checked);
+    form.querySelector("[data-all-teachers]").checked = [...form.querySelectorAll("[data-teacher]")].every((b) => b.checked);
+    // What saving would do, counted from the classes as they are.
+    const tIds = picked("[data-teacher]", "teacher"), cIds = picked("[data-class]", "class");
+    const out = form.querySelector("[data-summary]");
+    const btn = form.querySelector("[type=submit]");
+    if (role() === "class_teacher" && tIds.length > 1) {
+      out.innerHTML = `<span class="warn-text">A class has one class teacher — choose one teacher, or assign them as subject teachers.</span>`;
+      btn.disabled = true;
+      return;
+    }
+    let add = 0, already = 0;
+    for (const cId of cIds) {
+      const cls = classes.find((c) => c.id === cId);
+      for (const tId of tIds) {
+        const now = cls.teachers.find((t) => t.teacherId === tId);
+        if (now && (now.role === role() || now.role === "class_teacher")) already++; else add++;
+      }
+    }
+    btn.disabled = !add;
+    out.textContent = !tIds.length || !cIds.length
+      ? "Tick at least one teacher and one class."
+      : `${plural(tIds.length, "teacher")} × ${plural(cIds.length, "class", "classes")}: ${add ? `${plural(add, "assignment")} to add` : "nothing new to add"}${already ? ` · ${already} already in place` : ""}.`;
+  }
+  form.addEventListener("change", (e) => {
+    const t = e.target;
+    const set = (sel, on) => { for (const b of form.querySelectorAll(sel)) b.checked = on; };
+    if (t.matches("[data-all-teachers]")) set("[data-teacher]", t.checked);
+    else if (t.matches("[data-all-classes]")) set("[data-class]", t.checked);
+    else if (t.matches("[data-grade]")) for (const b of t.closest("[data-grade-set]").querySelectorAll("[data-class]")) b.checked = t.checked;
+    sync();
+  });
+  sync();
+  panel.querySelector("[data-cancel]").addEventListener("click", () => closeViewer());
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = form.querySelector("[type=submit]");
+    btn.disabled = true;
+    try {
+      const res = await assignClassesInBulk(picked("[data-teacher]", "teacher"), picked("[data-class]", "class"), role());
+      const name = (id) => teachers.find((t) => t.id === id)?.fullName || "the class teacher before";
+      toast("Teachers assigned", [
+        res.added ? `${plural(res.added, "assignment")} added` : "",
+        res.promoted ? `${res.promoted} made class teacher` : "",
+        res.kept ? `${res.kept} already in place` : "",
+        res.replaced?.length ? `${[...new Set(res.replaced.map((r) => name(r.teacherId)))].join(", ")} stay${res.replaced.length === 1 ? "s" : ""} on as subject teacher` : "",
+      ].filter(Boolean).join(" · ") + ".", "success");
+      closeViewer();
+      onDone();
+    } catch (err) {
+      btn.disabled = false;
+      form.querySelector("[data-summary]").innerHTML = `<span class="field-error">${esc(friendlyError(err, "Couldn't assign them."))}</span>`;
+    }
+  });
 }
 
 /** A class's teachers in one line (the class list). */
@@ -89,7 +219,9 @@ export function openTeacherClasses(teacher, { classes, onDone }) {
   const grades = [...new Set(classes.map((c) => c.grade))].sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
   panel.innerHTML = classes.length ? `
     <p class="hint" style="margin-top:0">Tick one class or several. A class has one class teacher; giving it a new one takes the role from whoever had it.</p>
-    <form data-pick>${grades.map((g) => `<fieldset class="fo-county"><legend><b>${esc(g)}</b></legend>${classes.filter((c) => c.grade === g).sort(byName).map((c) => {
+    <form data-pick>
+      <label class="fo-pick tc-all"><input type="checkbox" data-all-classes><span><b>All classes</b><small>${plural(classes.length, "class", "classes")} this year</small></span></label>
+      ${grades.map((g) => `<fieldset class="fo-county" data-grade-set="${esc(g)}"><legend><label><input type="checkbox" data-grade="${esc(g)}"> <b>All of ${esc(g)}</b></label></legend>${classes.filter((c) => c.grade === g).sort(byName).map((c) => {
       const role = now.get(c.id) || "";
       const ct = classTeacherOf(c);
       const other = ct && ct.teacherId !== teacher.id ? ct.name : "";
@@ -105,11 +237,25 @@ export function openTeacherClasses(teacher, { classes, onDone }) {
     </form>` : `<div class="empty-state">No classes this year yet — add them on Learners &amp; classes.</div>`;
   const form = panel.querySelector("[data-pick]");
   if (!form) return;
-  const count = () => { panel.querySelector("[data-count]").textContent = plural(form.querySelectorAll("[data-on]:checked").length, "class", "classes"); };
+  // The grade and "all" ticks follow the classes under them.
+  const count = () => {
+    panel.querySelector("[data-count]").textContent = plural(form.querySelectorAll("[data-on]:checked").length, "class", "classes");
+    for (const set of form.querySelectorAll("[data-grade-set]")) {
+      const boxes = [...set.querySelectorAll("[data-on]")];
+      set.querySelector("[data-grade]").checked = boxes.length > 0 && boxes.every((b) => b.checked);
+    }
+    const all = [...form.querySelectorAll("[data-on]")];
+    form.querySelector("[data-all-classes]").checked = all.length > 0 && all.every((b) => b.checked);
+  };
+  const tick = (boxes, on) => {
+    for (const b of boxes) { b.checked = on; b.closest(".tc-pick").querySelector("[data-role]").hidden = !on; }
+  };
   count();
   form.addEventListener("change", (e) => {
-    if (!e.target.matches("[data-on]")) return;
-    e.target.closest(".tc-pick").querySelector("[data-role]").hidden = !e.target.checked;
+    if (e.target.matches("[data-all-classes]")) tick(form.querySelectorAll("[data-on]"), e.target.checked);
+    else if (e.target.matches("[data-grade]")) tick(e.target.closest("[data-grade-set]").querySelectorAll("[data-on]"), e.target.checked);
+    else if (e.target.matches("[data-on]")) e.target.closest(".tc-pick").querySelector("[data-role]").hidden = !e.target.checked;
+    else return;
     count();
   });
   panel.querySelector("[data-cancel]").addEventListener("click", () => closeViewer());

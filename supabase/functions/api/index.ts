@@ -2381,6 +2381,72 @@ app.delete("/classes/:id/teachers/:teacherId", requirePermission("classes.manage
   return c.json({ ok: true });
 });
 
+/* Several teachers × several classes at once — one class, a few, a whole
+   grade or every class: { teacherIds, classIds, role }. It only adds: a
+   teacher already on a class keeps their place (a subject teacher asked
+   for as class teacher moves up; a class teacher asked for as a subject
+   teacher stays class teacher). A class has one class teacher, so that
+   role takes exactly one teacher; the class teacher it replaces stays on
+   as a subject teacher — nobody comes off a class here. One school at a
+   time; audited as one change. */
+app.post("/class-teachers", requirePermission("classes.manage.school", "classes.manage.all"), async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const role = b.role === "class_teacher" ? "class_teacher" : "subject_teacher";
+  const list = (v: unknown) => [...new Set((Array.isArray(v) ? v : []).map((x) => String(x)).filter(Boolean))].slice(0, 300) as string[];
+  const teacherIds = list(b.teacherIds), classIds = list(b.classIds);
+  if (!teacherIds.length || !classIds.length) return c.json({ error: "Choose at least one teacher and one class" }, 400);
+  if (role === "class_teacher" && teacherIds.length !== 1) return c.json({ error: "A class has one class teacher — choose one teacher for that" }, 400);
+  const classes = await selectIn("classes", "id", classIds);
+  if (classes.length !== classIds.length || classes.some((k) => k.archived_at || !canManageClassesIn(c, k.school_id))) return c.json({ error: "Class not found" }, 404);
+  const schoolId = classes[0].school_id;
+  if (classes.some((k) => k.school_id !== schoolId)) return c.json({ error: "Choose classes in one school" }, 400);
+  const teachers = await selectIn("profiles", "id", teacherIds, "id, role, status, school_id, full_name");
+  if (teachers.length !== teacherIds.length || teachers.some((t) => t.role !== "teacher" || (t.status ?? "active") !== "active" || t.school_id !== schoolId)) {
+    return c.json({ error: "Choose active teachers from this school" }, 400);
+  }
+  const open = (await selectIn("class_teachers", "class_id", classIds)).filter((r) => !r.ended_at);
+  const actorId = c.get("actor").id;
+  const now = new Date().toISOString();
+  const end = (id: string) => admin.from("class_teachers").update({ ended_at: now, ended_by: actorId }).eq("id", id).is("ended_at", null);
+  const subjects: Record<string, unknown>[] = [];
+  let added = 0, promoted = 0, kept = 0;
+  const replaced: { classId: string; teacherId: string }[] = [];
+  for (const k of classes) {
+    for (const t of teachers) {
+      const mine = open.find((r) => r.class_id === k.id && r.teacher_id === t.id);
+      if (mine && (mine.role === role || mine.role === "class_teacher")) { kept++; continue; }
+      if (role === "subject_teacher") {
+        subjects.push({ id: rid("ct"), class_id: k.id, teacher_id: t.id, role, assigned_by: actorId });
+        added++;
+        continue;
+      }
+      // The class teacher it replaces stays on as a subject teacher.
+      const before = open.find((r) => r.class_id === k.id && r.role === "class_teacher");
+      if (before) {
+        await end(before.id);
+        await admin.from("class_teachers").insert({ id: rid("ct"), class_id: k.id, teacher_id: before.teacher_id, role: "subject_teacher", assigned_by: actorId });
+        replaced.push({ classId: k.id, teacherId: before.teacher_id });
+      }
+      if (mine) { await end(mine.id); promoted++; } else added++;
+      const { error } = await admin.from("class_teachers").insert({ id: rid("ct"), class_id: k.id, teacher_id: t.id, role, assigned_by: actorId });
+      if (error) return c.json({ error: error.message }, 400);
+      await admin.from("learners").update({ current_teacher_id: t.id }).eq("class_id", k.id).eq("enrollment_status", ACTIVE);
+      await admin.from("learner_enrollments").update({ teacher_id: t.id }).eq("class_id", k.id).eq("status", ACTIVE);
+    }
+  }
+  if (subjects.length) {
+    const { error } = await admin.from("class_teachers").insert(subjects);
+    if (error) return c.json({ error: isUniqueViolation(error) ? "Someone changed these classes just now — open them again" : error.message }, 400);
+  }
+  if (added || promoted) {
+    await audit(c, "class.teachers_assigned", "school", schoolId, {
+      role, added, promoted, kept, replacedClassTeachers: replaced.length,
+      teachers: teachers.map((t) => t.full_name).slice(0, 50), classes: classes.map((k) => k.name).slice(0, 60),
+    });
+  }
+  return c.json({ added, promoted, kept, replaced });
+});
+
 /* Which subjects a class takes. Teachers set assignments in these (a class
    with none yet can have work in any subject). Removed, never deleted. */
 app.post("/classes/:id/subjects", requirePermission("classes.manage.school", "classes.manage.all"), async (c) => {

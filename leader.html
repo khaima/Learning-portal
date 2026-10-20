@@ -55,6 +55,11 @@
         </div>
 
         <div class="panel">
+          <div class="panel-head"><h2>Teachers by grade</h2><button type="button" class="btn btn-primary q-small" data-bulk-assign>Assign teachers</button></div>
+          <div id="gradeTeachers"><div data-skeleton="list"></div></div>
+        </div>
+
+        <div class="panel">
           <div class="panel-head"><h2>Attention required</h2><span class="count-badge" id="attentionCount" hidden></span></div>
           <div id="attentionList"><div data-skeleton="list"></div></div>
         </div>
@@ -118,7 +123,7 @@
 
       <section class="dash-page" data-page="teachers" hidden>
         <div class="panel">
-          <div class="panel-head"><h2>Teachers and their classes</h2></div>
+          <div class="panel-head"><h2>Teachers and their classes</h2><button type="button" class="btn btn-outline q-small" data-bulk-assign>Assign teachers</button></div>
           <div id="teacherClasses"><div data-skeleton="list"></div></div>
         </div>
         <div class="panel">

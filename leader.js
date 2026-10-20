@@ -525,20 +525,29 @@ async function main() {
      from a class's row here, class by class. Loaded when first needed. */
   const classTeachersUi = () => import("./class-teachers-ui.js");
   function drawTeacherClasses() {
-    classTeachersUi().then((m) => { $("#teacherClasses").innerHTML = m.teachersClassesHtml(schoolTeachers, classes); })
-      .catch(pageFailed($("#teacherClasses")));
+    classTeachersUi().then((m) => {
+      $("#teacherClasses").innerHTML = m.teachersClassesHtml(schoolTeachers, classes);
+      $("#gradeTeachers").innerHTML = m.gradesHtml(schoolTeachers, classes);
+    }).catch((err) => { pageFailed($("#teacherClasses"))(err); pageFailed($("#gradeTeachers"))(err); });
   }
   async function onWhoTeaches(e) {
-    const b = e.target.closest("[data-class-teachers], [data-teacher-classes], [data-take-off]");
+    const b = e.target.closest("[data-class-teachers], [data-teacher-classes], [data-take-off], [data-bulk-assign], [data-bulk-grade]");
     if (!b) return;
     let m;
     try { m = await classTeachersUi(); } catch (err) { toast("Couldn't open it", friendlyError(err), "error"); return; }
     const teacher = (id) => schoolTeachers.find((t) => t.id === id);
+    if (b.matches("[data-bulk-assign], [data-bulk-grade]")) {
+      m.openBulkAssign({ teachers: schoolTeachers, classes, grades: b.dataset.bulkGrade ? [b.dataset.bulkGrade] : [], onDone: loadClasses });
+      return;
+    }
     if (b.dataset.classTeachers) m.openClassTeachers(classes.find((c) => c.id === b.dataset.classTeachers), { teachers: schoolTeachers, onDone: loadClasses });
     else if (b.dataset.teacherClasses) m.openTeacherClasses(teacher(b.dataset.teacherClasses), { classes, onDone: loadClasses });
     else m.takeOff(teacher(b.dataset.takeOff), classes.find((c) => c.id === b.dataset.class), loadClasses);
   }
   $("#teacherClasses").addEventListener("click", onWhoTeaches);
+  // The Assign teachers buttons in the panels' headings, and each grade's on the Dashboard.
+  for (const el of $$("[data-bulk-assign]")) el.addEventListener("click", onWhoTeaches);
+  $("#gradeTeachers").addEventListener("click", onWhoTeaches);
 
   /* Rename a class, or change its grade (only while it has no learners —
      otherwise learners move up by promotion). */

@@ -1204,6 +1204,10 @@ export async function createClass({ grade, name, schoolId }) {
 export async function updateClass(id, patch) {
   return apiSend("PATCH", `/classes/${id}`, patch);
 }
+/** Several teachers × several classes at once (a grade, every class); adds only: { added, promoted, kept, replaced }. */
+export async function assignClassesInBulk(teacherIds, classIds, role = "subject_teacher") {
+  return apiSend("POST", "/class-teachers", { teacherIds, classIds, role });
+}
 export async function assignClassTeacher(classId, teacherId, role = "class_teacher") {
   return apiSend("POST", `/classes/${classId}/teachers`, { teacherId, role });
 }

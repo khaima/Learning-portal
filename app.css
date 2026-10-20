@@ -1329,6 +1329,13 @@ a.btn.form-open{ margin-bottom:.2rem; }
 .tc-pick select{ border:1.5px solid var(--line); background:var(--paper-raised); color:var(--ink); border-radius:var(--radius-sm); padding:.3rem .5rem; font:inherit; font-size:.82rem; }
 .tc-line{ flex:1 1 14rem; font-size:.84rem; line-height:1.5; }
 .tc-gaps{ margin:0 0 .4rem; font-size:.84rem; }
+.tc-all{ border-bottom:1px solid var(--line); margin-bottom:.4rem; }
+.tc-summary{ margin:.4rem 0 0; font-size:.88rem; }
+.fo-chip.is-gap{ border-style:dashed; border-color:var(--accent-fg); }
+.fo-chip:not(:has(.fo-x)){ padding-right:.65rem; }
+.bk-grade{ margin-bottom:.3rem; }
+.bk-list{ display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,13rem),1fr)); gap:0 .8rem; }
+.bk-grade .bk-list{ padding-left:1.6rem; }
 .tc-gaps p{ margin:.2rem 0 .45rem; display:flex; flex-wrap:wrap; align-items:center; gap:.35rem; }
 /* A learner's missed work: what happens now, then what was asked. */
 .missed-note{ margin:.6rem 0; padding:.7rem .9rem; background:var(--paper-sunk); border-left:3px solid var(--accent-fg); border-radius:0 var(--radius-sm) var(--radius-sm) 0; font-size:.9rem; }

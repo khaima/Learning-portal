@@ -552,8 +552,17 @@ Learners are managed by school and class: **school → academic year → term
   teach one class or several. On **My school → Teachers** the head sees each
   teacher with their classes and gives classes several at a time (*Give
   classes* / *Change classes*), changes a role, or takes one away (✕); a
-  class's **Teachers…** button does the same from the class's side. Classes
-  without a class teacher and teachers with no class are flagged. Giving a
+  class's **Teachers…** button does the same from the class's side; the
+  teacher's list has *All of Grade 4* and *All classes* ticks. Classes
+  without a class teacher and teachers with no class are flagged.
+- **By grade, on the head's Dashboard:** *Teachers by grade* shows each
+  grade with its classes and their class teachers, and **Assign teachers**
+  (for the whole school, or one grade's button) gives one teacher, several
+  or all teachers one class, several, a whole grade or every class at once
+  — as subject teachers, or one teacher as class teacher
+  (`POST /class-teachers`). It only adds: a teacher already on a class keeps
+  their place, and a class teacher it replaces stays on as a subject
+  teacher. Giving a
   class a new class teacher keeps the previous one on as a subject teacher
   unless they're unticked. Taking a teacher off a class ends the assignment
   (kept, with who and when, and audited); the class keeps its learners and

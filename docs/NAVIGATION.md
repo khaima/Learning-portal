@@ -1093,3 +1093,7 @@ One more tab in an area each role already has — no new menu rows:
   classes*. The class list on Learners & classes swaps its class-teacher
   drop-down for a line saying who teaches the class and a **Teachers…**
   button that opens the same choice for that class.
+- **School head › Dashboard** gets *Teachers by grade* (under *Registers
+  today*): each grade, its classes and their class teachers, and *Assign
+  teachers* — the whole school's button in the heading, one per grade. The
+  same dialog is the *Assign teachers* button on My school › Teachers.

@@ -199,6 +199,7 @@ const ROUTES: RouteSpec[] = [
   r("GET", "/results", [...LEARNER_VIEWERS, "learner"]),
   r("GET", "/results/compare", LEARNER_VIEWERS, undefined, "/results/compare?rows=class"),
   r("GET", "/field-officers", ADMINS),
+  r("POST", "/class-teachers", CLASS_MANAGERS, { teacherIds: ["teacher-id"], classIds: ["cls_1"], role: "subject_teacher" }),
   // Class attendance: a teacher takes their class's register; heads and the programme roles see it.
   r("GET", "/attendance/register", LEARNER_VIEWERS, undefined, "/attendance/register?classId=cls_1"),
   r("PUT", "/attendance/register", ["teacher"], { classId: "cls_1", date: TODAY, marks: [{ learnerId: "learner-id", status: "present" }] }),

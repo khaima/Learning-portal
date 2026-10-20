@@ -3033,6 +3033,7 @@ async function main() {
     "class.subject_added": "added a subject to a class",
     "class.subject_removed": "removed a subject from a class",
     "class.teacher_assigned": "assigned a teacher to a class",
+    "class.teachers_assigned": "gave teachers several classes at once",
     "class.teacher_removed": "took a teacher off a class",
     "learner.archived": "archived a learner",
     "learner.class_changed": "moved a learner to another class",

@@ -57,6 +57,33 @@ Deno.test("field officers: only for those who place staff, and only in their own
   assertEquals((await call("PUT", "/users/field_officer-id/scope", "tok_admin", { counties: [], schoolIds: ["sch_1"] })).status === 200, false);
 });
 
+Deno.test("several teachers × a whole grade, or every class, in one go — adding only", async () => {
+  const db = freshWorld();
+  const HEAD = "tok_school_leader";
+  db.classes.push({ id: "cls_4w", school_id: "sch_1", academic_year_id: "2026", grade: "Grade 4", name: "Grade 4 West", archived_at: null });
+  // Both teachers, as subject teachers, to all of Grade 4 (two classes).
+  let res = await call("POST", "/class-teachers", HEAD, { teacherIds: ["teacher-id", "teacher2-id"], classIds: ["cls_1", "cls_4w"], role: "subject_teacher" });
+  assertEquals(res.status, 200, JSON.stringify(res.json));
+  assertEquals([res.json.added, res.json.kept], [3, 1], "teacher-id stays Grade 4 East's class teacher");
+  const open = () => db.class_teachers.filter((t) => !t.ended_at).map((t) => `${t.class_id}:${t.teacher_id}:${t.role}`).sort();
+  assertEquals(open(), ["cls_1:teacher-id:class_teacher", "cls_1:teacher2-id:subject_teacher", "cls_2:teacher-b-id:class_teacher",
+    "cls_4w:teacher-id:subject_teacher", "cls_4w:teacher2-id:subject_teacher"]);
+  // Saying it again changes nothing.
+  res = await call("POST", "/class-teachers", HEAD, { teacherIds: ["teacher-id", "teacher2-id"], classIds: ["cls_1", "cls_4w"] });
+  assertEquals([res.json.added, res.json.kept], [0, 4]);
+  // teacher2 as class teacher of every class: moves up where they were a subject teacher; teacher-id stays on as a subject teacher.
+  res = await call("POST", "/class-teachers", HEAD, { teacherIds: ["teacher2-id"], classIds: ["cls_1", "cls_1b", "cls_4w"], role: "class_teacher" });
+  assertEquals([res.json.added, res.json.promoted, res.json.replaced.length], [1, 2, 1]);
+  assert(open().includes("cls_1:teacher-id:subject_teacher") && open().includes("cls_1:teacher2-id:class_teacher"));
+  assertEquals(db.learners.find((l) => l.id === "learner-id")?.current_teacher_id, "teacher2-id", "the class's learners follow their class teacher");
+  assert(db.audit_log.some((e) => e.action === "class.teachers_assigned"));
+  // The rules: one class teacher per class; this school's teachers and classes only.
+  assertEquals((await call("POST", "/class-teachers", HEAD, { teacherIds: ["teacher-id", "teacher2-id"], classIds: ["cls_1"], role: "class_teacher" })).status, 400);
+  assertEquals((await call("POST", "/class-teachers", HEAD, { teacherIds: ["teacher-b-id"], classIds: ["cls_1"] })).status, 400);
+  assertEquals((await call("POST", "/class-teachers", HEAD, { teacherIds: ["teacher-id"], classIds: ["cls_2"] })).status, 404);
+  assertEquals((await call("POST", "/class-teachers", "tok_teacher", { teacherIds: ["teacher-id"], classIds: ["cls_1"] })).status, 403);
+});
+
 Deno.test("a school head gives a teacher several classes, changes a role, and takes one away", async () => {
   const db = freshWorld();
   const HEAD = "tok_school_leader";
