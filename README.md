@@ -434,6 +434,26 @@ Every "Open to read" click on any dashboard is timed:
   reading attention; a visit that never gets a return trip (they close
   the whole browser, say) simply stays open-ended with no completion
   time or duration, rather than guessing one.
+- **Links open inside the portal when their site allows it.** A site
+  decides whether other sites may show its pages (`X-Frame-Options`,
+  `frame-ancestors`). When a link is added or changed — and about weekly
+  after — the API asks the site (`embed.ts`: public addresses only, every
+  redirect checked, the page itself never read). If it allows it, the link
+  opens in the portal's own viewer, sandboxed, with a bar naming the site
+  and *Open in a new tab*, and the visit is timed from open to close, like
+  a file. If it doesn't — **Kenya Education Cloud and Teach 2030 don't** —
+  the tile says *opens in a new tab* and its button *Open site ↗*; that
+  visit is timed until the person comes back to the portal. The portal
+  never copies or relays another site's pages to get round its choice.
+- **Topics and sub-topics.** Any item can carry a topic and a sub-topic
+  (Content library → upload or Edit; the topics already in use are offered
+  as you type, so they add up together). Each visit keeps the item's topic
+  and sub-topic as they were when it was opened, and the **Usage** tab
+  shows **time by topic**, and every topic › sub-topic with its time, opens
+  and people. What someone does *inside* another site (which of its own
+  pages they read) can't be seen by any website — so a topic is the one the
+  item is tagged with; to follow Kenya Education Cloud topic by topic, add
+  each topic's page as its own link with its topic.
 
 ### KoboToolbox field surveys
 
@@ -877,7 +897,10 @@ audit behind it are in [`docs/RBAC.md`](docs/RBAC.md).
   appear *inside* the portal's file viewer, because teachers use them —
   `view.officeapps.live.com` (Word/PowerPoint previews), `www.youtube.com`
   (videos) and `*.kobotoolbox.org` (survey previews) — as frames only; they
-  can't run anything in the portal's pages. Inline `style="…"` attributes are
+  can't run anything in the portal's pages. `frame-src` also allows any
+  `https:` page, for content-library links whose site allows being shown
+  inside the portal (the API asks each site first); those frames are
+  sandboxed — they can't navigate or take over the portal's own tab. Inline `style="…"` attributes are
   allowed (the pages use them for layout); inline `<style>` blocks aren't,
   except the 404 page's, by its hash.
 - **X-Frame-Options** `DENY`, **Referrer-Policy**

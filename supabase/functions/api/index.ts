@@ -35,6 +35,8 @@ import {
   type LearnerInfo, MIN_DAYS, type RegisterRow, schoolDays, summarizeAttendance,
 } from "./attendance.ts";
 import { buildIntelligence, VISIT_TYPES as INTEL_VISIT_TYPES } from "./intelligence.ts";
+import { checkEmbeddable, cleanTopic } from "./embed.ts";
+export { __setFrameFetchForTests } from "./embed.ts";
 import { buildImpact, GENDERS } from "./impact.ts";
 import { type Jwk, verifyAccessToken } from "./jwt.ts";
 import { buildNotifications, missingVisitForms } from "./notifications.ts";
@@ -334,9 +336,15 @@ const mapLibrary = async (r: Record<string, unknown>, canDownload = false) => ({
   isFolder: !!r.is_folder,
   files: await signFiles((r.files as LibFile[]) ?? [], canDownload),
   externalUrl: r.external_url ?? null,
+  // A link's site lets the portal show it in its own viewer (true), or it opens in a new tab.
+  embeddable: r.external_url ? r.embeddable === true : null,
+  topic: r.topic ?? null,
+  subtopic: r.subtopic ?? null,
   published: !!r.published,
   folderId: r.folder_id ?? null,
 });
+/** A link's site is asked again about once a week (embed.ts): sites change their minds. */
+const EMBED_RECHECK_MS = 7 * 864e5;
 const mapFolder = (r: Record<string, unknown>, itemCount = 0) => ({
   id: r.id,
   name: r.name,
@@ -2592,6 +2600,15 @@ app.get("/library", requireActive(), async (c) => {
   const visible = (data ?? []).filter((it) =>
     canSeeLibrary(it.audience as string, role) && (manages || it.published),
   );
+  // Links whose site hasn't been asked for a week (or ever): ask now, a few at a time.
+  const stale = visible.filter((it) => it.external_url &&
+    (!it.embed_checked_at || Date.now() - Date.parse(String(it.embed_checked_at)) > EMBED_RECHECK_MS)).slice(0, 5);
+  await Promise.all(stale.map(async (it) => {
+    const at = new Date().toISOString();
+    it.embeddable = await checkEmbeddable(String(it.external_url));
+    it.embed_checked_at = at;
+    await admin.from("library_items").update({ embeddable: it.embeddable, embed_checked_at: at }).eq("id", it.id);
+  }));
   const items = await Promise.all(visible.map((it) => mapLibrary(it, manages)));
   return c.json({ items });
 });
@@ -2640,6 +2657,7 @@ app.post("/library", requirePermission("library.manage"), async (c) => {
   }
 
   const isFolder = files.length > 1 || !!b.isFolder;
+  const embeddable = externalUrl ? await checkEmbeddable(externalUrl) : null;
   const { data, error } = await admin
     .from("library_items")
     .insert({
@@ -2655,6 +2673,8 @@ app.post("/library", requirePermission("library.manage"), async (c) => {
       is_folder: isFolder,
       files,
       external_url: externalUrl || null,
+      embeddable, embed_checked_at: externalUrl ? new Date().toISOString() : null,
+      topic: cleanTopic(b.topic), subtopic: cleanTopic(b.subtopic),
       folder_id: folderId,
     })
     .select()
@@ -2679,7 +2699,7 @@ app.patch("/library/:id", requirePermission("library.manage"), async (c) => {
   const id = c.req.param("id");
   const b = await c.req.json().catch(() => ({}));
   const { data: current } = await admin
-    .from("library_items").select("audience, folder_id").eq("id", id).maybeSingle();
+    .from("library_items").select("audience, folder_id, external_url").eq("id", id).maybeSingle();
   if (!current) return c.json({ error: "Content not found" }, 404);
 
   const patch: Record<string, unknown> = {};
@@ -2696,7 +2716,14 @@ app.patch("/library/:id", requirePermission("library.manage"), async (c) => {
     const url = b.externalUrl.trim();
     if (url && !URL_RE.test(url)) return c.json({ error: "Link must start with http:// or https://" }, 400);
     patch.external_url = url || null;
+    // A new link: ask its site whether the portal may show it.
+    if (url && url !== current.external_url) {
+      patch.embeddable = await checkEmbeddable(url);
+      patch.embed_checked_at = new Date().toISOString();
+    }
   }
+  if ("topic" in b) patch.topic = cleanTopic(b.topic);
+  if ("subtopic" in b) patch.subtopic = cleanTopic(b.subtopic);
   if (typeof b.audience === "string") {
     patch.audience = ["staff", "school_leader"].includes(b.audience) ? b.audience : "library";
   }
@@ -2831,7 +2858,7 @@ app.post("/library/:id/interactions", requireActive(), async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const offline = offlineReading(body.startedAt, body.completedAt);
   const { data: item } = await admin
-    .from("library_items").select("id, audience").eq("id", itemId).maybeSingle();
+    .from("library_items").select("id, audience, topic, subtopic").eq("id", itemId).maybeSingle();
   if (!item || !canSeeLibrary(item.audience as string, actor.permissions)) {
     return c.json({ error: "Resource not found" }, 404);
   }
@@ -2840,6 +2867,9 @@ app.post("/library/:id/interactions", requireActive(), async (c) => {
     .insert({
       id: rid("li"),
       library_item_id: itemId,
+      // The item's topic as it is now: the report keeps it even if the item is re-tagged later.
+      topic: item.topic ?? null,
+      subtopic: item.subtopic ?? null,
       actor_kind: c.get("actorKind") === "learner" ? "learner" : "staff",
       actor_id: actor.id,
       role: actor.role,
@@ -2980,9 +3010,9 @@ app.get("/library/usage", requirePermission("library.usage.view"), async (c) => 
   const school = String(c.req.query("school") ?? "").trim();
 
   const [itemsRes, interRes] = await Promise.all([
-    selectAll(() => admin.from("library_items").select("id, title").order("id")),
+    selectAll(() => admin.from("library_items").select("id, title, topic, subtopic").order("id")),
     selectAll(() => admin.from("library_interactions")
-      .select("library_item_id, actor_id, school, duration_seconds").order("id")),
+      .select("library_item_id, actor_id, school, duration_seconds, topic, subtopic").order("id")),
   ]);
   // A failed read must not render as "nobody used the library".
   const usageErr = itemsRes.error || interRes.error;
@@ -3028,6 +3058,34 @@ app.get("/library/usage", requirePermission("library.usage.view"), async (c) => 
     .map(([s, agg]) => ({ school: s, users: agg.users.size, sessions: agg.sessions, totalSeconds: agg.seconds }))
     .sort((a, b) => b.totalSeconds - a.totalSeconds);
 
+  // By topic and sub-topic: as the item was tagged when it was opened (older visits: as it is now).
+  const tagOf: Record<string, { topic: unknown; subtopic: unknown }> = {};
+  for (const it of items) tagOf[it.id as string] = { topic: it.topic, subtopic: it.subtopic };
+  type Agg = { users: Set<string>; sessions: number; seconds: number };
+  const add = (agg: Agg, r: Record<string, unknown>) => {
+    agg.users.add(r.actor_id as string);
+    agg.sessions++;
+    if (r.duration_seconds != null) agg.seconds += r.duration_seconds as number;
+  };
+  const topics = new Map<string, Agg & { subs: Map<string, Agg> }>();
+  for (const r of rows) {
+    const tag = r.topic != null || r.subtopic != null ? r : tagOf[r.library_item_id as string] ?? {};
+    const topic = (tag.topic as string) || "(no topic)";
+    const sub = (tag.subtopic as string) || "(no sub-topic)";
+    if (!topics.has(topic)) topics.set(topic, { users: new Set(), sessions: 0, seconds: 0, subs: new Map() });
+    const t = topics.get(topic)!;
+    add(t, r);
+    if (!t.subs.has(sub)) t.subs.set(sub, { users: new Set(), sessions: 0, seconds: 0 });
+    add(t.subs.get(sub)!, r);
+  }
+  const out = (a: Agg) => ({ users: a.users.size, sessions: a.sessions, totalSeconds: a.seconds });
+  const byTopic = [...topics.entries()]
+    .map(([topic, t]) => ({
+      topic, ...out(t),
+      subtopics: [...t.subs.entries()].map(([subtopic, s]) => ({ subtopic, ...out(s) })).sort((a, b) => b.totalSeconds - a.totalSeconds || b.sessions - a.sessions),
+    }))
+    .sort((a, b) => Number(a.topic === "(no topic)") - Number(b.topic === "(no topic)") || b.totalSeconds - a.totalSeconds || b.sessions - a.sessions);
+
   return c.json({
     school: school || null,
     schools,
@@ -3039,6 +3097,7 @@ app.get("/library/usage", requirePermission("library.usage.view"), async (c) => 
     },
     byResource,
     bySchool,
+    byTopic,
   });
 });
 

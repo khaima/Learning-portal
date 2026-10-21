@@ -23,7 +23,7 @@ import {
   dqSummary, dqIssues, dqBulkStatus, dqScan,
   melProgrammes, melProgramme, createMelProgramme, melResults, melReports, createMelReport, melReport, refreshMelReport, finalizeMelReport,
   melDashboard, melTrend, melBreakdown, getTrainings, setFormDue, notificationLog, runNotificationsNow,
-  uploadLibraryFiles, libraryFilesHtml, libraryTypeIcon, librarySectionsHtml, libraryFolderClicks, getLibraryUsage,
+  uploadLibraryFiles, libraryFilesHtml, libraryTypeIcon, librarySectionsHtml, libraryFolderClicks, libraryTopicHtml, getLibraryUsage,
   getLibraryFolders, createLibraryFolder, deleteLibraryFolder, setLibraryFolder,
   koboConfig, saveKoboConfig, koboAssets, koboAssetPreview, koboForms, attachKoboForm,
   removeKoboForm, restoreKoboForm, syncKobo, koboResults,
@@ -1222,6 +1222,10 @@ async function main() {
             <div class="field"><label>Destination</label><select class="e-audience">${audOpts}</select></div>
             <div class="field"><label>Folder</label><select class="e-folder">${folderSelectOpts(currentAudience, it.folderId)}</select></div>
           </div>
+          <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem">
+            <div class="field"><label>Topic</label><input class="e-topic" type="text" maxlength="120" list="libTopics" value="${esc(it.topic || "")}"></div>
+            <div class="field"><label>Sub-topic</label><input class="e-subtopic" type="text" maxlength="120" list="libSubtopics" value="${esc(it.subtopic || "")}"></div>
+          </div>
           <div class="field"><label>Description</label><input class="e-desc" type="text" value="${esc(it.description || "")}"></div>
           ${it.externalUrl ? `<div class="field"><label>Link</label><input class="e-link" type="url" value="${esc(it.externalUrl)}"></div>` : ""}
           <div class="edit-actions">
@@ -1252,7 +1256,9 @@ async function main() {
         <div class="lib-tile-body">
           <b class="lib-tile-title">${esc(it.title)}</b>
           <span class="lib-tile-meta">${esc([it.subject, it.type || "Other", folder].filter(Boolean).join(" · "))}</span>
-          <span class="lib-tile-tags"><span class="lib-dest${dest.cls}">${dest.label}</span>${it.published ? "" : ' <span class="pill warm">Draft</span>'}</span>
+          ${libraryTopicHtml(it)}
+          <span class="lib-tile-tags"><span class="lib-dest${dest.cls}">${dest.label}</span>${it.published ? "" : ' <span class="pill warm">Draft</span>'}${
+            it.externalUrl && !it.embeddable && !/youtu\.?be/.test(it.externalUrl) ? ' <span class="lib-newtab" title="This site doesn\'t allow being shown inside the portal">opens in a new tab</span>' : ""}</span>
           <div class="lib-tile-act">${libraryFilesHtml(it)}</div>
         </div>
         <details class="lib-menu">
@@ -1327,6 +1333,8 @@ async function main() {
         audience: row.querySelector(".e-audience").value,
         description: row.querySelector(".e-desc").value.trim(),
         folderId: row.querySelector(".e-folder").value || null,
+        topic: row.querySelector(".e-topic").value.trim(),
+        subtopic: row.querySelector(".e-subtopic").value.trim(),
       };
       const linkInput = row.querySelector(".e-link");
       if (linkInput) patch.externalUrl = linkInput.value.trim();
@@ -1407,8 +1415,12 @@ async function main() {
     const q = $("#libSearch").value.trim().toLowerCase();
     const dest = $("#libFilterDest").value;
     const status = $("#libFilterStatus").value;
+    // The topics already in use, offered as you type one (so the usage report adds them up together).
+    const uniq = (k) => [...new Set(cachedItems.map((it) => it[k]).filter(Boolean))].sort();
+    $("#libTopics").innerHTML = uniq("topic").map((t) => `<option value="${esc(t)}"></option>`).join("");
+    $("#libSubtopics").innerHTML = uniq("subtopic").map((t) => `<option value="${esc(t)}"></option>`).join("");
     const shown = cachedItems.filter((it) =>
-      (!q || [it.title, it.subject, it.type, it.description].some((v) => (v || "").toLowerCase().includes(q))) &&
+      (!q || [it.title, it.subject, it.type, it.description, it.topic, it.subtopic].some((v) => (v || "").toLowerCase().includes(q))) &&
       (!dest || normalizeLibraryAudience(it.audience) === dest) &&
       (!status || (status === "published") === !!it.published));
 
@@ -1468,6 +1480,24 @@ async function main() {
       </div>`).join("");
   }
 
+  /* Time by topic, then every topic › sub-topic with its time, opens and people — as each item was
+     tagged when it was opened. Untagged items are counted under "(no topic)", last. */
+  function topicUsageCard(topics) {
+    if (!topics.length) return "";
+    const tagged = topics.filter((t) => t.topic !== "(no topic)");
+    const rows = topics.flatMap((t) => t.subtopics.map((s) => ({ t, s })));
+    return `<div class="chart-card intel-wide">
+      <div class="chart-card-head"><b>By topic and sub-topic</b><span>${tagged.length ? `${tagged.length} topic${tagged.length === 1 ? "" : "s"} · time, opens and people` : "Give items a topic to see time spent by topic"}</span></div>
+      ${tagged.length ? barList(tagged.map((t) => ({ label: t.topic, value: t.totalSeconds, note: `${t.sessions} open${t.sessions === 1 ? "" : "s"} · ${t.users} ${t.users === 1 ? "person" : "people"}` })),
+        { sort: true, noun: "time", text: (r) => formatDuration(r.value), empty: emptyMsg("Nothing timed yet.") }) : ""}
+      <div class="lms-table-wrap" style="margin-top:.8rem"><table class="lms-table">
+        <thead><tr><th>Topic</th><th>Sub-topic</th><th class="num">Time</th><th class="num">Opens</th><th class="num">People</th></tr></thead>
+        <tbody>${rows.map(({ t, s }) => `<tr><td class="lms-name">${esc(t.topic)}</td><td class="lms-name">${esc(s.subtopic)}</td>
+          <td class="num">${formatDuration(s.totalSeconds)}</td><td class="num">${s.sessions}</td><td class="num">${s.users}</td></tr>`).join("")}</tbody>
+      </table></div>
+    </div>`;
+  }
+
   async function renderUsage() {
     $("#usageBody").innerHTML = skeletonDashboard();
     let u;
@@ -1494,6 +1524,7 @@ async function main() {
           barList(topResources, { sort: true, noun: "open", text: (r) => formatDuration(r.value), empty: emptyMsg("Nothing opened yet.") }))}
         ${impactCard("By school", u.school ? "1 school (filtered) · people, sessions and time" : `${(u.bySchool || []).length} schools · people, sessions and time`,
           (u.bySchool || []).length ? schoolUsageRows(u.bySchool) : `<div class="chart-empty">${emptyMsg("Nothing tracked yet.")}</div>`)}
+        ${topicUsageCard(u.byTopic || [])}
       </div>
     `;
   }
@@ -1631,6 +1662,8 @@ async function main() {
       description: $("#up_desc").value.trim(),
       externalUrl: link || undefined,
       folderId: $("#up_folder").value || null,
+      topic: $("#up_topic").value.trim(),
+      subtopic: $("#up_subtopic").value.trim(),
     };
 
     submitBtn.classList.add("is-saving");

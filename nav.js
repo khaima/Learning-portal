@@ -17,7 +17,7 @@
 import "./pwa.js";
 import { $, $$, toast, confirmDialog } from "./util.js";
 import { startLibraryInteraction, completeLibraryInteraction, awardLibraryBadge, formatBytes } from "./store.js";
-import { openViewer, openYouTubeViewer, viewableKind, isViewerOpen, currentOpenId, showBadgeCelebration } from "./viewer.js";
+import { openViewer, openYouTubeViewer, openWebViewer, viewableKind, isViewerOpen, currentOpenId, showBadgeCelebration } from "./viewer.js";
 import * as sync from "./sync.js";
 import { mountSyncStatus, openSyncPanel } from "./sync-ui.js";
 import { mountBell } from "./notify-ui.js";
@@ -118,6 +118,15 @@ document.addEventListener("click", (e) => {
     e.preventDefault();
     const title = link.dataset.itemTitle || "";
     openTracked(itemId, title, (onClose) => openYouTubeViewer({ title, embedUrl: ytEmbed }, onClose));
+    return;
+  }
+  // A link whose site lets the portal show it: in the portal's viewer, timed until it closes.
+  const embedUrl = link.dataset.embedUrl || "";
+  if (embedUrl) {
+    e.preventDefault();
+    if (!sync.isOnline()) { toast("You're offline", "This page is on another site — it needs a connection."); return; }
+    const title = link.dataset.itemTitle || "";
+    openTracked(itemId, title, (onClose) => openWebViewer({ title, url: embedUrl }, onClose));
     return;
   }
 

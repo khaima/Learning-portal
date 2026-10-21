@@ -485,6 +485,15 @@
                 <button type="button" class="link-btn" id="up_folder_manage_toggle" hidden>Manage folders</button>
                 <div class="folder-chip-row" id="up_folder_manage" hidden></div>
               </div>
+              <div class="field">
+                <label for="up_topic">Topic <span class="hint-inline">— optional</span></label>
+                <input id="up_topic" type="text" maxlength="120" list="libTopics" placeholder="e.g. Numbers">
+              </div>
+              <div class="field">
+                <label for="up_subtopic">Sub-topic <span class="hint-inline">— optional</span></label>
+                <input id="up_subtopic" type="text" maxlength="120" list="libSubtopics" placeholder="e.g. Fractions">
+              </div>
+              <datalist id="libTopics"></datalist><datalist id="libSubtopics"></datalist>
               <div class="field span-all">
                 <label for="up_desc">Description <span class="hint-inline">— optional</span></label>
                 <input id="up_desc" type="text" placeholder="What is this, and who is it for?">

@@ -1871,3 +1871,24 @@ comment on table public.attendance_marks is 'One learner''s mark on a register: 
 alter table public.attendance_registers enable row level security;
 alter table public.attendance_marks     enable row level security;
 revoke all on public.attendance_registers, public.attendance_marks from anon, authenticated;
+
+-- ============================================================
+-- Content library: topics, and links shown inside the portal
+-- Also shipped as supabase/migrations/20261022090000_library_topics.sql.
+-- ============================================================
+
+alter table public.library_items add column if not exists topic text
+  check (topic is null or length(topic) <= 120);
+alter table public.library_items add column if not exists subtopic text
+  check (subtopic is null or length(subtopic) <= 120);
+alter table public.library_items add column if not exists embeddable boolean;
+alter table public.library_items add column if not exists embed_checked_at timestamptz;
+
+alter table public.library_interactions add column if not exists topic text;
+alter table public.library_interactions add column if not exists subtopic text;
+
+comment on column public.library_items.topic is 'The topic this item covers (e.g. Numbers); usage is reported by it.';
+comment on column public.library_items.subtopic is 'The sub-topic within the topic (e.g. Fractions).';
+comment on column public.library_items.embeddable is 'A link''s site allows being shown inside the portal (asked by the API); null = not known yet / not a link.';
+comment on column public.library_interactions.topic is 'The item''s topic when it was opened.';
+comment on column public.library_interactions.subtopic is 'The item''s sub-topic when it was opened.';

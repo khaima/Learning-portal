@@ -68,6 +68,8 @@ export async function addLibraryItem(item) {
     files: (item.files || []).map((f) => ({ name: f.name, size: f.size })),
     externalUrl: item.externalUrl || null,
     folderId: item.folderId || null,
+    topic: item.topic || null,
+    subtopic: item.subtopic || null,
   });
   return saved;
 }
@@ -128,6 +130,8 @@ export async function uploadLibraryFiles(item, fileList, onProgress) {
     isFolder,
     files: manifest,
     folderId: item.folderId || null,
+    topic: item.topic || null,
+    subtopic: item.subtopic || null,
   });
 
   let done = 0;
@@ -196,14 +200,23 @@ function downloadLink(f) {
     : "";
 }
 
+/* A link opens inside the portal — in its own viewer, timed from open to
+   close — whenever its site allows that (the API asks it: embed.ts) or it's
+   a YouTube video. A site that forbids being shown inside other sites (as
+   Kenya Education Cloud does) opens in a new tab, and the button says so;
+   that visit is timed until the person comes back to the portal. */
+const EXT_ICON = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14 21 3"/></svg>';
+const hostOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } };
 export function libraryFilesHtml(item) {
   if (item.externalUrl) {
     const embed = youTubeEmbedUrl(item.externalUrl);
+    const inside = !!embed || item.embeddable === true;
+    const host = hostOf(item.externalUrl);
     return `<a class="lib-open" data-track-item="${esc(item.id)}" data-item-title="${esc(item.title)}"${
-      embed ? ` data-yt-embed="${esc(embed)}"` : ""
-    } href="${esc(item.externalUrl)}" target="_blank" rel="noopener">
-      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14 21 3"/></svg>
-      ${embed ? "Watch video" : "Open link"}</a>`;
+      embed ? ` data-yt-embed="${esc(embed)}"` : inside ? ` data-embed-url="${esc(item.externalUrl)}"` : ""
+    } href="${esc(item.externalUrl)}" target="_blank" rel="noopener"${inside ? "" : ` title="${esc(`${host || "This site"} doesn't allow being shown inside the portal, so it opens in a new tab`)}"`}>
+      ${inside ? OPEN_ICON : EXT_ICON}
+      ${embed ? "Watch video" : inside ? "<span>Open</span>" : `<span>Open site</span><span class="sr-only"> (opens in a new tab)</span><span aria-hidden="true">↗</span>`}</a>`;
   }
   const files = item.files || [];
   if (!files.length) return "";
@@ -255,9 +268,14 @@ export function libraryItemCard(it, { folder = "" } = {}) {
       <div class="lib-tile-body">
         <b class="lib-tile-title">${esc(it.title)}</b>
         <span class="lib-tile-meta">${esc([it.subject, it.type || "Other", folder].filter(Boolean).join(" · "))}</span>
+        ${libraryTopicHtml(it)}
         <div class="lib-tile-act">${libraryFilesHtml(it)}</div>
       </div>
     </article>`;
+}
+/** An item's topic › sub-topic, as a line on its tile. */
+export function libraryTopicHtml(it) {
+  return it.topic || it.subtopic ? `<span class="lib-tile-topic">${esc([it.topic, it.subtopic].filter(Boolean).join(" › "))}</span>` : "";
 }
 
 const ALL_ICON = svgIcon('<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>');
@@ -316,7 +334,7 @@ export function mountLibraryShelves(shelves, folders, searchInput) {
     const q = (searchInput?.value || "").trim().toLowerCase();
     for (const s of shelves) {
       const shown = q
-        ? s.items.filter((it) => [it.title, it.subject, it.type, it.description]
+        ? s.items.filter((it) => [it.title, it.subject, it.type, it.description, it.topic, it.subtopic]
             .some((v) => (v || "").toLowerCase().includes(q)))
         : s.items;
       if (s.countEl) s.countEl.textContent = s.items.length ? `${s.items.length} item${s.items.length === 1 ? "" : "s"}` : "";

@@ -248,6 +248,29 @@ export function openIframeViewer({ title, url }, onClose) {
   showOverlay(title, node, onClose);
 }
 
+/** A page from another site that allows being shown here (the API asked it —
+    embed.ts). Sandboxed, so it can't take over the portal's own tab; a bar
+    says whose page it is, with a way out to a full tab. Same contract as
+    openViewer(): `onClose` fires once, when the viewer closes. */
+export function openWebViewer({ title, url }, onClose) {
+  let host = "";
+  try { host = new URL(url).hostname.replace(/^www\./, ""); } catch { /* shown without it */ }
+  const wrap = document.createElement("div");
+  wrap.className = "viewer-web";
+  wrap.innerHTML = `<div class="viewer-web-bar"><span>From <b></b></span><a target="_blank" rel="noopener">Open in a new tab<span aria-hidden="true"> ↗</span></a></div>`;
+  wrap.querySelector("b").textContent = host || "another site";
+  wrap.querySelector("a").href = url;
+  const frame = document.createElement("iframe");
+  frame.src = url;
+  frame.title = title || host;
+  frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads");
+  frame.referrerPolicy = "strict-origin-when-cross-origin";
+  frame.allow = "fullscreen; autoplay; encrypted-media; picture-in-picture";
+  frame.allowFullscreen = true;
+  wrap.appendChild(frame);
+  showOverlay(title, wrap, onClose, "web");
+}
+
 /** Opens plain, already-built HTML in the same overlay chrome — for a
     data view rather than a file (e.g. a teacher checking one learner's
     activity), not something viewableKind() would ever classify. Caller

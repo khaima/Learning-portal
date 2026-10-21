@@ -13,7 +13,9 @@
 Deno.env.set("SUPABASE_URL", "http://localhost:54321");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "test-service-key");
 Deno.env.set("HPF_API_TEST", "1");
-export const { app, __setAdminClientForTests, __setMailerForTests, __setPwnedCheckForTests, __setSigningKeysForTests } = await import("./index.ts");
+export const { app, __setAdminClientForTests, __setMailerForTests, __setPwnedCheckForTests, __setSigningKeysForTests, __setFrameFetchForTests } = await import("./index.ts");
+// A link's site, asked whether it may be shown in the portal (embed.ts): it says yes unless a test says otherwise.
+__setFrameFetchForTests(() => Promise.resolve(new Response("", { status: 200 })));
 /** Passwords the stand-in breach list knows. The real list (pwned.ts) is never called in tests. */
 export const LEAKED_PASSWORDS = new Set(["password123", "qwertyuiop"]);
 __setPwnedCheckForTests((pw: string) => Promise.resolve(LEAKED_PASSWORDS.has(pw) ? 1_000_000 : 0));
@@ -57,8 +59,10 @@ export function fakeAdmin(db: Db, users: Record<string, { id: string; email: str
       } else if (op === "insert") {
         const list = (Array.isArray(payload) ? payload : [payload]) as Row[];
         out = list.map((p) => {
-          const row = { id: p.id ?? `${table}_${seq++}`, created_at: new Date().toISOString(), ...p };
+          const row: Row = { id: p.id ?? `${table}_${seq++}`, created_at: new Date().toISOString(), ...p };
           if (table === "audit_log") row.id = seq++;
+          // The database's own default: a visit starts when it's recorded.
+          if (table === "library_interactions" && !row.started_at) row.started_at = row.created_at;
           rows.push(row);
           return row;
         });
