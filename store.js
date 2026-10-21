@@ -223,9 +223,11 @@ export function libraryFilesHtml(item) {
 /* ------------------------------------------------------------ library shelves
    One look for the library everywhere: the Education Team's Content
    Library and every other dashboard's Teacher Resources / Digital
-   Library / For School Head shelves share the same folder sections and
-   the same item row (type icon, title, subject · type, description,
-   View). The education team's row adds management actions on top. */
+   Library / For School Head shelves. Like a file browser: folders as small
+   tiles first (open one, and "All ›" leads back), then the items not in a
+   folder — each a compact tile with its type icon, title, subject · type
+   and View. A search shows every match at once, with its folder. The
+   education team's tile adds its actions behind a ⋯ menu. */
 const svgIcon = (paths) => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${paths}</svg>`;
 const BOOK_ICON = '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/>';
 const TYPE_ICON = {
@@ -241,40 +243,68 @@ export function libraryTypeIcon(type) {
   return `<span class="lib-ic" data-type="${esc(type || "")}">${svgIcon(TYPE_ICON[type] || BOOK_ICON)}</span>`;
 }
 
-/* Read-only card, for everyone who uses the library rather than manages
-   it. data-open-card makes the whole box clickable (nav.js forwards the
-   click to its View / Open button). */
-export function libraryItemCard(it) {
+/* A read-only tile, for everyone who uses the library rather than
+   manages it: type icon, title, subject · type (and its folder, in a
+   search), View. data-open-card makes the whole tile clickable (nav.js
+   forwards the click to its View / Open button); the description is its
+   tooltip. */
+export function libraryItemCard(it, { folder = "" } = {}) {
   return `
-    <article class="lib-card" data-open-card>
-      <div class="lib-card-top">
-        ${libraryTypeIcon(it.type)}
-        <span class="lib-card-type">${esc(it.type || "Other")}</span>
+    <article class="lib-tile" data-open-card${it.description ? ` title="${esc(it.description)}"` : ""}>
+      ${libraryTypeIcon(it.type)}
+      <div class="lib-tile-body">
+        <b class="lib-tile-title">${esc(it.title)}</b>
+        <span class="lib-tile-meta">${esc([it.subject, it.type || "Other", folder].filter(Boolean).join(" · "))}</span>
+        <div class="lib-tile-act">${libraryFilesHtml(it)}</div>
       </div>
-      <b class="lib-card-title" title="${esc(it.title)}">${esc(it.title)}</b>
-      <span class="lib-card-meta">${esc(it.subject)}</span>
-      ${it.description ? `<p class="lib-card-desc">${esc(it.description)}</p>` : ""}
-      <div class="lib-card-foot">${libraryFilesHtml(it)}</div>
     </article>`;
 }
 
-/* Folder sections (collapsible), "Unfiled" last, each a grid of cards —
-   `rowFn` lets the education team pass its own card with management
-   actions. */
-export function librarySectionsHtml(items, folders, { rowFn = libraryItemCard, folderMeta } = {}) {
+const ALL_ICON = svgIcon('<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>');
+
+/* The library as a file browser. At the top level: the folders as small
+   tiles (name, how many items, and — for the education team — who sees
+   it), then the items in no folder. With a folder open (`open`): a path
+   back ("All › Folder") and that folder's items. Searching (`searching`):
+   every match at once, each with its folder. `rowFn(item, { folder })`
+   lets the education team draw its own tile. Clicks on [data-lib-folder]
+   open a folder ("" for the top) — the page redraws with it. */
+export function librarySectionsHtml(items, folders, { rowFn = libraryItemCard, folderMeta, open = null, searching = false } = {}) {
   const groups = groupByFolder(items, folders);
-  // Nothing filed in a folder yet: just the items — an "Unfiled" heading over everything says nothing.
-  if (groups.length === 1 && groups[0].id === null) return `<div class="lib-grid">${groups[0].items.map((r) => rowFn(r)).join("")}</div>`;
-  return groups.map(({ id, name, items: rows }) => `
-    <details class="lib-section" open>
-      <summary class="lib-section-head">
-        <span class="lib-section-ic">${FOLDER_ICON_SVG}</span>
-        <span class="lib-section-name">${esc(name)}</span>
-        ${folderMeta && id ? `<span class="lib-section-dest">${esc(folderMeta(id) || "")}</span>` : ""}
-        <span class="count">${rows.length}</span>
-      </summary>
-      <div class="lib-section-body lib-grid">${rows.map((r) => rowFn(r)).join("")}</div>
-    </details>`).join("");
+  const named = groups.filter((g) => g.id !== null);
+  const loose = groups.find((g) => g.id === null)?.items || [];
+  const nameOf = (id) => named.find((g) => g.id === id)?.name || "";
+  const grid = (list, withFolder = false) => `<div class="lib-grid">${list.map((r) => rowFn(r, { folder: withFolder ? nameOf(r.folderId) : "" })).join("")}</div>`;
+  if (searching || !named.length) return grid(items, searching && named.length > 0);
+  const inside = open && named.find((g) => g.id === open);
+  if (inside) {
+    return `<nav class="lib-crumbs" aria-label="Folder">
+        <button type="button" class="lib-crumb" data-lib-folder="">${ALL_ICON}<span>All</span></button><span aria-hidden="true">›</span>
+        <b>${FOLDER_ICON_SVG}<span>${esc(inside.name)}</span></b><span class="count">${inside.items.length}</span>
+      </nav>${grid(inside.items)}`;
+  }
+  return `<ul class="lib-folders" aria-label="Folders">${named.map((g) => `<li>
+      <button type="button" class="lib-folder-tile" data-lib-folder="${esc(g.id)}">
+        <span class="lib-folder-ic">${FOLDER_ICON_SVG}</span>
+        <span><b>${esc(g.name)}</b><small>${g.items.length} item${g.items.length === 1 ? "" : "s"}${folderMeta ? ` · ${esc(folderMeta(g.id) || "")}` : ""}</small></span>
+      </button></li>`).join("")}</ul>
+    ${loose.length ? grid(loose) : ""}`;
+}
+/** Wires a library list's folder tiles: a click opens that folder (or the top level), then `redraw()`.
+    The open folder is kept on the element (data-lib-open). Safe to call again. */
+export function libraryFolderClicks(el, redraw) {
+  el._libRedraw = redraw;
+  if (el._libFolders) return;
+  el._libFolders = true;
+  el.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-lib-folder]");
+    if (!b || !el.contains(b)) return;
+    const was = el.dataset.libOpen || "";
+    el.dataset.libOpen = b.dataset.libFolder;
+    el._libRedraw();
+    // Keep the keyboard where the eye is: on the way back, or on the folder just left.
+    (el.querySelector(b.dataset.libFolder ? "[data-lib-folder='']" : `[data-lib-folder="${CSS.escape(was)}"]`) || el.querySelector("[data-lib-folder]"))?.focus();
+  });
 }
 
 /* A Resources page: every shelf on it plus one search box that filters
@@ -293,8 +323,9 @@ export function mountLibraryShelves(shelves, folders, searchInput) {
       s.el.innerHTML = !s.items.length
         ? `<div class="empty-state">${esc(s.emptyMsg)}</div>`
         : shown.length
-          ? librarySectionsHtml(shown, folders)
+          ? librarySectionsHtml(shown, folders, { open: s.el.dataset.libOpen || null, searching: !!q })
           : `<div class="empty-state">Nothing here matches “${esc(q)}”.</div>`;
+      libraryFolderClicks(s.el, () => searchInput?._drawShelves ? searchInput._drawShelves() : draw());
     }
   };
   if (searchInput) {

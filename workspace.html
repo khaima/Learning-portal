@@ -448,15 +448,14 @@
       </section>
 
       <section class="dash-page" data-page="content" hidden>
-        <div class="panel upload-panel">
-          <div class="upload-bar">
-            <div class="upload-bar-text">
-              <h2>Upload content</h2>
-              <p>Add a file, a folder of files, or a link. New uploads start as drafts until you publish them.</p>
-            </div>
+        <div class="panel lib-panel lib-page">
+          <div class="lib-head">
+            <div class="lib-head-text"><h2>Content library</h2><div class="lib-stats" id="libStats"></div></div>
             <button type="button" class="btn btn-primary" id="uploadToggle" aria-expanded="false" aria-controls="uploadForm">+ New upload</button>
           </div>
+          <div class="upload-panel">
           <form id="uploadForm" class="upload-form" hidden>
+            <p class="field-hint" style="margin-top:0">A file, a folder of files, or a link. New uploads start as drafts until you publish them.</p>
             <div class="upload-grid">
               <div class="field span-all">
                 <label for="up_title">Title</label>
@@ -517,12 +516,6 @@
               <button class="btn btn-primary" type="submit">Add to library</button>
             </div>
           </form>
-        </div>
-
-        <div class="panel lib-panel">
-          <div class="lib-head">
-            <h2>Content Library</h2>
-            <div class="lib-stats" id="libStats"></div>
           </div>
           <div class="lib-toolbar">
             <input type="search" id="libSearch" placeholder="Search title, subject or description…" aria-label="Search the library">
@@ -535,10 +528,12 @@
           </div>
           <div id="libraryList"><div data-skeleton="list"></div></div>
         </div>
+      </section>
 
+      <section class="dash-page" data-page="content-usage" hidden>
         <div class="panel">
           <div class="panel-head">
-            <h2>Content usage report</h2>
+            <h2 data-page-title>Content usage</h2>
             <span class="chart-meta" id="usageMeta" style="margin:0"></span>
           </div>
           <p class="kobo-note">Time spent is an estimate, not reading time.</p>

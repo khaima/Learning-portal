@@ -58,7 +58,16 @@ Edge Function API in front of a locked-down Postgres database. Six pages:
   **Teacher Resources** (teachers and the head of institution only), the
   **Digital Library** (learner-facing, also visible to teachers and
   heads), or **For School Head** (head of institution only — for things
-  addressed specifically to school leadership). Create a form — build
+  addressed specifically to school leadership). The **Content library**
+  tab is the library on its own, laid out like a file browser: folders as
+  small tiles first (open one; *All ›* leads back), then the items in no
+  folder, each a compact tile — type icon, title, subject · type, who sees
+  it, *Draft* until published — with publish, edit, move to a folder and
+  delete behind its **⋯** menu; *+ New upload* is in its heading. A search
+  shows every match at once, with its folder. The usage report is its own
+  **Usage** tab. Every other dashboard's library (Teacher Resources,
+  Digital Library, For School Head) has the same folder tiles and compact
+  item tiles. Create a form — build
   questions (1–5 rating and short answer), upload a form file, or paste a
   link — and send it to Teachers, School Leaders, or Field Officers, in
   one county or all counties; a Field Officer form can be tied to a visit

@@ -1097,3 +1097,15 @@ One more tab in an area each role already has — no new menu rows:
   today*): each grade, its classes and their class teachers, and *Assign
   teachers* — the whole school's button in the heading, one per grade. The
   same dialog is the *Assign teachers* button on My school › Teachers.
+
+## 27. The content library, a page of its own, 21 October 2026
+
+- **Content library** (Education Team; Admin and M&E under Teaching &
+  learning) is the library alone: *+ New upload* in its heading, the
+  search and filters, then folders as small tiles and the items as compact
+  tiles. The usage report moved to a **Usage** tab beside it (*Content
+  usage* for Admin and M&E), which keeps the School filter the library no
+  longer needed.
+- Every library list — the Education Team's and each dashboard's shelves —
+  opens a folder in place, with *All ›* to come back, instead of stacking
+  every folder as a large open box.

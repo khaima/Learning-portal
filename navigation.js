@@ -84,7 +84,8 @@ const PAGES = {
   "school-profiles": { label: "All schools", icon: "school", needs: ["schools.profile.view"], filters: ["county", "school"], purpose: "Each school's teachers, learners, classes and visits." },
   assignments: { label: "Assignments & assessments", icon: "assignment", needs: ["assignments.view.all"], filters: ["county", "term"], purpose: "All work set in your area's schools (read-only)." },
   results: { label: "Results", icon: "results", needs: ["assignments.view.all"], purpose: "Work handed in and marks, by school, class or subject." },
-  content: { label: "Content library", icon: "book", needs: ["library.manage", "library.usage.view"], filters: ["school"], heading: "Content library", purpose: "Upload resources, choose who sees them, see their use." },
+  content: { label: "Content library", icon: "book", needs: ["library.manage", "library.usage.view"], heading: "Content library", purpose: "Upload resources, file them in folders, choose who sees them." },
+  "content-usage": { label: "Usage", icon: "activity", needs: ["library.usage.view"], filters: ["school"], heading: "Content usage", purpose: "Which resources are opened, by whom, and for how long." },
   training: { label: "Training register", icon: "star", needs: ["trainings.manage", "intelligence.view"], purpose: "Training sessions and who attended." },
   forms: { label: "Forms", icon: "form", needs: ["forms.manage", "forms.responses.view"], purpose: "Send forms to staff, and read their responses." },
   "field-visits": { label: "Field visits", icon: "pin", needs: ["field_reports.view.all"], filters: ["county", "school", "term"], purpose: "Every visit filed in your area, newest first." },
@@ -154,7 +155,7 @@ export const WORKSPACES = {
         c("classes", { hidden: true }), // a school's classes are on its page; the old address still works
         c("schools", { label: "Counties & schools" }), c("calendar"),
       ]),
-      entry("teaching", "Teaching & learning", "cap", [c("assignments"), c("results"), c("content")]),
+      entry("teaching", "Teaching & learning", "cap", [c("assignments"), c("results"), c("content"), c("content-usage", { label: "Content usage" })]),
       entry("surveys", "Surveys & forms", "survey", [c("forms"), c("kobo", { label: "Kobo surveys" }), c("survey-results")], { badge: "koboReview" }),
       entry("data-quality", "Data quality", "check", [c("data-quality", { label: "Data issues" }), c("sync-problems")], { badge: "dataQuality" }),
       entry("reports", "Reports", "download", [c("reports", { label: "Reports" })]),
@@ -179,7 +180,7 @@ export const WORKSPACES = {
       entry("schools", "Schools", "school", [
         c("school-profiles"), c("teachers"), c("learners"), c("field-visits"), c("classes", { hidden: true }),
       ]),
-      entry("teaching", "Teaching & learning", "cap", [c("assignments"), c("results"), c("training"), c("content")]),
+      entry("teaching", "Teaching & learning", "cap", [c("assignments"), c("results"), c("training"), c("content"), c("content-usage", { label: "Content usage" })]),
     ],
   },
   education: {
@@ -191,7 +192,7 @@ export const WORKSPACES = {
         c("school-profiles"), c("teachers"), c("learners"), c("field-visits"), c("classes", { hidden: true }), c("sync-problems"),
       ]),
       entry("teaching", "Teaching & learning", "cap", [c("assignments"), c("results"), c("training")]),
-      entry("content", "Content library", "book", [c("content", { label: "Library" }), c("subjects")]),
+      entry("content", "Content library", "book", [c("content", { label: "Library" }), c("content-usage"), c("subjects")]),
       entry("forms", "Forms", "form", [c("forms")]),
       entry("analytics", "Dashboards & reports", "chart", [c("teacher-development"), c("digital-resources"), c("reports", { label: "Exports" })]),
     ],

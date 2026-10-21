@@ -23,7 +23,7 @@ import {
   dqSummary, dqIssues, dqBulkStatus, dqScan,
   melProgrammes, melProgramme, createMelProgramme, melResults, melReports, createMelReport, melReport, refreshMelReport, finalizeMelReport,
   melDashboard, melTrend, melBreakdown, getTrainings, setFormDue, notificationLog, runNotificationsNow,
-  uploadLibraryFiles, libraryFilesHtml, libraryTypeIcon, librarySectionsHtml, getLibraryUsage,
+  uploadLibraryFiles, libraryFilesHtml, libraryTypeIcon, librarySectionsHtml, libraryFolderClicks, getLibraryUsage,
   getLibraryFolders, createLibraryFolder, deleteLibraryFolder, setLibraryFolder,
   koboConfig, saveKoboConfig, koboAssets, koboAssetPreview, koboForms, attachKoboForm,
   removeKoboForm, restoreKoboForm, syncKobo, koboResults,
@@ -85,6 +85,7 @@ async function main() {
   hideUnless($("#addSchoolForm"), "schools.manage");
   hideUnless($(".county-manage"), "schools.manage");
   hideUnless($(".upload-panel"), "library.manage");
+  hideUnless($("#uploadToggle"), "library.manage");
   hideUnless($("#formBuilder")?.closest(".panel"), "forms.manage");
 
   $("#sideAvatar").textContent = initials(user.fullName);
@@ -1238,36 +1239,46 @@ async function main() {
      assigns or clears which folder the item sits in. Editing updates
      this SAME row — never a new one, so the published state and every
      other dashboard's copy stay put. */
-  function libraryRow(it) {
+  /* The education team's tile: the same compact tile as everywhere else, with who sees it, a Draft
+     tag until it's published, and its actions (publish, edit, move, delete) behind ⋯. */
+  function libraryRow(it, { folder = "" } = {}) {
     if (it.id === editingItemId) return editRow(it);
     const audience = normalizeLibraryAudience(it.audience);
     const dest = AUDIENCE_PILL[audience];
     const folderOpts = foldersFor(audience);
     return `
-      <article class="lib-card" data-lib-id="${esc(it.id)}">
-        <div class="lib-card-top">
-          ${libraryTypeIcon(it.type)}
-          <span class="pill ${it.published ? "ok" : "warm"}">${it.published ? "Published" : "Draft"}</span>
+      <article class="lib-tile is-manage${it.published ? "" : " is-draft"}" data-lib-id="${esc(it.id)}"${it.description ? ` title="${esc(it.description)}"` : ""}>
+        ${libraryTypeIcon(it.type)}
+        <div class="lib-tile-body">
+          <b class="lib-tile-title">${esc(it.title)}</b>
+          <span class="lib-tile-meta">${esc([it.subject, it.type || "Other", folder].filter(Boolean).join(" · "))}</span>
+          <span class="lib-tile-tags"><span class="lib-dest${dest.cls}">${dest.label}</span>${it.published ? "" : ' <span class="pill warm">Draft</span>'}</span>
+          <div class="lib-tile-act">${libraryFilesHtml(it)}</div>
         </div>
-        <b class="lib-card-title" title="${esc(it.title)}">${esc(it.title)}</b>
-        <span class="lib-card-meta">${esc(it.subject)} · ${esc(it.type || "Other")}</span>
-        <span class="lib-dest${dest.cls}">${dest.label}</span>
-        ${it.description ? `<p class="lib-card-desc">${esc(it.description)}</p>` : ""}
-        <div class="lib-card-foot">
-          ${libraryFilesHtml(it)}
-          <div class="lib-card-actions">
+        <details class="lib-menu">
+          <summary aria-label="${esc(`Actions for ${it.title}`)}"><span aria-hidden="true">⋯</span></summary>
+          <div class="lib-menu-pop">
             <button type="button" data-act="publish">${it.published ? "Unpublish" : "Publish"}</button>
             <button type="button" data-act="edit">Edit</button>
+            ${folderOpts.length ? `<label>Folder
+              <select class="inline-select" data-act="move" aria-label="Move to folder">
+                <option value="">No folder</option>
+                ${folderOpts.map((f) => `<option value="${esc(f.id)}"${f.id === it.folderId ? " selected" : ""}>${esc(f.name)}</option>`).join("")}
+              </select></label>` : ""}
             <button type="button" data-act="delete" class="danger">Delete</button>
           </div>
-          ${folderOpts.length ? `
-            <select class="inline-select lib-card-move" data-act="move" aria-label="Move to folder">
-              <option value="">Unfiled</option>
-              ${folderOpts.map((f) => `<option value="${esc(f.id)}"${f.id === it.folderId ? " selected" : ""}>${esc(f.name)}</option>`).join("")}
-            </select>` : ""}
-        </div>
+        </details>
       </article>`;
   }
+  // One ⋯ menu open at a time; a click anywhere else closes it.
+  document.addEventListener("click", (e) => {
+    for (const d of document.querySelectorAll(".lib-menu[open]")) if (!d.contains(e.target)) d.open = false;
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    const d = document.querySelector(".lib-menu[open]");
+    if (d) { d.open = false; d.querySelector("summary").focus(); }
+  });
 
   $("#libraryList").addEventListener("click", async (e) => {
     if (e.target.closest("#libClearFilters")) {
@@ -1281,6 +1292,7 @@ async function main() {
     if (!btn) return;
     const row = btn.closest("[data-lib-id]");
     if (!row) return;
+    btn.closest(".lib-menu")?.removeAttribute("open");
     const id = row.dataset.libId;
     const title = row.querySelector("b")?.textContent || "this item";
 
@@ -1406,10 +1418,13 @@ async function main() {
     }
 
     const folderById = new Map(allFolders.map((f) => [f.id, f]));
-    $("#libraryList").innerHTML = librarySectionsHtml(shown, allFolders, {
+    const list = $("#libraryList");
+    list.innerHTML = librarySectionsHtml(shown, allFolders, {
       rowFn: libraryRow,
       folderMeta: (id) => AUDIENCE_PILL[folderById.get(id)?.audience]?.label,
+      open: list.dataset.libOpen || null, searching: !!q,
     });
+    libraryFolderClicks(list, renderLibraryDom);
   }
 
   $("#libFilterDest").innerHTML = `<option value="">All destinations</option>${
@@ -3579,10 +3594,8 @@ async function main() {
   }
 
   renderStats();
-  if (canOpen("content")) {
-    renderLibrary();
-    if (has("library.usage.view")) renderUsage();
-  }
+  if (canOpen("content")) renderLibrary();
+  if (canOpen("content-usage")) renderUsage();
   if (canOpen("forms")) renderForms();
   if (canOpen("kobo", "survey-results")) renderKobo();
   if (canOpen("users")) renderUsers();

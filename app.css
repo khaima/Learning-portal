@@ -183,6 +183,8 @@
   .dq-row input[data-dq-select]{ width:44px; height:44px; margin:0; } /* the issue's select box, finger-sized */
   .q-icon{ min-width:44px; min-height:44px; } /* move, remove */
   .reg-marks .reg-opt span{ min-height:44px; } /* present, late, absent */
+  .lib-menu > summary{ width:44px; height:44px; } /* a tile's actions */
+  .lib-menu-pop button,.lib-folder-tile,.lib-crumb{ min-height:44px; }
   .fo-x{ width:2.25rem; height:2.25rem; } /* take a school / class away */
   .fo-pick{ min-height:44px; align-items:center; }
   .tc-gaps .link-btn{ min-height:44px; }
@@ -201,7 +203,8 @@
   .app-side :is(a,button):not(.side-link){ display:flex; align-items:center; }
   /* Every other button on a page, and the links that act as one (a title in a table, "see all"). */
   .app-main button:not(.th-sort):not(.gf-x):not(.bars-link):not(.toast-close){ min-height:44px; min-width:44px; }
-  .app-main td a,.shelf-more,.lib-card a{ min-height:44px; display:inline-flex; align-items:center; }
+  .app-main td a,.shelf-more{ min-height:44px; display:inline-flex; align-items:center; }
+  .lib-tile-act .lib-open,.lib-tile-act .lib-save,.lib-tile-act .lib-download{ min-height:40px; } /* View, Save offline, Download on a tile */
 }
 
 /* A filter in the summary can be taken off on its own: back up one level. */
@@ -467,11 +470,9 @@ th[aria-sort="descending"] .th-arrow{ opacity:1; } th[aria-sort="descending"] .t
 /* ---- "Upload content" — folded into a one-line bar until opened, then
    a compact grid (title/description/source full-width, the four
    pickers side by side) instead of one long column. ---- */
-.upload-panel{ padding-top:1rem; padding-bottom:1rem; }
-.upload-bar{ display:flex; align-items:center; justify-content:space-between; gap:1rem; }
-.upload-bar-text h2{ margin:0; font-size:1.05rem; color:var(--ink); }
-.upload-bar-text p{ margin:.15rem 0 0; font-size:.8rem; color:var(--ink-soft); }
-.upload-bar .btn{ flex:none; padding:.55rem 1.1rem; font-size:.85rem; }
+.lib-page .upload-form:not([hidden]){ margin:0 0 1rem; padding:1rem; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--paper); }
+.lib-head-text{ display:flex; align-items:center; gap:.6rem 1rem; flex-wrap:wrap; }
+.lib-head .btn{ flex:none; }
 .upload-form{ margin-top:1rem; padding-top:1rem; border-top:1px solid var(--line); }
 .upload-grid{ display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:.2rem .9rem; }
 .upload-grid .span-all{ grid-column:1 / -1; }
@@ -503,8 +504,7 @@ th[aria-sort="descending"] .th-arrow{ opacity:1; } th[aria-sort="descending"] .t
 #up_link_field input:focus{ border-color:var(--brand); }
 @media (max-width:1100px){ .upload-grid{ grid-template-columns:repeat(2, minmax(0, 1fr)); } }
 @media (max-width:640px){
-  .upload-bar{ flex-wrap:wrap; }
-  .upload-bar .btn{ width:100%; }
+  .lib-head .btn{ width:100%; }
   .upload-grid{ grid-template-columns:1fr; }
   .upload-actions .btn{ flex:1; }
 }
@@ -530,6 +530,8 @@ th[aria-sort="descending"] .th-arrow{ opacity:1; } th[aria-sort="descending"] .t
 .lib-toolbar select:focus{ border-color:var(--brand); }
 @media (max-width:640px){ .lib-toolbar{ grid-template-columns:1fr 1fr; } .lib-toolbar input{ grid-column:1 / -1; } }
 
+
+/* Collapsible groups (the counties on Counties & schools). */
 .lib-section{ border:1px solid var(--line); border-radius:var(--radius-md); background:var(--paper-raised); }
 .lib-section + .lib-section{ margin-top:.8rem; }
 .lib-section-head{
@@ -554,49 +556,65 @@ th[aria-sort="descending"] .th-arrow{ opacity:1; } th[aria-sort="descending"] .t
 }
 .lib-section-body{ padding:.9rem; }
 
-/* Every piece of content is a small card in a responsive grid — as many
-   across as fit (roughly 4 on a laptop, 2 on a tablet, 1 on a phone),
-   all the same height per row so the grid stays tidy. */
-.lib-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(13.5rem, 1fr)); gap:.8rem; }
-.lib-card{
-  display:flex; flex-direction:column; gap:.35rem; min-width:0;
-  background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius-md);
-  padding:.85rem .9rem; transition:border-color .15s, box-shadow .15s, transform .15s;
+/* Every piece of content is a compact tile — its type icon beside the
+   title and subject · type, View beneath — as many across as fit (four or
+   so on a laptop, one on a phone). */
+.lib-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 16rem), 1fr)); gap:.55rem; }
+.lib-tile{
+  position:relative; display:flex; align-items:flex-start; gap:.65rem; min-width:0;
+  background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius-sm);
+  padding:.6rem .55rem .6rem .7rem; transition:border-color .15s, box-shadow .15s;
 }
-.lib-card[data-open-card]{ cursor:pointer; }
-.lib-card:hover{
-  border-color:color-mix(in srgb, var(--brand) 35%, var(--line));
-  box-shadow:0 6px 18px -10px rgba(20,33,61,.35); transform:translateY(-1px);
-}
-.lib-card-top{ display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin-bottom:.2rem; }
-.lib-card-top .pill{ font-size:.68rem; padding:.16rem .55rem; }
-.lib-card-type{ font-size:.66rem; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-soft); }
-.lib-card-title{
-  font-size:.92rem; line-height:1.3; color:var(--ink); overflow-wrap:anywhere;
+.lib-tile[data-open-card]{ cursor:pointer; }
+.lib-tile:hover{ border-color:color-mix(in srgb, var(--brand) 40%, var(--line)); box-shadow:0 4px 14px -10px rgba(20,33,61,.4); }
+.lib-tile.is-draft{ border-style:dashed; }
+.lib-tile .lib-ic{ width:2.1rem; height:2.1rem; border-radius:.6rem; }
+.lib-tile .lib-ic .icon{ width:16px; height:16px; }
+.lib-tile-body{ flex:1; min-width:0; display:flex; flex-direction:column; gap:.1rem; }
+.lib-tile-title{
+  font-size:.88rem; line-height:1.3; color:var(--ink); overflow-wrap:anywhere;
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
 }
-.lib-card-meta{ font-size:.76rem; color:var(--ink-soft); }
-.lib-card-desc{
-  margin:0; font-size:.78rem; line-height:1.4; color:var(--ink-soft);
-  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
-}
-.lib-card-foot{ margin-top:auto; padding-top:.35rem; display:flex; flex-direction:column; align-items:flex-start; gap:.45rem; }
-.lib-card-foot .lib-open,
-.lib-card-foot .lib-download{ margin-top:0; }
-.lib-card-foot .lib-folder{ margin-top:0; }
-.lib-card-actions{
-  display:flex; gap:.2rem .7rem; flex-wrap:wrap; width:100%;
-  padding-top:.45rem; border-top:1px solid var(--line);
-}
-.lib-card-actions button{
-  background:none; border:0; padding:.15rem 0; cursor:pointer;
-  font-family:inherit; font-size:.76rem; font-weight:600; color:var(--brand);
-}
-.lib-card-actions button:hover{ text-decoration:underline; }
-.lib-card-actions button.danger{ color:var(--danger-fg); }
-.lib-card-move{ width:100%; max-width:none; }
+.lib-tile-meta{ font-size:.74rem; color:var(--ink-soft); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.lib-tile-tags{ display:flex; flex-wrap:wrap; align-items:center; gap:.35rem; font-size:.72rem; }
+.lib-tile-tags .pill{ font-size:.66rem; padding:.1rem .45rem; }
+.lib-tile-act{ margin-top:.3rem; display:flex; flex-wrap:wrap; align-items:center; gap:.3rem; }
+.lib-tile-act:empty{ display:none; }
+.lib-tile-act .lib-open{ margin:0; padding:.2rem .55rem; font-size:.74rem; }
+.lib-tile-act .lib-download{ margin:0; padding:.16rem .45rem; font-size:.72rem; }
+.lib-tile-act .lib-folder summary{ font-size:.76rem; }
 .lib-grid > .lib-edit-row{ grid-column:1 / -1; margin:0; }
-@media (max-width:768px){ .lib-card-actions button{ padding:.45rem 0; font-size:.82rem; } }
+/* Folders: small tiles to open, then "All › Folder" to come back. */
+.lib-folders{ list-style:none; margin:0 0 .9rem; padding:0; display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 14rem), 1fr)); gap:.5rem; }
+.lib-folder-tile{
+  width:100%; display:flex; align-items:center; gap:.6rem; text-align:left; cursor:pointer;
+  font:inherit; color:var(--ink); background:var(--paper-sunk); border:1px solid transparent; border-radius:var(--radius-sm); padding:.5rem .7rem;
+}
+.lib-folder-tile:hover{ border-color:var(--brand); }
+.lib-folder-tile:focus-visible{ outline:2px solid var(--brand); outline-offset:2px; }
+.lib-folder-ic{ display:flex; color:var(--brand); }
+.lib-folder-ic .icon{ width:20px; height:20px; }
+.lib-folder-tile b{ display:block; font-size:.86rem; line-height:1.25; }
+.lib-folder-tile small{ display:block; font-size:.72rem; color:var(--ink-soft); }
+.lib-crumbs{ display:flex; align-items:center; gap:.45rem; flex-wrap:wrap; margin:0 0 .75rem; font-size:.9rem; color:var(--ink-soft); }
+.lib-crumbs b{ display:inline-flex; align-items:center; gap:.35rem; color:var(--ink); }
+.lib-crumbs .icon{ width:16px; height:16px; color:var(--brand); }
+.lib-crumb{ display:inline-flex; align-items:center; gap:.35rem; background:none; border:0; padding:.2rem .1rem; font:inherit; font-weight:600; color:var(--brand-fg); cursor:pointer; }
+.lib-crumb:hover span{ text-decoration:underline; }
+/* The education team's actions, behind ⋯ on each tile. */
+.lib-menu{ position:relative; flex:none; margin:-.15rem -.1rem 0 0; }
+.lib-menu > summary{ list-style:none; cursor:pointer; width:2rem; height:2rem; display:grid; place-items:center; border-radius:50%; color:var(--ink-soft); font-weight:700; font-size:1.05rem; line-height:1; }
+.lib-menu > summary::-webkit-details-marker{ display:none; }
+.lib-menu > summary:hover,.lib-menu[open] > summary{ background:var(--paper-sunk); color:var(--ink); }
+.lib-menu-pop{
+  position:absolute; right:0; top:calc(100% + 4px); z-index:6; min-width:12.5rem; display:grid; gap:.1rem; padding:.35rem;
+  background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius-sm); box-shadow:0 12px 28px -14px rgba(20,33,61,.45);
+}
+.lib-menu-pop button{ text-align:left; background:none; border:0; font:inherit; font-size:.85rem; padding:.45rem .6rem; border-radius:6px; cursor:pointer; color:var(--ink); }
+.lib-menu-pop button:hover{ background:var(--paper-sunk); }
+.lib-menu-pop button.danger{ color:var(--danger-fg); }
+.lib-menu-pop label{ display:grid; gap:.2rem; padding:.35rem .6rem; font-size:.74rem; color:var(--ink-soft); }
+.lib-menu-pop select{ width:100%; }
 
 .lib-ic{
   flex:none; width:2.3rem; height:2.3rem; border-radius:.7rem; display:flex; align-items:center; justify-content:center;
