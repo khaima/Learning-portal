@@ -2040,6 +2040,11 @@ h2,h3{ font-family:inherit; letter-spacing:-.01em; }
 .alert-act > div{ flex:1; min-width:0; overflow-wrap:anywhere; }
 .alert-act > .btn{ flex:none; }
 @media (max-width:560px){ .alert-act{ flex-wrap:wrap; } .alert-act > div{ flex-basis:100%; } }
+/* Content usage: what needs doing, between the key figures and the pictures (docs/DASHBOARD-HIERARCHY.md). */
+.usage-attention{ margin:0 0 1.5rem; }
+.usage-attn-head{ display:flex; align-items:center; gap:.5rem; margin-bottom:.55rem; }
+.usage-attn-head h3{ margin:0; font-size:1rem; }
+.usage-attention .alert:last-child{ margin-bottom:0; }
 
 /* The executive overview: five or six figures in one row, then the areas three to a row. */
 @media (min-width:1280px){ .exec-row:not(:has(> :nth-child(6))){ grid-template-columns:repeat(5,minmax(0,1fr)); } }

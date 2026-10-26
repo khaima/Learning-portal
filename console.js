@@ -51,6 +51,7 @@ const dqUi = once(() => import("./dq-ui.js"));
 const melUi = once(() => import("./mel-ui.js"));
 const learnersUi = once(() => import("./learners-ui.js"));
 const syncProblemsUi = once(() => import("./sync-problems-ui.js"));
+const usageUi = once(() => import("./usage-ui.js"));
 
 const AUDIENCE_LABEL = Object.fromEntries(FORM_AUDIENCES.map((a) => [a.value, a.label]));
 const STAFF_ROLES = ROLES.filter((r) => r.value !== "learner");
@@ -263,6 +264,8 @@ async function main() {
     if (t) setRange(termBounds(Number(t[1]), Number(t[2])));
     const mo = d.month && /^(\d{4})-(\d{2})$/.exec(d.month);
     if (mo) setRange({ from: `${mo[1]}-${mo[2]}-01`, to: isoDate(new Date(Number(mo[1]), Number(mo[2]), 0)) });
+    const day = /^\d{4}-\d{2}-\d{2}$/;
+    if (day.test(d.from || "") && day.test(d.to || "")) setRange({ from: d.from, to: d.to });
     renderGlobalFilterOptions();
   }
   if (gf.from || gf.to) setRange({ from: gf.from, to: gf.to }); // kept from before a reload
@@ -1468,66 +1471,47 @@ async function main() {
     </div>`;
   }
 
-  /* ------------------------------------------------------------ content usage report
-     Every "Open to read" click is timed (see nav.js) and rolls up here —
-     scoped to one school or every school combined, same county/school
-     filter pattern as the Portal impact dashboard above. */
-  function schoolUsageRows(rows) {
-    return rows.map((r) => `
-      <div class="task-row">
-        <div style="flex:1"><b>${esc(r.school)}</b><span>${r.users} user${r.users === 1 ? "" : "s"} · ${r.sessions} session${r.sessions === 1 ? "" : "s"}</span></div>
-        <span class="bar-num">${formatDuration(r.totalSeconds)}</span>
-      </div>`).join("");
-  }
-
-  /* Time by topic, then every topic › sub-topic with its time, opens and people — as each item was
-     tagged when it was opened. Untagged items are counted under "(no topic)", last. */
-  function topicUsageCard(topics) {
-    if (!topics.length) return "";
-    const tagged = topics.filter((t) => t.topic !== "(no topic)");
-    const rows = topics.flatMap((t) => t.subtopics.map((s) => ({ t, s })));
-    return `<div class="chart-card intel-wide">
-      <div class="chart-card-head"><b>By topic and sub-topic</b><span>${tagged.length ? `${tagged.length} topic${tagged.length === 1 ? "" : "s"} · time, opens and people` : "Give items a topic to see time spent by topic"}</span></div>
-      ${tagged.length ? barList(tagged.map((t) => ({ label: t.topic, value: t.totalSeconds, note: `${t.sessions} open${t.sessions === 1 ? "" : "s"} · ${t.users} ${t.users === 1 ? "person" : "people"}` })),
-        { sort: true, noun: "time", text: (r) => formatDuration(r.value), empty: emptyMsg("Nothing timed yet.") }) : ""}
-      <div class="lms-table-wrap" style="margin-top:.8rem"><table class="lms-table">
-        <thead><tr><th>Topic</th><th>Sub-topic</th><th class="num">Time</th><th class="num">Opens</th><th class="num">People</th></tr></thead>
-        <tbody>${rows.map(({ t, s }) => `<tr><td class="lms-name">${esc(t.topic)}</td><td class="lms-name">${esc(s.subtopic)}</td>
-          <td class="num">${formatDuration(s.totalSeconds)}</td><td class="num">${s.sessions}</td><td class="num">${s.users}</td></tr>`).join("")}</tbody>
-      </table></div>
-    </div>`;
-  }
-
-  async function renderUsage() {
-    $("#usageBody").innerHTML = skeletonDashboard();
-    let u;
+  /* ------------------------------------------------------------ content usage
+     Who opens the library's resources, how often, when and for how long,
+     under the county, school and dates above (GET /library/usage; the page
+     is usage-ui.js, loaded the first time it's opened). Like the other
+     dashboards it reads again by itself while open, changing only what's
+     different; a chart's school or week narrows the filters to it. */
+  let usageLive = null;
+  let usageRun = 0;
+  async function renderUsage({ quiet = false } = {}) {
+    if (!canOpen("content-usage")) return;
+    usageLive ||= liveStatus($("#usageLive"), { refresh: () => renderUsage({ quiet: true }), every: DASH_EVERY_MS });
+    const run = ++usageRun;
+    if (!quiet) {
+      usageLive.start();
+      $("#usageBody").innerHTML = skeletonDashboard();
+    }
+    let u, ui;
     try {
-      u = await getLibraryUsage({ school: gf.school });
+      [u, ui] = await Promise.all([getLibraryUsage({ county: gf.county, school: gf.school, from: gf.from, to: gf.to }), usageUi()]);
     } catch (err) {
+      if (quiet) throw err; // what's on screen stays; the freshness line says it couldn't refresh
+      if (run !== usageRun) return;
       console.error("could not load usage report:", err);
+      usageLive.fail(err);
       $("#usageBody").innerHTML = errorState(friendlyError(err, "Couldn't load the usage report."), renderUsage);
       return;
     }
-    $("#usageMeta").textContent = u.school ? `Scoped to ${u.school}` : "All schools";
-
-    const topResources = (u.byResource || []).slice(0, 8).map((r) => ({ label: r.title, value: r.totalSeconds || 0 }));
-
-    $("#usageBody").innerHTML = `
-      <div class="chart-stats">
-        <div><b>${formatDuration(u.totals.totalSeconds)}</b><span>Time spent</span></div>
-        <div><b>${u.totals.sessions}</b><span>Resources opened</span></div>
-        <div><b>${u.totals.completedSessions}</b><span>Timed sessions</span></div>
-        <div><b>${u.totals.users}</b><span>Active users</span></div>
-      </div>
-      <div class="chart-grid">
-        ${impactCard("Most-visited resources", `Time spent in the ${topResources.length} most-read of ${(u.byResource || []).length} resources`,
-          barList(topResources, { sort: true, noun: "open", text: (r) => formatDuration(r.value), empty: emptyMsg("Nothing opened yet.") }))}
-        ${impactCard("By school", u.school ? "1 school (filtered) · people, sessions and time" : `${(u.bySchool || []).length} schools · people, sessions and time`,
-          (u.bySchool || []).length ? schoolUsageRows(u.bySchool) : `<div class="chart-empty">${emptyMsg("Nothing tracked yet.")}</div>`)}
-        ${topicUsageCard(u.byTopic || [])}
-      </div>
-    `;
+    if (run !== usageRun) return; // the filters changed while this was being read
+    $("#usageMeta").textContent = u.school || (u.county ? `${u.county} County` : "Every school");
+    swap($("#usageBody"), ui.usageHtml(u, { canOpen, roleLabel: (r) => ROLE_LABEL[r] || r }), { replace: !quiet });
+    for (const m of $$('#usageBody details[data-more]')) m.open = moreOpen.has(m.dataset.more);
+    if (!quiet) usageLive.ok();
   }
+  // A school's bar narrows everything to that school; a week, to that week.
+  $("#usageBody")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-drill]");
+    if (!btn) return;
+    try { applyDrill(JSON.parse(btn.dataset.drill)); } catch { return; }
+    applyFilters();
+    $("#gfSummary").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
 
   /* ---- file / folder picker for "Upload content" ---- */
   const fileInput = $("#up_file");
@@ -3494,6 +3478,7 @@ async function main() {
     // A dashboard opened again reads again if what it shows has aged.
     if (page === "overview" || page in IMP_PAGES) impactLive?.refreshIfStale();
     else if (page === "me-dashboard") melLive?.refreshIfStale();
+    else if (page === "content-usage") usageLive?.refreshIfStale();
     else if (page === "survey-results") srLive.refreshIfStale();
     switch (page) {
       case "platform-overview":

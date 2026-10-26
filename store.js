@@ -393,11 +393,11 @@ export async function getMyLibraryUsage() {
   return apiGet("/library/interactions/mine");
 }
 
-/* Education team only: the portal-wide usage report, optionally scoped
-   to one school (omit for every school combined). */
-export async function getLibraryUsage({ school } = {}) {
-  const qs = school ? `?school=${encodeURIComponent(school)}` : "";
-  return apiGet(`/library/usage${qs}`);
+/* The Content usage report, under the county, school and dates chosen
+   (any left out: everywhere, all time). */
+export async function getLibraryUsage({ county, school, from, to } = {}) {
+  const p = new URLSearchParams(Object.entries({ county, school, from, to }).filter(([, v]) => v));
+  return apiGet(`/library/usage${p.toString() ? `?${p}` : ""}`);
 }
 
 /* ---------------------------------------------------------------- forms */

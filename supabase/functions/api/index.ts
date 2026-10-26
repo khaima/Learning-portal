@@ -38,6 +38,7 @@ import { buildIntelligence, VISIT_TYPES as INTEL_VISIT_TYPES } from "./intellige
 import { checkEmbeddable, cleanTopic } from "./embed.ts";
 export { __setFrameFetchForTests } from "./embed.ts";
 import { buildImpact, GENDERS } from "./impact.ts";
+import { buildLibraryUsage } from "./library_usage.ts";
 import { type Jwk, verifyAccessToken } from "./jwt.ts";
 import { buildNotifications, missingVisitForms } from "./notifications.ts";
 import { type Column, GENDER_TEXT, REPORTS, STATUS_TEXT, reportsFor, rowCount, type Section } from "./reports.ts";
@@ -3001,104 +3002,33 @@ app.post("/library/:id/badge", requireActive(), async (c) => {
   });
 });
 
-/* Education-team rollup: every school's engagement with the library,
-   scoped to one school or portal-wide, plus the ranked resource list and
-   a per-school breakdown so "this school" and "all schools" are both one
-   filter away — same pattern as the Portal impact dashboard's county/
-   school filters. */
+/* The Content usage report: who opens the library's resources, how often,
+   when and for how long — narrowed to the caller's area and to the county,
+   school and dates chosen, with what someone could act on (resources
+   nobody opened, resources usually closed within seconds, schools that
+   never or no longer use the library). Worked out in library_usage.ts. */
 app.get("/library/usage", requirePermission("library.usage.view"), async (c) => {
-  const school = String(c.req.query("school") ?? "").trim();
-
-  const [itemsRes, interRes] = await Promise.all([
-    selectAll(() => admin.from("library_items").select("id, title, topic, subtopic").order("id")),
+  const q = (k: string) => String(c.req.query(k) ?? "").trim() || null;
+  const date = (k: string) => { const v = q(k); return v && DATE_RE.test(v) ? v : null; };
+  const [itemsRes, interRes, schoolsRes] = await Promise.all([
+    selectAll(() => admin.from("library_items").select("id, title, subject, type, audience, published, uploaded_at, topic, subtopic").order("id")),
     selectAll(() => admin.from("library_interactions")
-      .select("library_item_id, actor_id, school, duration_seconds, topic, subtopic").order("id")),
+      .select("library_item_id, actor_id, actor_kind, role, school, started_at, duration_seconds, topic, subtopic").order("id")),
+    selectAll(() => admin.from("schools").select("id, name, county").order("id")),
   ]);
   // A failed read must not render as "nobody used the library".
-  const usageErr = itemsRes.error || interRes.error;
+  const usageErr = itemsRes.error || interRes.error || schoolsRes.error;
   if (usageErr) return c.json({ error: usageErr.message }, 500);
-  const items = itemsRes.data ?? [];
-  const titleOf: Record<string, string> = {};
-  for (const it of items) titleOf[it.id as string] = it.title as string;
-
-  const areaNames = await schoolNamesInScope(c);
-  const allRows = (interRes.data ?? []).filter((r) => !areaNames || areaNames.has(r.school));
-  const schoolSet = new Set<string>();
-  for (const r of allRows) if (r.school) schoolSet.add(r.school as string);
-  const schools = [...schoolSet].sort();
-
-  const rows = school ? allRows.filter((r) => (r.school || "") === school) : allRows;
-  const completedRows = rows.filter((r) => r.duration_seconds != null);
-
-  const secondsByItem: Record<string, number> = {};
-  const viewsByItem: Record<string, number> = {};
-  for (const r of rows) {
-    const id = r.library_item_id as string;
-    viewsByItem[id] = (viewsByItem[id] ?? 0) + 1;
-    if (r.duration_seconds != null) secondsByItem[id] = (secondsByItem[id] ?? 0) + (r.duration_seconds as number);
-  }
-  const byResource = Object.keys(viewsByItem)
-    .map((id) => ({
-      itemId: id,
-      title: titleOf[id] ?? "(deleted resource)",
-      views: viewsByItem[id],
-      totalSeconds: secondsByItem[id] ?? 0,
-    }))
-    .sort((a, b) => b.totalSeconds - a.totalSeconds || b.views - a.views);
-
-  const bySchoolAgg: Record<string, { users: Set<string>; sessions: number; seconds: number }> = {};
-  for (const r of allRows) {
-    const s = (r.school as string) || "(not set)";
-    const agg = (bySchoolAgg[s] ??= { users: new Set(), sessions: 0, seconds: 0 });
-    agg.users.add(r.actor_id as string);
-    agg.sessions++;
-    if (r.duration_seconds != null) agg.seconds += r.duration_seconds as number;
-  }
-  const bySchool = Object.entries(bySchoolAgg)
-    .map(([s, agg]) => ({ school: s, users: agg.users.size, sessions: agg.sessions, totalSeconds: agg.seconds }))
-    .sort((a, b) => b.totalSeconds - a.totalSeconds);
-
-  // By topic and sub-topic: as the item was tagged when it was opened (older visits: as it is now).
-  const tagOf: Record<string, { topic: unknown; subtopic: unknown }> = {};
-  for (const it of items) tagOf[it.id as string] = { topic: it.topic, subtopic: it.subtopic };
-  type Agg = { users: Set<string>; sessions: number; seconds: number };
-  const add = (agg: Agg, r: Record<string, unknown>) => {
-    agg.users.add(r.actor_id as string);
-    agg.sessions++;
-    if (r.duration_seconds != null) agg.seconds += r.duration_seconds as number;
-  };
-  const topics = new Map<string, Agg & { subs: Map<string, Agg> }>();
-  for (const r of rows) {
-    const tag = r.topic != null || r.subtopic != null ? r : tagOf[r.library_item_id as string] ?? {};
-    const topic = (tag.topic as string) || "(no topic)";
-    const sub = (tag.subtopic as string) || "(no sub-topic)";
-    if (!topics.has(topic)) topics.set(topic, { users: new Set(), sessions: 0, seconds: 0, subs: new Map() });
-    const t = topics.get(topic)!;
-    add(t, r);
-    if (!t.subs.has(sub)) t.subs.set(sub, { users: new Set(), sessions: 0, seconds: 0 });
-    add(t.subs.get(sub)!, r);
-  }
-  const out = (a: Agg) => ({ users: a.users.size, sessions: a.sessions, totalSeconds: a.seconds });
-  const byTopic = [...topics.entries()]
-    .map(([topic, t]) => ({
-      topic, ...out(t),
-      subtopics: [...t.subs.entries()].map(([subtopic, s]) => ({ subtopic, ...out(s) })).sort((a, b) => b.totalSeconds - a.totalSeconds || b.sessions - a.sessions),
-    }))
-    .sort((a, b) => Number(a.topic === "(no topic)") - Number(b.topic === "(no topic)") || b.totalSeconds - a.totalSeconds || b.sessions - a.sessions);
-
-  return c.json({
-    school: school || null,
-    schools,
-    totals: {
-      users: new Set(rows.map((r) => r.actor_id)).size,
-      sessions: rows.length,
-      completedSessions: completedRows.length,
-      totalSeconds: completedRows.reduce((s, r) => s + (r.duration_seconds as number), 0),
-    },
-    byResource,
-    bySchool,
-    byTopic,
-  });
+  // Reading is recorded against the reader's school name: an area-scoped
+  // reader sees the schools in their area, and the reading done there.
+  const sc = scopeOf(c);
+  const schools = (schoolsRes.data ?? []).filter((s) => sc.global || sc.schoolIds.has(s.id as string));
+  const names = sc.global ? null : new Set(schools.map((s) => s.name as string));
+  const interactions = (interRes.data ?? []).filter((r) => !names || names.has(r.school as string));
+  return c.json(buildLibraryUsage(
+    { items: itemsRes.data ?? [], interactions, schools, now: new Date() },
+    { school: q("school"), county: q("county"), from: date("from"), to: date("to") },
+  ));
 });
 
 /** Names of the schools in the caller's area, or null for everywhere

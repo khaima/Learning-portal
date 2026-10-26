@@ -85,7 +85,7 @@ const PAGES = {
   assignments: { label: "Assignments & assessments", icon: "assignment", needs: ["assignments.view.all"], filters: ["county", "term"], purpose: "All work set in your area's schools (read-only)." },
   results: { label: "Results", icon: "results", needs: ["assignments.view.all"], purpose: "Work handed in and marks, by school, class or subject." },
   content: { label: "Content library", icon: "book", needs: ["library.manage", "library.usage.view"], heading: "Content library", purpose: "Upload resources, file them in folders, choose who sees them." },
-  "content-usage": { label: "Usage", icon: "activity", needs: ["library.usage.view"], filters: ["school"], heading: "Content usage", purpose: "Which resources are opened, by whom, and for how long." },
+  "content-usage": { label: "Usage", icon: "activity", needs: ["library.usage.view"], filters: true, heading: "Content usage", purpose: "Which resources are opened, by whom, when and for how long." },
   training: { label: "Training register", icon: "star", needs: ["trainings.manage", "intelligence.view"], purpose: "Training sessions and who attended." },
   forms: { label: "Forms", icon: "form", needs: ["forms.manage", "forms.responses.view"], purpose: "Send forms to staff, and read their responses." },
   "field-visits": { label: "Field visits", icon: "pin", needs: ["field_reports.view.all"], filters: ["county", "school", "term"], purpose: "Every visit filed in your area, newest first." },

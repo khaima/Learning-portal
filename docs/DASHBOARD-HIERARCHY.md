@@ -105,6 +105,23 @@ tile.
 | Most-used content, Opens by month, Usage by term | Secondary |
 | Resources by shelf, by subject, by type | Detail |
 
+### Content usage (`#content-usage`)
+
+Who opens the library's resources, how often, when and for how long
+(GET /library/usage, worked out in `library_usage.ts`; the page is
+`usage-ui.js`). County, school and dates narrow it like the other
+dashboards; it refreshes itself while open.
+
+| Component | Level |
+| --- | --- |
+| People reached (learners · staff), Opens, Time spent (with the typical open), Resources used (of those published) — each count with the last 30 days beside the 30 before, in words, when no dates are chosen | Primary |
+| Needs attention: resources usually closed within 30 seconds (judged only with 5 or more timed opens), published resources not opened, schools gone quiet (nothing in 30 days), schools that never opened one | Primary |
+| Opens and people over time (whole weeks; a month at a time over a long range; the week under way said in words), Most used resources, Who opens resources (by role), When resources are opened (day × time, Kenyan time), Schools compared, Time by topic | Secondary |
+| Every resource opened, Not opened, Every school, Topics and sub-topics — all sortable | Detail |
+
+A school's bar narrows the page to that school, a week to that week, a
+resource opens the library searched for it.
+
 ### M&E dashboard and Data Quality Center
 
 Order unchanged — both already lead with their summary. Each has one

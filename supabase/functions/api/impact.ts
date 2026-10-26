@@ -23,13 +23,13 @@ type Row = Record<string, any>;
 export type ImpactInput = IntelligenceInput & { trainings: Row[]; trainingAttendance: Row[] };
 
 /** The days of the week and three-hour blocks a "when" heatmap is drawn on (Kenyan time). */
-const DAY_BLOCKS = {
+export const DAY_BLOCKS = {
   days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
   blocks: ["0–3", "3–6", "6–9", "9–12", "12–15", "15–18", "18–21", "21–24"],
   timezone: "EAT",
 };
 /** Counts by day (Monday first) × three-hour block, in Kenyan time (EAT, UTC+3), of the moments `keep` lets through. */
-function dayBlocks(moments: unknown[], keep: (v: unknown) => boolean): number[][] {
+export function dayBlocks(moments: unknown[], keep: (v: unknown) => boolean): number[][] {
   const cells = Array.from({ length: 7 }, () => Array(8).fill(0) as number[]);
   for (const ts of moments) {
     const t = Date.parse(String(ts ?? ""));
