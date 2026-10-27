@@ -19,26 +19,37 @@
    below is page-specific unless its comment says so. Extend an
    existing class before inventing a new one.
 
-   ---- type scale ----
+   The dashboard design system is written up in docs/DESIGN-SYSTEM.md;
+   these tokens are its source. Never write a literal font size, colour
+   or card shadow in a component: use a token.
+
+   ---- type scale (--text-*) ----
    Baloo 2 for the brand, the page title and the sign-in page; Work Sans
-   for everything else — on the dashboards that includes section headings
-   and figures (app.css), so a page reads as one voice and looks the same
-   while the fonts are still arriving. Sizes step down with how much a
-   reader scans vs. reads:
-     1.5rem   .app-top h1 / .login-inner h2   page title
-     1.15rem  .hero-progress h2               hero/callout heading
-     1.02rem  .panel-head h2                  section heading
+   for everything else, so a page reads as one voice. One step per role,
+   and key figures always outrank headings:
+     --text-kpi-lead  2rem       headline figures (Executive overview)
+     --text-kpi       1.75rem    key figures
+     --text-page      1.5rem     page titles
+     --text-lg        1.25rem    callout headings
+     --text-section   1.0625rem  section headings
+     --text-title     .9375rem   chart and card titles
+     --text-body      .875rem    body copy, table cells
+     --text-sm        .8125rem   supporting descriptions, sub-lines, labels
+     --text-xs        .75rem     axis labels, legends, captions, tooltips
+     --text-micro     .6875rem   counters and badges only
 
    ---- colour ----
-   Colour is for meaning, not decoration: success, warning (the accent),
-   danger, and neutral ink. Each status has a fill (--success, --accent,
-   --danger), a tint (-soft) and a darker text colour (--success-fg,
-   --accent-fg, --danger-fg) that reads at 4.5:1 on white and on its tint.
-   Solid buttons use --accent-strong for the same reason. Bars in a chart
-   are one colour unless the colour itself says something.
-     .92rem   .form-card h3                   card sub-heading
-     .86-.9rem  body copy inside cards/rows
-     .74-.8rem  meta/caption text (timestamps, counts, hints)
+   One brand colour, neutral surfaces, and three status colours that mean
+   the same thing everywhere:
+     brand blue   --brand, --action      data, links, buttons, the current page
+     positive     --success (+ -soft, -fg)   on track, improving, done
+     attention    --accent  (+ -soft, -fg)   needs someone to act, close to target
+     negative     --danger  (+ -soft, -fg)   off track, failed, declining
+   The -fg shades are for text (4.5:1 on white and on their tint). Status
+   colours never decorate, never mark a button or the current page, and
+   never colour a category; status is always said in words or an icon too.
+   Chart categories use --cat-1..3 (validated for colour blindness, no
+   status hue); magnitude uses --seq-*; a target line is --chart-target.
 
    ---- component index ----
    Layout    .app-shell .app-side .app-main .app-top .body-grid
@@ -59,9 +70,10 @@
 
 :root{
   --ink:#14213D; --ink-soft:#3D4C6B;
-  --paper:#FAF6EF; --paper-raised:#FFFFFF; --paper-sunk:#F1EAE0;
-  --line:#E4DACB;
+  --paper:#F6F7F9; --paper-raised:#FFFFFF; --paper-sunk:#EDF0F4;
+  --line:#DFE3E9; --line-control:#8A94A6;
   --brand:#1E4C8A; --brand-soft:#E7EEF7; --brand-fg:#16386A;
+  --action:#1E4C8A; --action-hover:#163A6B;
   --accent-soft:#FBE7D4; --accent-fg:#9C4F17;
   --success:#3E9C6E; --success-soft:#E1F3EA; --success-fg:#2B6E4D;
   --danger:#D64545; --danger-soft:#FBE4E2; --danger-fg:#B42318;
@@ -70,10 +82,14 @@
   --chart-4:#8A5CB0; --chart-5:#C6534E; --chart-6:#2E8FA8;
   /* Charts that split one whole into parts (charts.js). Checked for
      colour-blind separation and contrast on the card surface:
-       --cat-*   up to four unordered parts (a donut), always in this order
-       --band-*  the four achievement bands, best to weakest
+       --cat-*   up to three unordered parts (a donut), always in this order;
+                 no status hue, so a category never reads as a warning
+                 (validated all-pairs, light and dark: docs/DESIGN-SYSTEM.md)
+       --band-*  the four achievement bands, best to weakest — the status
+                 colours, because there the colour IS the judgement
        --seq-*   one hue, strongest to weakest, for an ordered scale */
-  --cat-1:#24589C; --cat-2:#D97A34; --cat-3:#8A5CB0; --cat-4:#3E9C6E;
+  --cat-1:#284CAC; --cat-2:#1B89A5; --cat-3:#83297E;
+  --chart-target:var(--ink-soft);
   --band-1:#3E9C6E; --band-2:#24589C; --band-3:#D97A34; --band-4:#B3261E;
   --seq-1:#1E4C8A; --seq-2:#4370B2; --seq-3:#6A91C9; --seq-4:#94B2DC; --neutral:#9AA3B5;
   /* A heatmap's count on each shade (hm-1 lightest … hm-4 darkest = --seq-4 … --seq-1), 4.5:1 or more. */
@@ -83,23 +99,30 @@
      reason a real logo never recolors itself) — never redefined below. */
   --panel:#1E4C8A; --panel-deep:#0F2C52;
   --accent:#D97A34; --accent-strong:#B5571A; --accent-hover:#984813;
+  /* Only for things that float over the page (menus, dialogs, toasts,
+     tooltips, the phone drawer). Cards are flat: a border, no shadow. */
   --shadow: 0 1px 2px rgba(20,33,61,.05), 0 4px 14px -10px rgba(20,33,61,.16);
   --radius-lg:12px; --radius-md:10px; --radius-sm:8px;
+  --text-micro:.6875rem; --text-xs:.75rem; --text-sm:.8125rem; --text-body:.875rem; --text-title:.9375rem;
+  --text-section:1.0625rem; --text-lg:1.25rem; --text-page:1.5rem; --text-kpi:1.75rem; --text-kpi-lead:2rem;
+  /* Spacing: one gap between cards, one between sections, two paddings. */
+  --gap:1rem; --gap-section:1.5rem; --pad-panel:1.25rem 1.375rem; --pad-tile:1rem 1.125rem;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
     --ink:#F1EDE4; --ink-soft:#B9C2D6;
     --paper:#0E1730; --paper-raised:#152142; --paper-sunk:#0A1226;
-    --line:#293659;
+    --line:#293659; --line-control:#6B7896;
     --brand:#8FB4E3; --brand-soft:#1C2C4E; --brand-fg:#B7D0EF;
+    --action:#3A6DB8; --action-hover:#2F5E9F;
     --accent-soft:#3A2A19; --accent-fg:#F0B27E;
     --success:#5FC28C; --success-soft:#123527; --success-fg:#5FC28C;
     --danger:#F0797A; --danger-soft:#3B1C1E; --danger-fg:#F0797A;
     --focus:#8FB4E3;
     --chart-1:#8FB4E3; --chart-2:#F0B27E; --chart-3:#5FC28C;
     --chart-4:#BFA0DC; --chart-5:#F0797A; --chart-6:#79C6D8;
-    --cat-1:#4F93E0; --cat-2:#D27634; --cat-3:#A274D6; --cat-4:#35A873;
+    --cat-1:#4B74D8; --cat-2:#33A3B4; --cat-3:#B545AE;
     --band-1:#35A873; --band-2:#4F93E0; --band-3:#B8892A; --band-4:#CF4B41;
     --seq-1:#ABC8EE; --seq-2:#7DA3DA; --seq-3:#5A80BC; --seq-4:#3D5F96; --neutral:#6B7896; --hm-ink-1:#FFFFFF; --hm-ink-2:#050A18; --hm-ink-3:#0E1730; --hm-ink-4:#0E1730;
     color-scheme: dark;
@@ -108,18 +131,23 @@
 :root[data-theme="dark"]{
   --ink:#F1EDE4; --ink-soft:#B9C2D6;
   --paper:#0E1730; --paper-raised:#152142; --paper-sunk:#0A1226;
-  --line:#293659;
+  --line:#293659; --line-control:#6B7896;
   --brand:#8FB4E3; --brand-soft:#1C2C4E; --brand-fg:#B7D0EF;
+  --action:#3A6DB8; --action-hover:#2F5E9F;
   --accent-soft:#3A2A19; --accent-fg:#F0B27E;
   --success:#5FC28C; --success-soft:#123527; --success-fg:#5FC28C;
   --danger:#F0797A; --danger-soft:#3B1C1E; --danger-fg:#F0797A;
   --focus:#8FB4E3;
   --chart-1:#8FB4E3; --chart-2:#F0B27E; --chart-3:#5FC28C;
   --chart-4:#BFA0DC; --chart-5:#F0797A; --chart-6:#79C6D8;
-  --cat-1:#4F93E0; --cat-2:#D27634; --cat-3:#A274D6; --cat-4:#35A873;
+  --cat-1:#4B74D8; --cat-2:#33A3B4; --cat-3:#B545AE;
   --band-1:#35A873; --band-2:#4F93E0; --band-3:#B8892A; --band-4:#CF4B41;
   --seq-1:#ABC8EE; --seq-2:#7DA3DA; --seq-3:#5A80BC; --seq-4:#3D5F96; --neutral:#6B7896; --hm-ink-1:#FFFFFF; --hm-ink-2:#050A18; --hm-ink-3:#0E1730; --hm-ink-4:#0E1730;
   color-scheme: dark;
+}
+
+@media (max-width:560px){
+  :root{ --text-kpi:1.5rem; --text-kpi-lead:1.5rem; --gap:.75rem; --gap-section:1.25rem; --pad-panel:1.05rem 1rem; --pad-tile:.85rem .9rem; }
 }
 
 *{ box-sizing:border-box; }
@@ -141,43 +169,43 @@ a{ color:inherit; }
 .badge-mark{
   width:38px; height:38px; border-radius:11px; background:var(--panel); color:#fff;
   display:flex; align-items:center; justify-content:center; font-family:"Baloo 2",sans-serif;
-  font-weight:800; font-size:1rem; letter-spacing:-.02em; flex:none;
+  font-weight:800; font-size:var(--text-section); letter-spacing:-.02em; flex:none;
 }
 .wordmark{ display:flex; align-items:center; gap:.6rem; text-decoration:none; }
 .wordmark-text{ line-height:1.15; }
-.wordmark-text b{ display:block; font-family:"Baloo 2",sans-serif; font-weight:700; font-size:1.02rem; color:var(--ink); }
-.wordmark-text span{ display:block; font-size:.72rem; color:var(--ink-soft); }
+.wordmark-text b{ display:block; font-family:"Baloo 2",sans-serif; font-weight:700; font-size:var(--text-section); color:var(--ink); }
+.wordmark-text span{ display:block; font-size:var(--text-xs); color:var(--ink-soft); }
 .pill{
   display:inline-flex; align-items:center; gap:.35rem; padding:.28rem .7rem; border-radius:999px;
-  font-size:.76rem; font-weight:600; background:var(--brand-soft); color:var(--brand-fg);
+  font-size:var(--text-xs); font-weight:600; background:var(--brand-soft); color:var(--brand-fg);
 }
 .pill.warm{ background:var(--accent-soft); color:var(--accent-fg); }
 .pill.ok{ background:var(--success-soft); color:var(--success-fg); }
 .pill.danger{ background:var(--danger-soft); color:var(--danger-fg); }
 .icon{ width:1em; height:1em; display:inline-block; vertical-align:-.14em; }
 .btn{
-  border:0; border-radius:var(--radius-md); font-weight:700; font-size:.92rem; cursor:pointer; font-family:inherit;
+  border:0; border-radius:var(--radius-md); font-weight:700; font-size:var(--text-title); cursor:pointer; font-family:inherit;
   padding:.72rem 1.3rem; display:inline-flex; align-items:center; justify-content:center; gap:.4rem;
 }
 .btn-block{ width:100%; }
-.btn-primary{ background:var(--accent-strong); color:#fff; }
-.btn-primary:hover{ background:var(--accent-hover); }
-.btn-outline{ background:var(--paper-raised); color:var(--ink); border:1.5px solid var(--line); }
+.btn-primary{ background:var(--action); color:#fff; }
+.btn-primary:hover{ background:var(--action-hover); }
+.btn-outline{ background:var(--paper-raised); color:var(--ink); border:1px solid var(--line-control); }
 .btn-ghost{ background:transparent; color:var(--brand); }
 /* Field Officer dashboard: the one primary action on the page, sized for
    a thumb on a tablet rather than a mouse on a desktop. */
-.visit-cta{ font-size:1.05rem; padding:1.1rem 1.3rem; }
+.visit-cta{ font-size:var(--text-section); padding:1.1rem 1.3rem; }
 .demo-banner{
-  background:var(--accent-soft); color:var(--accent-fg); text-align:center; font-size:.8rem;
+  background:var(--accent-soft); color:var(--accent-fg); text-align:center; font-size:var(--text-sm);
   font-weight:600; padding:.5rem 1rem;
 }
 .toast-host{ position:fixed; bottom:1.2rem; right:1.2rem; z-index:200; display:flex; flex-direction:column; gap:.5rem; }
 .toast{
   background:var(--ink); color:var(--paper); padding:.7rem .5rem .7rem 1rem; border-radius:var(--radius-sm);
-  font-size:.85rem; box-shadow:var(--shadow); max-width:22rem; display:flex; align-items:flex-start; gap:.4rem;
+  font-size:var(--text-body); box-shadow:var(--shadow); max-width:22rem; display:flex; align-items:flex-start; gap:.4rem;
 }
 .toast-text{ flex:1; min-width:0; }
-.toast-close{ flex:none; background:none; border:0; color:inherit; font-size:1.15rem; line-height:1; padding:.1rem .4rem; cursor:pointer; opacity:.85; border-radius:4px; }
+.toast-close{ flex:none; background:none; border:0; color:inherit; font-size:var(--text-lg); line-height:1; padding:.1rem .4rem; cursor:pointer; opacity:.85; border-radius:4px; }
 .toast-close:hover{ opacity:1; }
 .toast-close:focus-visible{ outline:2px solid currentColor; outline-offset:1px; }
 /* The deeper shade of each colour, so the message text is readable on it (4.5:1 or more) in both themes. */
@@ -201,24 +229,24 @@ a{ color:inherit; }
 .gate-brand{ text-align:center; padding:2rem 1.5rem 1.2rem; border-bottom:1px solid var(--line); }
 .gate-mark{
   display:inline-flex; align-items:center; justify-content:center; width:64px; height:64px; border-radius:18px;
-  background:var(--panel); color:#fff; font-family:"Baloo 2",sans-serif; font-weight:800; font-size:1.45rem;
+  background:var(--panel); color:#fff; font-family:"Baloo 2",sans-serif; font-weight:800; font-size:var(--text-page);
   letter-spacing:-.02em; margin-bottom:.7rem;
 }
-.gate-brand h1{ font-size:1.65rem; line-height:1.15; margin:0 0 .35rem; }
-.gate-tagline{ margin:0; font-size:.9rem; font-weight:600; color:var(--ink-soft); letter-spacing:.02em; }
+.gate-brand h1{ font-size:var(--text-kpi); line-height:1.15; margin:0 0 .35rem; }
+.gate-tagline{ margin:0; font-size:var(--text-title); font-weight:600; color:var(--ink-soft); letter-spacing:.02em; }
 .gate-tagline span{ color:var(--accent); margin:0 .2rem; }
 /* After step 1 the brand steps back: a small mark beside the name. */
 .gate-card:not([data-step="role"]):not([data-step="loading"]) .gate-brand{
   display:flex; align-items:center; justify-content:center; gap:.6rem; padding:1rem 1.5rem;
 }
-.gate-card:not([data-step="role"]):not([data-step="loading"]) .gate-mark{ width:38px; height:38px; border-radius:11px; font-size:.95rem; margin:0; }
-.gate-card:not([data-step="role"]):not([data-step="loading"]) .gate-brand h1{ font-size:1.1rem; margin:0; }
+.gate-card:not([data-step="role"]):not([data-step="loading"]) .gate-mark{ width:38px; height:38px; border-radius:11px; font-size:var(--text-title); margin:0; }
+.gate-card:not([data-step="role"]):not([data-step="loading"]) .gate-brand h1{ font-size:var(--text-section); margin:0; }
 .gate-card:not([data-step="role"]):not([data-step="loading"]) .gate-tagline{ display:none; }
 
 .login-card{ padding:1.5rem 1.6rem 1.7rem; }
 .login-inner{ width:100%; }
 .gate-wait{ text-align:center; margin:1rem 0; }
-.gate-prompt{ text-align:center; font-size:.8rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-soft); margin:0 0 .9rem; }
+.gate-prompt{ text-align:center; font-size:var(--text-sm); font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-soft); margin:0 0 .9rem; }
 
 /* Five big tiles: three across, then two (the sketch's layout); two
    across on a phone, Education Team full width. */
@@ -227,11 +255,11 @@ a{ color:inherit; }
 .gate-role:nth-child(n+4){ grid-column:span 3; }
 .gate-role{
   display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.55rem; min-height:6.4rem;
-  padding:.9rem .5rem; border:1.5px solid var(--line); border-radius:var(--radius-md); background:var(--paper-raised);
+  padding:.9rem .5rem; border:1px solid var(--line-control); border-radius:var(--radius-md); background:var(--paper-raised);
   color:var(--ink); text-decoration:none; text-align:center; -webkit-tap-highlight-color:transparent;
   transition:border-color .15s, box-shadow .15s, transform .15s;
 }
-.gate-role b{ font-size:.95rem; font-weight:700; line-height:1.2; }
+.gate-role b{ font-size:var(--text-title); font-weight:700; line-height:1.2; }
 .gate-role-icon{
   width:42px; height:42px; border-radius:12px; display:flex; align-items:center; justify-content:center;
   background:var(--brand-soft); color:var(--brand-fg);
@@ -246,41 +274,41 @@ a{ color:inherit; }
   .gate-role:last-child{ grid-column:1 / -1; }
   .gate-role{ min-height:5.8rem; }
   .gate-brand{ padding:1.6rem 1.2rem 1rem; }
-  .gate-brand h1{ font-size:1.45rem; }
+  .gate-brand h1{ font-size:var(--text-page); }
   .login-card{ padding:1.2rem 1.1rem 1.4rem; }
 }
 
 .gate-help-btn{
   display:block; margin:1.2rem auto 0; background:none; border:0; padding:.4rem .6rem; cursor:pointer;
-  font:inherit; font-size:.9rem; font-weight:600; color:var(--brand-fg); text-decoration:underline; text-underline-offset:3px;
+  font:inherit; font-size:var(--text-title); font-weight:600; color:var(--brand-fg); text-decoration:underline; text-underline-offset:3px;
 }
-.gate-help{ margin-top:.8rem; padding:.9rem 1rem; border-radius:var(--radius-md); background:var(--paper-sunk); font-size:.86rem; line-height:1.5; }
+.gate-help{ margin-top:.8rem; padding:.9rem 1rem; border-radius:var(--radius-md); background:var(--paper-sunk); font-size:var(--text-body); line-height:1.5; }
 .gate-help p{ margin:0 0 .55rem; }
 .gate-help p:last-child{ margin:0; }
-.gate-slow{ margin-top:1rem; padding:.9rem 1rem; border-radius:var(--radius-md); background:var(--accent-soft); color:var(--accent-fg); font-size:.86rem; text-align:center; }
+.gate-slow{ margin-top:1rem; padding:.9rem 1rem; border-radius:var(--radius-md); background:var(--accent-soft); color:var(--accent-fg); font-size:var(--text-body); text-align:center; }
 .gate-slow p{ margin:0 0 .6rem; }
-.gate-foot{ margin-top:1.4rem; font-size:.8rem; }
+.gate-foot{ margin-top:1.4rem; font-size:var(--text-sm); }
 .gate-foot a{ color:var(--ink-soft); }
-.login-eyebrow{ font-size:.78rem; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--accent-fg); margin-bottom:.4rem; }
-.login-inner h2{ font-size:1.5rem; margin-bottom:.35rem; }
-.login-sub{ color:var(--ink-soft); font-size:.92rem; margin:0 0 1.4rem; }
+.login-eyebrow{ font-size:var(--text-sm); font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--accent-fg); margin-bottom:.4rem; }
+.login-inner h2{ font-size:var(--text-page); margin-bottom:.35rem; }
+.login-sub{ color:var(--ink-soft); font-size:var(--text-title); margin:0 0 1.4rem; }
 
 .role-grid{ display:grid; grid-template-columns:1fr 1fr; gap:.6rem; margin-bottom:1.4rem; }
 .role-card{
-  text-align:left; border:1.5px solid var(--line); background:var(--paper-raised); border-radius:var(--radius-md);
+  text-align:left; border:1px solid var(--line-control); background:var(--paper-raised); border-radius:var(--radius-md);
   padding:.85rem .9rem; cursor:pointer; display:flex; flex-direction:column; gap:.5rem; position:relative;
 }
 .role-card .r-icon{
   width:34px; height:34px; border-radius:10px; display:flex; align-items:center; justify-content:center;
   background:var(--brand-soft); color:var(--brand-fg);
 }
-.role-card b{ font-size:.87rem; font-weight:700; }
-.role-card p{ margin:0; font-size:.74rem; color:var(--ink-soft); line-height:1.35; }
+.role-card b{ font-size:var(--text-body); font-weight:700; }
+.role-card p{ margin:0; font-size:var(--text-xs); color:var(--ink-soft); line-height:1.35; }
 .role-card[aria-pressed="true"]{ border-color:var(--brand); box-shadow:0 0 0 3px var(--brand-soft); }
 .role-card[aria-pressed="true"] .r-icon{ background:var(--panel); color:#fff; }
 .role-check{
   position:absolute; top:.7rem; right:.7rem; width:16px; height:16px; border-radius:50%;
-  border:1.5px solid var(--line); background:var(--paper-raised);
+  border:1px solid var(--line-control); background:var(--paper-raised);
 }
 .role-card[aria-pressed="true"] .role-check{ border-color:var(--panel); background:var(--panel); }
 .role-card[aria-pressed="true"] .role-check::after{
@@ -288,10 +316,10 @@ a{ color:inherit; }
 }
 
 .field{ margin-bottom:.9rem; }
-.field label{ display:block; font-size:.78rem; font-weight:600; margin-bottom:.32rem; color:var(--ink); }
+.field label{ display:block; font-size:var(--text-sm); font-weight:600; margin-bottom:.32rem; color:var(--ink); }
 .field input,.field select{
-  width:100%; border:1.5px solid var(--line); background:var(--paper-raised); color:var(--ink);
-  border-radius:var(--radius-sm); padding:.62rem .75rem; font-size:.92rem; font-family:inherit;
+  width:100%; border:1px solid var(--line-control); background:var(--paper-raised); color:var(--ink);
+  border-radius:var(--radius-sm); padding:.62rem .75rem; font-size:var(--text-title); font-family:inherit;
 }
 .field input:focus,.field select:focus{ border-color:var(--brand); }
 /* A search box above a row-list (.task-row etc.) instead of a paged
@@ -303,38 +331,38 @@ a{ color:inherit; }
 .filter-bar{ margin-bottom:1.1rem; }
 .filter-bar-row{ display:flex; flex-wrap:wrap; gap:.8rem; align-items:flex-end; }
 .filter-bar-row .field{ margin-bottom:0; flex:1 1 9rem; min-width:8rem; }
-.filter-bar-row .btn{ padding:.5rem 1rem; font-size:.82rem; }
+.filter-bar-row .btn{ padding:.5rem 1rem; font-size:var(--text-sm); }
 .panel-search{ margin-bottom:.8rem; }
 .panel-search input{
-  width:100%; border:1.5px solid var(--line); background:var(--paper-raised); color:var(--ink);
-  border-radius:var(--radius-sm); padding:.5rem .75rem; font-size:.86rem; font-family:inherit;
+  width:100%; border:1px solid var(--line-control); background:var(--paper-raised); color:var(--ink);
+  border-radius:var(--radius-sm); padding:.5rem .75rem; font-size:var(--text-body); font-family:inherit;
 }
 .panel-search input:focus{ border-color:var(--brand); }
-.field .field-error{ color:var(--danger-fg); font-size:.78rem; margin-top:.3rem; }
-.login-foot{ display:flex; justify-content:space-between; margin-top:.8rem; font-size:.8rem; }
-.login-foot button{ background:none; border:0; color:var(--ink-soft); cursor:pointer; font-size:.8rem; text-decoration:underline; text-underline-offset:2px; }
+.field .field-error{ color:var(--danger-fg); font-size:var(--text-sm); margin-top:.3rem; }
+.login-foot{ display:flex; justify-content:space-between; margin-top:.8rem; font-size:var(--text-sm); }
+.login-foot button{ background:none; border:0; color:var(--ink-soft); cursor:pointer; font-size:var(--text-sm); text-decoration:underline; text-underline-offset:2px; }
 .link-btn{
   background:none; border:0; padding:0; color:var(--brand); font-weight:600;
-  font-size:.8rem; cursor:pointer; font-family:inherit;
+  font-size:var(--text-sm); cursor:pointer; font-family:inherit;
   text-decoration:underline; text-underline-offset:2px;
 }
-.login-demo{ margin-top:1.4rem; padding:.85rem 1rem; border-radius:var(--radius-sm); background:var(--brand-soft); font-size:.8rem; color:var(--brand-fg); line-height:1.5; }
+.login-demo{ margin-top:1.4rem; padding:.85rem 1rem; border-radius:var(--radius-sm); background:var(--brand-soft); font-size:var(--text-sm); color:var(--brand-fg); line-height:1.5; }
 .login-demo b{ display:block; font-family:"Baloo 2",sans-serif; margin-bottom:.2rem; }
 .login-demo button{ background:none; border:0; padding:0; color:inherit; text-decoration:underline; cursor:pointer; font:inherit; font-weight:700; }
 
 /* ---- remember-me checkbox ---- */
 .field-remember{ display:flex; align-items:center; gap:.5rem; margin:-.1rem 0 1rem; }
 .field-remember input{ width:16px; height:16px; accent-color:var(--brand); flex:none; cursor:pointer; }
-.field-remember label{ font-size:.82rem; color:var(--ink-soft); cursor:pointer; }
+.field-remember label{ font-size:var(--text-sm); color:var(--ink-soft); cursor:pointer; }
 
 /* ---- Google sign-in ---- */
 .btn-google{
-  background:var(--paper-raised); color:var(--ink); border:1.5px solid var(--line); gap:.6rem;
+  background:var(--paper-raised); color:var(--ink); border:1px solid var(--line-control); gap:.6rem;
 }
 .btn-google:hover{ border-color:var(--brand); background:var(--brand-soft); }
 .btn-google svg{ width:18px; height:18px; flex:none; }
 .login-divider{
-  display:flex; align-items:center; gap:.7rem; margin:1.1rem 0; color:var(--ink-soft); font-size:.76rem;
+  display:flex; align-items:center; gap:.7rem; margin:1.1rem 0; color:var(--ink-soft); font-size:var(--text-xs);
 }
 .login-divider::before,.login-divider::after{ content:""; flex:1; height:1px; background:var(--line); }
 
@@ -352,14 +380,14 @@ a{ color:inherit; }
   width:100%; max-width:26rem; background:var(--paper-raised); border-radius:var(--radius-lg);
   box-shadow:var(--shadow); padding:1.3rem 1.4rem; animation:viewer-pop .18s ease-out;
 }
-.confirm-card b{ display:block; font-family:"Baloo 2",sans-serif; font-size:1.02rem; color:var(--ink); margin-bottom:.4rem; }
+.confirm-card b{ display:block; font-family:"Baloo 2",sans-serif; font-size:var(--text-section); color:var(--ink); margin-bottom:.4rem; }
 /* A dialog for something that can't easily be undone looks different from an ordinary question. */
 .confirm-card.is-danger{ border-top:4px solid var(--danger); }
 .confirm-card.is-danger b{ display:flex; align-items:center; gap:.45rem; color:var(--danger-fg); }
 .confirm-card.is-danger b .icon{ flex:none; width:1.1rem; height:1.1rem; }
-.confirm-card p{ margin:0 0 1.1rem; font-size:.86rem; color:var(--ink-soft); line-height:1.5; }
+.confirm-card p{ margin:0 0 1.1rem; font-size:var(--text-body); color:var(--ink-soft); line-height:1.5; }
 .confirm-actions{ display:flex; gap:.6rem; justify-content:flex-end; flex-wrap:wrap; }
-.confirm-actions .btn{ padding:.55rem 1.1rem; font-size:.84rem; }
+.confirm-actions .btn{ padding:.55rem 1.1rem; font-size:var(--text-body); }
 .btn-danger{ background:var(--danger-fg); color:var(--paper-raised); }
 .btn-danger:hover{ filter:brightness(.92); }
 @media (max-width:480px){
@@ -374,7 +402,7 @@ a{ color:inherit; }
 /* A staging build (pwa.js) says so on every page. */
 .env-ribbon{
   position:fixed; top:0; left:50%; transform:translateX(-50%); z-index:200; pointer-events:none;
-  background:var(--accent-strong); color:#fff; font-size:.72rem; font-weight:600; line-height:1.6; letter-spacing:.04em;
+  background:var(--accent-strong); color:#fff; font-size:var(--text-xs); font-weight:600; line-height:1.6; letter-spacing:.04em;
   padding:.05rem .8rem; border-radius:0 0 .5rem .5rem; text-transform:uppercase;
 }
 .env-ribbon.live{ background:var(--danger); }
@@ -383,9 +411,9 @@ a{ color:inherit; }
   position:fixed; left:50%; bottom:1rem; transform:translateX(-50%); z-index:700;
   display:flex; align-items:center; gap:.9rem; max-width:calc(100% - 2rem);
   background:var(--ink); color:var(--paper); padding:.7rem .8rem .7rem 1.1rem;
-  border-radius:var(--radius-md); box-shadow:var(--shadow); font-size:.88rem;
+  border-radius:var(--radius-md); box-shadow:var(--shadow); font-size:var(--text-body);
 }
-.update-notice .btn{ padding:.45rem .95rem; font-size:.84rem; white-space:nowrap; }
+.update-notice .btn{ padding:.45rem .95rem; font-size:var(--text-body); white-space:nowrap; }
 .update-notice .update-later{ background:none; border:0; color:inherit; opacity:.75; cursor:pointer; font:inherit; padding:.3rem; }
 .update-notice .update-later:hover{ opacity:1; }
 @media print{ .update-notice{ display:none; } }

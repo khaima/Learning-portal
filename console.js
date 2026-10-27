@@ -2349,7 +2349,7 @@ async function main() {
   const miniEmpty = () => `<div class="chart-empty">${emptyMsg("No answers yet.")}</div>`;
 
   /* One question, one picture (charts.js) — and a line saying how to read it:
-       a choice of up to four answers   a donut: the share choosing each
+       a choice of up to three answers  a donut: the share choosing each (four or more: bars)
        a longer choice, or tick-all     bars, in the order the form asks them, each with its share
        a number                         the average and range, then how the answers are spread
        free text                        the answers themselves */

@@ -12,7 +12,7 @@ does that better, there is no chart.
 | How has this changed over time? | A **line** | `lineChart`, `trendOrBars` |
 | How do these groups compare? | **Bars**, one colour | `barList` |
 | How far towards the target? | A **bar filling towards a line** | `targetList` |
-| What share of one whole? (two to four parts) | A **donut** | `donut`, `proportion` |
+| What share of one whole? (two or three parts) | A **donut** | `donut`, `proportion` |
 | What share, on a scale that has an order? | **One bar, split in order** | `stackBar` |
 | …the same scale, for several groups side by side (bands by subject)? | **A split bar per group**, one key | `stackRows` |
 | How many, in each cell of a grid (a place × a month, a day × a time)? | A **heatmap** | `heatmap` |
@@ -24,8 +24,10 @@ Rules that go with them:
 
 - **A line needs three points.** With fewer, the periods are compared as
   bars (`trendOrBars` decides).
-- **A donut is only for a simple share:** two to four parts of one whole.
-  Five or more become bars, each with its percentage. A whole made of a
+- **A donut is only for a simple share:** two or three parts of one whole.
+  Four or more become bars, each with its percentage (three is as many
+  category colours as stay apart for colour-blind readers without
+  borrowing a status colour: DESIGN-SYSTEM.md). A whole made of a
   single part is a bar too — a full ring says nothing.
 - **Bars are one colour.** Length tells the rows apart. Colour is kept for
   meaning: target met, close or not met; the achievement bands; the parts
@@ -138,16 +140,18 @@ blindness and contrast validator against the card surface:
 | Tokens | Used for |
 | --- | --- |
 | `--chart-1` | Every single-measure bar and line. |
-| `--chart-2` | The dashed target line on a trend. |
-| `--cat-1` … `--cat-4` | The parts of a donut, always in this order (blue, orange, purple, green). A part keeps its colour when another part is empty. |
+| `--chart-target` | The dashed target line on a trend: grey ink, because a target is a reference, not a warning (was orange `--chart-2` until 27 October 2026). |
+| `--cat-1` … `--cat-3` | The parts of a donut, always in this order (blue, cyan, orchid — no status hue; validated all-pairs in both themes, figures in DESIGN-SYSTEM.md). A part keeps its colour when another part is empty. |
 | `--band-1` … `--band-4` | The four achievement bands, best to weakest. |
 | `--seq-1` … `--seq-4` | One hue, strongest to weakest, for an ordered scale (how recently staff signed in) and a heatmap's four shades. |
 | `--hm-ink-1` … `--hm-ink-4` | The count printed on each heatmap shade: 4.5:1 or more on its shade in both themes (checked). |
 | `--success`, `--accent`, `--danger` | Target met, close, not met. |
 | `--neutral` | "No change" in a better / same / worse split. |
 
-Orange and green are never neighbours in a donut: that pair is the
-hardest to tell apart for the most common kinds of colour blindness.
+Until 27 October 2026 the donut used blue, orange, purple and green —
+orange and green being the attention and positive colours, and blue and
+purple failing the validator. The three colours now are none of the
+status colours.
 
 ## What each chart was, and is
 
@@ -161,7 +165,7 @@ hardest to tell apart for the most common kinds of colour blindness.
 | Completion by grade, Results by grade, Training by county, Active by county, Teacher activity | Bars on 0–100 with decimals | Bars on 0–100, whole percentages, with the count behind each |
 | Marked work by band | A row of pills | One bar split into the bands, with a key |
 | Learners' own progress | Three numbers | One bar split improved / steady / declined; on 27 October 2026 folded into the "Learners improving" tile, which now gives the three counts |
-| Teachers by employment type, Resources by shelf | Bars | Donut (when two to four parts have a value) |
+| Teachers by employment type, Resources by shelf | Bars | Donut (when two or three parts have a value) |
 | M&E indicators, target against actual | Bars on different scales, target line in a different place on each row | Every bar fills towards the same target line; value, target and status in words |
 | Indicator trend | A large drawing with five gridlines; its labels grew with the screen | Line (actual) and dashed line (target), three gridlines, fixed-size labels |
 | Subject, school and form tables | Plain percentages | Percentages with a thin bar, band codes with their full name on hover |
@@ -211,8 +215,8 @@ One marks histogram everywhere: `charts.js` `marksSpread()` (and
 
 | Question | Before | Now |
 | --- | --- | --- |
-| One choice, up to four answers | Donut; counts only; colours shifted when an answer had no takers | Donut; count and percentage; fixed colours |
-| One choice, five or six answers | Donut | Bars with shares |
+| One choice, up to three answers | Donut; counts only; colours shifted when an answer had no takers | Donut; count and percentage; fixed colours |
+| One choice, four to six answers | Donut | Bars with shares |
 | Tick all that apply, or a long list | Bars, counts only, an empty bar for every unchosen answer | Bars with each answer's share of everyone who answered; unchosen answers named in one line |
 | A number | Four figures and bars | Average, lowest, highest; bars for the spread with shares |
 

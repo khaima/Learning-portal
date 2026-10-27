@@ -217,7 +217,7 @@ function actionsPanel(checks, queue) {
   const passing = checks.filter((c) => c.ok);
   const items = [...failing, ...queue];
   return `
-    <div class="pov-panel-head"><h3 id="pov-attention-title" tabindex="-1">${icon("alert")}Important actions</h3>
+    <div class="pov-panel-head"><h3 id="pov-attention-title" tabindex="-1">Important actions</h3>
       ${items.length ? `<span class="pov-count warn">${items.length}</span>` : ""}</div>
     ${items.length ? `<ul class="pov-alerts">${items.map((x) => `
       <li class="pov-alert" data-key="${esc(x.label)}"><span class="pov-alert-icon" aria-hidden="true">${icon("alert")}</span>
@@ -340,7 +340,7 @@ function overviewHtml(d, x, describe) {
 
       <div class="cc-grid">
         <section class="pov-panel cc-users" aria-labelledby="cc-users-title">
-          <div class="pov-panel-head"><h3 id="cc-users-title">${icon("users")}User activity</h3></div>
+          <div class="pov-panel-head"><h3 id="cc-users-title">User activity</h3></div>
           ${stat({ value: num(a.active), label: "Staff accounts", warn: a.pending > 0,
             sub: a.pending ? warnText(`${plural(a.pending, "account")} waiting for approval`) : `active · ${num(a.total)} in all`,
             href: a.pending ? "#users?status=pending" : "#users", go: a.pending ? "Review approvals" : "View users" })}
@@ -355,14 +355,14 @@ function overviewHtml(d, x, describe) {
         </section>
 
         <section class="pov-panel cc-data" aria-labelledby="cc-data-title">
-          <div class="pov-panel-head"><h3 id="cc-data-title">${icon("survey")}Data activity</h3></div>
+          <div class="pov-panel-head"><h3 id="cc-data-title">Data activity</h3></div>
           ${stat({ value: kobo.value, unit: kobo.unit, label: "Field submissions counted", sub: kobo.sub, viz: kobo.viz, warn: kobo.warn, href: "#kobo", go: kobo.go })}
           ${stat({ value: d.dataQuality.score == null ? "—" : `${num(d.dataQuality.score)}%`, label: "Data quality score",
             warn: d.dataQuality.high > 0, sub: dqSub, viz: scoreSpark(hist), href: "#data-quality", go: "View data quality" })}
         </section>
 
         <section class="pov-panel cc-system" aria-labelledby="cc-system-title">
-          <div class="pov-panel-head"><h3 id="cc-system-title">${icon("plug")}System activity</h3></div>
+          <div class="pov-panel-head"><h3 id="cc-system-title">System activity</h3></div>
           ${sysRow({ name: "KoboToolbox sync", href: "#kobo", go: "KoboToolbox",
             tone: !k.connected ? "off" : k.failing.length ? "warn" : "ok",
             state: k.connected ? `Synced ${agoTag(k.lastSync, since(k.lastSync))} · ${plural(k.surveys, "survey")}${k.failing.length ? ` · ${warnText(`${plural(k.failing.length, "survey")} failing`)}` : ""}` : "Not connected" })}
@@ -379,7 +379,7 @@ function overviewHtml(d, x, describe) {
         </section>
 
         ${x.pics === null ? "" : `<section class="pov-panel cc-pics" aria-labelledby="cc-pics-title">
-          <div class="pov-panel-head"><h3 id="cc-pics-title">${icon("chart")}When the portal is used</h3>
+          <div class="pov-panel-head"><h3 id="cc-pics-title">When the portal is used</h3>
             <a class="cc-go" href="#overview?via=platform-overview">Programme results: Executive overview<span aria-hidden="true"> →</span></a></div>
           <div class="chart-grid">${x.pics ?? skeletonCharts(1)}</div>
         </section>`}
@@ -387,7 +387,7 @@ function overviewHtml(d, x, describe) {
         <section class="pov-panel pov-attention cc-actions" aria-labelledby="pov-attention-title">${actionsPanel(d.checks, queue)}</section>
 
         <section class="pov-panel cc-changes" aria-labelledby="cc-changes-title">
-          <div class="pov-panel-head"><h3 id="cc-changes-title">${icon("log")}Recent changes</h3></div>
+          <div class="pov-panel-head"><h3 id="cc-changes-title">Recent changes</h3></div>
           <div>${changes}</div>
           ${recent ? `<h4 class="pov-subhead">Latest</h4>${recent}` : ""}
           <p class="cc-links"><a class="cc-go" href="#audit">View audit log<span aria-hidden="true"> →</span></a>

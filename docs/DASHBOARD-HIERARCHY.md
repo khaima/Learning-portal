@@ -1,6 +1,7 @@
 # Dashboard hierarchy
 
-How every dashboard in the portal is laid out, and why. The aim is that
+How every dashboard in the portal is laid out, and why. How it looks —
+colours, type, spacing, components — is in DESIGN-SYSTEM.md. The aim is that
 someone opening a dashboard can **see** the situation, **understand** it,
 **decide** and **act** — in that order, without reading every card first.
 

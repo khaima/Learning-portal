@@ -27,7 +27,6 @@
 
 import { esc, formatDuration, skeleton } from "./util.js";
 import { fmtValue, ragPill } from "./mel-format.js";
-import { ICON } from "./navigation.js";
 import { barList as bars0, heatmap as heat0, lineChart as line0, marksSpread, monthPoints, proportion as parts0, stackBar as stack0, TARGET_KEY, targetList, termPoints, trendOrBars as trend0 } from "./charts.js";
 import { kpiCard, periodTrend, termName } from "./kpi.js";
 import { compareHtml } from "./compare-ui.js";
@@ -51,7 +50,6 @@ export const THEMES = {
 
 /* ------------------------------------------------------------ building blocks */
 
-const icon = (name) => (ICON[name] ? `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${ICON[name]}</svg>` : "");
 /* The key figures are kpi.js cards. `opts.canOpen(page)` says which pages
    this person may open: a figure links to its page only then — with any
    filter it needs (`params`) and `via`, the dashboard it came from, so the
@@ -262,10 +260,9 @@ export function overviewPictures(d) {
 export function executiveHtml(d, opts = {}) {
   forScope(d);
   const E = d.executive, R = d.reach, L = d.learning, T = d.teachers, F = d.fieldOps, S = d.resources;
-  const AREA_ICON = { reach: "globe", learning: "results", "teacher-development": "teacher", "field-operations": "pin", "digital-resources": "book" };
   const area = (page, title, lines) => `
     <a class="intel-area" href="${linkTo(opts, page) || `#${page}`}">
-      <b>${icon(AREA_ICON[page])}${esc(title)}</b>
+      <b>${esc(title)}</b>
       ${lines.map(([v, l]) => `<span><strong>${v}</strong> ${esc(l)}</span>`).join("")}
       <em aria-hidden="true">→</em>
     </a>`;
@@ -319,7 +316,7 @@ export function executiveHtml(d, opts = {}) {
         [S.top[0] ? esc(S.top[0].title) : "—", "most used"],
       ]),
       `<a class="intel-area" href="#me-dashboard" data-live-keep data-exec-mel>
-        <b>${icon("target")}M&amp;E</b><span>Indicator targets and actuals</span><em aria-hidden="true">→</em>
+        <b>M&amp;E</b><span>Indicator targets and actuals</span><em aria-hidden="true">→</em>
       </a>`,
     ].join(""),
   };
@@ -329,7 +326,7 @@ export function executiveHtml(d, opts = {}) {
 export function execMelArea(dash) {
   const s = dash.summary;
   const n = dash.indicators.length;
-  return `<b>${icon("target")}M&amp;E</b>
+  return `<b>M&amp;E</b>
     ${n ? `<span><strong>${s.met}</strong> of ${n} indicators met${dash.period ? ` · ${esc(dash.period.label)}` : ""}</span>
       <span><strong>${s.close}</strong> close · <strong>${s.not_met}</strong> not met</span>
       <span><strong>${s.no_data}</strong> without data</span>` : `<span>No indicators set up yet</span>`}

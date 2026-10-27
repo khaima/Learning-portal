@@ -191,7 +191,7 @@ export function lineChart(points, { unit = "", noun = "", target = "", band = nu
       ${pts.map((p, i) => {
         const rows = [];
         if (p.value != null) rows.push([show(p.value, unit), target ? name.toLowerCase() : noun, "var(--chart-1)"]);
-        if (target && p.target != null) rows.push([show(p.target, unit), target.toLowerCase(), "var(--chart-2)"]);
+        if (target && p.target != null) rows.push([show(p.target, unit), target.toLowerCase(), "var(--chart-target)"]);
         if (!rows.length) rows.push(["—", "no value"]);
         const pick = picks && p.drill && p.value != null ? ` data-drill="${esc(JSON.stringify(p.drill))}"` : "";
         return `<span class="lc-pt${labelled.has(i) || dotted ? " is-marked" : ""}" style="left:${((i / n) * 100).toFixed(2)}%;width:${(100 / n).toFixed(2)}%"${pick}${tip(p.full || p.label, rows, p.note ? `${p.note}${pick ? " · pick it to see only this period" : ""}` : pick ? "Pick it to see only this period" : "")}>${
@@ -240,7 +240,9 @@ export function trendOrBars(points, opts = {}) {
 
 /* ------------------------------------------------------------ parts of one whole */
 
-const CAT = ["var(--cat-1)", "var(--cat-2)", "var(--cat-3)", "var(--cat-4)"];
+// Three category colours, validated for colour blindness against each other
+// (light and dark) and free of the status hues (docs/DESIGN-SYSTEM.md).
+const CAT = ["var(--cat-1)", "var(--cat-2)", "var(--cat-3)"];
 
 function keyList(parts, total, { colours, noun, compact = false }) {
   if (compact) {
@@ -250,7 +252,7 @@ function keyList(parts, total, { colours, noun, compact = false }) {
     <li${tip(p.label, [[num(p.value), noun], [`${share(p.value, total)}%`, `of ${num(total)}`]])}><i style="background:${p.colour || colours[i]}"></i><span>${esc(p.label)}</span><b>${num(p.value)}</b><small>${share(p.value, total)}%</small></li>`).join("")}</ul>`;
 }
 
-/** A donut — only for a simple proportion: up to four parts of one whole.
+/** A donut — only for a simple proportion: up to three parts of one whole.
     Each part keeps its colour by its place in the list (not by its size, and
     not by which others happen to be empty), and the key beside it carries
     every number, so the ring is never the only way to read it.
@@ -284,13 +286,14 @@ export function donut(parts, { noun = "", empty = "Nothing recorded yet." } = {}
   </div>`;
 }
 
-/** Parts of one whole: a donut when there are two to four of them, bars (each
+/** Parts of one whole: a donut when there are two or three of them, bars (each
     with its share) otherwise — a ring with many slices can't be compared,
-    and a ring that is all one part says nothing a number doesn't. */
+    and a ring that is all one part says nothing a number doesn't. Three is
+    as many category colours as stay apart for colour-blind readers. */
 export function proportion(parts, { noun = "", empty, sort = true, zeros = "" } = {}) {
   const list = parts || [];
   const live = list.filter((p) => p.value > 0).length;
-  return list.length <= 4 && live >= 2 ? donut(list, { noun, empty }) : barList(list, { share: true, sort, noun, empty, zeros });
+  return list.length <= CAT.length && live >= 2 ? donut(list, { noun, empty }) : barList(list, { share: true, sort, noun, empty, zeros });
 }
 
 /** One bar split into the parts of a whole that come in an order — bands,

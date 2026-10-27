@@ -4,7 +4,8 @@
    One card for every key figure in the portal, so they read the same
    everywhere (docs/CHARTS.md, "Key figures"):
 
-     icon + title          what is counted, in plain words
+     title                 what is counted, in plain words (no icon:
+                           the words say it; docs/DESIGN-SYSTEM.md)
      the value             big
      a change              only where the data has an earlier period to
                            compare with — never estimated
@@ -12,19 +13,17 @@
                            "3 need review", "of 105 set"
 
    A card that opens a page is a link and shows it: an arrow beside the
-   title, and it lifts when pointed at. A card that doesn't, doesn't.
+   title, and its border darkens when pointed at. A card that doesn't,
+   doesn't.
    ============================================================ */
 
 import { esc } from "./util.js";
-import { ICON } from "./navigation.js";
-
-const svg = (name) => (ICON[name] ? `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${ICON[name]}</svg>` : "");
 
 /** A key figure.
       label    the title (plain text)
       value    the figure (HTML: callers format it)
       unit     a small word after it ("hrs")
-      icon     an icon name from navigation.js
+      icon     accepted and ignored: key figures carry no decorative icon
       trend    a change against an earlier period — trendTag() — or ""
       sub      context (HTML)
       tone     "warn" when the figure itself is something waiting on someone
@@ -34,7 +33,7 @@ const svg = (name) => (ICON[name] ? `<svg class="icon" viewBox="0 0 24 24" fill=
 export function kpiCard({ label, value, unit = "", icon = "", trend = "", sub = "", tone = "", href = "", attrs = "" }) {
   const cls = `stat-tile${href ? " stat-link" : ""}${tone ? ` intel-${tone}` : ""}`;
   const body = `
-    <div class="s-label">${svg(icon)}<span class="s-title">${esc(label)}</span>${href ? `<span class="s-go" aria-hidden="true">→</span>` : ""}</div>
+    <div class="s-label"><span class="s-title">${esc(label)}</span>${href ? `<span class="s-go" aria-hidden="true">→</span>` : ""}</div>
     <div class="s-num">${value}${unit ? `<small class="s-unit"> ${esc(unit)}</small>` : ""}</div>
     ${trend ? `<div class="s-trend">${trend}</div>` : ""}
     ${sub ? `<div class="s-sub">${sub}</div>` : ""}`;
