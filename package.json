@@ -8,7 +8,8 @@
     "build": "vite build && node scripts/build-sw.mjs",
     "check": "node scripts/check-csp.mjs",
     "serve": "node scripts/serve-dist.mjs",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "node --test tests/charts.test.mjs"
   },
   "dependencies": {
     "@supabase/auth-js": "2.117.2",

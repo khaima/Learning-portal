@@ -85,12 +85,13 @@ role" left (it's an account count, on Users & roles).
 | --- | --- |
 | Assignments set, Completion, Average mark, To be marked, Learners improving | Primary |
 | M&E indicators — Learning | Primary (when there are any) |
-| Completion by grade, Results by grade (with marks by band), Learners' average marks, Learner progress, Which subject does best? | Secondary |
+| Which grades hand in their work, Average mark in each grade, How learners' average marks are spread, Average mark term by term, Which subject does best? (last term and this, side by side) | Secondary |
 | Subject performance, School performance, Assignments by subject | Detail |
 
 Removed as duplicates of the tiles: the "Completion" and "Assessment
 results" summary cards. What only they showed has moved: "missing" is on
-the Completion tile, and the marks-by-band strip is in "Results by grade".
+the Completion tile. The marks-by-band strip that then sat under "Results by
+grade" went on 27 October 2026: the marks histogram already splits by band.
 27 October 2026: "Learners' own progress" (improved · steady · declined)
 was the "Learners improving" tile again — the three counts are now on the
 tile. The source line says Kobo learner assessments aren't included yet.
@@ -114,7 +115,7 @@ tile.
 | --- | --- |
 | Field visits, Schools visited, Visit forms completed, Form response rate, Survey records | Primary |
 | M&E indicators — Field operations | Primary (when there are any) |
-| Visits by month, Schools not visited yet, Visit types, Field visits by place and month, Survey records by month | Secondary |
+| Field visits month by month, Schools not visited yet, What field visits were for, Where and when field visits happened, Survey records collected month by month | Secondary |
 | Completed forms, Survey records by county | Detail |
 
 27 October 2026: "Survey records" counts the Kobo records that passed
@@ -129,8 +130,8 @@ health: they're on the Kobo surveys page, linked from the source line.
 | --- | --- |
 | Resources, Opens, Usage time, Active users | Primary |
 | M&E indicators — Digital resources | Primary (when there are any) |
-| Most-used content, Usage in detail (a link to Content usage) | Secondary |
-| Resources by shelf, by subject, by type | Detail |
+| Which resources are used most, Usage in detail (a link to Content usage) | Secondary |
+| What the library holds: by shelf, by subject, by type (bars with shares) | Detail |
 
 27 October 2026: opens over time, when resources are opened and usage by
 term live on Content usage, once; this page keeps the summary.
@@ -146,7 +147,7 @@ dashboards; it refreshes itself while open.
 | --- | --- |
 | People reached (learners · staff), Opens, Time spent (with the typical open), Resources used (of those published) — each count with the last 30 days beside the 30 before, in words, when no dates are chosen | Primary |
 | Needs attention: resources usually closed within 30 seconds (judged only with 5 or more timed opens), published resources not opened, schools gone quiet (nothing in 30 days), schools that never opened one | Primary |
-| Opens and people over time (whole weeks; a month at a time over a long range; the week under way said in words), Most used resources, Who opens resources (by role), When resources are opened (day × time, Kenyan time), Schools compared, Time by topic | Secondary |
+| Opens and people week by week (whole weeks; a month at a time over a long range; the week under way said in words), Which resources are opened most (top 8, then "Show all"), Who opens resources (by role, bars with shares), When resources are opened (day × time, Kenyan time), Which schools use the library most (top 10, then "Show all"), Where time goes by topic | Secondary |
 | Every resource opened, Not opened, Every school, Topics and sub-topics — all sortable | Detail |
 
 A school's bar narrows the page to that school, a week to that week, a

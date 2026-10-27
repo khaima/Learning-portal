@@ -12,7 +12,7 @@
 
 import { esc, toast, friendlyError, skeleton, errorState, confirmDialog, emptyState } from "./util.js";
 import { getRegister, saveRegister, getAttendanceSummary, getAttendanceToday } from "./store.js";
-import { barList, lineChart } from "./charts.js";
+import { barList, lineChart, periodChip } from "./charts.js";
 import { kpiCard } from "./kpi.js";
 import { openContentPanel } from "./viewer.js";
 
@@ -348,28 +348,30 @@ export function attendanceSummaryHtml(s, { scope = "class" } = {}) {
     kpiCard({ label: "Absent", icon: "user", value: (t.absent + t.excused).toLocaleString(),
       sub: t.excused ? `${t.excused} excused, with a reason` : "learner-days missed" }),
   ].join("");
-  const card = (title, meta, body, wide = false) => `<div class="chart-card${wide ? " intel-wide" : ""}"><div class="chart-card-head"><b>${esc(title)}</b>${meta ? `<span>${esc(meta)}</span>` : ""}</div>${body}</div>`;
+  // Every chart here covers the registers between these dates.
+  const period = s.from && s.to ? `${dayName(s.from, { day: "numeric", month: "short" })} – ${dayName(s.to, { day: "numeric", month: "short", year: "numeric" })}` : "";
+  const card = (title, meta, body, wide = false) => `<div class="chart-card${wide ? " intel-wide" : ""}"><div class="chart-card-head"><b>${esc(title)}</b>${meta ? `<span>${esc(meta)}</span>` : ""}${periodChip(period)}</div>${body}</div>`;
   const parts = [];
   // By day: a line once there are three days, bars before that.
   const days = s.byDay.filter((d) => d.marks);
   if (days.length >= 3) {
     const step = Math.ceil(days.length / 5); // five dates under the line at most: they stay readable on a phone
     const last = days.length - 1;
-    parts.push(card("Attendance by day", `${plural(days.length, "day")} with a register`, lineChart(days.map((d) => ({
+    parts.push(card("Attendance, day by day", `% of learners here · ${plural(days.length, "day")} with a register`, lineChart(days.map((d) => ({
       label: dayName(d.day, { day: "numeric", month: "short" }), full: dayName(d.day, { weekday: "long", day: "numeric", month: "long" }), value: d.rate,
       note: `${d.present + d.late} of ${d.marks} here`,
-    })), { unit: "%", noun: "here", title: "Attendance by day", ticks: days.map((_, i) => i).filter((i) => i === last || (i % step === 0 && last - i >= step / 2)) })));
+    })), { unit: "%", noun: "here", title: "Attendance by day", insight: true, ticks: days.map((_, i) => i).filter((i) => i === last || (i % step === 0 && last - i >= step / 2)) })));
   } else if (days.length) {
-    parts.push(card("Attendance by day", "", barList(days.map((d) => ({ label: dayName(d.day), value: d.rate, note: `${d.present + d.late} of ${d.marks}` })), { unit: "%", noun: "here" })));
+    parts.push(card("Attendance, day by day", "% of learners here", barList(days.map((d) => ({ label: dayName(d.day), value: d.rate, note: `${d.present + d.late} of ${d.marks}` })), { unit: "%", noun: "here", period })));
   }
   if (s.byWeekday.filter((d) => d.marks).length >= 2) {
-    parts.push(card("By day of the week", "spot the days learners stay away",
-      barList(s.byWeekday.filter((d) => d.marks).map((d) => ({ label: d.label, value: d.rate, note: `${(d.present + d.late).toLocaleString()} of ${d.marks.toLocaleString()}` })), { unit: "%", noun: "here" })));
+    parts.push(card("Which weekdays learners miss most", "% of learners here, by day of the week",
+      barList(s.byWeekday.filter((d) => d.marks).map((d) => ({ label: d.label, value: d.rate, base: d.marks, note: `${(d.present + d.late).toLocaleString()} of ${d.marks.toLocaleString()}` })), { unit: "%", noun: "here", insight: true, period })));
   }
   if (scope !== "class" && s.groups.length > 1) {
-    parts.push(card(`By ${groupWord}`, "attendance · registers taken", barList(s.groups.filter((g) => g.marks || g.due).map((g) => ({
-      label: g.label, value: g.rate ?? 0, note: g.due ? `${g.taken} of ${g.due} registers` : `${g.registers} registers`,
-    })), { unit: "%", noun: "here", zeros: "No registers yet" }), true));
+    parts.push(card(`Attendance in each ${groupWord}`, "% of learners here · registers taken", barList(s.groups.filter((g) => g.marks || g.due).map((g) => ({
+      label: g.label, value: g.rate ?? 0, base: g.marks, note: g.due ? `${g.taken} of ${g.due} registers` : `${g.registers} registers`,
+    })), { unit: "%", noun: "here", zeros: "No registers yet", sort: true, insight: true, period }), true));
   }
   // Learners to follow up.
   if (s.learnersShown !== false && s.learners?.length) {
@@ -384,15 +386,15 @@ export function attendanceSummaryHtml(s, { scope = "class" } = {}) {
   }
   if (s.reasons && t.absent + t.excused > 0) {
     const r = s.reasons;
-    parts.push(card("Why learners were away", "learner-days", barList([
+    parts.push(card("Why learners were away", "Learner-days missed, by reason", barList([
       { label: "No reason given", value: r.none }, { label: "Sick", value: r.sick }, { label: "Family", value: r.family },
       { label: "With permission", value: r.permission }, { label: "Other reason", value: r.other },
-    ], { share: true, noun: "learner-days", zeros: "None" })));
+    ], { share: true, noun: "learner-days", zeros: "None", period })));
   }
   if (s.attendanceAndMarks) {
-    parts.push(card("Attendance and marks", "learners' average mark, by how often they came", barList(s.attendanceAndMarks.map((g) => ({
+    parts.push(card("Average mark, by how often learners came", "Learners grouped by their attendance", barList(s.attendanceAndMarks.map((g) => ({
       label: `Came ${g.label === "Below 80%" ? "below 80%" : g.label} of days`, value: g.averagePercent, note: plural(g.learners, "learner"),
-    })), { unit: "%", noun: "average mark" }) + `<p class="chart-note">Marks on work handed in over the same days. Groups of fewer than 3 learners are left out.</p>`));
+    })), { unit: "%", noun: "average mark", period }) + `<p class="chart-note">Marks on work handed in over the same days. Groups of fewer than 3 learners are left out. This shows the two side by side, not that one causes the other.</p>`));
   }
   if (s.grid?.days?.length) parts.push(sheetHtml(s.grid));
   return `<div class="stat-row">${kpis}</div><div class="chart-grid">${parts.join("")}</div>`;

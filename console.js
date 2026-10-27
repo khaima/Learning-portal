@@ -10,7 +10,7 @@ import { menuFor, WORKSPACES } from "./navigation.js";
 import { apiGet } from "./api.js";
 import { liveStatus, swap } from "./live.js";
 import { enableSortableTables } from "./tables.js";
-import { barList, proportion } from "./charts.js";
+import { barList, periodChip, proportion } from "./charts.js";
 import { kpiCard, trendTag } from "./kpi.js";
 import { $, $$, esc, initials, toast, formatDuration, skeleton, skeletonTable, skeletonCards, skeletonCharts, skeletonDashboard, FILTERED_EMPTY, errorState, friendlyError, confirmDialog } from "./util.js";
 import { requireRole, signOut } from "./auth.js";
@@ -2349,7 +2349,7 @@ async function main() {
   const miniEmpty = () => `<div class="chart-empty">${emptyMsg("No answers yet.")}</div>`;
 
   /* One question, one picture (charts.js) — and a line saying how to read it:
-       a choice of up to three answers  a donut: the share choosing each (four or more: bars)
+       a single choice                  bars: how many chose each answer, and their share
        a longer choice, or tick-all     bars, in the order the form asks them, each with its share
        a number                         the average and range, then how the answers are spread
        free text                        the answers themselves */
@@ -2370,8 +2370,8 @@ async function main() {
              <div><b>${q.data.max}</b><span>highest</span></div>
            </div>${barList(q.data.histogram, { noun: "answers", shareOf: q.data.count })}`
         : miniEmpty();
-    } else if (q.chart === "donut") {
-      how = `${answered} · the share choosing each answer`;
+    } else if (q.chart === "donut") { // the API's name for a single choice: drawn as bars with shares
+      how = `${answered} · how many chose each answer, and their share`;
       body = sumOf(q.data) ? proportion(q.data, { noun: "answers", sort: false, zeros: "Chosen by nobody" }) : miniEmpty();
     } else {
       // People may tick more than one, so each share is of those who answered — they needn't add up to 100%.
@@ -2379,7 +2379,7 @@ async function main() {
       body = sumOf(q.data) ? barList(q.data, { noun: "answers", shareOf: q.answered, shareWord: "who answered", zeros: "Chosen by nobody" }) : miniEmpty();
     }
     return `<div class="chart-card">
-      <div class="chart-card-head"><b>${esc(q.label)}</b><span>${how}</span></div>
+      <div class="chart-card-head"><b>${esc(q.label)}</b><span>${how}</span>${periodChip("Every response so far")}</div>
       ${body}
     </div>`;
   }

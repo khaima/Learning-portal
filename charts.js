@@ -2,17 +2,30 @@
    HPF Digital Learning Portal — the charts.
 
    One small set, used on every dashboard, so the same kind of question
-   always gets the same kind of picture:
+   always gets the same kind of picture (docs/CHARTS.md):
 
-     a measure over time      lineChart    a line — never a number on every point
-     comparing groups         barList      one colour; length does the telling
+     a measure over time      lineChart    a line — never a number on every point;
+                                           a period still under way is dashed
+     comparing groups         barList      horizontal bars, one colour, from zero;
+                                           a long ranked list shows its top 10
+                                           and "Show all"
+     parts of one whole       proportion   the same bars, each with its share
+                                           (no pies or donuts)
+     two periods or groups    groupedBars  bars side by side per category —
+                                           baseline and follow-up, last term and this
      progress to a target     targetList   a bar that fills towards a marked line
-     parts of one whole       donut        four parts at most; more become bars
      an ordered scale         stackBar     one bar, split in order (stackRows: one per group)
+                                           — only parts that can't overlap and add up
      counts on a grid         heatmap      a table of cells, one hue light → dark
                                            (scale: a measure in each cell — average marks)
      how values spread        histogram    columns side by side, one scale
      detailed values          a table      (not here)
+
+   Every chart can carry its reporting period (`period`: in each tooltip;
+   periodChip() prints it in the card's head) and, with `insight`, one plain
+   sentence the data supports — the highest and lowest, the latest change —
+   never a cause. Groups resting on fewer than five (a row's `base`) are left
+   out of that sentence.
 
    Each chart is an HTML string, like the rest of the portal. It can be
    read without colour and without hovering — values are printed beside
@@ -35,6 +48,26 @@ const share = (v, total) => (total ? Math.round((v / total) * 100) : 0);
 const tip = (title, rows = [], note = "") => ` data-tip="${esc(JSON.stringify([title, rows.map(([v, l, c]) => [v, v === "1" && /[^s]s$/.test(l || "") ? l.slice(0, -1) : l, c]), note]))}"`;
 
 const none = (msg = "Nothing recorded yet.") => `<div class="chart-empty">${esc(msg)}</div>`;
+/** A share or rate resting on fewer than this many isn't put into words. */
+const MIN_BASE = 5;
+const day = (iso) => new Date(`${String(iso).slice(0, 10)}T00:00:00Z`).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+/** The dates a chart covers: "1 Sep 2026 – 27 Oct 2026", "Up to 30 Sep 2026", "All time". */
+export function periodLabel({ from = null, to = null } = {}) {
+  if (from && to) return `${day(from)} – ${day(to)}`;
+  if (from) return `From ${day(from)}`;
+  if (to) return `Up to ${day(to)}`;
+  return "All time";
+}
+/** A chart's reporting period, for its card's head. */
+export const periodChip = (period) => (period ? `<span class="chart-period">${esc(period)}</span>` : "");
+/** The one sentence a chart's data supports, above the chart. */
+const insightLine = (text) => (text ? `<p class="chart-insight">${esc(text)}</p>` : "");
+const withPeriod = (note, period) => [note, period].filter(Boolean).join(" · ");
+/** "visits" for 1 → "visit" (not "people"). */
+const nounFor = (v, noun) => (v === 1 && /[^s]s$/.test(noun || "") ? noun.slice(0, -1) : noun);
+/** "Grade 4", "Grade 4 and Grade 5", "A, B and C", "4 groups" — every row that ties. */
+const names = (rows) => (rows.length > 3 ? `${rows.length} groups` : rows.length === 1 ? rows[0].label
+  : `${rows.slice(0, -1).map((r) => r.label).join(", ")} and ${rows.at(-1).label}`);
 
 /* ------------------------------------------------------------ comparing groups */
 
@@ -54,16 +87,21 @@ const none = (msg = "Nothing recorded yet.") => `<div class="chart-empty">${esc(
       noun   what is being counted, for the tooltip ("visits")
       text   (row) => the value as text, when it isn't a plain number
       zeros  a word for the rows at nothing ("Not chosen"): they're named in
-             one line under the chart instead of each drawing an empty bar */
-export function barList(rows, { unit = "", max = null, share: withShare = false, shareOf = null, shareWord = "", sort = false, noun = "", text = null, zeros = "", act = "", empty = "Nothing recorded yet." } = {}) {
+             one line under the chart instead of each drawing an empty bar
+      top    rows shown before "Show all"; a ranked (sorted) list of more than
+             12 shows its top 10 unless told otherwise (0: every row)
+      insight  a sentence above the bars: the highest and lowest. A row's
+             `base` (what its rate rests on) under 5 keeps it out of that.
+      period   the reporting period, in every tooltip */
+export function barList(rows, { unit = "", max = null, share: withShare = false, shareOf = null, shareWord = "", sort = false, noun = "", text = null, zeros = "", act = "", empty = "Nothing recorded yet.", top = null, insight = false, period = "" } = {}) {
   let list = (rows || []).filter((r) => r.value != null);
   if (!list.length || !list.some((r) => r.value)) return none(empty);
   if (sort) list = [...list].sort((a, b) => b.value - a.value);
   const nothing = zeros ? list.filter((r) => !r.value) : [];
   if (nothing.length) list = list.filter((r) => r.value);
-  const top = max ?? (unit === "%" ? 100 : Math.max(1, ...list.map((r) => r.value)));
+  const scaleTop = max ?? (unit === "%" ? 100 : Math.max(1, ...list.map((r) => r.value)));
   const total = shareOf ?? list.reduce((t, r) => t + r.value, 0);
-  return `<div class="bars" role="list">${list.map((r) => {
+  const row = (r) => {
     const value = text ? text(r) : show(r.value, unit);
     const part = (withShare || shareOf != null) && total ? `${share(r.value, total)}%` : "";
     const rows = [[value, noun]];
@@ -74,12 +112,33 @@ export function barList(rows, { unit = "", max = null, share: withShare = false,
       : r.drill ? `<button type="button" class="bars-link" data-drill="${esc(JSON.stringify(r.drill))}">${r.html ?? esc(r.label)}${said}</button>`
       : r.html ?? esc(r.label);
     return `
-    <div class="bars-row${r.value ? "" : " is-zero"}${r.href || r.drill ? " is-drill" : ""}" role="listitem"${tip(r.label, rows, r.note || "")}>
+    <div class="bars-row${r.value ? "" : " is-zero"}${r.href || r.drill ? " is-drill" : ""}" role="listitem"${tip(r.label, rows, withPeriod(r.note || "", period))}>
       <div class="bars-head"><span class="bars-label">${name}</span>
         <span class="bars-val"><b>${esc(value)}</b>${part ? `<small>${part}</small>` : ""}${r.note ? `<small>${esc(r.note)}</small>` : ""}</span></div>
-      <div class="bars-track"><span class="bars-fill" style="width:${Math.min(100, (r.value / top) * 100).toFixed(1)}%"></span></div>
+      <div class="bars-track"><span class="bars-fill" style="width:${Math.min(100, (r.value / scaleTop) * 100).toFixed(1)}%"></span></div>
     </div>`;
-  }).join("")}</div>${nothing.length ? `<p class="chart-note">${esc(zeros)}: ${esc(nothing.map((r) => r.label).join(", "))}.</p>` : ""}`;
+  };
+  // A long ranked list: its top rows, the rest one click away — never dropped.
+  const cut = top ?? (sort && list.length > 12 ? 10 : 0);
+  const shown = cut && list.length > cut + 2 ? list.slice(0, cut) : list;
+  const rest = list.slice(shown.length);
+  return `${insight ? insightLine(barsInsight(list, unit, text)) : ""}<div class="bars" role="list">${shown.map(row).join("")}</div>${
+    rest.length ? `<details class="bars-more"><summary>Show all ${num(list.length)}</summary><div class="bars" role="list">${rest.map(row).join("")}</div></details>` : ""}${
+    nothing.length ? `<p class="chart-note">${esc(zeros)}: ${esc(nothing.map((r) => r.label).join(", "))}.</p>` : ""}`;
+}
+/** "Highest: Grade 6, 92%. Lowest: Grade 4, 78%." — or nothing, with fewer than three groups to compare. */
+function barsInsight(list, unit, text) {
+  const counted = list.some((r) => r.base != null);
+  const judged = counted ? list.filter((r) => (r.base ?? 0) >= MIN_BASE) : list;
+  if (judged.length < 3) return "";
+  const byValue = [...judged].sort((a, b) => b.value - a.value);
+  const v = (r) => (text ? text(r) : show(r.value, unit));
+  const hi = byValue.filter((r) => v(r) === v(byValue[0]));
+  const lo = byValue.filter((r) => v(r) === v(byValue.at(-1)));
+  const only = counted && judged.length < list.length ? ` (groups of ${MIN_BASE} or more)` : "";
+  if (v(hi[0]) === v(lo[0])) return `All ${judged.length} at ${v(hi[0])}${only}.`;
+  return unit === "%" ? `Highest: ${names(hi)}, ${v(hi[0])}. Lowest: ${names(lo)}, ${v(lo[0])}${only}.`
+    : `Most: ${names(hi)}, ${v(hi[0])}. Fewest: ${names(lo)}, ${v(lo[0])}${only}.`;
 }
 
 /* ------------------------------------------------------------ progress to a target */
@@ -93,11 +152,11 @@ const STATUS_WORD = { met: ["Met", "ok"], close: ["Close", "warm"], not_met: ["N
             percent: how much of the target is achieved (the API works it
             out, the right way round for indicators meant to go down)
       fmt   (value, unit) => text */
-export function targetList(rows, { fmt = (v) => show(v), keepEmpty = false, empty = "No values or targets yet." } = {}) {
+export function targetList(rows, { fmt = (v) => show(v), keepEmpty = false, empty = "No values or targets yet.", period = "", top = 0 } = {}) {
   const list = (rows || []).filter((r) => keepEmpty || r.value != null || r.target != null);
   if (!list.length) return none(empty);
   const LINE = 80; // the target sits 80% of the way along; the rest is room to pass it
-  return `<div class="tg" role="list">${list.map((r) => {
+  const row = (r) => {
     const [word, cls] = STATUS_WORD[r.status] || STATUS_WORD.no_data;
     const pctOf = r.percent ?? (r.value != null && r.target ? (r.value / r.target) * 100 : null);
     const hasTarget = r.target != null;
@@ -110,14 +169,19 @@ export function targetList(rows, { fmt = (v) => show(v), keepEmpty = false, empt
     if (hasTarget) said.push([fmt(r.target, r.unit), "target"]);
     if (hasTarget && pctOf != null) said.push([`${Math.round(pctOf)}%`, "of the target"]);
     return `
-    <div class="tg-row" role="listitem"${tip(r.label, said, r.value == null ? "No value recorded yet" : hasTarget ? word : "No target set")}>
+    <div class="tg-row" role="listitem"${tip(r.label, said, withPeriod(r.value == null ? "No value recorded yet" : hasTarget ? word : "No target set", period))}>
       <div class="bars-head"><span class="bars-label">${r.html ?? esc(r.label)}</span>
         <span class="bars-val"><b>${esc(value)}</b>${hasTarget ? `<small>target ${esc(fmt(r.target, r.unit))}</small>` : `<small>no target</small>`}${
           r.value != null && hasTarget ? `<span class="pill ${cls}">${word}</span>` : r.value == null ? `<span class="pill">No data</span>` : ""}</span></div>
       <div class="tg-track${hasTarget ? "" : " no-target"}">${width ? `<span class="tg-fill tg-${esc(r.status || "no_data")}" style="width:${width.toFixed(1)}%"></span>` : ""}${
         hasTarget ? `<i class="tg-line" style="left:${LINE}%"></i>` : ""}</div>
     </div>`;
-  }).join("")}</div>`;
+  };
+  // `top`: the first rows, the rest one click away (a long list of schools).
+  const shown = top && list.length > top + 2 ? list.slice(0, top) : list;
+  const rest = list.slice(shown.length);
+  return `<div class="tg" role="list">${shown.map(row).join("")}</div>${
+    rest.length ? `<details class="bars-more"><summary>Show all ${num(list.length)}</summary><div class="tg" role="list">${rest.map(row).join("")}</div></details>` : ""}`;
 }
 /** One line under a target chart, saying how to read it. */
 export const TARGET_KEY = `<p class="chart-note"><i class="tg-key" aria-hidden="true"></i>Bar: actual · line: target.</p>`;
@@ -145,8 +209,12 @@ function niceTop(max) {
       height  of the plot, in pixels (150 unless said)
       drill   each point with a `drill` (monthPoints/termPoints give one)
               narrows the dashboard to that period: click it, or step to it
-              with the arrow keys and press Enter */
-export function lineChart(points, { unit = "", noun = "", target = "", band = null, ticks = null, name = "Actual", title = "", height = 0, drill = false, empty = "Nothing recorded yet." } = {}) {
+              with the arrow keys and press Enter
+      insight a sentence above: the latest complete period against the one before
+      A last point with `partial` (the month under way — monthPoints marks it)
+      is open and joined by a dashed line, and the insight leaves it out: a
+      period that isn't over isn't compared with whole ones. */
+export function lineChart(points, { unit = "", noun = "", target = "", band = null, ticks = null, name = "Actual", title = "", height = 0, drill = false, empty = "Nothing recorded yet.", insight = false } = {}) {
   const pts = points || [];
   const has = (k) => pts.some((p) => p[k] != null);
   if (!pts.length || !(pts.some((p) => p.value) || (target && has("target")))) return none(empty);
@@ -156,18 +224,22 @@ export function lineChart(points, { unit = "", noun = "", target = "", band = nu
   const top = unit === "%" ? 100 : niceTop(Math.max(...values) * (band ? 1.2 : 1));
   const x = (i) => ((i + 0.5) / n) * 100;
   const y = (v) => (v / top) * 100;
+  const under = pts.at(-1)?.partial && pts.at(-1).value != null ? n - 1 : -1; // the period still under way
   const path = (key) => {
     let d = "", pen = false;
     pts.forEach((p, i) => {
-      if (p[key] == null) { pen = false; return; }
+      if (p[key] == null || (key === "value" && i === under)) { pen = false; return; }
       d += `${pen ? "L" : "M"}${x(i).toFixed(2)} ${(100 - y(p[key])).toFixed(2)} `;
       pen = true;
     });
     return d.trim();
   };
-  // The area under a single unbroken series: a wash, so the shape reads at a glance.
-  const solid = !target && pts.every((p) => p.value != null);
-  const area = solid ? `M${x(0).toFixed(2)} 100 ${pts.map((p, i) => `L${x(i).toFixed(2)} ${(100 - y(p.value)).toFixed(2)}`).join(" ")} L${x(n - 1).toFixed(2)} 100 Z` : "";
+  // The area under a single unbroken series: a wash, so the shape reads at a glance (not under the period still going).
+  const whole = under >= 0 ? pts.slice(0, -1) : pts;
+  const solid = !target && whole.length > 1 && whole.every((p) => p.value != null);
+  const area = solid ? `M${x(0).toFixed(2)} 100 ${whole.map((p, i) => `L${x(i).toFixed(2)} ${(100 - y(p.value)).toFixed(2)}`).join(" ")} L${x(whole.length - 1).toFixed(2)} 100 Z` : "";
+  const before = under > 0 ? pts.slice(0, under).map((p, i) => (p.value == null ? -1 : i)).filter((i) => i >= 0).at(-1) : undefined;
+  const dashed = before != null ? `M${x(before).toFixed(2)} ${(100 - y(pts[before].value)).toFixed(2)} L${x(under).toFixed(2)} ${(100 - y(pts[under].value)).toFixed(2)}` : "";
   // Label a few points only: every one when there are a handful, otherwise the latest and the highest.
   const known = pts.map((p, i) => (p.value == null ? -1 : i)).filter((i) => i >= 0);
   const last = known.at(-1), peak = known.reduce((m, i) => (pts[i].value > pts[m].value ? i : m), known[0] ?? 0);
@@ -178,7 +250,7 @@ export function lineChart(points, { unit = "", noun = "", target = "", band = nu
     picks ? ". Step through the points with the arrow keys; press Enter to show only that period" : ""}`;
   const shown = new Set(ticks ?? pts.map((_, i) => i));
   const yLabels = [top, top / 2, 0].map((v) => show(v, unit));
-  return `<div class="lc${picks ? " is-drill" : ""}" tabindex="0" role="img" aria-label="${esc(said)}" data-live-quiet${height ? ` style="--lc-h:${height}px"` : ""}>
+  return `${insight ? insightLine(lineInsight(pts, under, unit, noun)) : ""}<div class="lc${picks ? " is-drill" : ""}" tabindex="0" role="img" aria-label="${esc(said)}" data-live-quiet${height ? ` style="--lc-h:${height}px"` : ""}>
     <div class="lc-y" style="width:${(Math.max(...yLabels.map((l) => l.length)) * 0.58 + 0.2).toFixed(2)}em" aria-hidden="true">${yLabels.map((l, i) => `<span style="bottom:${100 - i * 50}%">${esc(l)}</span>`).join("")}</div>
     <div class="lc-plot">
       <i class="lc-grid" style="bottom:100%"></i><i class="lc-grid" style="bottom:50%"></i>
@@ -187,6 +259,7 @@ export function lineChart(points, { unit = "", noun = "", target = "", band = nu
         ${area ? `<path class="lc-area" d="${area}"/>` : ""}
         ${target ? `<path class="lc-line lc-line-t" d="${path("target")}"/>` : ""}
         <path class="lc-line" d="${path("value")}"/>
+        ${dashed ? `<path class="lc-line lc-line-partial" d="${dashed}"/>` : ""}
       </svg>
       ${pts.map((p, i) => {
         const rows = [];
@@ -194,19 +267,35 @@ export function lineChart(points, { unit = "", noun = "", target = "", band = nu
         if (target && p.target != null) rows.push([show(p.target, unit), target.toLowerCase(), "var(--chart-target)"]);
         if (!rows.length) rows.push(["—", "no value"]);
         const pick = picks && p.drill && p.value != null ? ` data-drill="${esc(JSON.stringify(p.drill))}"` : "";
-        return `<span class="lc-pt${labelled.has(i) || dotted ? " is-marked" : ""}" style="left:${((i / n) * 100).toFixed(2)}%;width:${(100 / n).toFixed(2)}%"${pick}${tip(p.full || p.label, rows, p.note ? `${p.note}${pick ? " · pick it to see only this period" : ""}` : pick ? "Pick it to see only this period" : "")}>${
+        const so = i === under ? "So far: this period isn't over" : "";
+        const note = [so, p.note, pick ? "pick it to see only this period" : ""].filter(Boolean).join(" · ");
+        return `<span class="lc-pt${labelled.has(i) || dotted ? " is-marked" : ""}" style="left:${((i / n) * 100).toFixed(2)}%;width:${(100 / n).toFixed(2)}%"${pick}${tip(p.full || p.label, rows, note ? note[0].toUpperCase() + note.slice(1) : "")}>${
           target && p.target != null ? `<i class="lc-dot lc-dot-t" style="bottom:${y(p.target).toFixed(2)}%"></i>` : ""}${
-          p.value != null ? `<i class="lc-dot" data-tip-anchor style="bottom:${y(p.value).toFixed(2)}%"></i>` : ""}${
+          p.value != null ? `<i class="lc-dot${i === under ? " is-partial" : ""}" data-tip-anchor style="bottom:${y(p.value).toFixed(2)}%"></i>` : ""}${
           p.value != null && labelled.has(i) ? `<b class="lc-val" style="bottom:${y(p.value).toFixed(2)}%">${esc(show(p.value, unit))}</b>` : ""}</span>`;
       }).join("")}
     </div>
     <div class="lc-x" aria-hidden="true">${pts.map((p, i) => `<span>${shown.has(i) ? `${esc(p.label)}${p.sub ? `<small>${esc(p.sub)}</small>` : ""}` : ""}</span>`).join("")}</div>
-  </div>${target ? `<ul class="chart-key"><li><i class="key-line"></i>${esc(name)}</li><li><i class="key-line key-dash"></i>${esc(target)}</li></ul>` : ""}`;
+  </div>${target ? `<ul class="chart-key"><li><i class="key-line"></i>${esc(name)}</li><li><i class="key-line key-dash"></i>${esc(target)}</li></ul>` : ""}${
+    under >= 0 ? `<p class="chart-note">${esc(pts[under].full || pts[under].label)} isn't over yet: its point is open and its line dashed.</p>` : ""}`;
+}
+/** "September 2026: 12 visits, up from 8 in August 2026." — the latest complete period against the one before. */
+function lineInsight(pts, skip, unit, noun) {
+  const done = pts.filter((p, i) => i !== skip && p.value != null);
+  if (done.length < 3) return "";
+  const [p, l] = done.slice(-2);
+  const name = (q) => q.full || q.label;
+  const d = l.value - p.value;
+  const mid = (q) => name(q).replace(/^Week /, "the week "); // mid-sentence: "in the week of 12 October"
+  const how = Math.abs(d) < 0.5 ? `the same as ${mid(p)}` : `${d > 0 ? "up" : "down"} from ${show(p.value, unit)} in ${mid(p)}`;
+  return `${name(l)}: ${show(l.value, unit)}${noun && unit !== "%" ? ` ${nounFor(l.value, noun)}` : ""}, ${how}.`;
 }
 
-/** "2026-09" → { label: "Sep", full: "September 2026", sub: the year where it starts or changes }. */
+/** "2026-09" → { label: "Sep", full: "September 2026", sub: the year where it starts or changes };
+    the month under way (Kenyan time) is marked `partial`. */
 export function monthPoints(rows, pick = (r) => r.value) {
   let year = null;
+  const thisMonth = new Date(Date.now() + 3 * 3600e3).toISOString().slice(0, 7);
   return (rows || []).map((r) => {
     const [y, m] = String(r.label).split("-").map(Number);
     if (!y || !m) return { label: String(r.label), value: pick(r) };
@@ -216,7 +305,7 @@ export function monthPoints(rows, pick = (r) => r.value) {
     return {
       label: d.toLocaleString(undefined, { month: "short", timeZone: "UTC" }), sub,
       full: d.toLocaleString(undefined, { month: "long", year: "numeric", timeZone: "UTC" }), value: pick(r),
-      drill: { month: String(r.label) },
+      drill: { month: String(r.label) }, ...(String(r.label) === thisMonth ? { partial: true } : {}),
     };
   });
 }
@@ -234,15 +323,11 @@ export function termPoints(rows, pick = (r) => r.value, more = () => ({})) {
 export function trendOrBars(points, opts = {}) {
   const known = (points || []).filter((p) => p.value != null);
   if (known.length >= 3) return lineChart(points, opts);
-  return barList(known.map((p) => ({ label: p.full || p.label, value: p.value, note: p.note, drill: opts.drill ? p.drill : undefined })),
+  return barList(known.map((p) => ({ label: p.full || p.label, value: p.value, note: p.partial ? [p.note, "so far"].filter(Boolean).join(" · ") : p.note, drill: opts.drill ? p.drill : undefined })),
     { unit: opts.unit, noun: opts.noun, empty: opts.empty, act: opts.drill ? "show only this period" : "" });
 }
 
 /* ------------------------------------------------------------ parts of one whole */
-
-// Three category colours, validated for colour blindness against each other
-// (light and dark) and free of the status hues (docs/DESIGN-SYSTEM.md).
-const CAT = ["var(--cat-1)", "var(--cat-2)", "var(--cat-3)"];
 
 function keyList(parts, total, { colours, noun, compact = false }) {
   if (compact) {
@@ -252,48 +337,51 @@ function keyList(parts, total, { colours, noun, compact = false }) {
     <li${tip(p.label, [[num(p.value), noun], [`${share(p.value, total)}%`, `of ${num(total)}`]])}><i style="background:${p.colour || colours[i]}"></i><span>${esc(p.label)}</span><b>${num(p.value)}</b><small>${share(p.value, total)}%</small></li>`).join("")}</ul>`;
 }
 
-/** A donut — only for a simple proportion: up to three parts of one whole.
-    Each part keeps its colour by its place in the list (not by its size, and
-    not by which others happen to be empty), and the key beside it carries
-    every number, so the ring is never the only way to read it.
-      parts  [{ label, value }]   in their own fixed order
-      noun   what is counted ("answers") */
-export function donut(parts, { noun = "", empty = "Nothing recorded yet." } = {}) {
-  const list = parts || [];
-  const total = list.reduce((t, p) => t + (p.value || 0), 0);
-  if (!total) return none(empty);
-  const live = list.filter((p) => p.value > 0).length;
-  const gap = live > 1 ? 1.1 : 0; // a sliver of surface between parts, not an outline around them
-  let at = 0;
-  const segs = list.map((p, i) => {
-    if (!(p.value > 0)) return "";
-    const size = (p.value / total) * 100;
-    const seg = `<circle class="donut-seg" r="15.915" cx="21" cy="21" fill="none" stroke="${CAT[i]}" stroke-width="5.5" pathLength="100"
-      stroke-dasharray="${Math.max(0.5, size - gap).toFixed(2)} ${(100 - Math.max(0.5, size - gap)).toFixed(2)}" stroke-dashoffset="${(-at).toFixed(2)}"${
-      tip(p.label, [[num(p.value), noun], [`${share(p.value, total)}%`, `of ${num(total)}`]])}></circle>`;
-    at += size;
-    return seg;
-  }).join("");
-  const said = list.map((p) => `${p.label}: ${num(p.value)} (${share(p.value, total)}%)`).join(", ");
-  return `<div class="chart-donut-wrap">
-    <svg class="donut" viewBox="0 0 42 42" role="img" aria-label="${esc(`${num(total)} ${noun} — ${said}`)}">
-      <circle r="15.915" cx="21" cy="21" fill="none" stroke="var(--paper-sunk)" stroke-width="5.5"></circle>
-      <g transform="rotate(-90 21 21)">${segs}</g>
-      <text x="21" y="${noun ? 19.8 : 21}" class="donut-total" aria-hidden="true">${num(total)}</text>
-      ${noun ? `<text x="21" y="25.4" class="donut-noun" aria-hidden="true">${esc(noun)}</text>` : ""}
-    </svg>
-    ${keyList(list, total, { colours: CAT, noun })}
-  </div>`;
+/** Parts of one whole: horizontal bars, each with its count and its share,
+    largest first unless the parts have an order of their own. No pies or
+    donuts (27 October 2026): lengths on one scale compare more exactly than
+    angles, and a bar needs no colour key. */
+export function proportion(parts, { noun = "", empty, sort = true, zeros = "", insight = false, period = "" } = {}) {
+  return barList(parts || [], { share: true, sort, noun, empty, zeros, insight, period });
 }
 
-/** Parts of one whole: a donut when there are two or three of them, bars (each
-    with its share) otherwise — a ring with many slices can't be compared,
-    and a ring that is all one part says nothing a number doesn't. Three is
-    as many category colours as stay apart for colour-blind readers. */
-export function proportion(parts, { noun = "", empty, sort = true, zeros = "" } = {}) {
-  const list = parts || [];
-  const live = list.filter((p) => p.value > 0).length;
-  return list.length <= CAT.length && live >= 2 ? donut(list, { noun, empty }) : barList(list, { share: true, sort, noun, empty, zeros });
+/** Two or three periods or groups side by side for each category — a
+    baseline and a follow-up, last term and this term. One scale for every
+    bar (0–100 for "%"), each labelled with its value; a key names the
+    series, earliest (lightest) first, so the latest reads strongest.
+      rows    [{ label, values: [v | null …] (one per series), notes?: [text…] }]
+      series  [{ label }]   oldest first
+      insight a sentence above: in how many categories the last series is higher */
+export function groupedBars(rows, series, { unit = "", noun = "", empty = "Nothing recorded yet.", title = "", insight = false, period = "" } = {}) {
+  const list = (rows || []).filter((r) => r.values.some((v) => v != null));
+  if (!list.length || series.length < 2) return none(empty);
+  const shades = series.length === 2 ? ["var(--seq-3)", "var(--chart-1)"] : ["var(--seq-4)", "var(--seq-2)", "var(--chart-1)"];
+  const top = unit === "%" ? 100 : Math.max(1, ...list.flatMap((r) => r.values.filter((v) => v != null)));
+  const said = list.map((r) => `${r.label}: ${series.map((s, i) => `${s.label} ${r.values[i] == null ? "no data" : show(r.values[i], unit)}`).join(", ")}`).join("; ");
+  let text = "";
+  if (insight) {
+    const both = list.filter((r) => r.values.at(-1) != null && r.values.at(-2) != null);
+    if (both.length >= 2) {
+      const up = both.filter((r) => r.values.at(-1) - r.values.at(-2) >= 0.5).length;
+      const down = both.filter((r) => r.values.at(-2) - r.values.at(-1) >= 0.5).length;
+      const [a, b] = [series.at(-2).label, series.at(-1).label];
+      const all = both.length === 2 ? "both" : `all ${both.length}`;
+      text = up === both.length ? `Higher in ${b} than ${a} in ${all}.`
+        : down === both.length ? `Lower in ${b} than ${a} in ${all}.`
+        : `Higher in ${b} than ${a} in ${up} of ${both.length}; lower in ${down}.`;
+    }
+  }
+  return `${insightLine(text)}<ul class="chart-key">${series.map((s, i) => `<li><i style="background:${shades[i]}"></i>${esc(s.label)}</li>`).join("")}</ul>
+  <div class="gbars" role="img" aria-label="${esc(`${title ? `${title}: ` : ""}${said}`)}">${list.map((r) => `
+    <div class="gbars-group">
+      <div class="gbars-label">${esc(r.label)}</div>
+      ${series.map((s, i) => {
+        const v = r.values[i];
+        return `<div class="gbars-row"${tip(`${r.label} · ${s.label}`, [[v == null ? "—" : show(v, unit), v == null ? "no data" : noun, shades[i]]], withPeriod(r.notes?.[i] || "", period))}>
+        <div class="bars-track"><span class="bars-fill" style="width:${v == null ? 0 : Math.min(100, (v / top) * 100).toFixed(1)}%;background:${shades[i]}"></span></div>
+        <span class="gbars-val">${v == null ? "No data" : esc(show(v, unit))}</span></div>`;
+      }).join("")}
+    </div>`).join("")}</div>`;
 }
 
 /** One bar split into the parts of a whole that come in an order — bands,
@@ -301,14 +389,14 @@ export function proportion(parts, { noun = "", empty, sort = true, zeros = "" } 
     (`colour`, a CSS value) because here colour is the scale.
       parts    [{ label, short?, value, colour }]
       compact  the key on one wrapping line, without shares (a summary card) */
-export function stackBar(parts, { noun = "", empty = "Nothing recorded yet.", title = "", compact = false } = {}) {
+export function stackBar(parts, { noun = "", empty = "Nothing recorded yet.", title = "", compact = false, period = "" } = {}) {
   const list = parts || [];
   const total = list.reduce((t, p) => t + (p.value || 0), 0);
   if (!total) return none(empty);
   const said = list.map((p) => `${p.label}: ${num(p.value)} (${share(p.value, total)}%)`).join(", ");
   // No figures inside the bar: on a narrow part they'd be clipped, and the key beneath has every one.
   return `<div class="stack" role="img" aria-label="${esc(`${title ? `${title} — ` : ""}${said}`)}">${list.filter((p) => p.value > 0).map((p) =>
-    `<span style="flex:${p.value};background:${p.colour}"${tip(p.label, [[num(p.value), noun], [`${share(p.value, total)}%`, `of ${num(total)}`]])}></span>`).join("")}</div>
+    `<span style="flex:${p.value};background:${p.colour}"${tip(p.label, [[num(p.value), noun], [`${share(p.value, total)}%`, `of ${num(total)}`]], period)}></span>`).join("")}</div>
   ${keyList(list.map((p) => ({ ...p, label: p.short ? `${p.short} — ${p.label}` : p.label })), total, { colours: [], noun, compact })}`;
 }
 
@@ -318,7 +406,7 @@ export function stackBar(parts, { noun = "", empty = "Nothing recorded yet.", ti
       rows   [{ label, parts: [n…] (in the order of `parts`), figure?, figureNote?, note? }]
       parts  [{ label, short?, colour }]
       noun   what is counted ("marked") */
-export function stackRows(rows, parts, { noun = "", empty = "Nothing recorded yet.", title = "" } = {}) {
+export function stackRows(rows, parts, { noun = "", empty = "Nothing recorded yet.", title = "", period = "" } = {}) {
   const list = (rows || []).filter((r) => r.parts.some((v) => v > 0));
   if (!list.length) return none(empty);
   const all = parts.map((p, i) => ({ ...p, value: list.reduce((t, r) => t + (r.parts[i] || 0), 0) }));
@@ -330,7 +418,7 @@ export function stackRows(rows, parts, { noun = "", empty = "Nothing recorded ye
       <div class="bars-head"><span class="bars-label">${esc(r.label)}</span>
         <span class="bars-val">${r.figure != null ? `<b>${esc(r.figure)}</b>` : ""}${r.figureNote ? `<small>${esc(r.figureNote)}</small>` : ""}${r.note ? `<small>${esc(r.note)}</small>` : ""}</span></div>
       <div class="stack" role="img" aria-label="${esc(`${r.label} — ${said}`)}">${parts.map((p, i) => (r.parts[i] > 0
-        ? `<span style="flex:${r.parts[i]};background:${p.colour}"${tip(`${r.label} · ${p.short ? `${p.short} — ` : ""}${p.label}`, [[num(r.parts[i]), noun], [`${share(r.parts[i], total)}%`, `of ${num(total)}`]])}></span>` : "")).join("")}</div>
+        ? `<span style="flex:${r.parts[i]};background:${p.colour}"${tip(`${r.label} · ${p.short ? `${p.short} — ` : ""}${p.label}`, [[num(r.parts[i]), noun], [`${share(r.parts[i], total)}%`, `of ${num(total)}`]], period)}></span>` : "")).join("")}</div>
     </div>`;
   }).join("")}</div>
   ${keyList(all.map((p) => ({ ...p, label: p.short ? `${p.short} — ${p.label}` : p.label })), grand, { colours: [], noun, compact: true })}`;
@@ -369,7 +457,7 @@ function shadeSteps(max) {
                or { value, note?, few? }: few marks it as too little to compare — it's
                printed with an asterisk, lighter, and the key says why.
       unit     "%" after each value (with a scale) */
-export function heatmap(rows, cols, { corner = "", caption = "", noun = "", totals = true, act = "", empty = "Nothing recorded yet.", scale = null, unit = "", fewNote = "" } = {}) {
+export function heatmap(rows, cols, { corner = "", caption = "", noun = "", totals = true, act = "", empty = "Nothing recorded yet.", scale = null, unit = "", fewNote = "", insight = false, period = "" } = {}) {
   const list = rows || [];
   const valueOf = (v) => (v != null && typeof v === "object" ? v.value : v);
   const max = Math.max(0, ...list.flatMap((r) => r.values.map((v) => valueOf(v) ?? 0)));
@@ -394,14 +482,25 @@ export function heatmap(rows, cols, { corner = "", caption = "", noun = "", tota
       const few = !!(cell && typeof cell === "object" && cell.few);
       const rows2 = [[scale ? (v == null ? "—" : show(v, unit)) : num(v), noun]];
       if (cell && typeof cell === "object" && cell.note) rows2.push(["", cell.note]);
-      return `<td class="hm hm-${shade(v)}${few ? " hm-few" : ""}"${tip(`${r.label} · ${cols[i].full || cols[i].label}`, rows2, few ? fewNote : "")}>${cellText(v)}${few ? '<span aria-hidden="true">*</span>' : ""}</td>`;
+      return `<td class="hm hm-${shade(v)}${few ? " hm-few" : ""}"${tip(`${r.label} · ${cols[i].full || cols[i].label}`, rows2, withPeriod(few ? fewNote : "", period))}>${cellText(v)}${few ? '<span aria-hidden="true">*</span>' : ""}</td>`;
     }).join("")}${totals ? `<td class="hm-total">${num(total)}</td>` : ""}</tr>`;
   }).join("");
   const anyFew = scale && list.some((r) => r.values.some((v) => v && typeof v === "object" && v.few));
   const key = `<ul class="chart-key hm-key" aria-hidden="true"><li><i class="hm-0"></i>${scale ? "Nothing yet" : "None"}</li>${
     steps.map((s, i) => `<li><i class="hm-${shadeOf(i)}"></i>${esc(range(s))}</li>`).join("")}<li>${esc(noun)} in a cell</li>${
     anyFew ? `<li>* ${esc(fewNote || "too few to compare")}</li>` : ""}</ul>`;
-  return `<div class="hm-wrap"><table class="heatmap">${caption ? `<caption class="sr-only">${esc(caption)}</caption>` : ""}<thead>${head}</thead><tbody>${body}</tbody></table></div>${key}`;
+  // The busiest cell, when there's more than one to choose between (counts only). `insight`
+  // may name it: "Largest" for a grid of learners rather than of times.
+  let busiest = "";
+  if (insight && !scale) {
+    const cells = list.flatMap((r) => r.values.map((v, i) => ({ r, c: cols[i], v: valueOf(v) ?? 0 }))).filter((x) => x.v > 0);
+    if (cells.length >= 2 && max >= 2) {
+      const b = cells.reduce((m, x) => (x.v > m.v ? x : m));
+      const ties = cells.filter((x) => x.v === b.v).length;
+      busiest = ties === 1 ? `${typeof insight === "string" ? insight : "Busiest"}: ${b.r.label}, ${b.c.full || b.c.label} (${num(b.v)} ${nounFor(b.v, noun)}).` : "";
+    }
+  }
+  return `${insightLine(busiest)}<div class="hm-wrap"><table class="heatmap">${caption ? `<caption class="sr-only">${esc(caption)}</caption>` : ""}<thead>${head}</thead><tbody>${body}</tbody></table></div>${key}`;
 }
 
 /* ------------------------------------------------------------ how values spread */
@@ -414,7 +513,7 @@ export function heatmap(rows, cols, { corner = "", caption = "", noun = "", tota
       unit   "%" after the last edge and in the tooltip
       noun   what is counted ("learners")
       key    [{ label, colour, value }]   what the colours mean, with their counts */
-export function histogram(bins, { unit = "", noun = "", key = [], title = "", empty = "Nothing recorded yet." } = {}) {
+export function histogram(bins, { unit = "", noun = "", key = [], title = "", empty = "Nothing recorded yet.", period = "" } = {}) {
   const list = bins || [];
   const total = list.reduce((t, b) => t + (b.value || 0), 0);
   if (!total) return none(empty);
@@ -426,7 +525,7 @@ export function histogram(bins, { unit = "", noun = "", key = [], title = "", em
   return `<div class="hist" role="img" aria-label="${esc(said)}">
     <div class="lc-y" style="width:${(Math.max(...yLabels.map((l) => l.length)) * 0.58 + 0.2).toFixed(2)}em" aria-hidden="true">${yLabels.map((l, i) => `<span style="bottom:${100 - i * 50}%">${esc(l)}</span>`).join("")}</div>
     <div class="hist-plot"><i class="lc-grid" style="bottom:100%"></i><i class="lc-grid" style="bottom:50%"></i>${list.map((b) => `<div class="hist-col"${
-      tip(range(b), [[num(b.value), noun, b.colour], [`${share(b.value, total)}%`, `of ${num(total)}`]])}>${
+      tip(range(b), [[num(b.value), noun, b.colour], [`${share(b.value, total)}%`, `of ${num(total)}`]], period)}>${
       b.value ? `<b>${num(b.value)}</b><i style="height:${((b.value / top) * 100).toFixed(1)}%;background:${b.colour || "var(--chart-1)"}"></i>` : ""}</div>`).join("")}</div>
     <div class="hist-x" aria-hidden="true">${edges.map((e, i) => `<span>${e == null ? "" : `${num(e)}${i === edges.length - 1 ? unit : ""}`}</span>`).join("")}</div>
   </div>${key.length ? keyList(key, total, { colours: [], noun, compact: true }) : ""}`;
@@ -445,10 +544,10 @@ export function marksBins(averages, bands = []) {
 }
 /** The marks histogram every page uses: the ranges coloured by band (bands best first, as the
     API sends them), the band totals in the key. */
-export function marksSpread(bins, bands = [], { empty = "No marked work yet." } = {}) {
+export function marksSpread(bins, bands = [], { empty = "No marked work yet.", period = "" } = {}) {
   const colourOf = (code) => { const i = bands.findIndex((b) => b.code === code); return i >= 0 ? `var(--band-${i + 1})` : "var(--chart-1)"; };
   return histogram(bins.map((b) => ({ ...b, colour: colourOf(b.band) })), {
-    unit: "%", noun: "learners", title: "Learners by average mark", empty,
+    unit: "%", noun: "learners", title: "Learners by average mark", empty, period,
     key: bands.map((b, i) => ({ label: `${b.code} — ${b.label}`, colour: `var(--band-${i + 1})`, value: bins.filter((x) => x.band === b.code).reduce((t, x) => t + x.value, 0) })),
   });
 }
@@ -489,10 +588,7 @@ function showTip(el, pointerX = null, pointerY = null) {
   tipFor = el;
   el.classList.add("is-on");
   // Above the mark (its dot, on a line), kept inside the window; below when there's no room above.
-  // (A ring's part has the whole ring as its box, so there the pointer itself is the place.)
-  const ring = el.matches(".donut-seg") && pointerX != null && pointerY != null;
-  const r = ring ? { left: pointerX, right: pointerX, top: pointerY - 6, bottom: pointerY + 6, width: 0 }
-    : (el.querySelector("[data-tip-anchor]") || el).getBoundingClientRect();
+  const r = (el.querySelector("[data-tip-anchor]") || el).getBoundingClientRect();
   const b = box.getBoundingClientRect();
   const cx = pointerX != null && r.width > 120 ? pointerX : r.left + r.width / 2;
   const left = Math.max(8, Math.min(window.innerWidth - b.width - 8, cx - b.width / 2));

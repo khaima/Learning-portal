@@ -10,28 +10,40 @@ does that better, there is no chart.
 | The question | The picture | In `charts.js` |
 | --- | --- | --- |
 | How has this changed over time? | A **line** | `lineChart`, `trendOrBars` |
-| How do these groups compare? | **Bars**, one colour | `barList` |
+| How do these groups compare (schools, counties, activities)? | **Horizontal bars**, one colour, from zero | `barList` |
+| How do two periods or groups compare, category by category (last term and this; a baseline and a follow-up)? | **Grouped bars**, side by side on one scale | `groupedBars` |
 | How far towards the target? | A **bar filling towards a line** | `targetList` |
-| What share of one whole? (two or three parts) | A **donut** | `donut`, `proportion` |
+| What share of one whole? | **Bars, each with its share** — no pies or donuts | `proportion` |
 | What share, on a scale that has an order? | **One bar, split in order** | `stackBar` |
 | …the same scale, for several groups side by side (bands by subject)? | **A split bar per group**, one key | `stackRows` |
 | How many, in each cell of a grid (a place × a month, a day × a time)? | A **heatmap** | `heatmap` |
 | What value, in each cell of a grid (the average mark, a subject × a grade)? | A **heatmap with a scale** — shaded by band | `heatmap(…, { scale })` |
 | How are the values spread (each learner's average mark)? | A **histogram** | `histogram` |
-| What are the exact figures? | A **table** | — |
+| What are the exact figures, to search, sort or export? | A **table** | — |
+| A few headline indicators | **Key-figure cards** | `kpi.js` |
+| Where, on a map? | **No map**: four counties, and the portal holds no school locations. A county or school table or heatmap answers "where" until location data is complete. | — |
 
 Rules that go with them:
 
 - **A line needs three points.** With fewer, the periods are compared as
   bars (`trendOrBars` decides).
-- **A donut is only for a simple share:** two or three parts of one whole.
-  Four or more become bars, each with its percentage (three is as many
-  category colours as stay apart for colour-blind readers without
-  borrowing a status colour: DESIGN-SYSTEM.md). A whole made of a
-  single part is a bar too — a full ring says nothing.
-- **Bars are one colour.** Length tells the rows apart. Colour is kept for
-  meaning: target met, close or not met; the achievement bands; the parts
-  of a donut.
+- **No pies or donuts** (27 October 2026). The parts of a whole are bars,
+  each with its count and share: lengths on one scale compare more exactly
+  than angles, and need no colour key.
+- **Grouped bars for two periods or groups**, side by side per category on
+  one scale (0–100 for percentages): the earlier one lighter, the latest
+  in the brand blue, a key above. "No data" where a period has too little
+  — never a bar at zero.
+- **Stacked bars only for parts that can't overlap and add up to a
+  meaningful whole** — the achievement bands, how recently staff signed
+  in. Activities a teacher can do several of are separate bars.
+- **Bars are one colour and start at zero.** Length tells the rows apart.
+  Colour is kept for meaning: target met, close or not met; the
+  achievement bands; a grouped bar's periods.
+- **A long ranked list shows its top 10**, the rest behind "Show all N" in
+  the same card — nothing is dropped (`barList` does this for any sorted
+  list of more than 12; `targetList` with `top`). Lists with an order of
+  their own (grades, terms, answers) are never cut.
 - **Largest first** where the groups have no order of their own (counties,
   subjects, visit types). Grades, terms, months and a form's answer
   choices keep their own order.
@@ -45,6 +57,35 @@ Rules that go with them:
 - **Too few to compare is said, not ranked.** A heatmap cell (or a subject)
   with fewer than 5 marked pieces of work is printed with an asterisk and a
   dashed edge, and the key says why; rankings leave it out.
+- **One measure per axis, no dual axes.** A target is the same measure as
+  its actual, so they share a line chart; anything else gets its own chart.
+- **A period still under way is marked, not compared.** The current month
+  on a monthly line is an open point joined by a dashed line, with a note
+  under the chart; the takeaway sentence compares the last two complete
+  periods. Content usage's weekly line leaves the running week out.
+
+## Every chart says its question, its period and what stands out
+
+- **The title asks the chart's question or names what it shows**: "Which
+  grades hand in their work", "Where and when field visits happened",
+  "Field visits, month by month" — not a bare noun ("Completion by grade").
+- **A line under the title says what is counted and in what unit** ("% of
+  set work handed in", "Visits recorded each month").
+- **A chip under that says the reporting period**: the dates the dashboard
+  is filtered to ("1 Sep 2026 – 27 Oct 2026", "All time"), or the chart's
+  own window ("Last 12 months", "Term by term", "On roll now", "Published
+  now", "Every response so far"). The same period is in every tooltip.
+- **One sentence above the chart, only where the data supports it**
+  (`insight`): the highest and lowest group, ties named together; the
+  latest complete period against the one before; the busiest cell of a
+  grid; in how many categories the later period is higher. Groups resting
+  on fewer than 5 (`base`) are left out of it, and with fewer than three
+  groups — or a tie at the top of a grid — there is no sentence. It
+  describes; it never gives a cause.
+- **Empty, loading and error states** are shared: a shaped skeleton while
+  loading, "No visits recorded in Narok County for this period." when the
+  filters leave nothing, and the page's "Couldn't load — Try again" on an
+  error.
 
 ## Reading a chart without hovering, or without colour
 
@@ -141,7 +182,8 @@ blindness and contrast validator against the card surface:
 | --- | --- |
 | `--chart-1` | Every single-measure bar and line. |
 | `--chart-target` | The dashed target line on a trend: grey ink, because a target is a reference, not a warning (was orange `--chart-2` until 27 October 2026). |
-| `--cat-1` … `--cat-3` | The parts of a donut, always in this order (blue, cyan, orchid — no status hue; validated all-pairs in both themes, figures in DESIGN-SYSTEM.md). A part keeps its colour when another part is empty. |
+| `--seq-3`, `--chart-1` | A grouped bar's two periods: the earlier lighter, the latest brand blue (three periods: `--seq-4`, `--seq-2`, `--chart-1`). |
+| `--cat-1` … `--cat-3` | Unused since the donuts went (27 October 2026); kept, validated, for a chart that ever needs unordered categories in colour (blue, cyan, orchid — no status hue; figures in DESIGN-SYSTEM.md). |
 | `--band-1` … `--band-4` | The four achievement bands, best to weakest. |
 | `--seq-1` … `--seq-4` | One hue, strongest to weakest, for an ordered scale (how recently staff signed in) and a heatmap's four shades. |
 | `--hm-ink-1` … `--hm-ink-4` | The count printed on each heatmap shade: 4.5:1 or more on its shade in both themes (checked). |
@@ -150,8 +192,7 @@ blindness and contrast validator against the card surface:
 
 Until 27 October 2026 the donut used blue, orange, purple and green —
 orange and green being the attention and positive colours, and blue and
-purple failing the validator. The three colours now are none of the
-status colours.
+purple failing the validator; then the donuts went altogether.
 
 ## What each chart was, and is
 
@@ -165,7 +206,7 @@ status colours.
 | Completion by grade, Results by grade, Training by county, Active by county, Teacher activity | Bars on 0–100 with decimals | Bars on 0–100, whole percentages, with the count behind each |
 | Marked work by band | A row of pills | One bar split into the bands, with a key |
 | Learners' own progress | Three numbers | One bar split improved / steady / declined; on 27 October 2026 folded into the "Learners improving" tile, which now gives the three counts |
-| Teachers by employment type, Resources by shelf | Bars | Donut (when two or three parts have a value) |
+| Teachers by employment type, Resources by shelf | Bars | Donut, then (27 October 2026) bars with shares again |
 | M&E indicators, target against actual | Bars on different scales, target line in a different place on each row | Every bar fills towards the same target line; value, target and status in words |
 | Indicator trend | A large drawing with five gridlines; its labels grew with the screen | Line (actual) and dashed line (target), three gridlines, fixed-size labels |
 | Subject, school and form tables | Plain percentages | Percentages with a thin bar, band codes with their full name on hover |
@@ -215,8 +256,7 @@ One marks histogram everywhere: `charts.js` `marksSpread()` (and
 
 | Question | Before | Now |
 | --- | --- | --- |
-| One choice, up to three answers | Donut; counts only; colours shifted when an answer had no takers | Donut; count and percentage; fixed colours |
-| One choice, four to six answers | Donut | Bars with shares |
+| One choice | Donut; counts only; colours shifted when an answer had no takers | Bars with each answer's count and share, in the form's own order |
 | Tick all that apply, or a long list | Bars, counts only, an empty bar for every unchosen answer | Bars with each answer's share of everyone who answered; unchosen answers named in one line |
 | A number | Four figures and bars | Average, lowest, highest; bars for the spread with shares |
 
@@ -255,3 +295,49 @@ right form. (The key-figure cards are described above.)
 3. Give the card a one-line description.
 4. A new colour sequence must pass the validator in both themes before it
    ships.
+
+## Chart review, 27 October 2026
+
+Every chart on every dashboard, checked against one question: what does it
+answer, and is this the clearest picture for it? What changed:
+
+| Page | Chart (title now) | Question it answers | Form | Change |
+| --- | --- | --- | --- | --- |
+| Executive overview | Where and when field visits happened | Which places were visited, and when? | Heatmap | Title; "Last 12 months"; busiest cell said |
+| Executive overview | How learners' average marks are spread | How many learners at each mark? | Histogram | Title; period in tooltips |
+| Executive overview | How much set work is handed in, term by term | Is completion rising? | Line (bars under 3 terms) | Title; "Term by term" |
+| Reach | Reach in each county | Schools on the portal, learners and teachers per county | Table | Title |
+| Reach | Learners on roll, term by term | Is the roll growing? | Line | Title; latest change said |
+| Reach | Where learners are, by grade | Grades in each county or school | Heatmap | Title; "On roll now"; largest cell said |
+| Reach | How teachers are employed | TSC or BOM? | Donut → bars with shares | No donut |
+| Learning | Which grades hand in their work | Completion by grade | Bars | Title; highest and lowest |
+| Learning | Average mark in each grade | Marks by grade | Bars | Title; the band strip under it removed — the marks histogram already splits by band |
+| Learning | Average mark, term by term | Are marks rising? | Line (bars under 3 terms) | Title |
+| Learning | Which subject does best? → Average mark by subject | Subjects, last term and this | Bars → **grouped bars** | Both terms side by side where both have enough marked work |
+| Learning (more detail) | How each subject / school is doing | Exact figures | Tables | Titles |
+| Teacher development | Share of teachers trained, by county | Training coverage by place | Bars | Title; counties under 5 teachers left out of the sentence |
+| Teacher development | What teachers do on the portal | Which activities are common? | Bars (activities overlap: never stacked) | Title |
+| Teacher development | Share of teachers active, by county | Activity by place | Bars | Title; its own window ("Last 30 days") |
+| Field operations | Field visits, month by month | Are visits keeping up? | Line | The month under way dashed and left out of the comparison |
+| Field operations | What field visits were for | Visit types | Bars | Title |
+| Field operations | Survey records collected, month by month | Is data collection keeping up? | Line | As visits |
+| Digital resources | Which resources are used most | Exact figures | Table | Title |
+| Digital resources (more detail) | What the library holds, by shelf / subject / type | The collection | Donut → bars; bars | No donut; "Published now" |
+| Content usage | Opens and people, week by week | Is use growing? | Two lines (two measures, two charts) | Latest complete week against the one before |
+| Content usage | Which resources are opened most | Ranked resources | Bars, top 8 then "Show all" | Was cut at 8 |
+| Content usage | Who opens resources | Learners or staff? | Donut → bars with shares | No donut |
+| Content usage | Which schools use the library most | Ranked schools | Bars, top 10 then "Show all" | Was cut at 12 with a pointer elsewhere |
+| Content usage | Where time goes, by topic | Topics | Bars | Title |
+| Administration overview | Learners per teacher, school by school | Staffing load | Bars, ranked | Title; "On roll now" |
+| Administration overview | How big classes are | Class-size spread | Histogram (5+ classes) | Title; "This school year" |
+| Attendance | Attendance, day by day | Is attendance holding? | Line | Title; register dates as the period |
+| Attendance | Which weekdays learners miss most | The weak days | Bars | Title |
+| Attendance | Average mark, by how often learners came | Do the two go together? | Bars | Title; a note that it shows a pattern, not a cause |
+| M&E indicator | Actual against target, term by term | On track? | Line with its target (one measure, one axis) | Title |
+| M&E indicator | Progress to target in each school | Which schools are behind? | Target bars | Was cut at 25; now the first 25 and "Show all" |
+| Survey results | Each question | What did people answer? | Bars with shares (no donuts) | "Every response so far" |
+
+Not changed, and why: the platform overview's "When the portal is used"
+and sign-in recency (system health, for the Super Admin); key-figure
+cards (the headline indicators); detailed tables (searching and sorting).
+No maps: the counties are few and school locations aren't held.

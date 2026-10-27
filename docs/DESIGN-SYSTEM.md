@@ -67,7 +67,8 @@ a figure that needs action) is a 3px left border, never thicker.
 | `--chart-target` (= `--ink-soft`) | The dashed target line and its key | A target is a reference, not a warning |
 | `--seq-1` … `--seq-4` | Magnitude: heatmap shades, how recently | One hue, dark = more |
 | `--band-1` … `--band-4` | Achievement bands, best to weakest | The status colours, because there the colour *is* the judgement (green, blue, orange, red) |
-| `--cat-1` … `--cat-3` | Unordered parts of one whole (a donut) | Blue, cyan, orchid, always in this order; no status hue |
+| `--seq-3`, `--chart-1` | A grouped bar's two periods | Earlier lighter, latest brand blue |
+| `--cat-1` … `--cat-3` | Reserved: unordered categories in colour (no chart uses them since the donuts went, 27 October 2026) | Blue, cyan, orchid, always in this order; no status hue |
 
 The category colours were chosen with the data-visualisation palette
 validator, every pair compared (not only neighbours), against the card
@@ -82,10 +83,10 @@ surface:
 | Worst pair, normal vision (ΔE, floor 15) | 17.2 | 15.5 |
 | Contrast with the surface | all ≥ 3:1 | all ≥ 3:1 |
 
-No fourth colour clears both floors without borrowing a status hue, so a
-donut has **at most three parts**; four or more are drawn as bars, each
-with its share (`charts.js` `proportion`). The donut's key prints every
-label, count and percentage, so the ring is never the only way to read it.
+No fourth colour clears both floors without borrowing a status hue. Since
+27 October 2026 the portal draws no pies or donuts: the parts of a whole
+are bars, each with its count and share (`charts.js` `proportion`), so
+these colours are kept only for a future chart that needs them.
 
 ## Type
 

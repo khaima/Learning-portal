@@ -15,7 +15,7 @@ import { resultsTableHtml } from "./assignments-ui.js";
 import { extendTrail, withVia } from "./nav.js";
 import { ICON } from "./navigation.js";
 import { agoTag, liveStatus, swap } from "./live.js";
-import { barList, heatmap, histogram, lineChart, monthPoints, stackBar } from "./charts.js";
+import { barList, heatmap, histogram, lineChart, monthPoints, periodChip, stackBar } from "./charts.js";
 import { kpiCard, trendTag } from "./kpi.js";
 
 const fmtDay = (v) => (v ? new Date(v).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—");
@@ -474,8 +474,8 @@ export function renderPlatformOverview(el, { describe } = {}) {
 }
 
 /* ------------------------------------------------------------------ Administration overview */
-const chartCard = (title, meta, body, { wide = false } = {}) => `<div class="chart-card${wide ? " intel-wide" : ""}">
-  <div class="chart-card-head"><b>${esc(title)}</b>${meta ? `<span>${meta}</span>` : ""}</div>${body}</div>`;
+const chartCard = (title, meta, body, { wide = false, period = "" } = {}) => `<div class="chart-card${wide ? " intel-wide" : ""}">
+  <div class="chart-card-head"><b>${esc(title)}</b>${meta ? `<span>${meta}</span>` : ""}${periodChip(period)}</div>${body}</div>`;
 
 /** The dashboard's pictures (GET /admin/overview → charts): where and when field visits happen,
     how big the classes are, learners per teacher and enrolment by school and grade. */
@@ -490,19 +490,19 @@ function adminCharts(d) {
   if (!C) return ""; // an API from before them
   const classes = C.classSizes.reduce((t, b) => t + b.value, 0);
   // A spread needs a few classes to have a shape; with fewer it's one sentence.
-  const sizes = chartCard("Class sizes", classes ? `${plural(classes, "class", "classes")} this year` : "",
+  const sizes = chartCard("How big classes are", classes ? `Classes by number of learners · ${plural(classes, "class", "classes")}` : "Classes by number of learners",
     classes >= 5 ? histogram(C.classSizes, { noun: "classes", title: "Classes by number of learners", empty: "No classes this year yet." })
-      : `<p class="chart-few">${classes ? `Only ${plural(classes, "class", "classes")} this year: too few to show a spread.` : "No classes this year yet."}</p>`);
+      : `<p class="chart-few">${classes ? `Only ${plural(classes, "class", "classes")} this year: too few to show a spread.` : "No classes this year yet."}</p>`, { period: "This school year" });
   const without = d.organisation.schoolsWithoutTeacher?.count ?? 0;
-  const ratio = chartCard("Learners per teacher", "Active teachers, school by school",
+  const ratio = chartCard("Learners per teacher, school by school", "Learners on roll for each active teacher",
     barList(C.perTeacher.map((r) => ({ label: r.label, value: r.value, note: `${plural(r.learners, "learner")} · ${plural(r.teachers, "teacher")}` })),
-      { noun: "learners per teacher", empty: "No school has an active teacher yet." })
-    + (without ? `<p class="chart-note">${plural(without, "school")} without an active teacher ${without === 1 ? "is" : "are"} in Needs attention.</p>` : ""));
+      { noun: "learners per teacher", empty: "No school has an active teacher yet.", sort: true, insight: true, period: "On roll now" })
+    + (without ? `<p class="chart-note">${plural(without, "school")} without an active teacher ${without === 1 ? "is" : "are"} in Needs attention.</p>` : ""), { period: "On roll now" });
   const E = C.enrolment;
   const enrol = chartCard("Learners by school and grade", `Active learners${E.rows.length ? ` · ${plural(E.rows.length, "school")}` : ""}`,
     heatmap(E.rows, E.grades.map((g) => ({ label: g, short: g.replace(/^Grade\s*/i, ""), full: g })),
-      { corner: "School", caption: "Active learners by school and grade", noun: "learners", empty: "No learners enrolled yet." })
-    + (E.schoolsWithout && E.rows.length ? `<p class="chart-note">${plural(E.schoolsWithout, "school")} with no learners enrolled yet ${E.schoolsWithout === 1 ? "isn't" : "aren't"} shown.</p>` : ""), { wide: true });
+      { corner: "School", caption: "Active learners by school and grade", noun: "learners", empty: "No learners enrolled yet.", insight: "Largest", period: "On roll now" })
+    + (E.schoolsWithout && E.rows.length ? `<p class="chart-note">${plural(E.schoolsWithout, "school")} with no learners enrolled yet ${E.schoolsWithout === 1 ? "isn't" : "aren't"} shown.</p>` : ""), { wide: true, period: "On roll now" });
   return `<div class="chart-grid admin-charts chart-pairs">${ratio}${sizes}${enrol}</div>`;
 }
 

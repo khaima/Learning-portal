@@ -15,7 +15,7 @@
    ============================================================ */
 
 import { esc, skeleton, errorState, friendlyError } from "./util.js";
-import { barList, heatmap, stackRows } from "./charts.js";
+import { barList, groupedBars, heatmap, stackRows } from "./charts.js";
 import { kpiCard } from "./kpi.js";
 
 const pct = (v) => (v == null ? "—" : `${Math.round(v)}%`);
@@ -62,13 +62,23 @@ export function compareHtml(d, { rowsBy = d?.rowsBy || "grade", empty = "No mark
       </div>${weakest ? "" : `<p class="chart-note">Only ${esc(best.label)} has enough marked work to compare so far (${esc(atLeast)}).</p>`}`
     : `<p class="compare-none">Not enough marked work yet to say which subject does best — a subject needs ${esc(atLeast)}.</p>`;
 
-  // 2. Average mark by subject, best first.
-  const bars = ranked.length
-    ? barList(ranked.map((s) => ({
-        label: s.label, value: s.averagePercent,
-        note: [`${s.marked} marked`, termMove(s)].filter(Boolean).join(" · "),
-      })), { unit: "%", noun: "average mark" })
-    : "";
+  // 2. Average mark by subject, best first — last term beside this one, where at
+  //    least one subject has enough marked work in both (a baseline and a follow-up).
+  const enoughIn = (s, key) => (s.terms || []).find((t) => t.key === key && t.enough && t.averagePercent != null);
+  const termKeys = [...new Set(ranked.flatMap((s) => (s.terms || []).filter((t) => t.enough && t.averagePercent != null).map((t) => t.key)))].sort().slice(-2);
+  const termLabel = (key) => String(ranked.flatMap((s) => s.terms || []).find((t) => t.key === key)?.label || key);
+  const paired = termKeys.length === 2 && ranked.some((s) => enoughIn(s, termKeys[0]) && enoughIn(s, termKeys[1]));
+  const bars = !ranked.length ? ""
+    : paired
+      ? groupedBars(ranked.map((s) => ({
+          label: s.label,
+          values: termKeys.map((k) => enoughIn(s, k)?.averagePercent ?? null),
+          notes: termKeys.map((k) => { const t = enoughIn(s, k); return t ? `${t.marked} marked` : `Fewer than ${d.min} marked: not compared`; }),
+        })), termKeys.map((k) => ({ label: termLabel(k) })), { unit: "%", noun: "average mark", title: "Average mark by subject, term by term", insight: true })
+      : barList(ranked.map((s) => ({
+          label: s.label, value: s.averagePercent,
+          note: [`${s.marked} marked`, termMove(s)].filter(Boolean).join(" · "),
+        })), { unit: "%", noun: "average mark", insight: ranked.length >= 3 });
   const fewNote = few.length ? `<p class="chart-note">Too little marked to rank yet: ${esc(few.map((s) => `${s.label} (${s.marked})`).join(", "))}.</p>` : "";
 
   // 3. Where each subject's learners are: the bands, best first.
@@ -110,7 +120,7 @@ export function compareHtml(d, { rowsBy = d?.rowsBy || "grade", empty = "No mark
   return `<div class="compare">
     ${answer}
     <div class="compare-grid">
-      ${bars ? part("Average mark by subject", "best first", bars + fewNote) : fewNote}
+      ${bars ? part("Average mark by subject", paired ? `${termLabel(termKeys[0])} and ${termLabel(termKeys[1])}, best subject first` : "best first", bars + fewNote) : fewNote}
       ${mix ? part("Where learners are, by subject", "marked work by band", mix) : ""}
       ${grid ? part(`Each subject, by ${word}`, `average mark · ${rows.length} ${words}`, grid + bestIn, true) : ""}
     </div>

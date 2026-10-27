@@ -21,7 +21,7 @@
    ============================================================ */
 
 import { esc, formatDuration } from "./util.js";
-import { barList as bars0, heatmap as heat0, lineChart, monthPoints, proportion as parts0, trendOrBars } from "./charts.js";
+import { barList as bars0, heatmap as heat0, lineChart, monthPoints, periodChip, periodLabel, proportion as parts0, trendOrBars } from "./charts.js";
 import { kpiCard } from "./kpi.js";
 
 const num = (v) => (v == null ? "—" : Number(v).toLocaleString());
@@ -35,18 +35,20 @@ const NOT_SET = "(not set)";
 
 /* What an empty chart says: where, and for when. */
 let where = " yet";
+let period = "All time"; // the dates the page covers, on every chart
 function forScope(u) {
   const place = u.school ? ` at ${u.school}` : u.county ? ` in ${u.county} County` : "";
   where = `${place}${u.from || u.to ? " in this period" : ""}` || " yet";
+  period = periodLabel(u);
 }
 const none = (what = "Nothing") => `${what} opened${where}.`;
-const barList = (rows, o = {}) => bars0(rows, { empty: none(), ...o });
-const heatmap = (rows, cols, o = {}) => heat0(rows, cols, { empty: none(), ...o });
-const proportion = (parts, o = {}) => parts0(parts, { empty: none(), ...o });
+const barList = (rows, o = {}) => bars0(rows, { empty: none(), period, insight: true, ...o });
+const heatmap = (rows, cols, o = {}) => heat0(rows, cols, { empty: none(), period, insight: true, ...o });
+const proportion = (parts, o = {}) => parts0(parts, { empty: none(), period, insight: true, ...o });
 
-function card(title, meta, body, { wide = false } = {}) {
+function card(title, meta, body, { wide = false, period: when = period } = {}) {
   return `<div class="chart-card${wide ? " intel-wide" : ""}">
-    <div class="chart-card-head"><b>${esc(title)}</b>${meta ? `<span>${meta}</span>` : ""}</div>
+    <div class="chart-card-head"><b>${esc(title)}</b>${meta ? `<span>${meta}</span>` : ""}${periodChip(when)}</div>
     ${body}
   </div>`;
 }
@@ -153,10 +155,10 @@ function overTime(u) {
   // A dozen weekly labels crowd a phone: every other one, always the latest.
   const ticks = !byMonth && n > 6 ? P.points.map((_, i) => i).filter((i) => (n - 1 - i) % 2 === 0) : null;
   const span = byMonth ? `${plural(n, "month")}` : u.from || u.to ? `${plural(n, "week")}` : `Last ${plural(n, "whole week")}`;
-  return card("Opens and people over time", `${span}${soFar}${P.points.at(-1)?.partial ? ` · the last ${byMonth ? "month" : "week"} so far` : ""} · pick a ${byMonth ? "month" : "week"} to see only it`,
-    `<div class="chart-subhead">Opens</div>${trendOrBars(pts((p) => p.opens), { noun: "opens", title: "Resource opens over time", drill: true, ticks, empty: none() })}
-     <div class="chart-subhead">People</div>${trendOrBars(pts((p) => p.users), { noun: "people", title: "People who opened a resource", drill: true, ticks, height: 84, empty: none("No one") })}`,
-    { wide: true });
+  return card(`Opens and people, ${byMonth ? "month by month" : "week by week"}`, `${span}${soFar}${P.points.at(-1)?.partial ? ` · the last ${byMonth ? "month" : "week"} so far` : ""} · pick a ${byMonth ? "month" : "week"} to see only it`,
+    `<div class="chart-subhead">Opens</div>${trendOrBars(pts((p) => p.opens), { noun: "opens", title: "Resource opens over time", drill: true, ticks, empty: none(), insight: true })}
+     <div class="chart-subhead">People</div>${trendOrBars(pts((p) => p.users), { noun: "people", title: "People who opened a resource", drill: true, ticks, height: 84, empty: none("No one"), insight: true })}`,
+    { wide: true, period: u.from || u.to ? period : span });
 }
 
 function whoCard(u, roleLabel) {
@@ -168,46 +170,40 @@ function whoCard(u, roleLabel) {
 function whenCard(u) {
   const W = u.when;
   if (!W) return "";
-  const busiest = W.total ? (() => {
-    let best = [0, 0];
-    W.cells.forEach((row, d) => row.forEach((v, b) => { if (v > W.cells[best[0]][best[1]]) best = [d, b]; }));
-    return `busiest: ${W.days[best[0]]} ${W.blocks[best[1]]} h`;
-  })() : "";
-  return card("When resources are opened", `Kenyan time${busiest ? ` · ${busiest}` : ""}`,
+  return card("When resources are opened", "Opens by day of the week and time of day · Kenyan time",
     heatmap(W.days.map((day, i) => ({ label: day, values: W.cells[i] })), W.blocks.map((b) => ({ label: b, short: b.split("–")[0], full: `${b} h` })),
       { caption: "Resources opened by day of the week and time of day", noun: "opens" }), { wide: true });
 }
 
 function topCard(u, opts) {
-  const top = u.byResource.slice(0, 8);
   const href = (t) => (opts.canOpen?.("content") ? `#content?${new URLSearchParams({ q: t, via: "content-usage" })}` : "");
-  return card("Most used resources", u.byResource.length ? `Opens · the ${top.length === u.byResource.length ? plural(top.length, "resource") : `top ${top.length} of ${num(u.byResource.length)}`} opened` : "",
-    barList(top.map((r) => ({ label: r.title, value: r.views, href: href(r.title) || undefined,
+  // Every resource opened, most first: the top 8 shown, the rest one click away.
+  return card("Which resources are opened most", u.byResource.length ? `Opens, most first · ${plural(u.byResource.length, "resource")} opened` : "",
+    barList(u.byResource.map((r) => ({ label: r.title, value: r.views, href: href(r.title) || undefined,
       note: `${plural(r.users, "person", "people")} · ${dur(r.totalSeconds)}${r.typicalSeconds != null ? ` · typically ${dur(r.typicalSeconds)}` : ""}` })),
-    { noun: "opens", act: "find it in the library" }));
+    { noun: "opens", act: "find it in the library", sort: true, top: 8 }));
 }
 
 function schoolsCard(u) {
   const list = u.bySchool.filter((s) => s.sessions);
-  if (!list.length) return card("Schools compared", "", `<div class="chart-empty">${esc(none())}</div>`);
+  if (!list.length) return card("Which schools use the library most", "", `<div class="chart-empty">${esc(none())}</div>`);
   const here = u.school ? list.findIndex((s) => s.school === u.school) : -1;
   const meta = u.school
     ? here >= 0 ? `${esc(u.school)} is ${here + 1} of ${plural(list.length, "school")} by opens · pick another to switch` : `Nothing opened at ${esc(u.school)} · pick a school to switch`
     : `Opens at each of ${plural(list.length, "school")} · pick one to see only it`;
-  return card("Schools compared", meta,
-    barList(list.slice(0, 12).map((s) => ({
+  return card("Which schools use the library most", meta,
+    barList(list.map((s) => ({
       label: s.school === NOT_SET ? "No school (staff)" : `${s.school}${s.school === u.school ? " (shown)" : ""}`, value: s.sessions,
       note: `${plural(s.users, "person", "people")} · ${dur(s.totalSeconds)} · last ${shortDate(s.lastOpened)}`,
       ...(s.school !== NOT_SET && s.school !== u.school ? { drill: { school: s.school } } : {}),
-    })), { noun: "opens", act: "show only this school" })
-    + (list.length > 12 ? `<p class="chart-note">Every school is under More detail.</p>` : ""));
+    })), { noun: "opens", act: "show only this school", sort: true }));
 }
 
 function topicsCard(u) {
   const tagged = u.byTopic.filter((t) => t.topic !== "(no topic)");
   if (!u.byTopic.length) return "";
   const untagged = u.byTopic.find((t) => t.topic === "(no topic)");
-  return card("Time by topic", tagged.length
+  return card("Where time goes, by topic", tagged.length
     ? `${plural(tagged.length, "topic")} · time while open${untagged ? ` · ${dur(untagged.totalSeconds)} on untagged resources` : ""}`
     : "Give resources a topic (upload or Edit) to see time by topic",
     tagged.length ? barList(tagged.map((t) => ({ label: t.topic, value: t.totalSeconds, note: `${plural(t.sessions, "open")} · ${plural(t.users, "person", "people")}` })),

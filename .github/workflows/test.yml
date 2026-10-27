@@ -76,6 +76,9 @@ jobs:
       # Every name in the pages' code is defined (no type checker here).
       - name: Lint
         run: npm run lint
+      # The chart rules: Top N, no donuts, the period, and the one sentence a chart may say.
+      - name: Chart rules
+        run: npm test
       # Bundles, minifies and fingerprints every page; writes the service worker.
       - name: Build
         run: npm run build
