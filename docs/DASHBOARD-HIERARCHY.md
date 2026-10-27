@@ -196,6 +196,25 @@ Field visits by place and month left this page: they're on the Executive
 overview and Field operations, and the gap they show is the "not visited
 this term" line.
 
+27 October 2026, impact focus: the page now leads with **Programme results**
+for the current term (GET /admin/overview → `results`, worked out by
+`admin_impact.ts` on top of buildImpact, so each figure is the one on the area
+dashboards): learners reached, learners taking part, teachers trained,
+teachers teaching digitally (setting work), schools supported (visited),
+average mark on marked classwork and teachers using digital resources.
+Each shows its period, what it counts and what it doesn't, the same number
+of days into the term before, and a target only where an M&E indicator for
+that portal measure has an approved one for the term (whole-programme
+targets; an admin sees these headline figures without `me.view` or
+`intelligence.view` — no permission changed). A figure with nothing behind
+it says "No data", never 0; taking part and resource use are never called
+learning outcomes. Then progress against all M&E targets, **Schools needing
+support** (one line per rule) and a folded school-by-school table. The
+organising figures and gaps above follow under "Programme organisation";
+Kobo review and high-severity data issues moved into a folded "Data checks
+waiting" (data operations, not results). System diagnostics stay on the
+Platform overview (Super Admin).
+
 ## School head (`leader.html`)
 
 | Component | Level | Now |
