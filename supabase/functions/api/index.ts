@@ -38,6 +38,7 @@ import { buildIntelligence, VISIT_TYPES as INTEL_VISIT_TYPES } from "./intellige
 import { checkEmbeddable, cleanTopic } from "./embed.ts";
 export { __setFrameFetchForTests } from "./embed.ts";
 import { buildImpact, GENDERS } from "./impact.ts";
+import { buildAdminResults } from "./admin_impact.ts";
 import { buildLibraryUsage } from "./library_usage.ts";
 import { type Jwk, verifyAccessToken } from "./jwt.ts";
 import { buildNotifications, missingVisitForms } from "./notifications.ts";
@@ -7444,36 +7445,29 @@ app.get("/mel/programmes/:id/results", requirePermission("me.view"), async (c) =
    those tagged for one impact dashboard (?theme=) — for a period (default:
    the current term) and place (?county= / ?school=): target, value
    (recorded, else live) and achievement. */
-app.get("/mel/dashboard", requirePermission("me.view"), async (c) => {
-  const scope = await melScopeFromQuery(c);
-  if (!scope) return c.json({ error: "That county or school isn't in the portal" }, 400);
-  if (!melScopeAllowed(c, scope)) return c.json({ error: OUTSIDE_AREA }, 403);
-  const theme = String(c.req.query("theme") ?? "").trim();
-  if (theme && !DASHBOARD_THEMES.includes(theme)) return c.json({ error: "Unknown dashboard" }, 400);
+/** The M&E indicators (one dashboard's, or all) against their targets for a
+    period and place: GET /mel/dashboard, and the targets on the
+    Administration overview. Throws when a source can't be read. */
+async function melDashboard(scope: MelScope, periodAsked: string, theme: string) {
   const cal = await melCalendar();
   const terms = cal.periods.filter((p) => /-T\d$/.test(p.id));
-  const period = String(c.req.query("period") ?? "") || (terms.find((p) => p.current) ?? terms.at(-1))?.id || "";
+  const period = periodAsked || (terms.find((p) => p.current) ?? terms.at(-1))?.id || "";
   const range = periodRange(period, cal.terms, cal.years);
   const summary = { met: 0, close: 0, not_met: 0, no_data: 0 };
   const empty = { periods: cal.periods, period: range ? { id: period, label: range.label } : null, scope: { type: scope.type, id: scope.id, label: scope.label }, indicators: [], summary };
-  if (!range) return c.json(empty);
+  if (!range) return empty;
   const { data: programmes } = await selectAll(() => admin.from("me_programmes").select("id, code, name, status").order("id"));
   const progs = (programmes ?? []).filter((p) => p.status === "active");
-  if (!progs.length) return c.json(empty);
+  if (!progs.length) return empty;
   const outcomes = (await selectIn("me_outcomes", "programme_id", progs.map((p) => p.id as string))).filter((o) => !o.archived_at);
   const indicators = outcomes.length
     ? (await selectIn("me_indicators", "outcome_id", outcomes.map((o) => o.id as string))).filter((i) => !i.archived_at && (!theme || i.dashboard_theme === theme))
     : [];
-  if (!indicators.length) return c.json(empty);
+  if (!indicators.length) return empty;
   const ids = indicators.map((i) => i.id as string);
-  let targets, actuals, live;
-  try {
-    [targets, actuals, live] = await Promise.all([
+  const [targets, actuals, live] = await Promise.all([
       selectIn("me_targets", "indicator_id", ids), selectIn("me_actuals", "indicator_id", ids), melLive(indicators, range, [scope]),
-    ]);
-  } catch (e) {
-    return c.json({ error: (e as Error).message }, 500);
-  }
+  ]);
   const outcomeOf = new Map(outcomes.map((o) => [o.id, o]));
   const progOf = new Map(progs.map((p) => [p.id, p]));
   const rows = indicators.map((i) => {
@@ -7502,7 +7496,20 @@ app.get("/mel/dashboard", requirePermission("me.view"), async (c) => {
     }
     return 0;
   }).map(({ sort: _s, ...r }) => r);
-  return c.json({ ...empty, indicators: rows, summary });
+  return { ...empty, indicators: rows, summary };
+}
+
+app.get("/mel/dashboard", requirePermission("me.view"), async (c) => {
+  const scope = await melScopeFromQuery(c);
+  if (!scope) return c.json({ error: "That county or school isn't in the portal" }, 400);
+  if (!melScopeAllowed(c, scope)) return c.json({ error: OUTSIDE_AREA }, 403);
+  const theme = String(c.req.query("theme") ?? "").trim();
+  if (theme && !DASHBOARD_THEMES.includes(theme)) return c.json({ error: "Unknown dashboard" }, 400);
+  try {
+    return c.json(await melDashboard(scope, String(c.req.query("period") ?? ""), theme));
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
 });
 
 /* One indicator over time, for the place picked (?county= / ?school=):
@@ -8653,9 +8660,34 @@ app.get("/admin/overview", requirePermission("users.view"), async (c) => {
   const openForms = (forms.data ?? []).filter((f) => !f.archived_at && (sc.global || !f.county || sc.areaCounties.has(String(f.county).toLowerCase())));
   const unanswered = openForms.filter((f) => !answered.has(f.id)).map((f) => String(f.title ?? "")).sort();
 
+  // ---- programme results (admin_impact.ts): this term so far against the
+  // same point of the last, with M&E's approved targets — the whole
+  // programme's, read only for an administrator of the whole programme.
+  // Never fails the page: a problem here comes back as { error }.
+  let results: ReturnType<typeof buildAdminResults> | { error: string } | null = null;
+  try {
+    const mc = await melCalendar();
+    const today = new Date().toISOString().slice(0, 10);
+    const terms = mc.terms as Record<string, any>[];
+    const inTerm = terms.findIndex((t) => String(t.starts_on) <= today && today <= String(t.ends_on));
+    const at = inTerm >= 0 ? inTerm : terms.findLastIndex((t) => String(t.ends_on) < today);
+    if (at >= 0) {
+      const term = (t: Record<string, any>) => ({
+        id: String(t.id), label: periodRange(String(t.id), mc.terms, mc.years)?.label ?? String(t.id), from: String(t.starts_on), to: String(t.ends_on),
+      });
+      const [input, mel] = await Promise.all([
+        loadImpactInput(),
+        sc.global ? melDashboard({ type: "programme", id: "", label: "Whole programme" }, String(terms[at].id), "") : Promise.resolve(null),
+      ]);
+      results = buildAdminResults(narrowInput(input, sc), { current: term(terms[at]), previous: at > 0 ? term(terms[at - 1]) : null }, mel);
+    }
+  } catch (e) {
+    results = { error: (e as Error).message };
+  }
   return c.json({
     scope: { global: sc.global, label: sc.label },
     currentTerm: cal.termId,
+    results,
     charts: {
       visits: { months: last12, rowsAre: byCounty ? "county" : "school", rows: visitRows },
       classSizes, perTeacher, enrolment,
