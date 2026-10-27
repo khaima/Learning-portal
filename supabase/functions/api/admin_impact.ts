@@ -39,8 +39,12 @@ export type Kpi = {
   previous: { value: number | null; period: string } | null;
   /** M&E's approved target for the period, when one exists for this measure. */
   target: { value: number; indicator: string; percent: number | null; status: string } | null;
-  /** One sentence the data supports, or "". */
+  /** A warning about the figure itself — no data, too few to judge — or "". */
   note: string;
+  /** A plain reading of the figure, from nothing but the figure: how large a
+      share is and how far it sits from an approved target. Never a cause,
+      never a learning claim; "" when the figure is missing or has a note. */
+  readout: string;
   /** What the figure doesn't show. */
   caveat: string;
 };
@@ -72,6 +76,39 @@ export function portalTargets(indicators: Row[]) {
   return out;
 }
 
+/** "Under half of the active teachers", "Most learners on roll"… — a share in
+    words, honest at the edges (0 is "none", exactly 50 is "half", only 100
+    is "all"). */
+export function shareWords(v: number, who: string) {
+  if (v <= 0) return `None of the ${who}`;
+  if (v < 25) return `Fewer than 1 in 4 ${who}`;
+  if (v < 50) return `Under half of the ${who}`;
+  if (v === 50) return `Half of the ${who}`;
+  if (v < 75) return `Over half of the ${who}`;
+  if (v < 100) return `Most ${who}`;
+  return `All the ${who}`;
+}
+
+/** The readout: a share sentence (when the share rests on at least five
+    people or schools) and where the figure stands against its approved
+    target. The change on the term before is the card's own tag, not repeated. */
+export function readout(
+  k: Pick<Kpi, "value" | "unit" | "target" | "note">,
+  share?: { value: number | null; base: number; who: string; did: string },
+) {
+  if (k.value == null || k.note) return "";
+  const out: string[] = [];
+  if (share && share.value != null && share.base >= 5) out.push(`${shareWords(share.value, share.who)} ${share.did}.`);
+  const t = k.target;
+  if (t && t.status === "met") out.push("The approved target is met.");
+  else if (t && (t.status === "close" || t.status === "not_met")) {
+    const gap = Math.abs(t.value - k.value);
+    const by = k.unit === "percent" ? plural(Math.round(gap), "point") : fmt(Math.round(gap));
+    out.push(`${t.status === "close" ? "Close to" : "Short of"} the approved target, by ${by}.`);
+  }
+  return out.join(" ");
+}
+
 export function buildAdminResults(
   d: ImpactInput,
   terms: { current: ReportingTerm; previous: ReportingTerm | null },
@@ -91,14 +128,17 @@ export function buildAdminResults(
   const prevPeriod = previous ? (underway ? `the same point of ${previous.label}` : previous.label) : "";
   const targets = portalTargets(mel?.indicators ?? []);
 
-  const make = (k: Omit<Kpi, "period" | "previous" | "target">, prev: number | null | undefined, metric = "", comparable = true): Kpi => {
+  const make = (
+    k: Omit<Kpi, "period" | "previous" | "target" | "readout">, prev: number | null | undefined, metric = "", comparable = true,
+    share?: Parameters<typeof readout>[1],
+  ): Kpi => {
     const t = metric ? targets.get(metric) : undefined;
     let target: Kpi["target"] = null;
     if (t && t.unit === k.unit) {
       const x = achievement(k.value, t.value, t.direction);
       target = { value: t.value, indicator: t.indicator, percent: x.percent, status: x.status };
     }
-    return { ...k, period, previous: b && comparable ? { value: prev ?? null, period: prevPeriod } : null, target };
+    return { ...k, period, previous: b && comparable ? { value: prev ?? null, period: prevPeriod } : null, target, readout: readout({ ...k, target }, share) };
   };
 
   const E = a.executive, EB = b?.executive;
@@ -119,7 +159,8 @@ export function buildAdminResults(
     value: E.activeUsers.learnerShare, unit: "percent",
     of: E.learners ? `${plural(E.activeUsers.learners, "learner")} of ${fmt(E.learners)}` : "",
     note: "", caveat: "Taking part shows use of the portal, not what learners learned.",
-  }, EB?.activeUsers.learnerShare);
+  }, EB?.activeUsers.learnerShare, "", true,
+  { value: E.activeUsers.learnerShare, base: E.learners, who: "learners on roll", did: "took part" });
 
   // Training: null when the register has no sessions at all — that's no data, not no training.
   const register = d.trainings.some((t) => !t.archived_at);
@@ -131,7 +172,8 @@ export function buildAdminResults(
     of: register && teachers ? `${T.share ?? 0}% of ${plural(teachers, "teacher")} · ${plural(T.sessions, "session")}` : "",
     note: register ? "" : "No training sessions are in the register yet.",
     caveat: "Attendance at training, not what changed in the classroom.",
-  }, register ? b?.teachers.training.teachersTrained : null);
+  }, register ? b?.teachers.training.teachersTrained : null, "", true,
+  { value: T.share ?? null, base: teachers, who: "active teachers", did: "attended training" });
 
   const S = a.teachers.digital.settingWork;
   const digital = make({
@@ -141,7 +183,8 @@ export function buildAdminResults(
     of: teachers ? `${fmt(S.count)} of ${plural(teachers, "teacher")}` : "",
     note: teachers ? "" : "No active teachers in your area yet.",
     caveat: "Counted apart from training: a trained teacher counts here only once they set work.",
-  }, b?.teachers.digital.settingWork.rate, "teachers_setting_work");
+  }, b?.teachers.digital.settingWork.rate, "teachers_setting_work", true,
+  { value: S.rate, base: teachers, who: "active teachers", did: "set work on the portal" });
 
   const V = E.schoolsVisited;
   const schools = make({
@@ -151,7 +194,8 @@ export function buildAdminResults(
     of: V.total ? `${fmt(V.visited)} of ${plural(V.total, "school")}` : "",
     note: V.total ? "" : "No schools in your area yet.",
     caveat: "Out of the schools on the portal: the portal holds no separate list of target schools.",
-  }, EB?.schoolsVisited.coverage, "schools_visited");
+  }, EB?.schoolsVisited.coverage, "schools_visited", true,
+  { value: V.coverage, base: V.total, who: "schools", did: "had a field visit" });
 
   const R = a.learning.results;
   const top = [...d.bands].sort((x, y) => y.minPercent - x.minPercent).slice(0, 2).map((x) => x.code);
@@ -175,7 +219,8 @@ export function buildAdminResults(
     of: teachers ? `${fmt(G.teachersUsingLibrary)} of ${plural(teachers, "teacher")} · ${G.hours} hours · ${plural(G.teacherResourceOpens, "Teacher Resources open")}` : "",
     note: teachers ? "" : "No active teachers in your area yet.",
     caveat: "Use of resources, not evidence of better teaching or learning.",
-  }, b?.teachers.digital.share);
+  }, b?.teachers.digital.share, "", true,
+  { value: G.share, base: teachers, who: "active teachers", did: "opened a resource" });
 
   // ---- school by school, and the schools that need a hand
   const low = new Set([...d.bands].sort((x, y) => x.minPercent - y.minPercent).slice(0, 2).map((x) => x.code));

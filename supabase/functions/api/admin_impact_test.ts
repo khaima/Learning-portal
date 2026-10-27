@@ -6,7 +6,7 @@
  *   deno test --config deno.json admin_impact_test.ts
  */
 import { assertEquals } from "jsr:@std/assert@1";
-import { buildAdminResults } from "./admin_impact.ts";
+import { buildAdminResults, readout, shareWords } from "./admin_impact.ts";
 import type { ImpactInput } from "./impact.ts";
 
 const NOW = new Date("2026-10-15T12:00:00Z");
@@ -112,4 +112,36 @@ Deno.test("admin results: teachers trained, from the register", () => {
   }), TERMS, null, NOW);
   const t = kpi(r, "teachers_trained");
   assertEquals([t.value, t.previous?.value], [1, 0], "the register has sessions, so none by the same point of Term 2 is a real 0");
+});
+
+Deno.test("admin results: share words are honest at the edges", () => {
+  assertEquals(shareWords(0, "schools"), "None of the schools");
+  assertEquals(shareWords(24.9, "schools"), "Fewer than 1 in 4 schools");
+  assertEquals(shareWords(50, "schools"), "Half of the schools", "exactly half isn't over half");
+  assertEquals(shareWords(50.1, "schools"), "Over half of the schools");
+  assertEquals(shareWords(99.9, "schools"), "Most schools", "only 100 is all");
+  assertEquals(shareWords(100, "schools"), "All the schools");
+});
+
+Deno.test("admin results: a readout only from the figure in front of it", () => {
+  const share = { value: 40, base: 20, who: "active teachers", did: "set work on the portal" };
+  const k = { value: 40, unit: "percent" as const, target: null, note: "" };
+  assertEquals(readout(k, share), "Under half of the active teachers set work on the portal.");
+  assertEquals(readout({ ...k, value: null }, share), "", "no data: nothing to read");
+  assertEquals(readout({ ...k, note: "Too few to judge." }, share), "", "a warning stands alone");
+  assertEquals(readout(k, { ...share, base: 4 }), "", "a share of fewer than five isn't put into words");
+  assertEquals(readout({ ...k, target: { value: 60, indicator: "1.1", percent: 66.7, status: "not_met" } }, share),
+    "Under half of the active teachers set work on the portal. Short of the approved target, by 20 points.");
+  assertEquals(readout({ ...k, value: 52, target: { value: 60, indicator: "1.1", percent: 86.7, status: "close" } }),
+    "Close to the approved target, by 8 points.");
+  assertEquals(readout({ value: 120, unit: "count", note: "", target: { value: 100, indicator: "2.1", percent: 120, status: "met" } }),
+    "The approved target is met.");
+});
+
+Deno.test("admin results: the cards carry readouts, never on missing data", () => {
+  const r = buildAdminResults(world({ fieldReports: [visit("v1", "s1", "Aitong", "2026-09-10")] }), TERMS, null, NOW);
+  assertEquals(kpi(r, "schools_supported").readout, "", "two schools: too few to put a share into words");
+  assertEquals(kpi(r, "teachers_trained").readout, "", "no register: no data, no reading");
+  assertEquals(kpi(r, "assessment").readout, "", "nothing marked: no reading");
+  assertEquals(r.kpis.every((k) => !/improv|because|led to|caused/i.test(k.readout)), true, "no causal or learning claims");
 });

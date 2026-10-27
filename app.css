@@ -245,6 +245,12 @@ th[aria-sort="descending"] .th-arrow{ opacity:1; } th[aria-sort="descending"] .t
 .stat-tile .s-label{ display:flex; align-items:center; gap:.4rem; font-size:var(--text-sm); font-weight:600; color:var(--ink-soft); margin-bottom:.55rem; }
 .stat-tile .s-num{ font-size:var(--text-kpi); font-weight:700; letter-spacing:-.02em; font-variant-numeric:tabular-nums; line-height:1.05; }
 .stat-tile .s-sub{ font-size:var(--text-sm); line-height:1.4; color:var(--ink-soft); margin-top:.4rem; }
+/* the Administration overview's plain reading of a figure (admin_impact.ts readout) */
+.stat-tile .s-sub .kpi-readout{ color:var(--ink); }
+/* Programme results: seven cards with several lines each, so each gets room
+   to read — four then three on a laptop, one column on a phone. */
+.stat-row.results-row{ grid-template-columns:repeat(auto-fill,minmax(min(100%,15rem),1fr)); }
+.ao-results{ margin-bottom:var(--gap-section); }
 /* Key figures (kpi.js, docs/CHARTS.md "Key figures"): a change against an
    earlier period, when there is one, sits between the value and its context. */
 .stat-tile .s-title{ min-width:0; }

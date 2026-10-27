@@ -519,7 +519,10 @@ const STATUS_WORD = { met: "met", close: "close to target", not_met: "below targ
 const COUNT_UNIT = { learners: "learners", teachers_trained: "teachers" };
 const kpiValue = (v, unit) => (v == null ? "No data" : unit === "percent" ? `${Math.round(v * 10) / 10}%` : count(v));
 
-function resultCard(k) {
+/* `targets`: false when the section already says, once, that no figure has
+   a target (none set up, or targets aren't for this area) — then the card
+   doesn't repeat "No approved target". */
+function resultCard(k, { targets = true } = {}) {
   const before = k.previous;
   const trend = k.value != null && before?.value != null
     ? trendTag(k.value - before.value, { unit: k.unit === "percent" ? " pts" : "", what: `on ${before.period}` })
@@ -527,10 +530,12 @@ function resultCard(k) {
   const lines = [
     `<span class="chart-meta">${esc(k.period)}</span>`,
     k.of ? esc(k.of) : "",
+    // A plain reading from the figure alone (admin_impact.ts readout); an API from before it sends none.
+    k.readout ? `<span class="kpi-readout">${esc(k.readout)}</span>` : "",
     before && before.value == null && k.value != null ? `No data for ${esc(before.period)} to compare with` : "",
     k.target
       ? `Target ${kpiValue(k.target.value, k.unit)}${k.target.percent != null ? ` · ${num(k.target.percent)}% achieved (${STATUS_WORD[k.target.status] ?? ""})` : ""} · M&amp;E ${esc(k.target.indicator)}`
-      : "No approved target",
+      : targets ? "No approved target" : "",
     k.note ? `<b>${esc(k.note)}</b>` : "",
   ].filter(Boolean);
   return kpiCard({
@@ -568,7 +573,7 @@ function resultsHtml(r) {
     <section class="ao-results" aria-labelledby="aoResultsHead">
       <div class="attn-head"><h3 id="aoResultsHead">Programme results</h3></div>
       <p class="chart-meta">${esc(when + against)} From the portal's own records: the roll, assignments and marks, field visits, the training register and the library. HPF staff aren't counted.</p>
-      <div class="stat-row exec-row">${r.kpis.map(resultCard).join("")}</div>
+      <div class="stat-row results-row">${r.kpis.map((k) => resultCard(k, { targets: !!T?.indicators })).join("")}</div>
       ${progress}
       <section class="attn-section" aria-labelledby="aoSupportHead">
         <div class="attn-head"><h3 id="aoSupportHead">Schools needing support</h3>${r.support.length ? `<span class="count-badge">${r.support.length}</span>` : ""}</div>

@@ -208,7 +208,15 @@ that portal measure has an approved one for the term (whole-programme
 targets; an admin sees these headline figures without `me.view` or
 `intelligence.view` — no permission changed). A figure with nothing behind
 it says "No data", never 0; taking part and resource use are never called
-learning outcomes. Then progress against all M&E targets, **Schools needing
+learning outcomes. Each card also carries a one-sentence **readout** built
+from nothing but its own figure (`readout()`): the share in words when it
+rests on five or more people or schools ("Over half of the active teachers
+set work on the portal.") and how far it sits from an approved target
+("Short of the approved target, by 20 points."). No cause, no learning
+claim, and no readout on missing data or a figure flagged as too few to
+judge. The seven cards sit four then three on a laptop and one to a row on
+a phone; when no M&E indicator exists, one line under them says so instead
+of "No approved target" on every card. Then progress against all M&E targets, **Schools needing
 support** (one line per rule) and a folded school-by-school table. The
 organising figures and gaps above follow under "Programme organisation";
 Kobo review and high-severity data issues moved into a folded "Data checks
