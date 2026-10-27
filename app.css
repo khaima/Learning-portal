@@ -2041,13 +2041,22 @@ h2,h3{ font-family:inherit; letter-spacing:-.01em; }
 .alert-act > .btn{ flex:none; }
 @media (max-width:560px){ .alert-act{ flex-wrap:wrap; } .alert-act > div{ flex-basis:100%; } }
 /* Content usage: what needs doing, between the key figures and the pictures (docs/DASHBOARD-HIERARCHY.md). */
-.usage-attention{ margin:0 0 1.5rem; }
-.usage-attn-head{ display:flex; align-items:center; gap:.5rem; margin-bottom:.55rem; }
-.usage-attn-head h3{ margin:0; font-size:1rem; }
-.usage-attention .alert:last-child{ margin-bottom:0; }
+.attn-section{ margin:0 0 1.5rem; }
+.attn-head{ display:flex; align-items:center; gap:.5rem; margin-bottom:.55rem; }
+.attn-head h3{ margin:0; font-size:1rem; }
+.attn-section .alert:last-child{ margin-bottom:0; }
+/* A chart with too little to draw says so in a sentence; a dashboard's source sits at its foot. */
+.chart-few{ margin:.15rem 0 .2rem; color:var(--ink-soft); font-size:.86rem; line-height:1.45; }
+.dash-source{ margin-top:1.1rem; }
 
 /* The executive overview: five or six figures in one row, then the areas three to a row. */
 @media (min-width:1280px){ .exec-row:not(:has(> :nth-child(6))){ grid-template-columns:repeat(5,minmax(0,1fr)); } }
+/* Five on a tablet: three, then two sharing the row, with no empty slot. */
+@media (min-width:700px) and (max-width:1279.98px){
+  .exec-row:has(> :nth-child(5)):not(:has(> :nth-child(6))){ grid-template-columns:repeat(6,minmax(0,1fr)); }
+  .exec-row:has(> :nth-child(5)):not(:has(> :nth-child(6))) > *{ grid-column:span 2; }
+  .exec-row:has(> :nth-child(5)):not(:has(> :nth-child(6))) > :nth-child(n+4){ grid-column:span 3; }
+}
 .section-head{ margin:1.7rem 0 .8rem; }
 .intel-areas{ grid-template-columns:repeat(auto-fill,minmax(min(100%,17rem),1fr)); }
 /* Four charts sit two and two, not three and one. */
@@ -2145,9 +2154,9 @@ h2,h3{ font-family:inherit; letter-spacing:-.01em; }
 .heatmap thead .bars-link{ color:inherit; font-weight:600; }
 .heatmap .hm-corner,.heatmap tbody th{ width:7.5rem; text-align:left; }
 .heatmap tbody th{ color:var(--ink); }
-.heatmap .bars-link{ background:none; border:0; padding:0; font:inherit; font-weight:600; color:var(--brand-fg); cursor:pointer; text-align:left; }
-.heatmap .bars-link:hover{ text-decoration:underline; text-underline-offset:2px; }
-@media (pointer:coarse){ .heatmap tbody .bars-link{ min-width:44px; min-height:44px; } }
+.heatmap .bars-link,.intel-table .bars-link{ background:none; border:0; padding:0; font:inherit; font-weight:600; color:var(--brand-fg); cursor:pointer; text-align:left; }
+.heatmap .bars-link:hover,.intel-table .bars-link:hover{ text-decoration:underline; text-underline-offset:2px; }
+@media (pointer:coarse){ .heatmap tbody .bars-link,.intel-table .bars-link{ min-width:44px; min-height:44px; } }
 .heatmap td.hm{ height:2rem; border-radius:4px; text-align:center; font-weight:700; }
 .heatmap td.hm:hover,.heatmap td.hm.is-on{ box-shadow:inset 0 0 0 2px var(--ink); }
 .heatmap .hm-total{ width:3rem; padding-left:.4rem; text-align:right; font-weight:700; color:var(--ink); }

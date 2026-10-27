@@ -8568,14 +8568,15 @@ app.get("/admin/overview", requirePermission("users.view"), async (c) => {
   const sc = scopeOf(c);
   const here = (schoolId: unknown, county?: unknown) => inPlaceScope(sc, schoolId, county);
   const cal = await currentCalendar();
-  const [profs, learners, schools, classes, ct, visits, forms, kobo, dq] = await Promise.all([
+  const [profs, learners, schools, classes, ct, visits, forms, responses, kobo, dq] = await Promise.all([
     selectAll(() => admin.from("profiles").select("id, role, status, school_id, county").order("id")),
     selectAll(() => admin.from("learners").select("id, school_id, enrollment_status, class_id, grade").order("id")),
     selectAll(() => admin.from("schools").select("id, name, county").order("id")),
     selectAll(() => admin.from("classes").select("id, school_id, academic_year_id, archived_at").order("id")),
     selectAll(() => admin.from("class_teachers").select("class_id, teacher_id, ended_at").order("class_id")),
     selectAll(() => admin.from("field_reports").select("id, school_id, county, created_at").order("id")),
-    selectAll(() => admin.from("forms").select("id, county, archived_at").order("id")),
+    selectAll(() => admin.from("forms").select("id, title, county, archived_at").order("id")),
+    selectAll(() => admin.from("responses").select("form_id").order("form_id")),
     actorCan(c, "kobo.review")
       ? selectAll(() => admin.from("kobo_records").select("id, school_id, county, status, review").in("status", ["invalid", "duplicate"]).order("id"))
       : Promise.resolve({ data: [] as Record<string, any>[], error: null }),
@@ -8614,12 +8615,16 @@ app.get("/admin/overview", requirePermission("users.view"), async (c) => {
   const classSizes = Array.from({ length: 7 }, (_, i) => ({
     from: i * 10, to: i === 6 ? null : i * 10 + 9, value: sizes.filter((n) => (i === 6 ? n >= 60 : n >= i * 10 && n < i * 10 + 10)).length,
   }));
-  // Learners per active teacher, school by school.
-  const perTeacher = mySchools.map((s) => {
-    const teachers = active.filter((p) => p.role === "teacher" && p.school_id === s.id).length;
+  // Learners per active teacher, school by school — only where there is a
+  // teacher: a school without one is a gap to fill (Needs attention), not a
+  // ratio of nothing.
+  const teachersAt = (id: unknown) => active.filter((p) => p.role === "teacher" && p.school_id === id).length;
+  const noTeacher = mySchools.filter((s) => !teachersAt(s.id)).map((s) => s.name as string).sort();
+  const perTeacher = mySchools.filter((s) => teachersAt(s.id)).map((s) => {
+    const teachers = teachersAt(s.id);
     const n = learnersHere.filter((l) => l.school_id === s.id).length;
-    return { label: s.name as string, learners: n, teachers, value: teachers ? Math.round((n / teachers) * 10) / 10 : null };
-  }).sort((a, b) => (b.value ?? -1) - (a.value ?? -1) || a.label.localeCompare(b.label));
+    return { label: s.name as string, learners: n, teachers, value: Math.round((n / teachers) * 10) / 10 };
+  }).sort((a, b) => b.value - a.value || a.label.localeCompare(b.label));
   // Learners by school and grade (pre-primary first, then Grade 1 upward).
   const gradeKey = (g: unknown) => {
     const t = String(g ?? "");
@@ -8629,13 +8634,24 @@ app.get("/admin/overview", requirePermission("users.view"), async (c) => {
     return n ? Number(n[1]) : 99;
   };
   const grades = [...new Set(learnersHere.map((l) => l.grade as string).filter(Boolean))].sort((a, b) => gradeKey(a) - gradeKey(b) || a.localeCompare(b));
+  // Only schools with learners: a row of blanks per empty school says less than one line counting them.
+  const enrolRows = mySchools.map((s) => {
+    const at = learnersHere.filter((l) => l.school_id === s.id);
+    return { label: s.name as string, values: grades.map((g) => at.filter((l) => l.grade === g).length), total: at.length };
+  });
   const enrolment = {
     grades,
-    rows: mySchools.map((s) => {
-      const at = learnersHere.filter((l) => l.school_id === s.id);
-      return { label: s.name as string, values: grades.map((g) => at.filter((l) => l.grade === g).length), total: at.length };
-    }).sort((a, b) => b.total - a.total || a.label.localeCompare(b.label)),
+    rows: enrolRows.filter((r) => r.total).sort((a, b) => b.total - a.total || a.label.localeCompare(b.label)),
+    schoolsWithout: enrolRows.filter((r) => !r.total).length,
   };
+  // This term's visits: how many, and which schools have had none.
+  const visitsTerm = visitsHere.filter((v) => !termStart || String(v.created_at) >= termStart);
+  const visitedTerm = new Set(visitsTerm.map((v) => v.school_id).filter(Boolean));
+  const notVisited = mySchools.filter((s) => !visitedTerm.has(s.id)).map((s) => s.name as string).sort();
+  // Open forms nobody has answered yet.
+  const answered = new Set((responses.data ?? []).map((r) => r.form_id));
+  const openForms = (forms.data ?? []).filter((f) => !f.archived_at && (sc.global || !f.county || sc.areaCounties.has(String(f.county).toLowerCase())));
+  const unanswered = openForms.filter((f) => !answered.has(f.id)).map((f) => String(f.title ?? "")).sort();
 
   return c.json({
     scope: { global: sc.global, label: sc.label },
@@ -8650,16 +8666,22 @@ app.get("/admin/overview", requirePermission("users.view"), async (c) => {
       pending: people.filter((p) => p.status === "pending").length,
       learners: (learners.data ?? []).filter((l) => here(l.school_id) && (l.enrollment_status ?? ACTIVE) === ACTIVE).length,
       learnersWithoutClass: (learners.data ?? []).filter((l) => here(l.school_id) && (l.enrollment_status ?? ACTIVE) === ACTIVE && !l.class_id).length,
+      learnerSchools: new Set(learnersHere.map((l) => l.school_id)).size,
+      fieldOfficersPlaced: active.filter((p) => p.role === "field_officer" && placed.has(p.id)).length,
     },
     organisation: {
       counties: new Set(mySchools.map((s) => s.county)).size, schools: mySchools.length, classes: yearClasses.length,
       schoolsWithoutHead: mySchools.filter((s) => !active.some((p) => p.role === "school_leader" && p.school_id === s.id)).length,
       teachersWithoutClasses: active.filter((p) => p.role === "teacher" && !teaching.has(p.id)).length,
       fieldOfficersWithoutSchools: active.filter((p) => p.role === "field_officer" && !placed.has(p.id)).length,
+      schoolsWithoutTeacher: { count: noTeacher.length, names: noTeacher.slice(0, 50) },
     },
     operations: {
-      visitsThisTerm: (visits.data ?? []).filter((v) => here(v.school_id, v.county) && (!termStart || String(v.created_at) >= termStart)).length,
-      openForms: (forms.data ?? []).filter((f) => !f.archived_at && (sc.global || !f.county || sc.areaCounties.has(String(f.county).toLowerCase()))).length,
+      visitsThisTerm: visitsTerm.length,
+      schoolsVisitedThisTerm: mySchools.length - notVisited.length,
+      schoolsNotVisitedThisTerm: { count: notVisited.length, names: notVisited.slice(0, 50) },
+      openForms: openForms.length,
+      formsWithoutResponses: { count: unanswered.length, titles: unanswered.slice(0, 50) },
       koboNeedsReview: actorCan(c, "kobo.review") ? (kobo.data ?? []).filter((r) => !r.review && here(r.school_id, r.county)).length : null,
       dataQualityHigh: actorCan(c, "data_quality.view") ? (dq.data ?? []).filter((i) => i.severity === "HIGH" && here(i.school_id, i.county)).length : null,
     },

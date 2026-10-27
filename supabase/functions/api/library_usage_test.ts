@@ -144,3 +144,17 @@ Deno.test("GET /library/usage: the route answers with the report, filters applie
   const learner = await call("GET", "/library/usage", "hpl_learnertoken");
   assertEquals(learner.status, 403, "learners don't see the report");
 });
+
+Deno.test("HPF staff opening resources aren't programme use: left out of every figure, reported apart", () => {
+  const rows = [...world(),
+    open("lib_c", "edu1", "", daysAgo(1), 40, "staff", "education_team"),
+    open("lib_c", "adm1", "", daysAgo(2), 20, "staff", "super_admin"),
+  ];
+  const u = buildLibraryUsage({ items: ITEMS, interactions: rows, schools: SCHOOLS, now: NOW }, NONE);
+  assertEquals(u.totals.sessions, 10, "as without them");
+  assertEquals(u.hpfStaff, { users: 2, sessions: 2 });
+  assertEquals(u.byRole.map((r) => r.role), ["teacher", "learner"], "no HPF roles among programme users");
+  assertEquals(u.attention.notOpened.items.map((i) => i.title), ["Shapes"], "opened only by HPF staff: still not opened by the programme");
+  const one = buildLibraryUsage({ items: ITEMS, interactions: rows, schools: SCHOOLS, now: NOW }, { ...NONE, school: "Aitong Primary" });
+  assertEquals(one.hpfStaff.sessions, 0, "they aren't based at a school");
+});

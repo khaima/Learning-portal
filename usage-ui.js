@@ -116,8 +116,8 @@ function attention(u, opts) {
       detail: `${some(A.noUse.names, 5)}.` });
   }
   items.sort((a, b) => (a.tone === "warn" ? 0 : 1) - (b.tone === "warn" ? 0 : 1));
-  return `<section class="usage-attention" aria-labelledby="usageAttnHead">
-    <div class="usage-attn-head"><h3 id="usageAttnHead">Needs attention</h3>${items.length ? `<span class="count-badge">${items.length}</span>` : ""}</div>
+  return `<section class="attn-section" aria-labelledby="usageAttnHead">
+    <div class="attn-head"><h3 id="usageAttnHead">Needs attention</h3>${items.length ? `<span class="count-badge">${items.length}</span>` : ""}</div>
     ${items.length
       ? items.map((it) => `<div class="alert alert-${it.tone} alert-act"><div><b>${esc(it.title)}</b>${esc(it.detail)}</div>${it.href
         ? `<a class="btn btn-outline q-small" href="${esc(it.href)}">${esc(it.go)}<span class="sr-only">: ${esc(it.title)}</span></a>` : ""}</div>`).join("")
@@ -257,5 +257,6 @@ export function usageHtml(u, opts = {}) {
           ${topicsCard(u)}
         </div>
         ${detail(u, opts)}`}
-    <p class="field-hint">Time is how long a resource stayed open — an estimate, not reading time.</p>`;
+    <p class="field-hint dash-source">Time is how long a resource stayed open — an estimate, not reading time.${u.hpfStaff?.sessions
+      ? ` ${plural(u.hpfStaff.sessions, "open")} by HPF staff checking content ${u.hpfStaff.sessions === 1 ? "is" : "are"} left out of every figure.` : ""}</p>`;
 }

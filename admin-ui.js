@@ -359,7 +359,6 @@ function overviewHtml(d, x, describe) {
           ${stat({ value: kobo.value, unit: kobo.unit, label: "Field submissions counted", sub: kobo.sub, viz: kobo.viz, warn: kobo.warn, href: "#kobo", go: kobo.go })}
           ${stat({ value: d.dataQuality.score == null ? "—" : `${num(d.dataQuality.score)}%`, label: "Data quality score",
             warn: d.dataQuality.high > 0, sub: dqSub, viz: scoreSpark(hist), href: "#data-quality", go: "View data quality" })}
-          ${stat({ value: num(d.organisation.schools), label: "Schools", sub: `in ${plural(d.organisation.counties, "county", "counties")}`, href: "#schools", go: "View schools" })}
         </section>
 
         <section class="pov-panel cc-system" aria-labelledby="cc-system-title">
@@ -380,9 +379,9 @@ function overviewHtml(d, x, describe) {
         </section>
 
         ${x.pics === null ? "" : `<section class="pov-panel cc-pics" aria-labelledby="cc-pics-title">
-          <div class="pov-panel-head"><h3 id="cc-pics-title">${icon("chart")}Programme at a glance</h3>
-            <a class="cc-go" href="#overview?via=platform-overview">Executive overview<span aria-hidden="true"> →</span></a></div>
-          <div class="chart-grid">${x.pics ?? skeletonCharts(2)}</div>
+          <div class="pov-panel-head"><h3 id="cc-pics-title">${icon("chart")}When the portal is used</h3>
+            <a class="cc-go" href="#overview?via=platform-overview">Programme results: Executive overview<span aria-hidden="true"> →</span></a></div>
+          <div class="chart-grid">${x.pics ?? skeletonCharts(1)}</div>
         </section>`}
 
         <section class="pov-panel pov-attention cc-actions" aria-labelledby="pov-attention-title">${actionsPanel(d.checks, queue)}</section>
@@ -480,66 +479,86 @@ const chartCard = (title, meta, body, { wide = false } = {}) => `<div class="cha
 
 /** The dashboard's pictures (GET /admin/overview → charts): where and when field visits happen,
     how big the classes are, learners per teacher and enrolment by school and grade. */
+/* The administrator's dashboard (docs/DASHBOARD-HIERARCHY.md): the key
+   figures, then everything waiting to be organised — each kind of gap once,
+   with the schools or forms it names and the page where it's fixed — then
+   the few pictures of how the programme is organised. Field visits by place
+   and month live on the Executive overview and Field operations; here the
+   gap they show is a "not visited this term" item instead. */
 function adminCharts(d) {
   const C = d.charts;
   if (!C) return ""; // an API from before them
-  const V = C.visits;
-  const byCounty = V.rowsAre === "county";
-  const months = monthPoints(V.months.map((m) => ({ label: m, value: 0 }))).map(({ drill: _, ...m }) => ({ ...m, short: m.label.slice(0, 1) }));
-  // A place's row opens its field visits.
-  const visits = chartCard("Field visits by place and month", `${byCounty ? "Counties" : "Schools"} · last 12 months`,
-    heatmap(V.rows.map((r) => ({ ...r, href: withVia(`#field-visits?${byCounty ? "county" : "school"}=${encodeURIComponent(r.label)}`, "admin-overview") })), months,
-      { corner: byCounty ? "County" : "School", caption: "Field visits each month", noun: "visits", empty: "No field visits recorded yet." }), { wide: true });
   const classes = C.classSizes.reduce((t, b) => t + b.value, 0);
+  // A spread needs a few classes to have a shape; with fewer it's one sentence.
   const sizes = chartCard("Class sizes", classes ? `${plural(classes, "class", "classes")} this year` : "",
-    histogram(C.classSizes, { noun: "classes", title: "Classes by number of learners", empty: "No classes this year yet." }));
+    classes >= 5 ? histogram(C.classSizes, { noun: "classes", title: "Classes by number of learners", empty: "No classes this year yet." })
+      : `<p class="chart-few">${classes ? `Only ${plural(classes, "class", "classes")} this year: too few to show a spread.` : "No classes this year yet."}</p>`);
+  const without = d.organisation.schoolsWithoutTeacher?.count ?? 0;
   const ratio = chartCard("Learners per teacher", "Active teachers, school by school",
-    barList(C.perTeacher.map((r) => ({ label: r.label, value: r.value ?? 0, note: r.teachers ? `${plural(r.learners, "learner")} · ${plural(r.teachers, "teacher")}` : "no active teacher" })),
-      { noun: "learners per teacher", empty: "No schools yet." }));
+    barList(C.perTeacher.map((r) => ({ label: r.label, value: r.value, note: `${plural(r.learners, "learner")} · ${plural(r.teachers, "teacher")}` })),
+      { noun: "learners per teacher", empty: "No school has an active teacher yet." })
+    + (without ? `<p class="chart-note">${plural(without, "school")} without an active teacher ${without === 1 ? "is" : "are"} in Needs attention.</p>` : ""));
   const E = C.enrolment;
-  const enrol = chartCard("Learners by school and grade", "Active learners",
+  const enrol = chartCard("Learners by school and grade", `Active learners${E.rows.length ? ` · ${plural(E.rows.length, "school")}` : ""}`,
     heatmap(E.rows, E.grades.map((g) => ({ label: g, short: g.replace(/^Grade\s*/i, ""), full: g })),
-      { corner: "School", caption: "Active learners by school and grade", noun: "learners", empty: "No learners enrolled yet." }), { wide: true });
-  return `<div class="chart-grid admin-charts">${visits}${sizes}${ratio}${enrol}</div>`;
+      { corner: "School", caption: "Active learners by school and grade", noun: "learners", empty: "No learners enrolled yet." })
+    + (E.schoolsWithout && E.rows.length ? `<p class="chart-note">${plural(E.schoolsWithout, "school")} with no learners enrolled yet ${E.schoolsWithout === 1 ? "isn't" : "aren't"} shown.</p>` : ""), { wide: true });
+  return `<div class="chart-grid admin-charts chart-pairs">${ratio}${sizes}${enrol}</div>`;
+}
+
+const termWord = (id) => String(id ?? "").replace(/^(\d{4})-T(\d)$/, "Term $2");
+const some = (names, max = 4) => names.slice(0, max).join(", ") + (names.length > max ? ` and ${num(names.length - max)} more` : "");
+
+/** The Administration overview, from one /admin/overview read. */
+export function adminOverviewHtml(d) {
+  const o = d.organisation, p = d.people, ops = d.operations;
+  const via = (link) => withVia(link, "admin-overview");
+  // Gaps to fill: one line per kind, the ones holding something up first.
+  const gap = (n, tone, title, detail, link, go) => (n ? { tone, title, detail, link, go } : null);
+  const noTeacher = o.schoolsWithoutTeacher || { count: 0, names: [] };
+  const notVisited = ops.schoolsNotVisitedThisTerm || { count: 0, names: [] };
+  const unanswered = ops.formsWithoutResponses || { count: 0, titles: [] };
+  const items = [
+    gap(p.pending, "warn", `${plural(p.pending, "account")} waiting for approval`, "", "#users?status=pending", "Review"),
+    gap(noTeacher.count, "warn", `${plural(noTeacher.count, "school")} without an active teacher`, some(noTeacher.names), "#teachers", "Teachers"),
+    gap(o.schoolsWithoutHead, "warn", `${plural(o.schoolsWithoutHead, "school")} without a school head`, "", "#school-profiles", "Schools"),
+    gap(o.fieldOfficersWithoutSchools, "warn", `${plural(o.fieldOfficersWithoutSchools, "field officer")} without assigned schools`, "", "#field-officers", "Assign"),
+    gap(ops.koboNeedsReview, "warn", `${plural(ops.koboNeedsReview, "Kobo submission")} ${ops.koboNeedsReview === 1 ? "needs" : "need"} review`, "", "#kobo", "Review"),
+    gap(ops.dataQualityHigh, "warn", `${plural(ops.dataQualityHigh, "high-severity data issue")} open`, "", "#data-quality?severity=HIGH", "Data issues"),
+    gap(notVisited.count, "info", `${plural(notVisited.count, "school")} not visited${d.currentTerm ? ` in ${termWord(d.currentTerm)}` : " this term"}`, some(notVisited.names), "#field-visits", "Field visits"),
+    gap(o.teachersWithoutClasses, "info", `${plural(o.teachersWithoutClasses, "teacher")} not teaching any class`, "", "#teachers", "Teachers"),
+    gap(p.learnersWithoutClass, "info", `${plural(p.learnersWithoutClass, "learner")} not in a class`, "", "#learners", "Learners"),
+    gap(unanswered.count, "info", `${plural(unanswered.count, "open form")} with no responses yet`, some(unanswered.titles.map((t) => `“${t}”`), 3), "#forms", "Forms"),
+  ].filter(Boolean);
+  const visitedLine = o.schools ? `at ${num(ops.schoolsVisitedThisTerm ?? 0)} of ${plural(o.schools, "school")}` : "";
+  return `
+    <div class="panel-head" style="margin-bottom:.6rem"><h2 style="margin:0">Administration overview</h2>
+      <span class="live-head"><span class="chart-meta" style="margin:0">${esc(d.scope.label)}${d.currentTerm ? ` · ${esc(String(d.currentTerm).replace(/^(\d{4})-T(\d)$/, "$1 Term $2"))}` : ""}</span><span data-live-host></span></span></div>
+    <div class="stat-row exec-row">
+      ${kpiCard({ label: "Schools", icon: "school", value: count(o.schools), href: via("#schools"),
+        sub: `${plural(o.counties, "county", "counties")} · ${plural(o.classes, "class", "classes")} this year` })}
+      ${kpiCard({ label: "Teachers", icon: "teacher", value: count(p.teachers), href: via("#teachers"),
+        sub: plural(p.heads, "school head") })}
+      ${kpiCard({ label: "Learners", icon: "cap", value: count(p.learners), href: via("#learners"),
+        sub: p.learners ? `at ${plural(p.learnerSchools ?? 0, "school")}` : "None enrolled yet" })}
+      ${kpiCard({ label: "Field officers", icon: "users", value: count(p.fieldOfficers), href: via("#field-officers"),
+        sub: p.fieldOfficers ? `${num(p.fieldOfficersPlaced ?? 0)} with assigned schools` : "None yet" })}
+      ${kpiCard({ label: "Field visits this term", icon: "pin", value: count(ops.visitsThisTerm),
+        href: via(d.currentTerm ? `#field-visits?term=${encodeURIComponent(d.currentTerm)}` : "#field-visits"),
+        sub: [visitedLine, d.currentTerm ? `since ${esc(termWord(d.currentTerm))} began` : ""].filter(Boolean).join(" · ") })}
+    </div>
+    <section class="attn-section" aria-labelledby="aoAttnHead">
+      <div class="attn-head"><h3 id="aoAttnHead">Needs attention</h3>${items.length ? `<span class="count-badge">${items.length}</span>` : ""}</div>
+      ${items.length
+        ? items.map((it) => `<div class="alert alert-${it.tone} alert-act" data-key="${esc(it.link)}"><div><b>${esc(it.title)}</b>${it.detail ? esc(it.detail) : ""}</div>
+            <a class="btn btn-outline q-small" href="${esc(via(it.link))}">${esc(it.go)}<span class="sr-only">: ${esc(it.title)}</span></a></div>`).join("")
+        : `<div class="alert alert-ok"><div><b>Nothing needs attention right now.</b></div></div>`}
+    </section>
+    ${adminCharts(d)}`;
 }
 
 export function renderAdminOverview(el) {
-  return liveLoad(el, "/admin/overview", (d) => {
-    const o = d.organisation, p = d.people, ops = d.operations;
-    const attention = [
-      p.pending && [`${plural(p.pending, "account")} waiting for approval`, "#users?status=pending"],
-      o.fieldOfficersWithoutSchools && [`${plural(o.fieldOfficersWithoutSchools, "field officer")} without assigned schools`, "#users?role=field_officer"],
-      o.schoolsWithoutHead && [`${plural(o.schoolsWithoutHead, "school")} without a school head`, "#school-profiles"],
-      o.teachersWithoutClasses && [`${plural(o.teachersWithoutClasses, "teacher")} not teaching any class`, "#teachers"],
-      p.learnersWithoutClass && [`${plural(p.learnersWithoutClass, "learner")} not in a class`, "#learners"],
-      ops.koboNeedsReview && [`${plural(ops.koboNeedsReview, "Kobo submission")} ${ops.koboNeedsReview === 1 ? "needs" : "need"} review`, "#kobo"],
-      ops.dataQualityHigh && [`${plural(ops.dataQualityHigh, "high-severity data issue")}`, "#data-quality?severity=HIGH"],
-    ].filter(Boolean);
-    return `
-      <div class="panel-head" style="margin-bottom:.6rem"><h2 style="margin:0">Administration overview</h2>
-        <span class="live-head"><span class="chart-meta" style="margin:0">${esc(d.scope.label)}${d.currentTerm ? ` · ${esc(String(d.currentTerm).replace(/^(\d{4})-T(\d)$/, "$1 Term $2"))}` : ""}</span><span data-live-host></span></span></div>
-      <div class="stat-row exec-row">
-        ${kpiCard({ label: "Schools", icon: "school", value: count(o.schools), href: withVia("#schools", "admin-overview"),
-          sub: `${o.counties} counties · ${o.classes} classes this year` })}
-        ${kpiCard({ label: "Teachers", icon: "teacher", value: count(p.teachers), href: withVia("#teachers", "admin-overview"),
-          sub: `${p.heads} school heads` })}
-        ${kpiCard({ label: "Learners", icon: "cap", value: count(p.learners), href: withVia("#learners", "admin-overview"),
-          sub: p.learnersWithoutClass ? warnText(`${p.learnersWithoutClass} not in a class`) : "All in a class" })}
-        ${kpiCard({ label: "Field officers", icon: "users", value: count(p.fieldOfficers), href: withVia("#users?role=field_officer", "admin-overview"),
-          sub: o.fieldOfficersWithoutSchools ? warnText(`${o.fieldOfficersWithoutSchools} without schools`) : "All have schools" })}
-        ${kpiCard({ label: "Field visits this term", icon: "pin", value: count(ops.visitsThisTerm),
-          href: withVia(d.currentTerm ? `#field-visits?term=${encodeURIComponent(d.currentTerm)}` : "#field-visits", "admin-overview"),
-          sub: d.currentTerm ? `since ${esc(String(d.currentTerm).replace(/^(\d{4})-T(\d)$/, "Term $2"))} began` : "" })}
-        ${kpiCard({ label: "Open forms", icon: "form", value: count(ops.openForms), href: withVia("#forms", "admin-overview"), sub: "open for responses" })}
-      </div>
-      <div class="panel">
-        <div class="panel-head"><h2>Needs attention</h2>${attention.length ? `<span class="count-badge">${attention.length}</span>` : ""}</div>
-        ${attention.length ? `<div>${attention.map(([t, link]) => `<div class="task-row" data-key="${esc(link)}"><div style="flex:1"><b>${esc(t)}</b></div>
-          <div class="roster-actions"><a class="intel-link" href="${esc(withVia(link, "admin-overview"))}">Open</a></div></div>`).join("")}</div>`
-          : `<div class="empty-state">Nothing needs attention right now.</div>`}
-      </div>
-      ${adminCharts(d)}`;
-  }, { every: OVERVIEW_EVERY_MS });
+  return liveLoad(el, "/admin/overview", adminOverviewHtml, { every: OVERVIEW_EVERY_MS });
 }
 
 /* ------------------------------------------------------------------ Permissions (Super Admin) */

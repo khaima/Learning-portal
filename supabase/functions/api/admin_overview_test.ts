@@ -54,3 +54,21 @@ Deno.test("school head overview: the school's marks as a histogram in tens", asy
   assertEquals(m.bins.reduce((t: number, b: { value: number }) => t + b.value, 0), m.learners, "every learner with marked work is in one range");
   assertEquals([m.bins[0].from, m.bins[9].to], [0, 100]);
 });
+
+Deno.test("admin overview: gaps to fill — schools without a teacher, not visited this term, forms nobody answered", async () => {
+  const db = freshWorld();
+  db.schools.push({ id: "sch_new", name: "Ilkerin", county: "Narok", code: "NRK-099" });
+  db.field_reports.push({ id: "fr_t", school_id: SCHOOL.id, school: SCHOOL.name, county: "Narok", visit_type: "ICT", officer_id: "field_officer-id", created_at: new Date().toISOString() });
+  db.forms.push({ id: "form_quiet", title: "Term 3 check-in", audience: "teacher", county: null, archived_at: null });
+  const res = await call("GET", "/admin/overview", "tok_admin");
+  assertEquals(res.status, 200, JSON.stringify(res.json));
+  const { organisation: o, operations: ops, charts: c, people: p } = res.json;
+  assertEquals(o.schoolsWithoutTeacher, { count: 1, names: ["Ilkerin"] });
+  assertEquals(c.perTeacher.map((r: { label: string }) => r.label), [SCHOOL_B.name, SCHOOL.name], "a school without a teacher isn't drawn as a ratio");
+  assertEquals(c.enrolment.rows.length, 2, "only schools with learners");
+  assertEquals(c.enrolment.schoolsWithout, 1);
+  assertEquals([ops.visitsThisTerm, ops.schoolsVisitedThisTerm], [1, 1]);
+  assertEquals(ops.schoolsNotVisitedThisTerm.names, ["Ilkerin", SCHOOL_B.name].sort());
+  assertEquals(ops.formsWithoutResponses.titles.includes("Term 3 check-in"), true);
+  assertEquals(p.learnerSchools, 2);
+});

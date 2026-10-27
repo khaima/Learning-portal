@@ -155,12 +155,12 @@ hardest to tell apart for the most common kinds of colour blindness.
 
 | Chart | Before | Now |
 | --- | --- | --- |
-| Visits by month, Kobo submissions by month, Opens by month | Columns, a number on every one | Line; latest and highest labelled |
+| Visits by month, Survey records by month (Kobo records that passed their checks) | Columns, a number on every one | Line; latest and highest labelled. Opens by month moved to Content usage (by week) on 27 October 2026 |
 | Learner growth, Learner progress, Visits by term, Usage by term | Bars | Line (bars when there are fewer than three terms) |
 | Schools / Learners / Teachers / Visits / Kobo submissions by county, Accounts by role, Assignments by subject, Sessions by kind, Visit types, Resources by subject and type | Bars, API order, label squeezed beside the bar | Bars, largest first, each with its share of the total; name and value above a full-width bar |
 | Completion by grade, Results by grade, Training by county, Active by county, Teacher activity | Bars on 0–100 with decimals | Bars on 0–100, whole percentages, with the count behind each |
 | Marked work by band | A row of pills | One bar split into the bands, with a key |
-| Learners' own progress | Three numbers | One bar split improved / steady / declined, with a key |
+| Learners' own progress | Three numbers | One bar split improved / steady / declined; on 27 October 2026 folded into the "Learners improving" tile, which now gives the three counts |
 | Teachers by employment type, Resources by shelf | Bars | Donut (when two to four parts have a value) |
 | M&E indicators, target against actual | Bars on different scales, target line in a different place on each row | Every bar fills towards the same target line; value, target and status in words |
 | Indicator trend | A large drawing with five gridlines; its labels grew with the screen | Line (actual) and dashed line (target), three gridlines, fixed-size labels |
@@ -168,19 +168,20 @@ hardest to tell apart for the most common kinds of colour blindness.
 
 ### Executive overview (`impact-ui.js`, 19 October 2026)
 
-Four pictures under Needs attention, computed by the API (`impact.ts`
-`overview`):
+Three pictures under Needs attention, computed by the API (`impact.ts`
+`overview`) — four until 27 October 2026, when "When the portal is used"
+moved to the Platform overview:
 
 | Chart | Picture | How to read it |
 | --- | --- | --- |
 | Field visits by place and month | Heatmap: counties (or, narrowed to a county, its schools — every one, so a school not visited is a row of blanks) × the last 12 months | Darker is more visits; every cell prints its count, a row ends with its total. A county's name narrows the dashboard to it, a school's to that school. |
 | Learners' average marks | Histogram: each learner's average on marked work, in tens | Columns on one scale with their counts; coloured by the band each range falls in, with the band totals in the key; the median above. |
 | Work handed in | Line by term (bars under three terms) | As on Learning. |
-| When the portal is used | Heatmap: day of the week × three-hour block, Kenyan time (EAT) | Resources opened, work handed in and work marked. |
+| When the portal is used (Platform overview) | Heatmap: day of the week × three-hour block, Kenyan time (EAT) | Resources opened, work handed in and work marked — by programme participants; HPF staff aren't counted. |
 
-The same four are on the Super Admin's **Overview** (its first page), in a
-"Programme at a glance" panel under the activity cards; there a county's
-or school's name opens the Executive overview narrowed to it.
+The Super Admin's **Overview** (its first page) shows only the last one,
+in a "When the portal is used" panel under the activity cards, with a link
+to the Executive overview for programme results.
 
 Heatmap rules: one hue, at most four shades plus "none", each shade an
 equal run of whole counts named in the key; it is a table (screen readers

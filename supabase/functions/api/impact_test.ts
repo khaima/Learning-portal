@@ -205,6 +205,15 @@ Deno.test("field operations: visits by month, completed visit forms, Kobo by cou
   assertEquals([r.forms.visitFormsFilled, r.forms.visitsWithForms, r.forms.visitsWithFormsShare], [1, 1, 33.3]);
   assertEquals(r.kobo.byCounty, [{ label: "Laikipia", value: 1 }, { label: "Narok", value: 1 }], "the removed record isn't counted");
   assertEquals(buildImpact(world(), { county: "Narok" }, NOW).fieldOps.kobo.byCounty, [{ label: "Narok", value: 1 }]);
+  // A duplicate waiting for review isn't counted in the figure, so not in its charts either; one accepted on review is.
+  const w = world();
+  w.koboRecords.push(
+    { id: "kr4", kobo_form_id: "k1", status: "duplicate", review: null, school_id: "s1", county: "Narok", submitted_at: "2026-09-13T00:00:00Z", warning_count: 0 },
+    { id: "kr5", kobo_form_id: "k1", status: "invalid", review: "accepted", school_id: "s1", county: "Narok", submitted_at: "2026-09-14T00:00:00Z", warning_count: 0 },
+  );
+  const k = buildImpact(w, {}, NOW).fieldOps.kobo;
+  assertEquals(k.byCounty, [{ label: "Narok", value: 2 }, { label: "Laikipia", value: 1 }]);
+  assertEquals(k.byMonth.reduce((t: number, m: { value: number }) => t + m.value, 0), k.counted, "the months add up to the figure");
 });
 
 Deno.test("overview: visits by county and month, then by school once narrowed", () => {
@@ -265,4 +274,20 @@ Deno.test("digital resources: published items, opens, hours, readers, most used"
   assertEquals(r.neverOpened, 1);
   const school = buildImpact(world(), { school: "Ndaragwa" }, NOW).resources;
   assertEquals([school.opens, school.activeUsers.learners], [1, 1]);
+});
+
+Deno.test("HPF staff checking content or trying a form aren't counted as programme participants", () => {
+  const w = world();
+  // The Education Team opens a resource and answers a form inside the window.
+  w.libraryInteractions.push({ id: "i9", library_item_id: "b1", actor_kind: "staff", actor_id: "ed", school: "", started_at: "2026-09-22T00:00:00Z", completed_at: null, duration_seconds: 600 });
+  w.responses.push({ id: "r9", form_id: "f2", respondent_id: "ed", respondent_role: "education_team", submitted_at: "2026-09-22T08:00:00Z", visit_id: null });
+  const r = buildImpact(w, {}, NOW);
+  assertEquals([r.executive.activeUsers.staff, r.executive.activeUsers.total], [4, 10], "teachers and the field officer only, as before");
+  assertEquals(r.executive.activeUsers.hpfStaff, 1, "counted apart");
+  assertEquals(r.executive.libraryHours, 3, "their 10 minutes aren't programme reading");
+  assertEquals([r.resources.opens, r.resources.activeUsers.total], [4, 4]);
+  assertEquals(r.resources.hpf, { opens: 1, people: 1 });
+  assertEquals(r.resources.top[0].opens, 3, "the most used resource counts programme opens only");
+  const narok = buildImpact(w, { county: "Narok" }, NOW);
+  assertEquals([narok.executive.activeUsers.hpfStaff, narok.resources.hpf.opens], [0, 0], "HPF staff aren't based in a county");
 });

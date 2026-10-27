@@ -68,6 +68,8 @@ const linkTo = (opts, page, params = {}) => {
 const byPlace = (d, rows, more = (r) => r) => (rows || []).map((r) => ({ ...more(r),
   ...(r.label && !/^\(/.test(r.label) && !d.scope?.county ? { drill: { county: r.label } } : {}) })); // already one county: nothing to narrow
 const PLACE = { act: "show only this county" };
+/** Where a dashboard's figures come from, at its foot: one plain line. */
+const source = (text) => `<p class="field-hint dash-source">Source: ${text}</p>`;
 /** A line under a chart that leads to its detail. */
 const seeAll = (href, text) => (href ? `<p class="chart-note"><a href="${esc(href)}">${esc(text)} →</a></p>` : "");
 /** The latest entry of a series and the one before it, if there are two. */
@@ -76,7 +78,6 @@ const monthName = (ym) => {
   const [y, m] = String(ym).split("-").map(Number);
   return y && m ? new Date(Date.UTC(y, m - 1, 1)).toLocaleString(undefined, { month: "long", timeZone: "UTC" }) : String(ym);
 };
-const warn = (t) => `<b class="warn-text">${t}</b>`;
 /** Learners who joined in the latest term: "+11 joined in Term 3". */
 const joinedLine = (growth) => {
   if (datedScope) return "";
@@ -247,13 +248,15 @@ function overviewCharts(d, { place = null } = {}) {
   if (!O) return "";
   const handedIn = card("Work handed in", "By term",
     trendOrBars(termPoints(d.learning.progress.byTerm, (t) => t.completionRate), { unit: "%", noun: "handed in", title: "Work handed in by term", drill: !place, empty: `No work set${where}.` }));
-  return visitsHeatCard(d, place) + marksCard(d, O.marks) + handedIn
-    + whenCard(O.activity, "When the portal is used", "Opened, handed in and marked · Kenyan time", "actions", "Portal use by day of the week and time of day");
+  return visitsHeatCard(d, place) + marksCard(d, O.marks) + handedIn;
 }
-/** The same pictures for the Super Admin's Overview: a county or school opens the Executive overview narrowed to it. */
-export function overviewPictures(d, href = (kind, name) => `#overview?${kind}=${encodeURIComponent(name)}&via=platform-overview`) {
+/** When the portal is used — a question about the system, not the
+    programme: on the Super Admin's Platform overview, not the Executive
+    overview (docs/DASHBOARD-HIERARCHY.md). */
+export function overviewPictures(d) {
   forScope(d);
-  return overviewCharts(d, { place: href });
+  const O = d.overview;
+  return O ? whenCard(O.activity, "By day and time", "Resources opened, work handed in and marked · Kenyan time", "actions", "Portal use by day of the week and time of day") : "";
 }
 
 export function executiveHtml(d, opts = {}) {
@@ -290,7 +293,7 @@ export function executiveHtml(d, opts = {}) {
       area("reach", "Reach", [
         [`${R.summary.counties}/${R.summary.countiesTotal}`, "counties reached"],
         [`${R.summary.schoolsReached}/${R.summary.schoolsTotal}`, "schools with active learners or teachers"],
-        [num(E.activeUsers.total), `active ${E.activeUsers.total === 1 ? "user" : "users"} ${E.activeUsers.window} · ${plural(E.activeUsers.learners, "learner")}, ${num(E.activeUsers.staff)} staff`],
+        [num(E.activeUsers.total), `active ${E.activeUsers.total === 1 ? "participant" : "participants"} ${E.activeUsers.window} · ${plural(E.activeUsers.learners, "learner")}, ${num(E.activeUsers.staff)} school and field staff`],
         [num(R.summary.fieldOfficers), R.summary.fieldOfficers === 1 ? "field officer" : "field officers"],
       ]),
       area("learning", "Learning", [
@@ -339,33 +342,38 @@ export function reachHtml(d, opts = {}) {
   forScope(d);
   const R = d.reach, S = R.summary;
   const lg = R.gender.learners;
+  // One row per county: its schools (on the portal, of all), learners and
+  // teachers — side by side rather than three charts of four bars each. A
+  // county's name narrows the dashboard to it.
+  const learnersIn = new Map(R.learnersByCounty.map((c) => [c.label, c.value]));
+  const teachersIn = new Map(R.teachersByCounty.map((c) => [c.label, c.value]));
+  const countyName = (c) => (!d.scope?.county && !/^\(/.test(c)
+    ? `<button type="button" class="bars-link" data-drill="${esc(JSON.stringify({ county: c }))}">${esc(c)}<span class="sr-only">: show only this county</span></button>` : esc(c));
+  const counties = [...R.schoolsByCounty].sort((a, b) => (learnersIn.get(b.label) ?? 0) - (learnersIn.get(a.label) ?? 0) || b.schools - a.schools || a.label.localeCompare(b.label));
   return `
     <div class="stat-row">
       ${kpiCard({ label: "Counties reached", icon: "globe", value: `${S.counties}/${S.countiesTotal}`, sub: "with active learners or teachers" })}
-      ${kpiCard({ label: "Schools reached", icon: "school", value: `${S.schoolsReached}/${S.schoolsTotal}`, sub: `${S.schoolsVisited} visited`, href: linkTo(opts, "school-profiles") })}
+      ${kpiCard({ label: "Schools on the portal", icon: "school", value: `${S.schoolsReached}/${S.schoolsTotal}`, sub: `with active learners or teachers · ${S.schoolsVisited} visited`, href: linkTo(opts, "school-profiles") })}
       ${kpiCard({ label: "Learners", icon: "cap", value: num(S.learners), href: linkTo(opts, "learners"),
         sub: [joinedLine(R.growth), `${num(S.learnersEverEnrolled)} enrolled since the start`].filter(Boolean).join(" · ") })}
       ${kpiCard({ label: "Teachers", icon: "teacher", value: num(S.teachers), href: linkTo(opts, "teachers"),
         sub: `${pct(d.teachers.training.share)} trained · ${plural(S.fieldOfficers, "field officer")} supporting them` })}
-      ${kpiCard({ label: "Gender recorded", icon: "users", value: pct(lg.recordedShare), sub: `for ${num(lg.recorded)} of ${num(lg.total)} learners · optional` })}
     </div>
     <div class="chart-grid">
       ${melFirst("reach")}
-      ${card("Schools by county", "",
-        barList(byPlace(d, R.schoolsByCounty, (c) => ({ label: c.label, value: c.schools, note: `${c.reached} reached` })), { sort: true, noun: "schools", ...PLACE }))}
-      ${card("Learners by county", `${num(S.learners)} active`, barList(byPlace(d, R.learnersByCounty), { share: true, sort: true, noun: "learners", ...PLACE }))}
-      ${card("Teachers by county", `${num(S.teachers)} active`, barList(byPlace(d, R.teachersByCounty), { share: true, sort: true, noun: "teachers", ...PLACE })
-        + seeAll(linkTo(opts, "teachers"), "All teachers"))}
+      ${card("By county", d.scope?.county ? "" : "Schools on the portal of all schools · learners · teachers · pick a county to see only it",
+        table(["County", "Schools on the portal", "Learners", "Teachers"],
+          counties.map((c) => [countyName(c.label), `${num(c.reached)} of ${num(c.schools)}`, num(learnersIn.get(c.label) ?? 0), num(teachersIn.get(c.label) ?? 0)]))
+        + seeAll(linkTo(opts, "teachers"), "All teachers"), { wide: true })}
       ${card("Learner growth", "",
         trendOrBars(termPoints(R.growth, (t) => t.learners, (t) => ({ note: `${num(t.joined)} joined this term` })), { noun: "learners on roll", title: "Learners on roll by term", drill: true }))}
-      ${card("Grade distribution", "", barList(R.grades, { share: true, noun: "learners" }))}
       ${gradesHeatCard(d)}
     </div>
-    ${more("reach", "Gender, roles, employment", `
-      ${card("Learners by gender", "Where recorded", genderHtml(R.gender.learners, "learners"), { wide: true })}
+    ${more("reach", "Gender, employment", `
+      ${card("Learners by gender", `Recorded for ${pct(lg.recordedShare)} (${num(lg.recorded)} of ${num(lg.total)}) · optional`, genderHtml(R.gender.learners, "learners"), { wide: true })}
       ${card("Teachers by gender", "Where recorded", genderHtml(R.gender.teachers, "teachers"), { wide: true })}
-      ${card("Accounts by role", "", barList(R.accountsByRole, { share: true, sort: true, noun: "accounts" }))}
       ${card("Teachers by employment type", "BOM or TSC", proportion(R.teachersByType, { noun: "teachers" }))}`)}
+    ${source("schools, learner and staff accounts in the portal.")}
     ${melLast("reach")}`;
 }
 
@@ -390,7 +398,7 @@ export function learningHtml(d, opts = {}) {
       ${kpiCard({ label: "To be marked", icon: "clock", value: num(A.awaitingMarking), tone: A.awaitingMarking ? "warn" : "", href: linkTo(opts, "assignments"),
         sub: A.awaitingMarking ? "handed in, waiting for a mark" : "nothing waiting" })}
       ${kpiCard({ label: "Learners improving", icon: "activity", value: pct(P.improvedShare),
-        sub: P.compared ? `${P.improved} of ${P.compared} with marks in two or more terms` : "needs marks in two terms" })}
+        sub: P.compared ? `${P.improved} improved · ${P.steady} steady · ${P.declined} declined, of ${P.compared} with marks in two terms` : "needs marks in two terms" })}
     </div>
     <div class="chart-grid">
       ${melFirst("learning")}
@@ -404,25 +412,20 @@ export function learningHtml(d, opts = {}) {
       ${card("Learner progress", "Average mark by term",
         trendOrBars(termPoints(terms, (t) => t.averagePercent, (t) => ({ note: `${num(t.marked)} marked${t.band ? ` · ${t.band}` : ""}` })), { unit: "%", noun: "average mark", title: "Average mark by term", drill: true }))}
       ${L.compare ? subjectsCard(L.compare, L.bands) : ""}
-      ${card("Subject performance", "", table(
+    </div>
+    ${more("learning", "Subjects, schools", `
+      ${card("Subject performance", "Handed in and average mark, subject by subject", table(
         ["Subject", "Handed in", "Average mark", "Marked"],
         L.subjects.map((s) => [esc(s.label), s.assigned ? rate(s.completionRate) : "—", s.marked ? band.mark(s.averagePercent, s.band) : "—", num(s.marked)]))
         + seeAll(linkTo(opts, "results", { by: "subject" }), "Results by subject, in full"), { wide: true })}
-    </div>
-    ${more("learning", "Schools, subjects, learners", `
       ${card("School performance", "", table(
         ["School", "County", "Learners", "Handed in", "Average mark", "Library"],
         L.schools.map((s) => [schoolLink(s.school), esc(s.county), num(s.learners),
           s.assigned ? rate(s.completionRate) : "—",
           s.marked ? band.mark(s.averagePercent, s.band) : "—", mins(s.libraryMinutes)])), { wide: true })}
       ${card("Assignments by subject", "Drafts left out",
-        barList(A.bySubject.map((s) => ({ ...s, href: linkTo(opts, "assignments", { subject: s.label }) })), { share: true, sort: true, noun: "assignments", act: "see its assignments" }))}
-      ${card("Learners' own progress", "Latest term against first",
-        P.compared ? stackBar([
-          { label: "Improved", value: P.improved, colour: "var(--band-1)" },
-          { label: "Steady", value: P.steady, colour: "var(--neutral)" },
-          { label: "Declined", value: P.declined, colour: "var(--band-4)" },
-        ], { noun: "learners", title: "Learners' own progress" }) + `<p class="chart-note">Of ${plural(P.compared, "learner")} with marked work in two or more terms.</p>` : empty("Shows once learners have marked work in two terms."))}`)}
+        barList(A.bySubject.map((s) => ({ ...s, href: linkTo(opts, "assignments", { subject: s.label }) })), { share: true, sort: true, noun: "assignments", act: "see its assignments" }))}`)}
+    ${source("assignments and marks recorded in the portal. Kobo learner assessments are not included yet.")}
     ${melLast("learning")}`;
 }
 
@@ -470,6 +473,7 @@ export function teachersHtml(d, opts = {}) {
       ${card("Active by county", `% active ${esc(T.activity.window)}`,
         barList(byPlace(d, T.activity.byCounty, (c) => ({ label: c.label, value: c.share ?? 0, note: `${num(c.active)} of ${num(c.teachers)}` })), { unit: "%", noun: "active", ...PLACE }))}
     </div>
+    ${source("the training register, teachers' activity in the portal and field visits.")}
     ${melLast("teacher_development")}`;
 }
 
@@ -497,8 +501,6 @@ export function fieldOpsHtml(d, opts = {}) {
   // "so far" is about the term under way: shown only when no dates are chosen above.
   const dated = !!(d.scope?.from || d.scope?.to);
   const termCounts = lastT && !dated ? `${esc(termName(lastT.label))} so far: ${num(lastT.value)}${prevT ? ` · ${esc(termName(prevT.label))}: ${num(prevT.value)}` : ""}` : "";
-  const koboAside = [K.needsReview ? warn(`${num(K.needsReview)} need review`) : "", K.byStatus.duplicate ? `${num(K.byStatus.duplicate)} duplicates` : "",
-    K.byStatus.rejected ? `${num(K.byStatus.rejected)} rejected in Kobo` : ""].filter(Boolean).join(" · ");
   return `
     <div class="stat-row">
       ${kpiCard({ label: "Field visits", icon: "pin", value: num(V.visits), href: linkTo(opts, "field-visits"),
@@ -507,8 +509,8 @@ export function fieldOpsHtml(d, opts = {}) {
         sub: `${pct(V.schools.coverage)} · ${V.schools.visitedThisTerm} in ${esc(V.schools.currentTerm ? termName(V.schools.currentTerm) : "this term")}` })}
       ${kpiCard({ label: "Visit forms completed", icon: "form", value: num(Fm.visitFormsFilled), sub: `${pct(Fm.visitsWithFormsShare)} of visits have one` })}
       ${kpiCard({ label: "Form response rate", icon: "check", value: pct(Fm.responseRateOverall), href: linkTo(opts, "forms"), sub: plural(Fm.responses, "response") })}
-      ${kpiCard({ label: "Kobo submissions", icon: "survey", value: num(K.counted), href: linkTo(opts, "kobo"),
-        sub: `counted of ${num(K.totalSubmissions)} received${koboAside ? `<br>${koboAside}` : ""}` })}
+      ${kpiCard({ label: "Survey records", icon: "survey", value: num(K.counted), href: linkTo(opts, "kobo"),
+        sub: `from ${plural(K.forms.length, "Kobo survey")} · ${plural(K.schoolsCovered, "school")}` })}
     </div>
     <div class="chart-grid">
       ${melFirst("field_operations")}
@@ -521,20 +523,14 @@ export function fieldOpsHtml(d, opts = {}) {
       ${card("Visit types", "",
         barList(V.byType.map((t) => ({ label: t.label, value: t.visits, note: plural(t.schools, "school"), href: linkTo(opts, "field-visits", { type: t.label }) })), { sort: true, noun: "visits", act: "see these visits" }))}
       ${d.overview ? visitsHeatCard(d) : card("Visits by county", "", barList(byPlace(d, V.byCounty), { share: true, sort: true, noun: "visits", ...PLACE }))}
-      ${card("Kobo submissions by month", "Last 12 months",
-        lineChart(monthPoints(K.byMonth), { noun: "submissions", title: "Kobo submissions by month", drill: true }) + seeAll(linkTo(opts, "kobo"), "Kobo submissions and their checks"))}
+      ${card("Survey records by month", "Last 12 months · records that passed their checks",
+        lineChart(monthPoints(K.byMonth), { noun: "records", title: "Survey records by month", drill: true }) + seeAll(linkTo(opts, "kobo"), "Kobo surveys and their checks"))}
     </div>
-    ${more("field-operations", "Forms, Kobo, visits by term", `
+    ${more("field-operations", "Forms, survey records by county", `
       ${card("Completed forms", "Answered, of those reached", table(["Form", "For", "Expected", "Received", "Rate"],
         Fm.responseRates.map((r) => [esc(r.label), esc(r.kind === "visit" ? "Visit form" : audience(r.audience)), num(r.expected), num(r.received), rate(r.rate)])), { wide: true })}
-      ${card("Kobo surveys", "Counted submissions only", table(["Survey", "Received", "Counted", "Failing checks", "Duplicates", "Rejected in Kobo", "Officers done"],
-        K.forms.map((f) => [esc(f.title), num(f.submissions), num(f.counted), num(f.invalid), num(f.duplicate), num(f.rejected), num(f.officersDone)])), { wide: true })}
-      ${card("Kobo checks", `${plural(K.schoolsCovered, "school")}`,
-        barList(K.issuesByRule.map((r) => ({ label: KOBO_RULE_LABEL[r.rule] || r.rule, value: r.errors, note: r.warnings ? `+${plural(r.warnings, "warning")}` : "" })), { sort: true, noun: "failing", empty: "No submissions are failing a check." })
-        + `<p class="chart-note">Review them on Kobo Surveys → Data pipeline, or in the <a href="#data-quality">Data Quality Center</a>.</p>`)}
-      ${card("Kobo submissions by county", "", barList(byPlace(d, K.byCounty), { share: true, sort: true, noun: "submissions", ...PLACE }))}
-      ${card("Visits by term", "", trendOrBars(termPoints(V.byTerm), { noun: "visits", title: "Field visits by term", drill: true }))}
-      ${card("Forms by audience", "", barList(Fm.byAudience.map((a) => ({ ...a, label: audience(a.label) })), { sort: true, noun: "forms" }))}`, { pairs: true })}
+      ${card("Survey records by county", "", barList(byPlace(d, K.byCounty), { share: true, sort: true, noun: "records", ...PLACE }))}`, { pairs: true })}
+    ${source(`field visit reports, forms and Kobo survey records that passed their checks.${linkTo(opts, "kobo") ? ` Checks and the data pipeline: <a href="${esc(linkTo(opts, "kobo"))}">Kobo surveys</a>.` : ""}`)}
     ${melLast("field_operations")}`;
 }
 
@@ -558,21 +554,16 @@ export function resourcesHtml(d, opts = {}) {
       ${melFirst("digital_resources")}
       ${card("Most-used content", "", table(["Resource", "Shelf", "Opens", "Readers", "Time"],
         S.top.map((r) => { const href = linkTo(opts, "content", { q: r.title }); return [href ? `<a href="${esc(href)}">${esc(r.title)}</a>` : esc(r.title), esc(r.destination), num(r.opens), num(r.readers), mins(r.minutes)]; })), { wide: true })}
-      ${card("Opens by month", "Last 12 months",
-        lineChart(monthPoints(S.byMonth, (m) => m.opens), { noun: "openings", title: "Resource openings by month", drill: true }))}
-      ${whenCard(S.when, "When resources are opened", "Kenyan time", "openings", "Resources opened by day of the week and time of day")}
-      ${card("Usage by term", "Sessions and hours",
-        S.byTerm.length
-          ? `<div class="chart-subhead">Sessions</div>${trendOrBars(termPoints(S.byTerm, (t) => t.sessions, (t) => ({ note: `${plural(t.readers, "reader")}` })), { noun: "sessions", height: 84, title: "Reading sessions by term", drill: true })}
-             <div class="chart-subhead">Hours</div>${trendOrBars(termPoints(S.byTerm, (t) => Math.round(t.minutes / 6) / 10), { noun: "hours", height: 84, title: "Reading hours by term", drill: true })}`
-          : empty())}
+      ${card("Usage in detail", "Opens week by week, when, by school and by topic",
+        `<p class="chart-few">Opens over time, who opens resources, when, school by school and by topic are on Content usage.</p>`
+        + seeAll(linkTo(opts, "content-usage"), "Content usage"))}
     </div>
-    <p class="field-hint">Time: how long a resource stayed open.</p>
     ${more("digital-resources", "Shelves, subjects, types", `
       ${card("Resources by shelf", "", proportion(S.items.byDestination, { noun: "resources" }))}
       ${card("Resources by subject", "",
         barList(S.items.bySubject.map((s) => ({ ...s, href: linkTo(opts, "content", { q: s.label }) })), { share: true, sort: true, noun: "resources", act: "find them in the library" }))}
       ${card("Resources by type", "", barList(S.items.byType, { share: true, sort: true, noun: "resources" }))}`)}
+    ${source(`library opens recorded in the portal; time is how long a resource stayed open.${S.hpf?.opens ? ` ${plural(S.hpf.opens, "open")} by HPF staff checking content ${S.hpf.opens === 1 ? "is" : "are"} left out.` : ""}`)}
     ${melLast("digital_resources")}`;
 }
 

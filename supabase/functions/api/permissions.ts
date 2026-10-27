@@ -21,6 +21,12 @@ export const STAFF_ROLES = [
   "teacher",
 ] as const;
 export type StaffRole = (typeof STAFF_ROLES)[number];
+/** Who the programme works through — and HPF's own staff (the Education
+    Team, M&E, administrators), whose use of the portal (checking content,
+    trying a form) isn't programme participation, so the dashboards count it
+    apart (docs/DASHBOARD-HIERARCHY.md). */
+export const PROGRAMME_STAFF_ROLES: StaffRole[] = ["teacher", "school_leader", "field_officer"];
+export const HPF_STAFF_ROLES: StaffRole[] = ["education_team", "me", "admin", "super_admin"];
 export type Role = StaffRole | "learner";
 
 export const ROLE_LABEL: Record<Role, string> = {

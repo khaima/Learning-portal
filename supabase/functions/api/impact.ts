@@ -16,6 +16,8 @@
  */
 import { buildIntelligence, type IntelligenceFilter, type IntelligenceInput } from "./intelligence.ts";
 import { marksHistogram } from "./lms.ts";
+import { counts as koboCounts } from "./kobo_pipeline.ts";
+import { HPF_STAFF_ROLES, PROGRAMME_STAFF_ROLES } from "./permissions.ts";
 
 // deno-lint-ignore no-explicit-any
 type Row = Record<string, any>;
@@ -123,14 +125,20 @@ export function buildImpact(d: ImpactInput, f: IntelligenceFilter = {}, now = ne
   // ---- active users: did something in the window
   const activeLearners = new Set<string>();
   const activeStaffIds = new Set<string>();
-  // Portal-wide, every active staff account counts (the Education Team too);
-  // narrowed to a county or school, only the people based there.
-  const anyStaffIds = new Set(activeStaff.map((p) => p.id));
+  const activeHpf = new Set<string>();
+  // Programme participants only: learners, and the teachers, school heads and
+  // field officers the programme works through — portal-wide every one of
+  // them, narrowed to a county or school only those based there. HPF's own
+  // staff (Education Team, M&E, administrators) are counted apart.
+  const programmeRoles = PROGRAMME_STAFF_ROLES as string[];
+  const hpfIds = new Set(d.profiles.filter((p) => (HPF_STAFF_ROLES as string[]).includes(p.role)).map((p) => p.id));
+  const anyStaffIds = new Set(activeStaff.filter((p) => programmeRoles.includes(p.role)).map((p) => p.id));
   const touch = (id: unknown) => {
     const k = String(id ?? "");
     if (!k) return;
     if (learnerIds.has(k)) activeLearners.add(k);
     else if (scoped ? staffIds.has(k) : anyStaffIds.has(k)) activeStaffIds.add(k);
+    else if (!scoped && hpfIds.has(k)) activeHpf.add(k);
   };
   for (const i of d.libraryInteractions) if (inWin(i.started_at)) touch(i.actor_id);
   for (const s of d.submissions) if (inWin(s.submitted_at) || inWin(s.last_saved_at) || inWin(s.started_at)) touch(s.learner_id);
@@ -140,8 +148,11 @@ export function buildImpact(d: ImpactInput, f: IntelligenceFilter = {}, now = ne
   for (const r of d.responses) if (inWin(r.submitted_at)) touch(r.respondent_id);
   for (const k of d.koboSubmissions) if (inWin(k.submitted_at)) touch(k.officer_id);
 
-  // ---- library (scoped by the reader's school name, like buildIntelligence)
-  const lib = d.libraryInteractions.filter((i) => inRange(i.started_at) && (!scoped || schoolNames.has(i.school)));
+  // ---- library (scoped by the reader's school name, like buildIntelligence),
+  // without HPF's own staff checking content
+  const libraryUse = d.libraryInteractions.filter((i) => !hpfIds.has(i.actor_id));
+  const hpfLib = scoped ? [] : d.libraryInteractions.filter((i) => hpfIds.has(i.actor_id) && inRange(i.started_at));
+  const lib = libraryUse.filter((i) => inRange(i.started_at) && (!scoped || schoolNames.has(i.school)));
   const minutesOf = (rows: Row[]) => Math.round(rows.reduce((t, i) => t + (Number(i.duration_seconds) || 0), 0) / 60);
   const itemById = new Map(d.libraryItems.map((i) => [i.id, i]));
 
@@ -153,6 +164,7 @@ export function buildImpact(d: ImpactInput, f: IntelligenceFilter = {}, now = ne
       total: activeLearners.size + activeStaffIds.size, learners: activeLearners.size, staff: activeStaffIds.size,
       window: dated ? "in the period" : "in the last 30 days",
       learnerShare: pct(activeLearners.size, learners.length),
+      hpfStaff: activeHpf.size,
     },
     completion: intel.learning.completion,
     averageMark: intel.learning.achievement.averagePercent,
@@ -299,7 +311,10 @@ export function buildImpact(d: ImpactInput, f: IntelligenceFilter = {}, now = ne
     (!f.school || r.school === f.school || (r.school_id && schoolIds.has(r.school_id))));
   const visitIds = new Set(visits.map((v) => v.id));
   const visitForms = d.responses.filter((r) => r.visit_id && visitIds.has(r.visit_id));
-  const kobo = d.koboRecords.filter((r) => r.status !== "removed" && inRange(r.submitted_at) &&
+  // The survey records the headline figure counts (passed their checks, or
+  // accepted on review; active surveys only), so the charts add up to it.
+  const activeKobo = new Set(d.koboForms.filter((k) => k.active !== false).map((k) => k.id));
+  const kobo = d.koboRecords.filter((r) => koboCounts(String(r.status), r.review as string | null) && activeKobo.has(r.kobo_form_id) && inRange(r.submitted_at) &&
     (!f.county || r.county === f.county) && (!f.school || schoolIds.has(r.school_id)));
   const last12 = Array.from({ length: 12 }, (_, i) => {
     const dt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 11 + i, 1));
@@ -332,7 +347,7 @@ export function buildImpact(d: ImpactInput, f: IntelligenceFilter = {}, now = ne
     if (!opensByItem.has(i.library_item_id)) opensByItem.set(i.library_item_id, []);
     opensByItem.get(i.library_item_id)!.push(i);
   }
-  const everOpened = new Set(d.libraryInteractions.map((x) => x.library_item_id));
+  const everOpened = new Set(libraryUse.map((x) => x.library_item_id));
   const dest = (a: unknown) => (a === "staff" ? "Teacher Resources" : a === "school_leader" ? "For School Head" : "Digital Library");
   const resources = {
     items: {
@@ -357,6 +372,7 @@ export function buildImpact(d: ImpactInput, f: IntelligenceFilter = {}, now = ne
       opens: rows.length, readers: new Set(rows.map((r) => r.actor_id)).size, minutes: minutesOf(rows),
     })).sort((a, b) => b.opens - a.opens || b.minutes - a.minutes).slice(0, 10),
     neverOpened: items.filter((i) => !everOpened.has(i.id)).length,
+    hpf: { opens: hpfLib.length, people: new Set(hpfLib.map((i) => i.actor_id)).size },
   };
 
   // ---- the overview's pictures

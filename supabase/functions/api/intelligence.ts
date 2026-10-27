@@ -21,6 +21,7 @@ import {
   type Band, compareResults, groupResults, pairsOf, round2, summarize,
   type ResultAssignment, type ResultSubmission, expectedFrom,
 } from "./lms.ts";
+import { HPF_STAFF_ROLES } from "./permissions.ts";
 
 // deno-lint-ignore no-explicit-any
 type Row = Record<string, any>;
@@ -125,9 +126,12 @@ export function buildIntelligence(d: IntelligenceInput, f: IntelligenceFilter = 
   const overall = summarize(pairs, d.bands, now);
   const subjectName = Object.fromEntries(d.subjects.map((s) => [s.id, s.name]));
 
-  // ---- library usage (dated by start; scoped by the reader's school name)
+  // ---- library usage (dated by start; scoped by the reader's school name).
+  // HPF's own staff opening resources (to check them) isn't programme use.
+  const hpf = new Set(d.profiles.filter((p) => (HPF_STAFF_ROLES as string[]).includes(p.role)).map((p) => p.id));
+  const libraryUse = d.libraryInteractions.filter((i) => !hpf.has(i.actor_id));
   const libTitle = Object.fromEntries(d.libraryItems.map((i) => [i.id, i.title]));
-  const lib = d.libraryInteractions.filter((i) => inRange(i.started_at) && (!scoped || schoolNames.has(i.school)));
+  const lib = libraryUse.filter((i) => inRange(i.started_at) && (!scoped || schoolNames.has(i.school)));
   const libMinutes = (rows: Row[]) => Math.round(rows.reduce((t, i) => t + (Number(i.duration_seconds) || 0), 0) / 60);
   const learnerIdsInScope = new Set(learners.map((l) => l.id));
   const learnersUsingLibrary = new Set(lib.filter((i) => i.actor_kind === "learner" && learnerIdsInScope.has(i.actor_id)).map((i) => i.actor_id));
@@ -375,7 +379,7 @@ export function buildIntelligence(d: IntelligenceInput, f: IntelligenceFilter = 
     }))
     .sort((a, b) => a.label.localeCompare(b.label));
   const usageByTerm = termsSorted.filter((t) => t.starts_on <= today).map((t) => {
-    const rows = d.libraryInteractions.filter((i) => (!scoped || schoolNames.has(i.school)) && day(i.started_at) >= t.starts_on && day(i.started_at) <= t.ends_on);
+    const rows = libraryUse.filter((i) => (!scoped || schoolNames.has(i.school)) && day(i.started_at) >= t.starts_on && day(i.started_at) <= t.ends_on);
     return { label: termLabel(t.id), sessions: rows.length, minutes: libMinutes(rows), readers: new Set(rows.map((i) => i.actor_id)).size };
   }).filter((t) => t.sessions > 0);
 

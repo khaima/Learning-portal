@@ -21,8 +21,12 @@
  *
  * Nothing is estimated or filled in: a resource with too few timed opens
  * isn't judged, and a comparison needs two periods that really exist.
+ * Opens by HPF's own staff (Education Team, M&E, administrators checking
+ * content) aren't programme use: every figure leaves them out, and
+ * `hpfStaff` says how much of it there was.
  */
 import { DAY_BLOCKS, dayBlocks } from "./impact.ts";
+import { HPF_STAFF_ROLES } from "./permissions.ts";
 
 // deno-lint-ignore no-explicit-any
 type Row = Record<string, any>;
@@ -93,9 +97,14 @@ export function buildLibraryUsage(input: UsageInput, f: UsageFilter) {
 
   // Three widths: the place (county, all time) · compared (+ dates: the
   // schools side by side) · shown (+ the school: everything else).
-  const placeRows = interactions.filter((r) => !countyNames || countyNames.has(r.school));
-  const compareRows = placeRows.filter(inRange);
-  const rows = f.school ? compareRows.filter((r) => (r.school || "") === f.school) : compareRows;
+  const hpfRole = new Set<string>(HPF_STAFF_ROLES);
+  const narrow = (list: Row[]) => {
+    const place = list.filter((r) => !countyNames || countyNames.has(r.school));
+    const compare = place.filter(inRange);
+    return { place, compare, shown: f.school ? compare.filter((r) => (r.school || "") === f.school) : compare };
+  };
+  const { place: placeRows, compare: compareRows, shown: rows } = narrow(interactions.filter((r) => !hpfRole.has(r.role as string)));
+  const hpfRows = narrow(interactions.filter((r) => hpfRole.has(r.role as string))).shown;
 
   const all = sum(rows);
   const learners = new Set(rows.filter((r) => r.actor_kind === "learner").map((r) => r.actor_id)).size;
@@ -239,6 +248,7 @@ export function buildLibraryUsage(input: UsageInput, f: UsageFilter) {
     schools: [...new Set(compareRows.map((r) => r.school).filter(Boolean) as string[])].sort(),
     totals,
     library: { published: published.length, opened: published.filter((i) => opened.has(i.id)).length },
+    hpfStaff: { users: new Set(hpfRows.map((r) => r.actor_id)).size, sessions: hpfRows.length },
     recent,
     byPeriod,
     byRole,

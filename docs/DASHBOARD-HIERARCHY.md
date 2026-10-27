@@ -29,6 +29,19 @@ Rules that follow from this:
 5. **Nothing is claimed that wasn't read.** An item such as "KoboToolbox
    not connected" shows only once the settings have been read; a failed
    read says so rather than showing an empty or reassuring panel.
+6. **Programme dashboards show the programme, not the system** (27 October
+   2026, after the dashboard audit). Their figures count programme
+   participants only — learners, teachers, school heads and field
+   officers. HPF staff (Education Team, M&E, Admin, Super Admin) opening a
+   resource to check it or trying a form are left out everywhere and said
+   once in a line (`HPF_STAFF_ROLES`, `PROGRAMME_STAFF_ROLES` in
+   permissions.ts). When the portal is used, sync and pipeline checks
+   belong to the Platform overview and the Kobo surveys page.
+7. **Each programme dashboard names its source** in one line at its foot
+   ("Source: …"), and says what isn't included yet.
+8. **Too little to draw is said in a sentence.** A spread of three classes
+   or a heatmap of mostly empty rows isn't drawn; the sentence says how
+   many there are, and empty rows are left out with a note saying how many.
 
 ## Executive overview (`#overview`)
 
@@ -36,8 +49,8 @@ Rules that follow from this:
 | --- | --- | --- |
 | Schools, Learners, Teachers, Completion, Average mark, Data quality | Primary | One row of six tiles. |
 | Needs attention | Primary | Straight under the tiles (it was last on the page). Up to four grouped items with a count and a link each. |
-| Four pictures (19 October 2026) | Secondary | Under Needs attention: field visits by place × month (heatmap), learners' average marks (histogram, by band), work handed in by term (line), when the portal is used — day × time of day (heatmap). See docs/CHARTS.md. |
-| Active users | Secondary | A line in the Reach card (was a tile). |
+| Three pictures (19 October; 27 October 2026) | Secondary | Under Needs attention: field visits by place × month (heatmap), learners' average marks (histogram, by band), work handed in by term (line). "When the portal is used" (day × time of day) moved to the Platform overview: it describes the system, not the programme. See docs/CHARTS.md. |
+| Active participants | Secondary | A line in the Reach card (was a tile): learners and school and field staff active in the period; HPF staff aren't counted. |
 | Field visits, Kobo submissions | Secondary | Lines in the Field operations card (were tiles; field visits was also already in the card). |
 | Library use | Secondary | A line in the Digital resources card (was a tile). |
 | Six programme areas (Reach, Learning, Teacher development, Field operations, Digital resources, M&E) | Secondary | Under a "Programme areas" heading, three to a row. |
@@ -56,10 +69,14 @@ filters; the others have none (docs/NAVIGATION.md §21).
 
 | Component | Level |
 | --- | --- |
-| Counties reached, Schools reached, Learners, Teachers, Gender recorded | Primary |
+| Counties reached, Schools on the portal, Learners, Teachers | Primary |
 | M&E indicators — Reach | Primary (when there are any) |
-| Schools by county, Learners by county, Teachers by county, Learner growth, Grade distribution | Secondary |
-| Learners by gender, Teachers by gender, Accounts by role, Teachers by employment type | Detail |
+| By county (one table: schools on the portal of all schools, learners, teachers; a county's name narrows the page to it), Learner growth, Learners by place and grade | Secondary |
+| Learners by gender (with how many have it recorded), Teachers by gender, Teachers by employment type | Detail |
+
+27 October 2026: the three county bar charts became one table; the
+"Gender recorded" tile moved into the gender card's caption; "Accounts by
+role" left (it's an account count, on Users & roles).
 
 ### Learning (`#learning`)
 
@@ -67,12 +84,15 @@ filters; the others have none (docs/NAVIGATION.md §21).
 | --- | --- |
 | Assignments set, Completion, Average mark, To be marked, Learners improving | Primary |
 | M&E indicators — Learning | Primary (when there are any) |
-| Completion by grade, Results by grade (with marks by band), Learner progress, Subject performance | Secondary |
-| School performance, Assignments by subject, Learners' own progress | Detail |
+| Completion by grade, Results by grade (with marks by band), Learners' average marks, Learner progress, Which subject does best? | Secondary |
+| Subject performance, School performance, Assignments by subject | Detail |
 
 Removed as duplicates of the tiles: the "Completion" and "Assessment
 results" summary cards. What only they showed has moved: "missing" is on
 the Completion tile, and the marks-by-band strip is in "Results by grade".
+27 October 2026: "Learners' own progress" (improved · steady · declined)
+was the "Learners improving" tile again — the three counts are now on the
+tile. The source line says Kobo learner assessments aren't included yet.
 
 ### Teacher development (`#teacher-development`)
 
@@ -91,19 +111,28 @@ tile.
 
 | Component | Level |
 | --- | --- |
-| Field visits, Schools visited, Visit forms completed, Form response rate, Kobo submissions, Kobo needing review | Primary |
+| Field visits, Schools visited, Visit forms completed, Form response rate, Survey records | Primary |
 | M&E indicators — Field operations | Primary (when there are any) |
-| Visits by month, Schools not visited yet, Visit types, Visits by county, Kobo submissions by month | Secondary |
-| Completed forms, Kobo surveys, Kobo checks, Kobo submissions by county, Visits by term, Forms by audience | Detail |
+| Visits by month, Schools not visited yet, Visit types, Field visits by place and month, Survey records by month | Secondary |
+| Completed forms, Survey records by county | Detail |
+
+27 October 2026: "Survey records" counts the Kobo records that passed
+their checks (or were accepted on review), from active surveys — and the
+by-month and by-county charts count exactly those, so they add up to the
+figure. Duplicates, records waiting for review and rejections are pipeline
+health: they're on the Kobo surveys page, linked from the source line.
 
 ### Digital resources (`#digital-resources`)
 
 | Component | Level |
 | --- | --- |
-| Resources, Opens, Usage time, Active users, Learner reach | Primary |
+| Resources, Opens, Usage time, Active users | Primary |
 | M&E indicators — Digital resources | Primary (when there are any) |
-| Most-used content, Opens by month, Usage by term | Secondary |
+| Most-used content, Usage in detail (a link to Content usage) | Secondary |
 | Resources by shelf, by subject, by type | Detail |
+
+27 October 2026: opens over time, when resources are opened and usage by
+term live on Content usage, once; this page keeps the summary.
 
 ### Content usage (`#content-usage`)
 
@@ -120,7 +149,8 @@ dashboards; it refreshes itself while open.
 | Every resource opened, Not opened, Every school, Topics and sub-topics — all sortable | Detail |
 
 A school's bar narrows the page to that school, a week to that week, a
-resource opens the library searched for it.
+resource opens the library searched for it. Opens by HPF staff checking
+content are left out of every figure; the footer says how many.
 
 ### M&E dashboard and Data Quality Center
 
@@ -140,18 +170,30 @@ a row, then one column.
 | --- | --- | --- |
 | Platform status — "N health checks need attention", checks passing, queues waiting, the API's release | Primary | A line across the top, with "Review N actions" |
 | User activity — staff accounts, signed in this week, learners | Primary | A card: each figure with "View users", "View account activity", "View learners" |
-| Data activity — Kobo submissions counted, data quality score, schools | Primary | A card: each figure with "View Kobo data", "View data quality", "View schools" |
+| Data activity — Kobo submissions counted, data quality score | Primary | A card: each figure with "View Kobo data", "View data quality" (schools left on 27 October: a programme figure, on the Administration overview) |
 | System activity — Kobo sync, live push, hourly notifications, field devices, access exceptions | Primary | A card: a light per part (working, needs attention, not in use) and its page |
 | Important actions — failing health checks, then queues with something in them (Kobo review, high-severity data issues, learners locked out) | Primary | Below the cards, each with Open; passing checks folded away |
 | Recent changes — changes per day and the latest five | Secondary | Beside Important actions, with "View audit log" and "Security events" |
+| When the portal is used — resources opened, work handed in and marked, by day × time of day (Kenyan time) | Secondary | One heatmap, moved here from the Executive overview on 27 October; a link leads to the Executive overview for programme results |
 | When staff last signed in, staff by role | Secondary | One split bar and one line inside User activity |
 | Accounts by role in full, field officers without schools | Detail | On Users & roles; the officers are also named in their health check |
 
 ## Administration overview (`#admin-overview`)
 
-Already figures → Needs attention. The six figures now sit in one row
-(one used to wrap onto a row of its own), and Needs attention shows its
-count.
+For the administrator who organises the programme: figures → Needs
+attention → a few pictures of how it's organised (rebuilt 27 October 2026
+after the dashboard audit; GET /admin/overview, `adminOverviewHtml` in
+admin-ui.js).
+
+| Component | Level | Now |
+| --- | --- | --- |
+| Schools (counties · classes), Teachers (school heads), Learners (at N schools), Field officers (N with assigned schools), Field visits this term (at N of all schools) | Primary | Five tiles in one row on a laptop; three then two on a tablet. "Open forms" left: an unanswered form is a gap, below. |
+| Needs attention — accounts waiting, schools without an active teacher, schools without a head, field officers without schools, Kobo submissions to review, high-severity data issues, schools not visited this term, teachers not teaching a class, learners not in a class, open forms with no responses | Primary | One line per kind with the schools or forms it names (four, then "and N more") and the page where it's fixed; the ones holding something up first |
+| Learners per teacher (schools with an active teacher only), Class sizes (a histogram from five classes; a sentence below that), Learners by school and grade (schools with learners only) | Secondary | Each says what it leaves out and where that is |
+
+Field visits by place and month left this page: they're on the Executive
+overview and Field operations, and the gap they show is the "not visited
+this term" line.
 
 ## School head (`leader.html`)
 
