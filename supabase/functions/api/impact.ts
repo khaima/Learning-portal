@@ -308,6 +308,30 @@ export function buildImpact(d: ImpactInput, f: IntelligenceFilter = {}, now = ne
     },
   };
 
+  // ---- school by school: implementation progress (the Education overview).
+  // At each school in view: its active teachers, how many attended training
+  // and set work in the period (the same sets as the figures above), the work
+  // handed in and marked, and library opens there (readings.ts attribution).
+  const setters = new Set(d.assignments.filter((a) => a.status !== "draft" && inSchools(a.school_id) &&
+    (!dated || inRange(a.due_at ?? a.published_at)) && teacherIds.has(a.created_by)).map((a) => a.created_by));
+  const perf = new Map((intel.impact.schoolPerformance as Row[]).map((s) => [s.id, s]));
+  const schoolProgress = schools.map((s) => {
+    const ts = teachers.filter((t) => t.school_id === s.id);
+    const opens = lib.filter((i) => i.school === s.name);
+    const g: Row = perf.get(s.id) ?? {};
+    return {
+      id: s.id as string, school: s.name as string, county: (s.county ?? null) as string | null,
+      teachers: ts.length,
+      trained: ts.filter((t) => trained.has(t.id)).length,
+      settingWork: ts.filter((t) => setters.has(t.id)).length,
+      learners: Number(g.learners ?? 0),
+      assigned: Number(g.assigned ?? 0), completionRate: g.assigned ? (g.completionRate as number | null) : null,
+      marked: Number(g.marked ?? 0), averagePercent: g.marked ? (g.averagePercent as number | null) : null,
+      opens: opens.length,
+      learnersUsing: new Set(opens.filter((i) => i.actor_kind === "learner" && learnerIds.has(i.actor_id)).map((i) => i.actor_id)).size,
+    };
+  }).sort((a, b) => b.learners - a.learners || b.teachers - a.teachers || a.school.localeCompare(b.school));
+
   // ---- field operations
   const visits = d.fieldReports.filter((r) => inRange(r.created_at) && (!f.county || r.county === f.county) &&
     (!f.school || r.school === f.school || (r.school_id && schoolIds.has(r.school_id))));
@@ -441,7 +465,7 @@ export function buildImpact(d: ImpactInput, f: IntelligenceFilter = {}, now = ne
   };
   return {
     scope: intel.scope, currentTerm: intel.currentTerm, generatedAt: now.toISOString(), freshness,
-    executive, reach: { ...reach, gradeByPlace }, learning, teachers: teachersOut, fieldOps, resources: { ...resources, when: resourcesWhen }, overview,
+    executive, reach: { ...reach, gradeByPlace }, learning, teachers: teachersOut, schoolProgress, fieldOps, resources: { ...resources, when: resourcesWhen }, overview,
     // Still used by the overview's "needs attention" and the Data quality link.
     dataCollection: { notSchoolScoped: intel.dataCollection.notSchoolScoped },
   };

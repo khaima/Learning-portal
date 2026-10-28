@@ -29,13 +29,17 @@ export const KIND = {
 const TONE = { attention: "Needs a look", positive: "Going the right way", neutral: "For information" };
 const MARK = { attention: "!", positive: "✓", neutral: "i" };
 
+/** "education": the Education Team's side — learning, teachers, resources, and the forms they send. */
+const EDUCATION = ["learning", "teachers", "resources"];
+const inArea = (i, area) => !area || (area === "education" ? EDUCATION.includes(i.area) || String(i.key).startsWith("reporting:form:") : i.area === area);
+
 /** A few findings for one place on the page: the most pressing first, one of
     each kind before a second of any (an "evidence" note only if there's room),
     shown in order of importance. `area`: only this dashboard's. `skip`: kinds
     the page already lists (the Administration overview's Needs attention has the gaps).
     `cards: false`: none that only restate a headline card on the page (its target, its change). */
 export function pickInsights(items, { max = 5, area = null, skip = [], cards = true } = {}) {
-  const pool = (items || []).filter((i) => (!area || i.area === area) && !skip.includes(i.kind) && (cards || !i.card));
+  const pool = (items || []).filter((i) => inArea(i, area) && !skip.includes(i.kind) && (cards || !i.card));
   const out = [];
   const kinds = new Set();
   for (const i of pool) {

@@ -19,7 +19,7 @@ import {
   normalizeLibraryAudience, VISIT_TYPES,
 } from "./data.js";
 import {
-  getLibrary, addLibraryItem, setLibraryPublished, deleteLibraryItem, updateLibraryItem, getForms, addForm, deleteForm, archiveForm, restoreForm, getResponses, getStats, getImpact, getInsights,
+  getLibrary, addLibraryItem, setLibraryPublished, deleteLibraryItem, updateLibraryItem, getForms, addForm, deleteForm, archiveForm, restoreForm, getResponses, getStats, getImpact, getInsights, melCoverage,
   dqSummary, dqIssues, dqBulkStatus, dqScan,
   melProgrammes, melProgramme, createMelProgramme, melResults, melReports, createMelReport, melReport, refreshMelReport, finalizeMelReport,
   melDashboard, melTrend, melBreakdown, getTrainings, setFormDue, notificationLog, runNotificationsNow,
@@ -258,6 +258,7 @@ async function main() {
     saveFilters();
     updateFilterSummary();
     refreshFilteredPage();
+    if (pageNow === "me-data") renderMeData();
     await renderStats();
     renderUsersList();
     renderUsage();
@@ -417,7 +418,7 @@ async function main() {
     const key = e.target.dataset?.more;
     if (key) moreOpen[e.target.open ? "add" : "delete"](key);
   }, true);
-  const IMP_PAGES = { reach: "reachHtml", learning: "learningHtml", "teacher-development": "teachersHtml", "field-operations": "fieldOpsHtml", "digital-resources": "resourcesHtml" };
+  const IMP_PAGES = { "education-overview": "educationHtml", reach: "reachHtml", learning: "learningHtml", "teacher-development": "teachersHtml", "field-operations": "fieldOpsHtml", "digital-resources": "resourcesHtml" };
   async function renderImpact({ quiet = false } = {}) {
     // The programme dashboards, or (Education Team) only their learning side.
     const pagesHere = Object.keys(IMP_PAGES).filter((p) => canOpen(p));
@@ -426,7 +427,7 @@ async function main() {
     impactLive ||= liveStatus($$("[data-live-impact]"), { refresh: () => renderImpact({ quiet: true }), every: DASH_EVERY_MS });
     const run = ++impactRun;
     // The findings (GET /impact/insights), read beside the figures and never holding them up.
-    const findings = has("intelligence.view")
+    const findings = has("intelligence.view") || has("learning.dashboard.view")
       ? Promise.all([getInsights({ county: gf.county, school: gf.school, to: gf.to }), insightsUi()]) : null;
     findings?.catch(() => {}); // dealt with in fillInsights, once the figures are drawn
     if (!quiet) {
@@ -473,6 +474,24 @@ async function main() {
     if (!quiet) impactLive.ok();
   }
 
+  /* M&E data completeness (GET /mel/coverage): read when the page opens and
+     when the county or school changes — it's a checking page, not a live one. */
+  let meDataRun = 0;
+  async function renderMeData() {
+    if (!canOpen("me-data")) return;
+    const run = ++meDataRun;
+    $("#meDataBody").innerHTML = skeletonDashboard();
+    try {
+      const [cov, imp] = await Promise.all([melCoverage({ county: gf.county, school: gf.school }), impactUi()]);
+      if (run !== meDataRun) return;
+      $("#meDataMeta").textContent = [cov.period?.label, cov.scope?.label].filter(Boolean).join(" · ");
+      $("#meDataBody").innerHTML = imp.meDataHtml(cov, { canOpen, via: "me-data" });
+    } catch (err) {
+      if (run !== meDataRun) return;
+      $("#meDataBody").innerHTML = errorState(friendlyError(err, "Couldn't load the data completeness checks."), renderMeData);
+    }
+  }
+
   /* "Key findings" (insights-ui.js): a few on the Executive overview, and each
      dashboard's own above its charts (the M&E overview's too). A finding that
      is a gap links to the page that deals with it, if this person may open it. */
@@ -492,7 +511,8 @@ async function main() {
     const exec = $("#execInsights");
     if (exec && canOpen("overview")) swap(exec, ui.insightsPanel(ins, { canOpen, via: "overview", max: 5, id: "execFindingsHead" }), { replace: !quiet });
     for (const slot of $$("[data-insights-area]")) {
-      const html = ui.insightsPanel(ins, { canOpen, via: slot.dataset.via || "", area: slot.dataset.insightsArea, max: 3, level: 3, quiet: true });
+      const html = ui.insightsPanel(ins, { canOpen, via: slot.dataset.via || "", area: slot.dataset.insightsArea, max: Number(slot.dataset.max) || 3, level: 3, quiet: true,
+        title: slot.dataset.title || "Key findings" });
       slot.hidden = !html;
       swap(slot, html, { replace: !quiet });
     }
@@ -3545,6 +3565,7 @@ async function main() {
         A.renderPlatformOverview($("#pfBody"), { describe: (e) => ({ what: AUDIT_ACTION[e.action] || e.action, detail: auditDetail(e) }) });
         break;
       case "admin-overview": A.renderAdminOverview($("#aoBody"), adminOverviewOpts()); break;
+      case "me-data": renderMeData(); break;
       case "admin-detail": A.renderAdminDetail($("#adBody"), adminOverviewOpts()); break;
       case "field-officers":
         import("./officers-ui.js").then((m) => m.renderFieldOfficers($("#foBody")))

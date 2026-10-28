@@ -38,9 +38,9 @@ function withMel() {
   return db;
 }
 
-Deno.test("insights API: for whoever sees the programme dashboards — not the learning-only or school roles", async () => {
+Deno.test("insights API: for whoever sees the impact dashboards (the Education Team: their learning side) — not admin or school roles", async () => {
   freshWorld();
-  for (const [token, status] of [["tok_me", 200], ["tok_super_admin", 200], ["tok_admin", 403], ["tok_education_team", 403], ["tok_teacher", 403], ["tok_field_officer", 403]] as const) {
+  for (const [token, status] of [["tok_me", 200], ["tok_super_admin", 200], ["tok_education_team", 200], ["tok_admin", 403], ["tok_teacher", 403], ["tok_field_officer", 403]] as const) {
     const res = await call("GET", "/impact/insights", token);
     assertEquals(res.status, status, token);
   }
@@ -94,4 +94,22 @@ Deno.test("insights API: the Administration overview — the programme's M&E fin
   assertEquals(find(narrowed.items, "evidence:learning"), undefined, "nor is the programme's evidence note said of one school");
   assertEquals(find(narrowed.items, "target:i1")?.text,
     "Aitong Primary (NRK-001) has achieved 60% of its approved target for L1 Reading at grade level (30% against 50%).");
+});
+
+Deno.test("insights API: the Education Team gets the learning side only — training, marking, resources and the forms they send; no M&E, no field visits", async () => {
+  const db = withMel();
+  db.forms[0].due_on = daysAgo(1) >= "2026-05-01" ? daysAgo(1) : today;
+  db.trainings.push({ id: "tr_live", title: "Workshop", kind: "workshop", held_on: "2026-09-10", county: "Narok", school_id: null, archived_at: null });
+  const res = await call("GET", "/impact/insights", "tok_education_team");
+  assertEquals(res.status, 200);
+  assertEquals(res.json.learningOnly, true);
+  const items = res.json.items as (Item & { area: string })[];
+  assert(items.every((i) => ["learning", "teachers", "resources"].includes(i.area) || i.key.startsWith("reporting:form:")), JSON.stringify(items.map((i) => i.key)));
+  assert(find(items, "reporting:form:form_1"), "the form they sent, past its due date");
+  assert(find(items, "gap:untrained"), "teachers with no training this school year");
+  assertEquals(items.filter((i) => /^(target|baseline|schools:target|reporting:actuals|reporting:no-value|evidence)/.test(i.key)), [], "nothing from M&E");
+  assertEquals(find(items, "gap:not-visited"), undefined, "field visits aren't the learning side");
+  // M&E sees the same programme with its M&E findings.
+  const me = (await call("GET", "/impact/insights", "tok_me")).json.items as Item[];
+  assert(find(me, "baseline:i1") && find(me, "gap:not-visited"));
 });

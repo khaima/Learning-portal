@@ -926,6 +926,8 @@ export const melResults = (id, { period, county, school } = {}) => apiGet(`/mel/
 export const melBreakdown = (indicatorId, period) => apiGet(`/mel/indicators/${indicatorId}/breakdown${qs({ period })}`);
 /** Every indicator (or those tagged for one dashboard: theme) with target, value and achievement. */
 export const melDashboard = ({ period, county, school, theme } = {}) => apiGet(`/mel/dashboard${qs({ period, county, school, theme })}`);
+/** M&E data completeness for the current term and the place chosen (coverage.ts). */
+export const melCoverage = ({ county, school } = {}) => apiGet(`/mel/coverage${qs({ county, school })}`);
 export const melTrend = (indicatorId, { county, school } = {}) => apiGet(`/mel/indicators/${indicatorId}/trend${qs({ county, school })}`);
 export const recordMelActual = (body) => apiSend("POST", "/mel/actuals", body);
 export const verifyMelActual = (id, decision, note = "") => apiSend("POST", `/mel/actuals/${id}/verify`, { decision, note });

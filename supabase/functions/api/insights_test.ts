@@ -253,3 +253,33 @@ Deno.test("insights: the small wording helpers", () => {
   assertEquals(someOf(["A", "B", "C", "D", "E"]), "A, B, C and 2 more");
   assertEquals([value(41.6, "percent"), value(60, "percent"), value(1234, "count"), value(2.345, "number"), value(null, "count")], ["41.6%", "60%", "1,234", "2.3", "no value"]);
 });
+
+Deno.test("insights: the Education Team's follow-ups — teachers with no training this year, work waiting for a mark, resources never opened", () => {
+  const input = rows({
+    terms: [{ id: "2026-T2", academic_year_id: "2026", starts_on: "2026-05-01", ends_on: "2026-08-31" }, { id: "2026-T3", academic_year_id: "2026", starts_on: "2026-09-01", ends_on: "2026-12-31" }],
+    profiles: [
+      { id: "t1", role: "teacher", status: "active", school_id: "s1" }, { id: "t2", role: "teacher", status: "active", school_id: "s1" },
+      { id: "t3", role: "teacher", status: "active", school_id: "s2" }, { id: "t4", role: "teacher", status: "deactivated", school_id: "s2" },
+    ],
+    trainings: [{ id: "tr", held_on: "2026-06-01", archived_at: null }, { id: "old", held_on: "2025-06-01", archived_at: null }],
+    trainingAttendance: [{ training_id: "tr", teacher_id: "t1", attended: true }, { training_id: "old", teacher_id: "t2", attended: true }, { training_id: "tr", teacher_id: "t3", attended: false }],
+    assignments: [{ id: "a1", school_id: "s1" }],
+    submissions: [
+      { id: "x1", assignment_id: "a1", status: "submitted", submitted_at: "2026-09-20T08:00:00Z" },
+      { id: "x2", assignment_id: "a1", status: "submitted", submitted_at: "2026-10-10T08:00:00Z" }, // under 14 days
+      { id: "x3", assignment_id: "a1", status: "marked", submitted_at: "2026-09-01T08:00:00Z" },
+    ],
+    libraryItems: [{ id: "b1", title: "Fractions", published: true }, { id: "b2", title: "Phonics", published: true }, { id: "b3", title: "Draft", published: false }],
+    libraryInteractions: [{ library_item_id: "b1", hpf: false, school: "Aitong" }, { library_item_id: "b2", hpf: true, school: "HPF" }],
+  });
+  const list = buildInsights({ results: results(), input, place: {}, mel: null, schoolTargets: [], melReporting: null, now: NOW });
+  const untrained = byKey(list, "gap:untrained")!;
+  assertEquals(untrained.text, "2 of 3 active teachers have attended no training session this school year.", "last year's session and a taken-off-the-list one don't count");
+  assertEquals([untrained.base, untrained.area, untrained.links[0].page], ["Aitong (1) and Olpusimoru (1)", "teachers", "training"]);
+  assertEquals(byKey(list, "gap:unmarked")!.text, "1 piece of handed-in work has waited more than 14 days for a mark.");
+  const unopened = byKey(list, "gap:unopened")!;
+  assertEquals(unopened.text, "1 of 2 published resources has never been opened.", "HPF staff checking Phonics isn't use; the draft isn't published");
+  assertEquals(unopened.base, "Phonics");
+  const noRegister = buildInsights({ results: results(), input: { ...input, trainings: [] }, place: {}, mel: null, schoolTargets: [], melReporting: null, now: NOW });
+  assertEquals(byKey(noRegister, "gap:untrained"), undefined, "no register in use: nothing said about who wasn't trained");
+});

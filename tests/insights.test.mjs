@@ -58,3 +58,9 @@ test("findings: a dashboard with none shows nothing; an overview says so; an err
   assert.match(all, /<span class="count-badge">7<\/span>/);
   assert.match(all, /None says what caused a change/);
 });
+
+test("findings: the Education Team's side — learning, teachers, resources and the forms they send", () => {
+  const items = [item("l", "gap", 1, { area: "learning" }), item("t", "gap", 2, { area: "teachers" }), item("r", "gap", 3, { area: "resources" }),
+    item("reporting:form:f1", "reporting", 4, { area: "field" }), item("gap:not-visited", "gap", 5, { area: "field" }), item("m", "reporting", 6, { area: "me" })];
+  assert.deepEqual(pickInsights(items, { area: "education", max: 10 }).map((i) => i.key).sort(), ["l", "r", "reporting:form:f1", "t"]);
+});

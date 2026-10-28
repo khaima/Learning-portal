@@ -77,7 +77,9 @@ export async function mountExportCenter(el) {
   const box = (k) => el.querySelector(`[data-xp="${k}"]`);
   const reportSel = $in("report");
   const last = recall(LAST_KEY);
-  if (last && byId.has(last)) reportSel.value = last;
+  const asked = new URLSearchParams(String(location.hash).split("?")[1] || "").get("report");
+  if (asked && byId.has(asked)) reportSel.value = asked;
+  else if (last && byId.has(last)) reportSel.value = last;
 
   // Counties and schools, only for those who can narrow by place.
   let dir = null;
@@ -131,6 +133,11 @@ export async function mountExportCenter(el) {
     el.querySelector(`#${id("result")}`).textContent = "";
   };
   reportSel.addEventListener("change", () => { remember(LAST_KEY, reportSel.value); show(); });
+  // A link naming a report (a dashboard's "Term report") picks it, however often the page is opened.
+  addEventListener("hashchange", () => {
+    const want = new URLSearchParams(String(location.hash).split("?")[1] || "").get("report");
+    if (want && byId.has(want) && reportSel.value !== want) { reportSel.value = want; reportSel.dispatchEvent(new Event("change")); }
+  });
   show();
 
   /** The chosen filters: for the request, and in words for the file. */

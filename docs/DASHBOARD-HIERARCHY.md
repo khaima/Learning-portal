@@ -8,6 +8,28 @@ someone opening a dashboard can **see** the situation, **understand** it,
 What each figure counts, from which table, for which period — and how it says
 zero, no data, not complete and couldn't load: docs/KPI-DEFINITIONS.md.
 
+## Who each dashboard is for (28 October 2026)
+
+Each management role lands on the dashboard for its own responsibilities.
+These are groupings of what already exists — no role, permission or
+authorization rule was added or changed; every read is refused by the API to
+roles it isn't for (role_views_test.ts), not only hidden from a menu.
+
+| Role (workspace) | Lands on | What it answers |
+| --- | --- | --- |
+| Programme Administration — leadership (`admin`) | Administration overview; In detail | Programme reach and approved targets, school and county comparisons, verified findings and the major gaps, and **Reports to share** (the Term and County reports, opened ready to export) |
+| Learning & Education (`education_team`) | **Overview** (new, `#education-overview`); Learning | Teacher training and digital teaching, **school by school** (teachers trained and setting work, work handed in and marked, library opens), resources used, the results there are, and **What to follow up** — teachers with no training this school year, work waiting over 14 days for a mark, resources never opened, forms past due, each linked to the page where it's done |
+| Monitoring & Evaluation (`me`) | M&E overview; **Data completeness** (new, `#me-data`) | Indicator definitions, approved targets and how achievement is worked out, values and how far they're verified, evidence and baselines, reporting coverage, data-quality exceptions, Kobo surveys, and the evidence and exports |
+| Platform Administration — technical (`super_admin`) | Platform overview | Availability (the API and database answering, and how fast), sign-in problems, integration errors (Kobo, notifications, email), sync failures and devices, backups, access — the health checks |
+
+Shared, not copied: the Education overview uses the same /impact read (its
+learning side), key-figure cards, findings panel and tables as the impact
+dashboards; Data completeness gathers the M&E dashboard's and the dashboards'
+own figures (coverage.ts). Each page has one place in each menu
+(navigation_test.ts). The Education overview is shown to whoever runs training
+and the library (`trainings.manage`, `library.manage`), so M&E — which also
+reads the learning dashboards — doesn't get a second copy of it.
+
 ## The three levels
 
 Every component on a dashboard is one of three things.

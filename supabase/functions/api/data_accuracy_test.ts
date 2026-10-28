@@ -197,3 +197,15 @@ Deno.test("accuracy: every share is a part of its own whole", () => {
   const K = I.dataCollection.kobo.officerCompletion;
   assert(K.done <= K.expected);
 });
+
+Deno.test("accuracy: school by school progress adds up to the dashboard's own figures", () => {
+  const held = world({ trainings: [{ id: "tr2", title: "Workshop", kind: "workshop", held_on: "2026-10-01", county: "Narok", school_id: null, archived_at: null }],
+    trainingAttendance: [{ training_id: "tr2", teacher_id: "t1", attended: true }] });
+  const d = buildImpact(held, TERM, NOW);
+  const sum = (k: "teachers" | "trained" | "learners" | "opens") => d.schoolProgress.reduce((t, s) => t + s[k], 0);
+  assertEquals(sum("teachers"), d.teachers.total);
+  assertEquals(sum("trained"), d.teachers.training.teachersTrained);
+  assertEquals(sum("learners"), d.executive.learners);
+  assertEquals(sum("opens"), d.resources.opens, "every programme open is at one school (none is unattributed here)");
+  assertEquals(d.schoolProgress.find((s) => s.school === "Olesere")!.opens, 2, "including the one recorded as “meru”");
+});

@@ -368,6 +368,14 @@ function overviewHtml(d, x, describe) {
 
         <section class="pov-panel cc-system" aria-labelledby="cc-system-title">
           <div class="pov-panel-head"><h3 id="cc-system-title">System activity</h3></div>
+          ${d.availability ? sysRow({ name: "Portal and database", tone: d.availability.database === "ok" ? "ok" : "warn",
+            state: d.availability.database === "ok" ? `Answering · database ${num(d.availability.databaseMs)} ms${d.platform ? ` · release ${esc(String(d.platform.release).slice(0, 7))}` : ""}`
+              : warnText(esc(`The database didn't answer: ${d.availability.error || "unknown error"}`)) }) : ""}
+          ${d.signIn ? sysRow({ name: "Sign-in problems", href: "#account-activity", go: "Account activity",
+            tone: d.signIn.learnersLocked ? "warn" : "ok",
+            state: [d.signIn.learnersLocked ? warnText(`${plural(d.signIn.learnersLocked, "learner")} locked out now`) : "No learner locked out",
+              `${plural(d.signIn.suspended, "account")} suspended`,
+              d.signIn.passwordResets7d == null ? "" : `${plural(d.signIn.passwordResets7d, "password reset")} this week`].filter(Boolean).join(" · ") }) : ""}
           ${sysRow({ name: "KoboToolbox sync", href: "#kobo", go: "KoboToolbox",
             tone: !k.connected ? "off" : k.failing.length ? "warn" : "ok",
             state: k.connected ? `Synced ${agoTag(k.lastSync, since(k.lastSync))} · ${plural(k.surveys, "survey")}${k.failing.length ? ` · ${warnText(`${plural(k.failing.length, "survey")} failing`)}` : ""}` : "Not connected" })}
@@ -378,7 +386,9 @@ function overviewHtml(d, x, describe) {
             state: n ? `Ran ${agoTag(n.lastRunAt, since(n.lastRunAt))} · ${plural(n.created, "notification")} created${n.error ? ` · ${warnText("failed")}` : ""}` : "Never run" })}
           ${sysRow({ name: "Field devices", href: "#sync-problems", go: "Device sync",
             tone: d.devices.needAttention ? "warn" : d.devices.reporting ? "ok" : "off",
-            state: d.devices.reporting ? `${plural(d.devices.reporting, "device")} reporting${d.devices.needAttention ? ` · ${warnText(`${num(d.devices.needAttention)} need attention`)}` : " · all fine"}` : "No device has reported yet" })}
+            state: (d.devices.reporting ? `${plural(d.devices.reporting, "device")} reporting${d.devices.needAttention ? ` · ${warnText(`${num(d.devices.needAttention)} need attention`)}` : " · all fine"}` : "No device has reported yet")
+              + (d.syncFailures7d && (d.syncFailures7d.failed || d.syncFailures7d.conflicts)
+                ? ` · ${warnText(`${plural(d.syncFailures7d.failed, "sync failure")}, ${plural(d.syncFailures7d.conflicts, "conflict")} this week`)}` : "") })}
           ${sysRow({ name: "Access exceptions", href: "#permissions", go: "Permissions", tone: d.access.grants || d.access.scopedStaff ? "ok" : "off",
             state: `${plural(d.access.grants, "extra permission")} · ${plural(d.access.scopedStaff, "person", "people")} with a narrowed scope` })}
         </section>
@@ -650,6 +660,19 @@ function picturesHtml(d, r, opts) {
     </section>`;
 }
 
+/** High-level summaries to share: the term and county reports (Reports, reports.programme) — the
+    same records as the page, ready to send. Only for someone who may open Reports. */
+function reportsLine(opts, via) {
+  if (!opts.canOpen?.("reports")) return "";
+  const links = [["term-report", "Term report"], ["county-report", "County report"]]
+    .map(([id, label]) => `<a class="btn btn-outline q-small" href="${esc(via(`#reports?report=${id}`))}">${label}</a>`);
+  return `<section class="ao-reports" aria-labelledby="aoReportsHead">
+      <div class="attn-head"><h2 id="aoReportsHead">Reports to share</h2></div>
+      <p class="chart-meta">The term's and each county's results, as Excel, CSV or PDF — from the same records as this page.</p>
+      <p class="edu-more">${links.join(" ")}</p>
+    </section>`;
+}
+
 /** The Administration overview, from one /admin/overview read: the programme's findings at a glance. */
 export function adminOverviewHtml(d, opts = {}) {
   const via = (link) => withVia(link, "admin-overview");
@@ -678,6 +701,7 @@ export function adminOverviewHtml(d, opts = {}) {
       ${items.length > shown ? `<details class="attn-more"><summary>Show ${num(items.length - shown)} more</summary>${items.slice(shown).map((it) => gapHtml(it, via)).join("")}</details>` : ""}
     </section>
     ${r ? picturesHtml(d, r, opts) : ""}
+    ${reportsLine(opts, via)}
     <p class="ao-more"><a class="btn btn-outline" href="#admin-detail?via=admin-overview">In detail: every result and finding, every school, how the programme is organised, the data checks<span aria-hidden="true"> →</span></a></p>
     <p class="field-hint dash-source">Source: the portal's own records — the roll, assignments and marks, field visits, the training register and the library. HPF staff aren't counted.</p>`;
 }

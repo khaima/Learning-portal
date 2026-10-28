@@ -144,7 +144,8 @@ function more(key, what, cards, { pairs = false } = {}) {
     about choosing them waits at the foot instead. */
 /* "Key findings" for this dashboard (insights-ui.js), filled by console.js once
    GET /impact/insights is in: kept through a refresh, hidden when there are none. */
-const insightSlot = (area, page) => `<div class="insights-slot" data-live-keep data-insights-area="${area}" data-via="${page}" hidden></div>`;
+const insightSlot = (area, page, title = "", max = 0) => `<div class="insights-slot" data-live-keep data-insights-area="${area}" data-via="${page}"${
+  title ? ` data-title="${esc(title)}"` : ""}${max ? ` data-max="${max}"` : ""} hidden></div>`;
 const melFirst = (theme) => `<div class="intel-wide" data-live-keep data-mel-theme="${theme}" data-mel-when="some" hidden></div>`;
 const melLast = (theme) => `<div class="mel-foot" data-live-keep data-mel-theme="${theme}" data-mel-when="none" hidden></div>`;
 
@@ -378,6 +379,112 @@ export function execMelArea(dash) {
       <span><strong>${s.close}</strong> close · <strong>${s.not_met}</strong> not met</span>
       <span><strong>${s.no_data}</strong> without data</span>` : `<span>No indicators set up yet</span>`}
     <em aria-hidden="true">→</em>`;
+}
+
+/* ------------------------------------------------------------ the Education Team's overview */
+
+/* What the Education Team is responsible for, on one page: teacher training
+   and digital teaching, how each school is getting on, resources used and the
+   results there are — and what to follow up, each linked to the page where
+   it's done (the training register, assignments, the library, forms). The
+   same /impact read as the dashboards (its learning side), with
+   schoolProgress (impact.ts) and the findings (insights.ts). */
+export function educationHtml(d, opts = {}) {
+  forScope(d, opts);
+  const T = d.teachers, Tr = T.training, Pp = T.activity.participation, L = d.learning, c = L.completion, a = L.results, S = d.resources;
+  const P = d.schoolProgress || [];
+  const noRegister = Tr.recorded === false;
+  const of = (n, m) => `${num(n)} of ${num(m)}`;
+  const profile = (s) => { const href = linkTo(opts, "school-profiles", { school: s.id }); return href ? `<a href="${esc(href)}">${esc(s.school)}</a>` : esc(s.school); };
+  const go = (page, label) => { const href = linkTo(opts, page); return href ? `<a class="btn btn-outline q-small" href="${esc(href)}">${esc(label)}<span aria-hidden="true"> →</span></a>` : ""; };
+  return `
+    <div class="stat-row">
+      ${kpiCard({ label: "Teachers trained", icon: "star", value: noRegister ? "—" : pct(Tr.share), href: linkTo(opts, "training"),
+        sub: noRegister ? "No sessions in the training register yet" : `${of(Tr.teachersTrained, T.total)} active teachers · ${plural(Tr.sessions, "session")}` })}
+      ${kpiCard({ label: "Teaching digitally", icon: "assignment", value: pct(Pp.settingWork.rate), href: linkTo(opts, "assignments"),
+        sub: T.total ? `${of(Pp.settingWork.count, T.total)} teachers set work on the portal` : "No active teachers yet" })}
+      ${kpiCard({ label: "Resources opened", icon: "book", value: num(S.opens), href: linkTo(opts, "content-usage"),
+        sub: `${plural(S.activeUsers.total, "reader")} · ${pct(S.activeUsers.learnerReach)} of learners opened one` })}
+      ${kpiCard({ label: "Work handed in", icon: "check", value: pct(c.rate), href: linkTo(opts, "learning"),
+        sub: c.assigned ? `${of(c.submitted, c.assigned)} pieces of work set` : "No work set yet" })}
+      ${kpiCard({ label: "Average mark", icon: "results", value: pct(a.averagePercent), href: linkTo(opts, "results"),
+        sub: a.marked ? `${plural(a.marked, "piece")} marked · teacher-marked classwork` : "Nothing marked yet" })}
+    </div>
+    ${insightSlot("education", "education-overview", "What to follow up", 5)}
+    <div class="chart-grid">
+      ${card("School by school", "Teachers trained and setting work, work handed in and marked, and library use at each school",
+        table(["School", "Teachers", "Trained", "Setting work", "Learners", "Handed in", "Average mark", "Library opens"],
+          P.map((s) => [profile(s), num(s.teachers), !s.teachers || noRegister ? "—" : of(s.trained, s.teachers), s.teachers ? of(s.settingWork, s.teachers) : "—",
+            num(s.learners), s.assigned ? rate(s.completionRate) : "No work set", s.marked ? pct(s.averagePercent) : "—", num(s.opens)]), { name: "school-progress" }),
+        { wide: true })}
+    </div>
+    <p class="ao-more edu-more">${[go("teacher-development", "Teacher development"), go("digital-resources", "Digital resources"), go("learning", "Learning results")].filter(Boolean).join(" ")}</p>
+    ${source("the training register, assignments and marks, and library opens recorded in the portal. Kobo learner assessments are not included yet.")}`;
+}
+
+/* ------------------------------------------------------------ M&E: data completeness */
+
+/* What the M&E team checks before reporting (GET /mel/coverage, coverage.ts):
+   each indicator's definition, approved target, value and how far it is
+   verified, its evidence and baseline; how many schools the reporting rests
+   on; the exceptions keeping records out; each Kobo survey. Counts only. */
+export function meDataHtml(cov, opts = {}) {
+  forScope({ scope: {} }, opts);
+  const I = cov.indicators, R = cov.reporting;
+  const of = (n, m) => `${num(n)} of ${num(m)}`;
+  const go = (page, label, params = {}) => { const href = linkTo(opts, page, params); return href ? `<a href="${esc(href)}">${esc(label)} →</a>` : ""; };
+  const missing = (t) => `<span class="pill warm">${esc(t)}</span>`;
+  const STATUS = { verified: "Verified", recorded: "Recorded, not verified", live: "Worked out live", none: "—" };
+  const termLabel = cov.period?.label || "this term";
+  const indicators = !I.total
+    ? `<p class="chart-few">No indicators set up yet. ${go("mel-framework", "Results framework")}</p>`
+    : table(["Indicator", "Definition", `Target, ${esc(termLabel)}`, "Value", "Value is", "Achieved", "Evidence", "Baseline"],
+      I.rows.map((r) => [
+        `${r.code ? `<span class="code-chip">${esc(r.code)}</span> ` : ""}${esc(r.name)}`,
+        r.definition ? "Written" : missing("Missing"),
+        r.target == null ? missing("No target") : esc(fmtValue(r.target, r.unit)),
+        r.value == null ? missing("No value") : esc(fmtValue(r.value, r.unit)),
+        esc(STATUS[r.valueSource] || r.valueSource),
+        r.percent == null ? "—" : `${Math.round(r.percent)}%`,
+        r.evidence ? num(r.evidence) : "None",
+        r.baseline ? `${esc(fmtValue(r.baseline.value, r.unit))}${r.baseline.period ? ` (${esc(r.baseline.period)})` : ""}` : "—",
+      ]), { name: "indicator-checks" }) + `<p class="chart-note">${esc(I.rule)}</p>`;
+  const reports = R.reports.length ? R.reports.map((x) => `${esc(x.label)}: ${x.status === "final" ? "final" : "draft"}`).join(" · ") : "None made yet";
+  const exceptions = cov.exceptions.length
+    ? cov.exceptions.map((e) => `<div class="alert alert-warn alert-act"><div><b>${num(e.value)} · ${esc(e.label)}</b>${esc(e.detail)}</div>${
+      linkTo(opts, e.page) ? `<a class="btn btn-outline q-small" href="${esc(linkTo(opts, e.page))}">Open<span class="sr-only">: ${esc(e.label)}</span></a>` : ""}</div>`).join("")
+    : `<div class="alert alert-ok"><div><b>No data exceptions.</b></div></div>`;
+  const rules = (cov.issuesByRule || []).map((x) => `${esc(KOBO_RULE_LABEL[x.rule] || x.rule)} ${num(x.errors)}`).join(" · ");
+  const surveys = cov.surveys.length
+    ? table(["Survey", "Received", "Counted", "Failing checks", "Duplicate", "Rejected in Kobo", "Last synced"],
+      cov.surveys.map((s) => [esc(s.title), num(s.received), num(s.counted), s.failing ? `<b>${num(s.failing)}</b>` : "0", num(s.duplicate), num(s.rejected),
+        `${s.syncedAt ? esc(new Date(s.syncedAt).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })) : "Never"}${s.syncError ? `<br>${missing("Last sync failed")}` : ""}`]),
+    { name: "kobo-surveys" }) + (rules ? `<p class="chart-note">Failing checks, by rule: ${rules}. ${go("kobo", "Kobo review")}</p>` : "")
+    : `<p class="chart-few">No Kobo surveys attached yet.</p>`;
+  return `
+    <div class="stat-row">
+      ${kpiCard({ label: "Defined", icon: "layers", value: I.total ? of(I.withDefinition, I.total) : "—", sub: "indicators with a written definition" })}
+      ${kpiCard({ label: "Approved targets", icon: "target", value: I.total ? of(I.withTarget, I.total) : "—", sub: `for ${esc(termLabel)}` })}
+      ${kpiCard({ label: "Values", icon: "check", value: I.total ? of(I.withValue, I.total) : "—",
+        sub: I.total ? `${num(I.verified)} verified · ${num(I.recorded)} recorded · ${num(I.live)} live` : "no indicators yet" })}
+      ${kpiCard({ label: "Evidence", icon: "form", value: I.total ? of(I.withEvidence, I.total) : "—", sub: "with evidence on the recorded value" })}
+      ${kpiCard({ label: "Schools reported on", icon: "school", value: R.schools ? of(R.visited, R.schools) : "—",
+        sub: `visited in ${esc(termLabel)} · ${plural(R.koboSchools, "school")} with Kobo records` })}
+    </div>
+    <div class="chart-grid">
+      ${card("Each indicator, checked", "Definition, approved target, value and how far it's verified, evidence and baseline", indicators, { wide: true, period: termLabel })}
+      ${card("Reporting coverage", "What this term's reporting rests on", `
+        <ul class="defs-list">
+          <li><b>${R.schools ? of(R.visited, R.schools) : "—"}</b> schools visited</li>
+          <li><b>${R.schools ? of(R.koboSchools, R.schools) : "—"}</b> schools with Kobo records counted</li>
+          <li><b>${R.responseRate == null ? "—" : pct(R.responseRate)}</b> ${R.formsSent ? `form response rate, ${plural(R.formsSent, "form")} sent` : "no forms sent to staff"}</li>
+          <li><b>M&amp;E reports:</b> ${reports}</li>
+        </ul>${go("mel-reports", "M&E reports")}`, { period: termLabel })}
+      ${card("Data exceptions", "What keeps records out of the results", exceptions, { period: "" })}
+      ${card("Kobo surveys", "Each survey's records: counted only once they pass their checks", surveys, { wide: true, period: "All time" })}
+    </div>
+    <p class="field-hint dash-source">Evidence and exports: ${[go("mel-results", "Indicator results and their evidence"), go("reports", "M&E indicator export", { report: "me-indicator-report" }),
+      go("reports", "Kobo export", { report: "kobo-report" })].filter(Boolean).join(" · ")}. Counts only — no one's records are listed here.</p>`;
 }
 
 /* ------------------------------------------------------------ 2. reach */

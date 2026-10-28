@@ -41,6 +41,7 @@ import { buildImpact, GENDERS, type ImpactInput } from "./impact.ts";
 import { buildAdminResults, type ReportingTerm } from "./admin_impact.ts";
 import { buildInsights, type MelReporting, type SchoolTargets } from "./insights.ts";
 import { prepareReadings } from "./readings.ts";
+import { buildMelCoverage } from "./coverage.ts";
 import { buildLibraryUsage } from "./library_usage.ts";
 import { type Jwk, verifyAccessToken } from "./jwt.ts";
 import { buildNotifications, missingVisitForms } from "./notifications.ts";
@@ -5290,7 +5291,7 @@ app.get("/impact", requirePermission("intelligence.view", "learning.dashboard.vi
   if (actorCan(c, "intelligence.view")) return c.json(d);
   const { schoolsVisited: _v, ...executive } = d.executive;
   return c.json({ scope: d.scope, currentTerm: d.currentTerm, generatedAt: d.generatedAt, learningOnly: true,
-    executive, learning: d.learning, teachers: d.teachers, resources: d.resources });
+    executive, learning: d.learning, teachers: d.teachers, resources: d.resources, schoolProgress: d.schoolProgress, freshness: d.freshness });
 });
 
 /* What the dashboards' figures say (insights.ts): a few findings worked out
@@ -5298,7 +5299,7 @@ app.get("/impact", requirePermission("intelligence.view", "learning.dashboard.vi
    reports overdue, gaps — each with its period, base and source. For the
    term the chosen period ends in (?to=), else the one under way; within the
    caller's area and the county / school picked. */
-app.get("/impact/insights", requirePermission("intelligence.view"), async (c) => {
+app.get("/impact/insights", requirePermission("intelligence.view", "learning.dashboard.view"), async (c) => {
   const q = (k: string) => String(c.req.query(k) ?? "").trim() || null;
   const to = q("to");
   const sc = scopeOf(c);
@@ -5309,7 +5310,13 @@ app.get("/impact/insights", requirePermission("intelligence.view"), async (c) =>
     if (!t) return c.json({ term: null, period: null, against: null, items: [] });
     const input = await loadImpactInput();
     const results = buildAdminResults(narrowInput(input, sc), { current: t.current, previous: t.previous }, null, undefined, place);
-    return c.json(await insightsFor(c, sc, place, input, results, mc, t.ended, actorCan(c, "me.view")));
+    const full = actorCan(c, "intelligence.view");
+    const out = await insightsFor(c, sc, place, input, results, mc, t.ended, full && actorCan(c, "me.view"));
+    if (full) return c.json(out);
+    // The learning side only, as /impact gives it (learning.dashboard.view): learning,
+    // teachers and resources, and the forms the Education Team sends — no M&E, no field visits.
+    return c.json({ ...out, learningOnly: true,
+      items: out.items.filter((i) => ["learning", "teachers", "resources"].includes(i.area) || i.key.startsWith("reporting:form:")) });
   } catch (e) {
     return c.json({ error: (e as Error).message }, 500);
   }
@@ -7688,6 +7695,53 @@ async function insightsFor(c: any, sc: ReturnType<typeof scopeOf>, place: { coun
   };
 }
 
+/* M&E data completeness (coverage.ts): for the term (?period=, else the
+   current one) and the place picked (?county= / ?school=, by name) — each
+   indicator's definition, target, value and its status, evidence and
+   baseline; reporting coverage; data-quality exceptions; Kobo surveys. */
+app.get("/mel/coverage", requirePermission("me.view"), async (c) => {
+  const scope = await melScopeFromQuery(c);
+  if (!scope) return c.json({ error: "That county or school isn't in the portal" }, 400);
+  if (!melScopeAllowed(c, scope)) return c.json({ error: OUTSIDE_AREA }, 403);
+  try {
+    const sc = scopeOf(c);
+    const cal = await melCalendar();
+    const t = insightTerms(cal, null);
+    const period = String(c.req.query("period") ?? "") || t?.current.id || "";
+    const range = periodRange(period, cal.terms, cal.years);
+    if (!range) return c.json({ error: "Choose a term or school year" }, 400);
+    const today = new Date().toISOString().slice(0, 10);
+    const input = await loadIntelligenceInput();
+    const mel = await melDashboard(scope, period, "", input);
+    const ids = mel.indicators.map((i) => i.id as string);
+    const [actuals, dqRows, reports] = await Promise.all([
+      ids.length ? selectIn("me_actuals", "indicator_id", ids) : Promise.resolve([] as Record<string, any>[]),
+      actorCan(c, "data_quality.view")
+        ? selectAll(() => admin.from("dq_issues").select("id, school_id, county, severity").in("status", ["OPEN", "UNDER_REVIEW"]).order("id"))
+        : Promise.resolve(null),
+      selectAll(() => admin.from("me_reports").select("id, period, scope_type, status").order("id")),
+    ]);
+    if (dqRows?.error || reports.error) throw new Error((dqRows?.error ?? reports.error)!.message);
+    const current = actuals.filter((a) => !a.superseded_at && a.period === period && a.scope_type === scope.type && (a.scope_id ?? "") === scope.id && a.status !== "rejected");
+    const ev = current.length ? await selectIn("me_evidence", "actual_id", current.map((a) => a.id as string)) : [];
+    const evidence: Record<string, number> = {};
+    for (const a of current) evidence[a.indicator_id] = ev.filter((e) => e.actual_id === a.id).length;
+    const here = (dqRows?.data ?? []).filter((i) => inScope(c, i.school_id, i.county) &&
+      (scope.type === "programme" || (scope.type === "school" ? i.school_id === scope.id : String(i.county ?? "").toLowerCase() === scope.id.toLowerCase())));
+    const dq = dqRows ? { HIGH: here.filter((i) => i.severity === "HIGH").length, MEDIUM: here.filter((i) => i.severity === "MEDIUM").length, LOW: here.filter((i) => i.severity === "LOW").length } : null;
+    const intel = buildIntelligence(narrowInput(input, sc), {
+      county: scope.type === "county" ? scope.id : null, school: scope.type === "school" ? scope.schoolName ?? null : null,
+      from: range.from, to: range.to < today ? range.to : today,
+    });
+    const label = (p: string) => periodRange(p, cal.terms, cal.years)?.label ?? p;
+    const reportRows = (reports.data ?? []).filter((r) => r.scope_type === "programme")
+      .map((r) => ({ period: String(r.period), label: label(String(r.period)), status: String(r.status) }));
+    return c.json(buildMelCoverage({ mel, intel, evidence, dq, reports: reportRows }));
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
 /* One indicator over time, for the place picked (?county= / ?school=):
    each term so far — the value (recorded, else live) against its target. */
 app.get("/mel/indicators/:id/trend", requirePermission("me.view"), async (c) => {
@@ -8628,6 +8682,15 @@ app.get("/nav/badges", requireActive(), async (c) => {
 app.get("/platform/overview", requirePermission("platform.view"), async (c) => {
   const now = Date.now();
   const ago = (days: number) => new Date(now - days * 864e5).toISOString();
+  // Availability: the database answers, and how fast (this request itself is the API answering).
+  const pingFrom = Date.now();
+  const ping = await admin.from("counties").select("name").limit(1);
+  const databaseMs = Date.now() - pingFrom;
+  // Sign-in problems and sync failures this week.
+  const [resets, syncFails] = await Promise.all([
+    admin.from("audit_log").select("id, action").in("action", ["password.reset", "password.reset_link_sent", "password.temporary_set"]).gt("at", ago(7)),
+    admin.from("sync_events").select("id, event").in("event", ["failed", "conflict"]).gt("received_at", ago(7)),
+  ]);
   const [profs, learners, schools, counties, koboCfg, koboForms, runs, devices, dqScans, dqOpen, signIns, grants, scopes, security, backupDay, signupsOpen] = await Promise.all([
     selectAll(() => admin.from("profiles").select("id, full_name, email, role, status, school_id, county").order("id")),
     selectAll(() => admin.from("learners").select("id, enrollment_status, locked_until").order("id")),
@@ -8669,6 +8732,16 @@ app.get("/platform/overview", requirePermission("platform.view"), async (c) => {
   const backupAge = backupDay ? Math.floor((now - Date.parse(`${backupDay}T00:00:00Z`)) / 864e5) : null;
   return c.json({
     platform: { release: RELEASE, environment: environment() },
+    availability: { database: ping.error ? "error" : "ok", databaseMs, error: ping.error?.message ?? null },
+    signIn: {
+      learnersLocked: (learners.data ?? []).filter((l) => l.locked_until && new Date(l.locked_until).getTime() > now).length,
+      suspended: staff.filter((p) => p.status === "suspended").length,
+      passwordResets7d: resets.error ? null : (resets.data ?? []).length,
+    },
+    syncFailures7d: syncFails.error ? null : {
+      failed: (syncFails.data ?? []).filter((e) => e.event === "failed").length,
+      conflicts: (syncFails.data ?? []).filter((e) => e.event === "conflict").length,
+    },
     accounts: {
       byRole: STAFF_ROLES.map((r) => ({ role: r, label: ROLE_LABEL[r], ...byRole[r] })),
       total: staff.length, active: active.length, pending,

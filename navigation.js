@@ -65,8 +65,13 @@ const PAGES = {
   "admin-overview": { label: "Administration overview", icon: "dashboard", needs: ["users.view"], filters: ["county", "school"], purpose: "The programme's main findings at a glance, and what needs attention." },
   "admin-detail": { label: "In detail", icon: "dashboard", needs: ["users.view"], filters: ["county", "school"], purpose: "Every result and finding, every school, how the programme is organised, and the data checks waiting." },
   "me-dashboard": { label: "M&E overview", icon: "target", needs: ["me.view"], filters: ["county", "school"], purpose: "Every indicator against its target." },
+  "me-data": { label: "Data completeness", icon: "check", needs: ["me.view"], filters: ["county", "school"],
+    purpose: "Each indicator's definition, target, value and evidence; reporting coverage; data exceptions; Kobo surveys." },
   overview: { label: "Executive overview", icon: "dashboard", needs: ["intelligence.view"], filters: true, purpose: "The programme at a glance." },
   reach: { label: "Reach", icon: "globe", needs: ["intelligence.view"], filters: true, purpose: "Where the programme reaches: counties, schools, learners and teachers." },
+  // The Education Team's own view: shown to whoever runs training and the library (the API decides what each may read).
+  "education-overview": { label: "Education overview", icon: "dashboard", needs: ["trainings.manage", "library.manage"], filters: true,
+    purpose: "Teacher training and digital teaching, school by school; resources used and results — and what to follow up." },
   learning: { label: "Learning", icon: "results", needs: ["intelligence.view", "learning.dashboard.view"], filters: true, purpose: "How learners are doing: work handed in, marks and progress." },
   "teacher-development": { label: "Teacher development", icon: "teacher", needs: ["intelligence.view", "learning.dashboard.view"], filters: true, purpose: "Teachers' training, resource use and support." },
   "field-operations": { label: "Field operations", icon: "pin", needs: ["intelligence.view"], filters: true, purpose: "Field visits, visit forms and Kobo submissions." },
@@ -170,7 +175,7 @@ export const WORKSPACES = {
     title: "Monitoring & Evaluation", page: "me.html", roles: ["me", "super_admin"],
     question: "Are HPF programmes achieving their intended results?",
     groups: [
-      entry("overview", "M&E overview", "target", [c("me-dashboard", { label: "M&E overview" })]),
+      entry("overview", "M&E overview", "target", [c("me-dashboard", { label: "M&E overview" }), c("me-data")]),
       entry("framework", "Results framework", "layers", [c("mel-framework", { label: "Programmes & indicators" }), c("mel-results")]),
       entry("analytics", "Dashboards & reports", "chart", [
         c("overview"), c("mel-reports"), c("reports", { label: "Exports" }), ...AREA_DASHBOARDS(),
@@ -188,7 +193,7 @@ export const WORKSPACES = {
     title: "Learning & Education", page: "education.html", roles: ["education_team", "super_admin"],
     question: "How is learning going, and what support is needed?",
     groups: [
-      entry("dashboard", "Dashboard", "dashboard", [c("learning", { label: "Dashboard" })]),
+      entry("dashboard", "Dashboard", "dashboard", [c("education-overview", { label: "Overview" }), c("learning")]),
       entry("schools", "Schools", "school", [
         c("school-profiles"), c("teachers"), c("learners"), c("field-visits"), c("classes", { hidden: true }), c("sync-problems"),
       ]),

@@ -210,7 +210,7 @@ const ROUTES: RouteSpec[] = [
   r("GET", "/stats", STATS),
   r("GET", "/intelligence", DASHBOARDS),
   r("GET", "/impact", LEARNING_DASHBOARDS),
-  r("GET", "/impact/insights", DASHBOARDS),
+  r("GET", "/impact/insights", LEARNING_DASHBOARDS),
   r("GET", "/sync/status", ALL),
   r("GET", "/notifications", ALL),
   r("POST", "/notifications/:id/read", ALL, {}, "/notifications/ntf_1/read", {
@@ -262,6 +262,7 @@ const ROUTES: RouteSpec[] = [
   r("GET", "/mel/indicators/:id/breakdown", ME_ROLES, undefined, "/mel/indicators/{indicator}/breakdown?period=2026-T3", { setup: meFramework }),
   r("GET", "/mel/indicators/:id/trend", ME_ROLES, undefined, "/mel/indicators/{indicator}/trend", { setup: meFramework }),
   r("GET", "/mel/dashboard", ME_ROLES),
+  r("GET", "/mel/coverage", ME_ROLES),
   r("PUT", "/mel/targets", ME_ROLES, (ids: Ids) => ({ indicatorId: ids.indicator, period: "2026-T3", scopeType: "programme", value: 75 }), undefined, { setup: meFramework }),
   r("POST", "/mel/actuals", ME_ROLES, (ids: Ids) => ({ indicatorId: ids.indicator, period: "2026-T3", scopeType: "programme", value: 1 }), undefined, { setup: meFramework }),
   r("GET", "/mel/actuals/:id", ME_ROLES, undefined, "/mel/actuals/{actual}", { setup: meActual }),

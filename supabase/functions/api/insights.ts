@@ -326,6 +326,62 @@ export function buildInsights(x: InsightInput): Insight[] {
     });
   }
 
+  // ---- 5b. follow-ups for the people who run training, marking support and the library
+  const inPlace = new Set(placeSchools(x.input, x.place).map((sc) => sc.id));
+  const schoolNameOf = new Map(x.input.schools.map((sc) => [sc.id, String(sc.name)]));
+  const bySchool = (ids: unknown[]) => {
+    const n = new Map<string, number>();
+    for (const id of ids) { const k = schoolNameOf.get(id) ?? ""; if (k) n.set(k, (n.get(k) ?? 0) + 1); }
+    return [...n.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k, v]) => `${k} (${fmt(v)})`);
+  };
+  // Teachers with no training this school year — only once the register is in use.
+  if (x.input.trainings.some((t) => !t.archived_at)) {
+    const year = x.input.terms.find((t) => t.id === r.period.id)?.academic_year_id;
+    const yearFrom = x.input.terms.filter((t) => t.academic_year_id === year).map((t) => String(t.starts_on)).sort()[0] ?? r.period.from;
+    const held = new Set(x.input.trainings.filter((t) => !t.archived_at && day(t.held_on) >= yearFrom && day(t.held_on) <= today).map((t) => t.id));
+    const went = new Set(x.input.trainingAttendance.filter((a) => a.attended !== false && held.has(a.training_id)).map((a) => a.teacher_id));
+    const teachersHere = x.input.profiles.filter((p) => p.role === "teacher" && (p.status ?? "active") === "active" && inPlace.has(p.school_id));
+    const not = teachersHere.filter((t) => !went.has(t.id));
+    if (teachersHere.length && not.length) {
+      add({
+        key: "gap:untrained", kind: "gap", measure: "participation", area: "teachers", tone: "attention",
+        text: `${fmt(not.length)} of ${plural(teachersHere.length, "active teacher")} ${not.length === 1 ? "has" : "have"} attended no training session this school year.`,
+        period: `This school year, from ${dayWords(yearFrom)}`, base: someOf(bySchool(not.map((t) => t.school_id))),
+        source: "the training register", note: "Attendance at training, not what changed in the classroom.",
+        links: [{ page: "training", label: "Training register" }, { page: "teacher-development", label: "Teacher development" }], rank: 238,
+      });
+    }
+  }
+  // Handed-in work waiting more than 14 days for a mark.
+  const cut = new Date(now.getTime() - 14 * 864e5).toISOString();
+  const asgSchool = new Map(x.input.assignments.map((a) => [a.id, a.school_id]));
+  const waiting = x.input.submissions.filter((sb) => sb.status === "submitted" && sb.submitted_at && String(sb.submitted_at) < cut &&
+    inPlace.has(asgSchool.get(sb.assignment_id) ?? sb.school_id));
+  if (waiting.length) {
+    add({
+      key: "gap:unmarked", kind: "gap", measure: "implementation", area: "learning", tone: "attention",
+      text: `${plural(waiting.length, "piece")} of handed-in work ${waiting.length === 1 ? "has" : "have"} waited more than 14 days for a mark.`,
+      period: `Handed in before ${dayWords(cut.slice(0, 10))}`, base: someOf(bySchool(waiting.map((sb) => asgSchool.get(sb.assignment_id) ?? sb.school_id))),
+      source: "work handed in on the portal", note: "Results are only as current as the marking.",
+      links: [{ page: "assignments", label: "Assignments" }, { page: "learning", label: "Learning" }], rank: 232,
+    });
+  }
+  // Published resources nobody in the programme has opened (HPF staff checking content doesn't count).
+  const published = x.input.libraryItems.filter((it) => it.published !== false);
+  const placeNames = new Set([...inPlace].map((id) => schoolNameOf.get(id)));
+  const scopedPlace = !!(x.place.county || x.place.school);
+  const opened = new Set(x.input.libraryInteractions.filter((i) => !i.hpf && (!scopedPlace || placeNames.has(i.school))).map((i) => i.library_item_id));
+  const unopened = published.filter((it) => !opened.has(it.id));
+  if (published.length && unopened.length) {
+    add({
+      key: "gap:unopened", kind: "gap", measure: "resources", area: "resources", tone: "neutral",
+      text: `${fmt(unopened.length)} of ${plural(published.length, "published resource")} ${unopened.length === 1 ? "has" : "have"} never been opened${scopedPlace ? " here" : ""}.`,
+      period: "Since each was published", base: someOf(unopened.map((it) => String(it.title ?? "")).filter(Boolean)),
+      source: "the library and its opens", note: "Opening a resource is use, not evidence of learning.",
+      links: [{ page: "content", label: "Library" }, { page: "content-usage", label: "Content usage" }], rank: 245,
+    });
+  }
+
   // ---- 6. programme reports that are overdue or missing
   const since = r.previous?.from ?? r.period.from;
   for (const f of formsOverdue(x.input, x.place, since, today)) {
