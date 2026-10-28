@@ -14,6 +14,8 @@ does that better, there is no chart.
 | How do a few ordered groups compare (grades)? | **Columns** with a dashed line for the overall figure | `columnChart(…, { line })` |
 | How do these groups compare (schools, counties, activities)? | **Horizontal bars**, one colour, from zero | `barList` |
 | How does each group stand against a line — its approved target, or the overall figure? | **A bar per group with the line across it**: full colour at or past it, paler short of it | `bulletList` |
+| How did each result move since the same point last term? | **Two dots per result, joined**: hollow then, solid now, the change in words | `dumbbell` |
+| The shape of a figure's trend, or how near its target, inside its card | **A small line** (three points or more), **a meter** with the target marked | `sparkline`, `meter` |
 | How do two periods or groups compare, category by category (last term and this; a baseline and a follow-up)? | **Grouped bars**, side by side on one scale | `groupedBars` |
 | How far towards the target? | A **bar filling towards a line** | `targetList` |
 | What share of one whole? | **Bars, each with its share** — or, for 2 to 5 parts at a glance, **a ring** with every count and share in its key | `proportion`, `donut` |
@@ -260,6 +262,12 @@ purple failing the validator; then the donuts went altogether.
 | Digital resources (more detail) | What the library holds, by shelf | A ring of the three shelves |
 | Administration overview | Average mark, school by school | A bar per school with the all-schools line |
 | Every page | Key-figure cards | A small picture beside each name; the change on the period before as a badge |
+| Administration overview | How the results moved (new) | Two dots per share — the same point last term and now (not the classwork average: different work each term) |
+| Administration overview | Result cards | A meter towards the approved target, where M&E set one |
+| Administration → In detail | Each learner's average mark; learners in each band (new) | The histogram moved here from the overview, beside a ring of the bands |
+| Executive overview | Learners, Completion, Average mark | A small trend inside the card, from three terms |
+| Education overview | Trained and teaching digitally, school by school; resources opened month by month; where marked work falls (new) | Grouped bars; columns; a ring |
+| Digital resources | Resources opened, month by month (new); which resources are used most | Columns; ranked bars, the full table one click away |
 
 ## What each chart was, and is
 

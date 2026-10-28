@@ -2296,6 +2296,29 @@ h2,h3{ font-family:inherit; letter-spacing:-.01em; }
 .donut .chart-key-rows{ flex:1 1 13rem; min-width:0; margin:0; }
 @media (prefers-reduced-motion:reduce){ .dn-seg{ transition:none; } }
 
+/* ---- Before and after (charts.js dumbbell): two dots on one scale, joined. */
+.db-track{ position:relative; height:14px; margin:.15rem 0; border-radius:7px; background:var(--paper-sunk); }
+.db-span{ position:absolute; top:5px; height:4px; border-radius:2px; background:color-mix(in srgb, var(--chart-1) 35%, var(--paper-raised)); }
+.db-dot{ position:absolute; top:50%; width:12px; height:12px; margin:-6px 0 0 -6px; border-radius:50%; box-shadow:0 0 0 2px var(--paper-raised); }
+.db-dot.db-after{ background:var(--chart-1); }
+.db-dot.db-before{ background:var(--paper-raised); border:2.5px solid color-mix(in srgb, var(--chart-1) 55%, var(--paper-raised)); }
+.db-change{ font-weight:700; }
+.db-change.good{ color:var(--success-fg); } .db-change.bad{ color:var(--danger-fg); }
+.chart-key .key-dot{ display:inline-block; width:10px; height:10px; border-radius:50%; background:var(--chart-1); vertical-align:middle; }
+.chart-key .key-dot.is-before{ background:var(--paper-raised); border:2px solid color-mix(in srgb, var(--chart-1) 55%, var(--paper-raised)); }
+
+/* ---- Inside a key figure: a small trend, and how far towards a target. */
+.s-spark{ position:relative; height:30px; margin:.45rem 0 .1rem; }
+.s-spark .spark{ display:block; width:100%; height:100%; overflow:visible; }
+.spk-line{ fill:none; stroke:var(--chart-1); stroke-width:2; vector-effect:non-scaling-stroke; stroke-linejoin:round; stroke-linecap:round; }
+.spk-partial{ fill:none; stroke:var(--chart-1); stroke-width:2; stroke-dasharray:3 3; vector-effect:non-scaling-stroke; opacity:.7; }
+.spk-end{ position:absolute; width:8px; height:8px; margin:-4px 0 0 -4px; border-radius:50%; background:var(--chart-1); box-shadow:0 0 0 2px var(--paper-raised); }
+.spk-end.is-partial{ background:var(--paper-raised); border:2px solid var(--chart-1); }
+.s-meter{ position:relative; height:8px; margin:.55rem 0 .15rem; border-radius:4px; background:var(--paper-sunk); }
+.s-meter span{ position:absolute; left:0; top:0; bottom:0; border-radius:4px; background:color-mix(in srgb, var(--chart-1) 70%, var(--paper-raised)); }
+.s-meter.is-met span{ background:var(--success); }
+.s-meter i{ position:absolute; top:-4px; bottom:-4px; width:3px; margin-left:-1.5px; border-radius:2px; background:var(--ink); box-shadow:0 0 0 1.5px var(--paper-raised); }
+
 /* ---- Each group against its line (charts.js bulletList): the bar, and the line across it. */
 .bul-track{ position:relative; height:12px; border-radius:6px; background:var(--paper-sunk); }
 .bul-fill{ position:absolute; left:0; top:0; bottom:0; min-width:3px; border-radius:6px; background:var(--chart-1); }

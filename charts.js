@@ -699,6 +699,75 @@ export function bulletList(rows, { unit = "", noun = "", line = null, empty = "N
       line?.value != null ? `<li><i class="key-tick"></i>${esc(lineName)}: ${esc(show(line.value, unit))}</li>` : `<li><i class="key-tick"></i>${esc(lineName)}</li>`}</ul>`;
 }
 
+/* ------------------------------------------------------------ before and after, measure by measure */
+
+/** Each measure at two points — the same point of the term before, and
+    now — as two dots joined on one scale (0–100 for "%"): how far each
+    moved, and which way, in one picture. The earlier dot is hollow, the
+    latest solid; the change is said in words beside it (never colour
+    alone). A measure with no earlier figure shows only where it is now.
+      rows [{ label, before, after, better? ("up"|"down"), note? }]
+      from, to  what the two points are ("Term 2 at this point", "Term 3 so far") */
+export function dumbbell(rows, { unit = "%", from = "Before", to = "Now", empty = "Nothing to compare yet.", period = "", title = "" } = {}) {
+  const list = (rows || []).filter((r) => r.after != null);
+  if (!list.length) return none(empty);
+  const max = unit === "%" ? 100 : niceTop(Math.max(...list.map((r) => Math.max(r.after, r.before ?? 0))));
+  const at = (v) => Math.max(0, Math.min(100, (v / max) * 100));
+  const said = `${title ? `${title}: ` : ""}${list.map((r) => `${r.label} ${r.before == null ? "" : `${show(r.before, unit)} to `}${show(r.after, unit)}`).join(", ")}`;
+  const row = (r) => {
+    const d = r.before == null ? null : round1(r.after - r.before);
+    const good = d == null || d === 0 ? null : (r.better === "down" ? d < 0 : d > 0);
+    const change = d == null ? "no earlier figure" : d === 0 ? "no change" : `${d > 0 ? "▲ +" : "▼ −"}${Math.abs(d)}${unit === "%" ? " pts" : ""}`;
+    const lo = r.before == null ? at(r.after) : Math.min(at(r.before), at(r.after)), hi = r.before == null ? at(r.after) : Math.max(at(r.before), at(r.after));
+    const rows2 = [[show(r.after, unit), to.toLowerCase()]];
+    if (r.before != null) rows2.push([show(r.before, unit), from.toLowerCase()]);
+    return `
+    <div class="bars-row db-row" role="listitem"${tip(r.label, rows2, withPeriod([d == null ? "" : change.replace(/^[▲▼] /, ""), r.note].filter(Boolean).join(" · "), period))}>
+      <div class="bars-head"><span class="bars-label">${esc(r.label)}</span>
+        <span class="bars-val">${r.before != null ? `<small>${esc(show(r.before, unit))} →</small>` : ""}<b>${esc(show(r.after, unit))}</b><small class="db-change${good == null ? "" : good ? " good" : " bad"}">${esc(change)}</small></span></div>
+      <div class="db-track">${r.before != null ? `<i class="db-span" style="left:${lo.toFixed(1)}%;width:${(hi - lo).toFixed(1)}%"></i><i class="db-dot db-before" style="left:${at(r.before).toFixed(1)}%"></i>` : ""}<i class="db-dot db-after" style="left:${at(r.after).toFixed(1)}%"></i></div>
+    </div>`;
+  };
+  return `<div class="bars" role="list" aria-label="${esc(said)}">${list.map(row).join("")}</div>
+    <ul class="chart-key"><li><i class="key-dot is-before"></i>${esc(from)}</li><li><i class="key-dot"></i>${esc(to)}</li></ul>`;
+}
+
+/* ------------------------------------------------------------ inside a key figure */
+
+/** A small trend inside a key-figure card — the shape only (the card says
+    the numbers): a 2px line, a fading wash, the latest point marked; the
+    period still under way left open. Nothing with fewer than three points. */
+export function sparkline(values, { partial = false } = {}) {
+  const v = (values || []).map((x) => (x == null ? null : Number(x)));
+  const known = v.filter((x) => x != null);
+  if (known.length < 3) return "";
+  const lo = Math.min(...known), hi = Math.max(...known);
+  const span = hi - lo || 1;
+  const x = (i) => (i / (v.length - 1)) * 100;
+  const y = (n) => 30 - ((n - lo) / span) * 24 - 3;
+  const pts = v.map((n, i) => (n == null ? null : [x(i), y(n)])).filter(Boolean);
+  const solid = partial ? pts.slice(0, -1) : pts;
+  const line = solid.map(([a, b], i) => `${i ? "L" : "M"}${a.toFixed(1)} ${b.toFixed(1)}`).join(" ");
+  const id = `spk${++gradSeq}`;
+  const [ex, ey] = pts.at(-1);
+  const tail = partial && solid.length ? `<path class="spk-partial" d="M${solid.at(-1)[0].toFixed(1)} ${solid.at(-1)[1].toFixed(1)} L${ex.toFixed(1)} ${ey.toFixed(1)}"/>` : "";
+  return `<svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+    <defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="lc-fade-top"/><stop offset="1" class="lc-fade-end"/></linearGradient></defs>
+    <path d="${line} L${solid.at(-1)[0].toFixed(1)} 30 L${solid[0][0].toFixed(1)} 30 Z" style="fill:url(#${id})" stroke="none"/>
+    <path class="spk-line" d="${line}"/>${tail}
+  </svg><i class="spk-end${partial ? " is-partial" : ""}" style="left:${ex.toFixed(1)}%;top:${((ey / 30) * 100).toFixed(1)}%" aria-hidden="true"></i>`;
+}
+
+/** How far towards an approved target, inside a key-figure card: a bar on
+    the target's scale with the target marked (the card's text says the numbers). */
+export function meter(value, target, { direction = "increase" } = {}) {
+  if (value == null || target == null || !(target > 0)) return "";
+  const scaleTop = Math.max(target, value) * 1.12;
+  const fill = Math.max(2, Math.min(100, (value / scaleTop) * 100));
+  const met = direction === "decrease" ? value <= target : value >= target;
+  return `<div class="s-meter${met ? " is-met" : ""}" aria-hidden="true"><span style="width:${fill.toFixed(1)}%"></span><i style="left:${((target / scaleTop) * 100).toFixed(1)}%"></i></div>`;
+}
+
 /* ------------------------------------------------------------ tooltips
    One tooltip for the whole page. Hovering a mark shows it; so does a tap
    (it stays until the next tap or a scroll) and, on a line chart, the

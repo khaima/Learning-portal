@@ -27,7 +27,7 @@
 
 import { esc, formatDuration, skeleton } from "./util.js";
 import { fmtValue, ragPill } from "./mel-format.js";
-import { barList as bars0, bulletList as bullets0, columnChart as cols0, donut as donut0, heatmap as heat0, lineChart as line0, marksSpread, monthPoints, periodChip, periodLabel, proportion as parts0, TARGET_KEY, targetList, termPoints, trendOrBars as trend0 } from "./charts.js";
+import { barList as bars0, bulletList as bullets0, columnChart as cols0, donut as donut0, groupedBars, sparkline, heatmap as heat0, lineChart as line0, marksSpread, monthPoints, periodChip, periodLabel, proportion as parts0, TARGET_KEY, targetList, termPoints, trendOrBars as trend0 } from "./charts.js";
 import { kpiCard, periodTrend, termName } from "./kpi.js";
 import { compareHtml } from "./compare-ui.js";
 
@@ -315,6 +315,9 @@ export function executiveHtml(d, opts = {}) {
       <em aria-hidden="true">→</em>
     </a>`;
   const c = E.completion;
+  // A small trend in a card, the term still under way left open.
+  const underway = (list) => !!d.currentTerm && list.at(-1)?.label === d.currentTerm;
+  const markedTerms = L.progress.byTerm.filter((t) => t.marked);
   // The headline is who the programme reaches and how learning is going
   // (console.js adds data quality beside them). Every other figure sits
   // with its own area below, once — not as a tile and again in a card.
@@ -333,13 +336,16 @@ export function executiveHtml(d, opts = {}) {
       kpiCard({ label: "Schools", icon: "school", value: num(E.schools), href: linkTo(opts, "school-profiles"),
         sub: `${E.schoolsVisited.visited} visited · ${pct(E.schoolsVisited.coverage)} coverage` }),
       kpiCard({ label: "Learners", icon: "cap", value: num(E.learners), href: linkTo(opts, "learners"),
+        spark: sparkline(R.growth.map((t) => t.learners), { partial: underway(R.growth) }),
         sub: [joinedLine(R.growth), `${pct(E.activeUsers.learnerShare)} used the portal ${esc(E.activeUsers.window)}`].filter(Boolean).join(" · ") }),
       kpiCard({ label: "Teachers", icon: "teacher", value: num(E.teachers), href: linkTo(opts, "teachers"),
         sub: `${T.training.recorded === false ? "training not recorded yet" : `${pct(T.training.share)} trained`} · ${pct(T.activity.participation.active.rate)} active` }),
       kpiCard({ label: "Completion", icon: "assignment", value: pct(c.rate), href: linkTo(opts, "learning"),
+        spark: sparkline(L.progress.byTerm.map((t) => t.completionRate), { partial: underway(L.progress.byTerm) }),
         trend: periodTrend(L.progress.byTerm, (t) => t.completionRate),
         sub: c.assigned ? `${num(c.submitted)} of ${num(c.assigned)} pieces of work handed in` : "no work set yet" }),
       kpiCard({ label: "Average mark", icon: "results", value: pct(E.averageMark), href: linkTo(opts, "learning"),
+        spark: sparkline(markedTerms.map((t) => t.averagePercent), { partial: underway(markedTerms) }),
         trend: periodTrend(L.progress.byTerm.filter((t) => t.marked), (t) => t.averagePercent),
         sub: L.results.marked ? `${plural(L.results.marked, "piece")} marked${L.results.band ? ` · ${esc(L.results.band)}` : ""}` : "nothing marked yet" }),
     ].join(""),
@@ -421,6 +427,20 @@ export function educationHtml(d, opts = {}) {
         sub: a.marked ? `${plural(a.marked, "piece")} marked · teacher-marked classwork` : "Nothing marked yet" })}
     </div>
     ${insightSlot("education", "education-overview", "What to follow up", 5)}
+    <div class="chart-grid chart-pairs">
+      ${card("Trained and teaching digitally, school by school", "% of each school's active teachers",
+        P.some((s) => s.teachers)
+          ? (noRegister
+            ? bullets(P.filter((s) => s.teachers).map((s) => ({ label: s.school, value: Math.round((s.settingWork / s.teachers) * 100), base: s.teachers, note: `${of(s.settingWork, s.teachers)}` })),
+              { unit: "%", noun: "set work", line: { value: Pp.settingWork.rate, label: "All schools" } })
+            : groupedBars(P.filter((s) => s.teachers).map((s) => ({ label: s.school, values: [Math.round((s.trained / s.teachers) * 100), Math.round((s.settingWork / s.teachers) * 100)],
+              notes: [of(s.trained, s.teachers), of(s.settingWork, s.teachers)] })), [{ label: "Attended training" }, { label: "Set work on the portal" }],
+              { unit: "%", noun: "of teachers", title: "Teachers trained and setting work by school", period }))
+          : empty("No active teachers here yet."), { wide: true })}
+      ${card("Resources opened, month by month", "Library opens by learners and teachers",
+        columns(monthPoints(S.byMonth, (m) => m.opens), { noun: "opens", title: "Resources opened by month", time: true }), { period: LAST_12 })}
+      ${bandsDonut(a, L.bands)}
+    </div>
     <div class="chart-grid">
       ${card("School by school", "Teachers trained and setting work, work handed in and marked, and library use at each school",
         table(["School", "Teachers", "Trained", "Setting work", "Learners", "Handed in", "Average mark", "Library opens"],
@@ -724,8 +744,13 @@ export function resourcesHtml(d, opts = {}) {
     ${insightSlot("resources", "digital-resources")}
     <div class="chart-grid chart-pairs">
       ${melFirst("digital_resources")}
-      ${card("Which resources are used most", "Opens, readers and time, most opened first", table(["Resource", "Shelf", "Opens", "Readers", "Time"],
-        S.top.map((r) => { const href = linkTo(opts, "content", { q: r.title }); return [href ? `<a href="${esc(href)}">${esc(r.title)}</a>` : esc(r.title), esc(r.destination), num(r.opens), num(r.readers), mins(r.minutes)]; }), { name: "resources" }), { wide: true })}
+      ${card("Resources opened, month by month", "Library opens by learners and teachers",
+        columns(monthPoints(S.byMonth, (m) => m.opens), { noun: "opens", title: "Resources opened by month", time: true }), { period: LAST_12 })}
+      ${card("Which resources are used most", "Most opened first · readers and time beside each",
+        barList(S.top.map((r) => ({ label: r.title, value: r.opens, note: `${plural(r.readers, "reader")} · ${mins(r.minutes)}`, href: linkTo(opts, "content", { q: r.title }) })),
+          { noun: "opens", act: "find it in the library" })
+        + `<details class="more-detail"><summary><b>In full</b><span>Shelf, opens, readers and time — search and download</span></summary>${table(["Resource", "Shelf", "Opens", "Readers", "Time"],
+          S.top.map((r) => { const href = linkTo(opts, "content", { q: r.title }); return [href ? `<a href="${esc(href)}">${esc(r.title)}</a>` : esc(r.title), esc(r.destination), num(r.opens), num(r.readers), mins(r.minutes)]; }), { name: "resources" })}</details>`)}
       ${card("Usage in detail", "Opens week by week, when, by school and by topic",
         `<p class="chart-few">Opens over time, who opens resources, when, school by school and by topic are on Content usage.</p>`
         + seeAll(linkTo(opts, "content-usage"), "Content usage"), { period: "" })}

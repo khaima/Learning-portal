@@ -125,3 +125,30 @@ test("bars: a tooltip can carry the figure to compare with", () => {
   assert.match(html, /all counties/);
   assert.doesNotMatch(C.barList([{ label: "Narok", value: 71 }], { unit: "%", compare: { value: null, label: "all counties" } }), /all counties/, "nothing to compare: no row");
 });
+
+test("before and after: two dots per measure, the change in words, a measure with no earlier figure only where it is now", () => {
+  const db = C.dumbbell([
+    { label: "Learners taking part", before: 48, after: 62 },
+    { label: "Schools supported", before: 21, after: 3 },
+    { label: "Teachers using resources", before: null, after: 40 },
+  ], { from: "Same point of Term 2", to: "Term 3 so far", title: "How the results moved" });
+  assert.match(text(db), /Learners taking part 48% → 62% ▲ \+14 pts/);
+  assert.match(text(db), /Schools supported 21% → 3% ▼ −18 pts/);
+  assert.match(text(db), /Teachers using resources 40% no earlier figure/);
+  assert.equal((db.match(/db-dot db-before/g) || []).length, 2, "no hollow dot without an earlier figure");
+  assert.match(db, /db-change good/);
+  assert.match(db, /db-change bad/);
+  assert.match(text(db), /Same point of Term 2 Term 3 so far$/, "the key names both points");
+  assert.match(C.dumbbell([], { empty: "Nothing yet." }), /Nothing yet/);
+});
+
+test("inside a key figure: a trend needs three points; the meter marks the target", () => {
+  assert.equal(C.sparkline([60, 70]), "", "two points aren't a trend");
+  const sp = C.sparkline([60, 70, 65, 80], { partial: true });
+  assert.match(sp, /class="spark"/);
+  assert.match(sp, /spk-partial/, "the period under way is open");
+  assert.match(sp, /aria-hidden="true"/, "decoration: the card says the numbers");
+  assert.equal(C.meter(null, 50), "");
+  assert.match(C.meter(54, 80), /class="s-meter"/);
+  assert.match(C.meter(90, 80), /s-meter is-met/);
+});

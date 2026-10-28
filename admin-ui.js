@@ -15,7 +15,7 @@ import { resultsTableHtml } from "./assignments-ui.js";
 import { extendTrail, withVia } from "./nav.js";
 import { ICON } from "./navigation.js";
 import { agoTag, liveStatus, swap } from "./live.js";
-import { barList, bulletList, heatmap, histogram, lineChart, marksSpread, monthPoints, periodChip, stackBar, TARGET_KEY, targetList } from "./charts.js";
+import { barList, bulletList, donut, dumbbell, heatmap, histogram, lineChart, marksSpread, meter as targetMeter, monthPoints, periodChip, stackBar, TARGET_KEY, targetList } from "./charts.js";
 import { insightsAll, insightsPanel } from "./insights-ui.js";
 import { kpiCard, trendTag } from "./kpi.js";
 
@@ -540,6 +540,10 @@ const COUNT_UNIT = { learners: "learners", teachers_trained: "teachers" };
 const kpiValue = (v, unit) => (v == null ? "No data" : unit === "percent" ? `${Math.round(v * 10) / 10}%` : count(v));
 /** The six results the overview leads with; the seventh (teachers using digital resources) is in detail. */
 const HEADLINE = ["learners", "participation", "teachers_trained", "teachers_digital", "schools_supported", "assessment"];
+const RESULT_ICON = { learners: "cap", participation: "activity", teachers_trained: "star", teachers_digital: "assignment", schools_supported: "pin", assessment: "results", teacher_resources: "book" };
+/* The results that can move from one term to the next, as shares: not the roll (today's count), not
+   teachers trained (a count), not the classwork average (different work each term — never a change in learning). */
+const MOVES = ["participation", "teachers_digital", "schools_supported", "teacher_resources"];
 
 /** One line for the period every result covers, what it's compared with, and where the targets stand. */
 function periodLine(r) {
@@ -574,6 +578,7 @@ function resultCard(k, { targets = true, compact = false } = {}) {
   ].filter(Boolean);
   return kpiCard({
     label: k.label, value: kpiValue(k.value, k.unit), unit: k.value != null ? COUNT_UNIT[k.key] ?? "" : "", trend,
+    icon: RESULT_ICON[k.key] || "", meter: k.target ? targetMeter(k.value, k.target.value) : "",
     sub: lines.join("<br>") + `<details class="kpi-about"><summary>What this counts</summary>${esc(k.definition)}${k.caveat ? ` ${esc(k.caveat)}` : ""}</details>`,
   });
 }
@@ -628,11 +633,7 @@ function picturesHtml(d, r, opts) {
     : barList(r.schools.filter((s) => s.learners).map((s) => ({ label: s.school, value: s.learners, note: plural(s.teachers, "teacher"),
       ...(opts.canOpen?.("school-profiles") && s.id ? { href: `#school-profiles?school=${encodeURIComponent(s.id)}&via=admin-overview` } : {}) })),
     { noun: "learners", sort: true, insight: true, act: "open its profile", period: "On roll now", empty: "No learners on roll here yet." });
-  // 2. Learning outcomes: each learner's average on marked work.
-  const M = r.marks;
-  const marks = M ? marksSpread(M.bins, M.bands || [], { period, empty: "No work marked this term yet." }) + `<p class="chart-note">Teacher-marked classwork, not a standardised assessment.</p>`
-    : `<p class="chart-few">No work marked this term yet.</p>`;
-  // 3. School performance: only schools with enough marked work to compare.
+  // 2. School performance: only schools with enough marked work to compare.
   const min = r.rules.minMarked;
   const ranked = r.schools.filter((s) => s.marked >= min && s.averagePercent != null);
   const overall = r.kpis.find((k) => k.key === "assessment")?.value ?? null;
@@ -641,21 +642,45 @@ function picturesHtml(d, r, opts) {
       ...(opts.canOpen?.("school-profiles") && s.id ? { href: `#school-profiles?school=${encodeURIComponent(s.id)}&via=admin-overview` } : {}) })),
     { unit: "%", noun: "average mark", insight: true, line: { value: overall, label: "All schools" }, period, act: "open its profile" })
     : `<p class="chart-few">No school has ${num(min)} or more marked pieces of work this term yet.</p>`;
-  // 4. Progress against the approved targets.
+  // 3. Progress against the approved targets.
   const T = r.targets;
   const fmt = (v, unit) => (v == null ? "—" : unit === "percent" ? `${Math.round(v)}%` : num(v));
   const targets = !T ? `<p class="chart-few">Targets are set for the whole programme: choose no county or school to see progress against them.</p>`
     : !T.rows?.length ? `<p class="chart-few">No approved M&amp;E targets yet. The M&amp;E team sets them in the Results framework.</p>`
       : targetList(T.rows.map((i) => ({ label: `${i.code ? `${i.code} ` : ""}${i.name}`, value: i.value, target: i.target, percent: i.percent, status: i.status, unit: i.unit })),
         { fmt, period, top: 8 }) + TARGET_KEY;
+  // How the results moved: each share now against the same point of the term before.
+  const before = r.previous ? (r.period.underway ? `Same point of ${r.previous.label}` : r.previous.label) : "Before";
+  const moved = dumbbell(r.kpis.filter((k) => MOVES.includes(k.key) && k.unit === "percent" && k.value != null)
+    .map((k) => ({ label: k.label, before: r.previous ? k.previous?.value ?? null : null, after: k.value, note: k.of })),
+  { unit: "%", from: before, to: period, title: "How the results moved", period, empty: "No results to compare yet." });
   return `
     <section class="ao-pictures" aria-labelledby="aoPicturesHead">
       <div class="attn-head"><h2 id="aoPicturesHead">Where the programme stands</h2></div>
       <div class="chart-grid chart-pairs">
+        ${chartCard("How the results moved", r.previous ? `Each result now, against ${r.period.underway ? "the same point of" : ""} ${r.previous.label}` : "No earlier term to compare with yet", moved, { wide: true, period })}
         ${chartCard("Where learners are", `Learners on roll, ${one ? "school by school" : "county by county"}`, reach, { period: "On roll now" })}
-        ${chartCard("How learners' average marks are spread", M?.learners ? `Each learner's average on marked work · ${plural(M.learners, "learner")} · median ${M.median}%` : "Each learner's average on marked work", marks, { period })}
         ${chartCard("Average mark, school by school", `Schools with ${num(min)} or more marked pieces of work`, schools, { period })}
-        ${chartCard("Progress against approved targets", "Each M&E indicator's actual against its target", targets, { period })}
+        ${chartCard("Progress against approved targets", "Each M&E indicator's actual against its target", targets, { wide: true, period })}
+      </div>
+    </section>`;
+}
+
+/** In detail: how learners' marks spread, and how many learners are in each band. */
+function marksPictures(r) {
+  const M = r.marks;
+  if (!M?.learners) return "";
+  const period = r.period.underway ? `${r.period.label} so far` : r.period.label;
+  const bands = M.bands || [];
+  const inBand = (code) => (M.bins || []).filter((b) => b.band === code).reduce((t, b) => t + b.value, 0);
+  return `
+    <section class="ao-marks" aria-labelledby="adMarksHead">
+      <div class="attn-head"><h3 id="adMarksHead">How learners' marks spread</h3></div>
+      <div class="chart-grid chart-pairs">
+        ${chartCard("Each learner's average mark", `Average on marked work · ${plural(M.learners, "learner")} · median ${M.median}%`,
+          marksSpread(M.bins, bands, { period }) + `<p class="chart-note">Teacher-marked classwork, not a standardised assessment.</p>`, { period })}
+        ${chartCard("Learners in each band", "By each learner's average on marked work",
+          donut(bands.map((b, i) => ({ label: b.label || b.code, value: inBand(b.code), colour: `var(--band-${i + 1})` })), { noun: "learners", title: "Learners by band", period }), { period })}
       </div>
     </section>`;
 }
@@ -744,6 +769,7 @@ export function adminDetailHtml(d, opts = {}) {
   return `${headHtml(d, "In detail")}
     <p class="ao-back"><a href="#admin-overview">← Overview</a></p>
     ${resultsPart}
+    ${r ? marksPictures(r) : ""}
     ${r && "insights" in d ? insightsAll(d.insights, { canOpen: opts.canOpen, via: "admin-detail", id: "adFindingsHead" }) : ""}
     <section class="ao-org" aria-labelledby="adOrgHead">
       <div class="attn-head"><h3 id="adOrgHead">How the programme is organised</h3></div>
