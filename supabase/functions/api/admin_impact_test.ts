@@ -93,7 +93,17 @@ Deno.test("admin results: a target only where M&E approved one for the same meas
   const r = buildAdminResults(world({ fieldReports: [visit("v1", "s1", "Aitong", "2026-09-10")] }), TERMS, mel, NOW);
   assertEquals(kpi(r, "schools_supported").target, { value: 80, indicator: "1.2 Schools visited", percent: 62.5, status: "not_met" });
   assertEquals(kpi(r, "learners").target, null, "a percent target can't apply to a count");
-  assertEquals(r.targets, { summary: mel.summary, indicators: 4 });
+  assertEquals([r.targets?.summary, r.targets?.indicators], [mel.summary, 4]);
+  // Every indicator against its target, for the overview's picture: a missing value or target is null, never 0.
+  assertEquals(r.targets?.rows.map((x) => [x.code, x.target, x.value]), [["1.1", 100, null], ["1.2", 80, null], ["2.1", 10, null], ["3.1", null, null]]);
+});
+
+Deno.test("admin results: the overview's pictures — reach by county and the marks spread — from the same figures as the cards", () => {
+  const r = buildAdminResults(world({ fieldReports: [visit("v1", "s1", "Aitong", "2026-09-10")] }), TERMS, null, NOW);
+  const learners = kpi(r, "learners").value;
+  assertEquals(r.reach.reduce((t, c) => t + c.learners, 0), learners, "the counties add up to the learners card");
+  assertEquals(r.reach.reduce((t, c) => t + c.schools, 0), r.schoolsTotal, "every school is in one county");
+  assertEquals(Array.isArray(r.marks?.bins) && Array.isArray(r.marks?.bands), true);
 });
 
 Deno.test("admin results: schools needing support, the most rules first", () => {

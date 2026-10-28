@@ -954,7 +954,8 @@ async function main() {
   // A school name anywhere on these pages narrows everything to it; so does
   // a county's bar, and a month or term on a chart narrows the dates. The
   // summary above says what's shown, and its "×" goes back.
-  for (const host of [...Object.keys(IMP_PAGES).map((p) => $(`#imp-${p}`)), $('.dash-page[data-page="overview"]')].filter(Boolean)) {
+  for (const host of [...Object.keys(IMP_PAGES).map((p) => $(`#imp-${p}`)), $('.dash-page[data-page="overview"]'),
+    $('.dash-page[data-page="admin-overview"]'), $('.dash-page[data-page="admin-detail"]')].filter(Boolean)) {
     host.addEventListener("click", (e) => {
       const btn = e.target.closest("[data-pick-school], [data-drill]");
       if (!btn) return;
@@ -3451,7 +3452,7 @@ async function main() {
   const ensureSchools = async () => { if (!schoolDir.schools.length) await renderSchoolList().catch(() => {}); };
   const openedOnce = new Set();
   // Pages built by admin-ui.js, which loads the first time one of them opens.
-  const ADMIN_UI_PAGES = new Set(["platform-overview", "admin-overview", "permissions", "account-activity", "teachers", "classes",
+  const ADMIN_UI_PAGES = new Set(["platform-overview", "admin-overview", "admin-detail", "permissions", "account-activity", "teachers", "classes",
     "school-profiles", "assignments", "results", "field-visits", "subjects"]);
   /* A detail page that lists places and dates (navigation.js marks it)
      shows what the filters above pick; it's drawn again when they change. */
@@ -3462,9 +3463,10 @@ async function main() {
   /** What the Administration overview is drawn with: the filters above, and this person's rights. */
   const adminOverviewOpts = () => ({ filter: { county: gf.county, school: gf.school }, canOpen, canExport: has("reports.export") });
   function refreshFilteredPage() {
-    if (!["field-visits", "teachers", "school-profiles", "assignments", "admin-overview"].includes(pageNow)) return;
+    if (!["field-visits", "teachers", "school-profiles", "assignments", "admin-overview", "admin-detail"].includes(pageNow)) return;
     adminUi().then((A) => {
       if (pageNow === "admin-overview") A.renderAdminOverview($("#aoBody"), adminOverviewOpts());
+      if (pageNow === "admin-detail") A.renderAdminDetail($("#adBody"), adminOverviewOpts());
       if (pageNow === "field-visits") A.renderFieldVisits($("#fvBody"), visitsFilter());
       if (pageNow === "teachers") A.renderTeachers($("#tchBody"), teachersFilter());
       if (pageNow === "assignments") { schoolOptions($("#asgSchool"), { all: "All schools in your area", county: gf.county }); asgRedraw(A); }
@@ -3511,6 +3513,7 @@ async function main() {
         A.renderPlatformOverview($("#pfBody"), { describe: (e) => ({ what: AUDIT_ACTION[e.action] || e.action, detail: auditDetail(e) }) });
         break;
       case "admin-overview": A.renderAdminOverview($("#aoBody"), adminOverviewOpts()); break;
+      case "admin-detail": A.renderAdminDetail($("#adBody"), adminOverviewOpts()); break;
       case "field-officers":
         import("./officers-ui.js").then((m) => m.renderFieldOfficers($("#foBody")))
           .catch(() => { $("#foBody").innerHTML = errorState("Couldn't open this page — check your connection.", () => onPage("field-officers", params)); });

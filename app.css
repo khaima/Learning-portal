@@ -251,6 +251,19 @@ th[aria-sort="descending"] .th-arrow{ opacity:1; } th[aria-sort="descending"] .t
    to read — four then three on a laptop, one column on a phone. */
 .stat-row.results-row{ grid-template-columns:repeat(auto-fill,minmax(min(100%,15rem),1fr)); }
 .ao-results{ margin-bottom:var(--gap-section); }
+/* The overview's six headline results: three to a row on a laptop, so each card has room to read. */
+@media (min-width:900px){ .stat-row.results-row.ao-headline{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
+.ao-pictures, .ao-schools, .ao-org{ margin-bottom:var(--gap-section); }
+.ao-pictures .chart-grid > *{ flex-basis:22rem; }
+/* "Show N more": the rest of a list, one click away. */
+.attn-more{ margin-top:.2rem; }
+.attn-more > summary{ cursor:pointer; padding:.35rem 0; font-size:var(--text-sm); font-weight:600; color:var(--brand-fg); }
+.attn-more > summary:hover{ text-decoration:underline; text-underline-offset:2px; }
+.attn-more[open] > summary{ margin-bottom:.5rem; }
+.ao-more{ margin:0 0 .75rem; }
+.ao-back{ margin:-.2rem 0 .9rem; font-size:var(--text-sm); }
+.ao-back a{ color:var(--brand-fg); font-weight:600; text-decoration:none; }
+.ao-back a:hover{ text-decoration:underline; }
 /* Key figures (kpi.js, docs/CHARTS.md "Key figures"): a change against an
    earlier period, when there is one, sits between the value and its context. */
 .stat-tile .s-title{ min-width:0; }
@@ -2040,7 +2053,9 @@ h2,h3{ font-family:inherit; letter-spacing:-.01em; }
 /* Content usage: what needs doing, between the key figures and the pictures (docs/DASHBOARD-HIERARCHY.md). */
 .attn-section{ margin:0 0 1.5rem; }
 .attn-head{ display:flex; align-items:center; gap:.5rem; margin-bottom:.55rem; }
-.attn-head h3{ margin:0; font-size:var(--text-section); }
+.attn-head h3,.attn-head h2{ margin:0; font-size:var(--text-section); }
+/* The overview's first heading also says what it covers and how fresh it is. */
+.attn-head.ao-head{ flex-wrap:wrap; justify-content:space-between; }
 .attn-section .alert:last-child{ margin-bottom:0; }
 /* On the page itself (not inside a panel) an alert needs its own white card. */
 .attn-section .alert{ background:var(--paper-raised); border-top:1px solid var(--line); border-right:1px solid var(--line); border-bottom:1px solid var(--line); }

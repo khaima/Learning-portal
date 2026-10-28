@@ -79,7 +79,7 @@ these are exact.
 | Dashboard | What's on it | Verdict |
 |---|---|---|
 | Super Admin | **4 dashboards in the menu** (Platform, Administration, M&E, Executive) + 5 more programme dashboards | Too many entry points; the other workspaces' dashboards belong in those workspaces |
-| Admin — Administration overview | 6 tiles that link to their pages, a "Needs attention" list with Open links | Good pattern — keep |
+| Admin — Administration overview | 6 tiles that link to their pages, a "Needs attention" list with Open links | Good pattern — keep (28 October 2026: Dashboard has two tabs, Overview and In detail — DASHBOARD-HIERARCHY.md) |
 | Field Officer — My dashboard | 3 tiles (none clickable): "Schools in *county*", "Visits this term", "**Counties** in the programme"; the whole visit workflow; "Recent visits" | Tiles aren't actionable, one is irrelevant to the role, and "Schools in *county*" counts the profile's county although officers are now assigned *schools* (RBAC §4). The visit workflow belongs to Visits |
 | School Head, Teacher, Learner | Panels with "View all" links to their pages | Good pattern — keep |
 

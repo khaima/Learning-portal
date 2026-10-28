@@ -250,7 +250,21 @@ export function buildAdminResults(
     period: { id: current.id, label: current.label, from: current.from, to, underway, day: elapsed + 1, days: daysBetween(current.from, current.to) + 1 },
     previous: previous && prevTo ? { id: previous.id, label: previous.label, from: previous.from, to: prevTo } : null,
     kpis: [learners, taking, trained, digital, schools, marks, resources],
-    targets: mel ? { summary: mel.summary, indicators: mel.indicators.length } : null,
+    targets: mel ? {
+      summary: mel.summary, indicators: mel.indicators.length,
+      // Each approved indicator against its target, for the overview's picture (the first 50).
+      rows: mel.indicators.slice(0, 50).map((i: Row) => ({
+        code: i.code ?? "", name: String(i.name ?? ""), unit: i.unit, value: i.value ?? null,
+        target: i.target?.value ?? null, percent: i.achievement?.percent ?? null, status: i.achievement?.status ?? "no_data",
+      })),
+    } : null,
+    // The overview's pictures (admin-ui.js), from the same figures as the cards:
+    // where learners are, county by county, and how their marks spread.
+    reach: (a.reach.schoolsByCounty as Row[]).map((c) => ({
+      county: String(c.label), schools: Number(c.schools), reached: Number(c.reached),
+      learners: Number((a.reach.learnersByCounty as Row[]).find((l) => l.label === c.label)?.value ?? 0),
+    })),
+    marks: a.overview?.marks ? { ...a.overview.marks, bands: a.learning.bands } : null,
     schools: rows.slice(0, 200), schoolsTotal: rows.length,
     support,
     rules: { completionBelow: 50, minAssigned: 10, minMarked: 10, lowBands: [...low] },

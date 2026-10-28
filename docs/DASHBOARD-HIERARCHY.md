@@ -180,55 +180,47 @@ a row, then one column.
 | When staff last signed in, staff by role | Secondary | One split bar and one line inside User activity |
 | Accounts by role in full, field officers without schools | Detail | On Users & roles; the officers are also named in their health check |
 
-## Administration overview (`#admin-overview`)
+## Administration overview (`#admin-overview`) and In detail (`#admin-detail`)
 
-For the administrator who organises the programme: figures → Needs
-attention → a few pictures of how it's organised (rebuilt 27 October 2026
-after the dashboard audit; GET /admin/overview, `adminOverviewHtml` in
-admin-ui.js).
+The administrator's Dashboard has two tabs over one read (GET
+/admin/overview; `adminOverviewHtml` and `adminDetailHtml` in admin-ui.js),
+both narrowed by the county and school chosen above (28 October 2026):
+
+**Overview** — the programme's main findings at a glance, top to bottom:
 
 | Component | Level | Now |
 | --- | --- | --- |
-| Schools (counties · classes), Teachers (school heads), Learners (at N schools), Field officers (N with assigned schools), Field visits this term (at N of all schools) | Primary | Five tiles in one row on a laptop; three then two on a tablet. "Open forms" left: an unanswered form is a gap, below. |
-| Needs attention — accounts waiting, schools without an active teacher, schools without a head, field officers without schools, Kobo submissions to review, high-severity data issues, schools not visited this term, teachers not teaching a class, learners not in a class, open forms with no responses | Primary | One line per kind with the schools or forms it names (four, then "and N more") and the page where it's fixed; the ones holding something up first |
-| Learners per teacher (schools with an active teacher only), Class sizes (a histogram from five classes; a sentence below that), Learners by school and grade (schools with learners only) | Secondary | Each says what it leaves out and where that is |
+| Programme results — learners reached, learners taking part, teachers trained, teachers teaching digitally, schools supported (visited), average mark on marked classwork | Primary | Six cards, three to a row on a laptop. The period, the comparison and where the targets stand are said once above the row; a card names its period only where it differs ("On roll now"). Each keeps its readout, change on the term before and "What this counts". |
+| Needs attention — one merged list: accounts waiting, schools without an active teacher, without a head, field officers without schools, schools with no work set / under half handed in / marks in the lowest bands, schools not visited this term, teachers not teaching a class, learners not in a class, forms nobody answered | Primary | The first four, then "Show N more". A gap that both the support rules and the organising checks found (no active teacher, not visited) is one line. |
+| Where the programme stands — four pictures: where learners are (county by county; in one county, school by school), how learners' average marks are spread, average mark school by school (schools with 10 or more marked), progress against approved targets | Secondary | Two to a row, at full chart size. A county's bar narrows the page; a school's opens its profile. With no approved targets the fourth says so in a sentence. |
+| "In detail →" and the source line | — | At the foot. |
 
-Field visits by place and month left this page: they're on the Executive
-overview and Field operations, and the gap they show is the "not visited
-this term" line.
+**In detail** — everything the overview summarises, for whoever asks:
+all seven results in full (with "Teachers using digital resources"),
+School by school (search, pages, CSV with `reports.export`), how the
+programme is organised (schools, teachers, learners, field officers, field
+visits this term; learners per teacher, class sizes, learners by school
+and grade), and the data checks waiting (Kobo review, high-severity data
+issues — data operations, with links to their pages).
 
-27 October 2026, impact focus: the page now leads with **Programme results**
-for the current term (GET /admin/overview → `results`, worked out by
-`admin_impact.ts` on top of buildImpact, so each figure is the one on the area
-dashboards): learners reached, learners taking part, teachers trained,
-teachers teaching digitally (setting work), schools supported (visited),
-average mark on marked classwork and teachers using digital resources.
-Each shows its period, what it counts and what it doesn't, the same number
-of days into the term before, and a target only where an M&E indicator for
-that portal measure has an approved one for the term (whole-programme
-targets; an admin sees these headline figures without `me.view` or
-`intelligence.view` — no permission changed). A figure with nothing behind
-it says "No data", never 0; taking part and resource use are never called
-learning outcomes. Each card also carries a one-sentence **readout** built
-from nothing but its own figure (`readout()`): the share in words when it
-rests on five or more people or schools ("Over half of the active teachers
-set work on the portal.") and how far it sits from an approved target
-("Short of the approved target, by 20 points."). No cause, no learning
-claim, and no readout on missing data or a figure flagged as too few to
-judge. The seven cards sit four then three on a laptop and one to a row on
-a phone; when no M&E indicator exists, one line under them says so instead
-of "No approved target" on every card. Then progress against all M&E targets, **Schools needing
-support** (one line per rule) and a folded school-by-school table. The
-organising figures and gaps above follow under "Programme organisation";
-Kobo review and high-severity data issues moved into a folded "Data checks
-waiting" (data operations, not results). System diagnostics stay on the
-Platform overview (Super Admin).
+What moved off the overview, and why: the five organising figures (two
+repeated the results — learners, and schools visited); the organisation
+charts and the school table (detail); the data checks (operations, not
+results); the support-rules list (merged into Needs attention); the
+seventh result (a secondary indicator). Nothing was removed: each is on
+In detail or its own page, and every workflow link (accounts, teachers,
+schools, field visits, forms, Kobo, data issues) is still one click away.
 
-28 October 2026: the page takes the county and school filters (every part
-narrowed alike, inside the admin's own area; whole-programme M&E targets
-aren't put against one county or school), a school's name opens its
-profile, and "School by school" can be searched and downloaded (CSV, with
-`reports.export`).
+How it got here: 27 October 2026 the page was rebuilt to lead with
+programme results (`admin_impact.ts` on top of buildImpact, so each figure
+is the one on the area dashboards): each result shows its period, what it
+counts and what it doesn't, the same number of days into the term before,
+and a target only where an M&E indicator for that portal measure has an
+approved one (whole-programme targets; no permission changed). A figure
+with nothing behind it says "No data", never 0; taking part and resource
+use are never called learning outcomes; a readout (`readout()`) puts a
+share into words only when it rests on five or more, and never gives a
+cause. System diagnostics stay on the Platform overview (Super Admin).
 
 ## School head (`leader.html`)
 

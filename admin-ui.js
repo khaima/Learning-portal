@@ -15,7 +15,7 @@ import { resultsTableHtml } from "./assignments-ui.js";
 import { extendTrail, withVia } from "./nav.js";
 import { ICON } from "./navigation.js";
 import { agoTag, liveStatus, swap } from "./live.js";
-import { barList, heatmap, histogram, lineChart, monthPoints, periodChip, stackBar } from "./charts.js";
+import { barList, heatmap, histogram, lineChart, marksSpread, monthPoints, periodChip, stackBar, TARGET_KEY, targetList } from "./charts.js";
 import { kpiCard, trendTag } from "./kpi.js";
 
 const fmtDay = (v) => (v ? new Date(v).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—");
@@ -501,7 +501,7 @@ function adminCharts(d) {
   const ratio = chartCard("Learners per teacher, school by school", "Learners on roll for each active teacher",
     barList(C.perTeacher.map((r) => ({ label: r.label, value: r.value, note: `${plural(r.learners, "learner")} · ${plural(r.teachers, "teacher")}` })),
       { noun: "learners per teacher", empty: "No school has an active teacher yet.", sort: true, insight: true, period: "On roll now" })
-    + (without ? `<p class="chart-note">${plural(without, "school")} without an active teacher ${without === 1 ? "is" : "are"} in Needs attention.</p>` : ""), { period: "On roll now" });
+    + (without ? `<p class="chart-note">${plural(without, "school")} without an active teacher ${without === 1 ? "is" : "are"} in the overview's Needs attention.</p>` : ""), { period: "On roll now" });
   const E = C.enrolment;
   const enrol = chartCard("Learners by school and grade", `Active learners${E.rows.length ? ` · ${plural(E.rows.length, "school")}` : ""}`,
     heatmap(E.rows, E.grades.map((g) => ({ label: g, short: g.replace(/^Grade\s*/i, ""), full: g })),
@@ -514,32 +514,51 @@ const termWord = (id) => String(id ?? "").replace(/^(\d{4})-T(\d)$/, "Term $2");
 const some = (names, max = 4) => names.slice(0, max).join(", ") + (names.length > max ? ` and ${num(names.length - max)} more` : "");
 
 /* ---- Programme results (GET /admin/overview → results; admin_impact.ts):
-   what the programme reached and achieved this term, before how it's
-   organised. A figure with nothing behind it says "No data", never 0; a
-   target shows only where M&E approved one; taking part and resource use
-   are never called learning outcomes. An API from before them sends no
-   results, and the section is left out. */
+   what the programme reached and achieved this term. A figure with nothing
+   behind it says "No data", never 0; a target shows only where M&E approved
+   one; taking part and resource use are never called learning outcomes. An
+   API from before them sends no results, and the section is left out.
+
+   Two views of the same read (docs/DASHBOARD-HIERARCHY.md):
+     Overview (admin-overview)  the findings at a glance — six headline
+                                results, what needs someone, four pictures
+     In detail (admin-detail)   every result in full, every school, how the
+                                programme is organised, the data checks */
 const STATUS_WORD = { met: "met", close: "close to target", not_met: "below target", no_data: "no data yet" };
 const COUNT_UNIT = { learners: "learners", teachers_trained: "teachers" };
 const kpiValue = (v, unit) => (v == null ? "No data" : unit === "percent" ? `${Math.round(v * 10) / 10}%` : count(v));
+/** The six results the overview leads with; the seventh (teachers using digital resources) is in detail. */
+const HEADLINE = ["learners", "participation", "teachers_trained", "teachers_digital", "schools_supported", "assessment"];
 
-/* `targets`: false when the section already says, once, that no figure has
-   a target (none set up, or targets aren't for this area) — then the card
-   doesn't repeat "No approved target". */
-function resultCard(k, { targets = true } = {}) {
+/** One line for the period every result covers, what it's compared with, and where the targets stand. */
+function periodLine(r) {
+  const p = r.period;
+  const when = p.underway ? `${p.label} so far (day ${num(p.day)} of ${num(p.days)})` : p.label;
+  const against = r.previous ? (p.underway ? `against the same point of ${r.previous.label}` : `against ${r.previous.label}`) : "no earlier term to compare with";
+  const T = r.targets;
+  const targets = !T ? "targets are the whole programme's: shown with no county or school chosen"
+    : !T.indicators ? "no approved M&E targets yet"
+      : `targets: ${["met", "close", "not_met", "no_data"].map((s) => `${num(T.summary[s] ?? 0)} ${STATUS_WORD[s]}`).join(", ")}`;
+  return `${when} · ${against} · ${targets}`;
+}
+
+/* A result as a key figure. `compact` (the overview): the period is said once
+   above the row, so a card names it only where it differs (the roll is as it
+   is now); "What this counts" stays one tap away on every card. */
+function resultCard(k, { targets = true, compact = false } = {}) {
   const before = k.previous;
   const trend = k.value != null && before?.value != null
     ? trendTag(k.value - before.value, { unit: k.unit === "percent" ? " pts" : "", what: `on ${before.period}` })
     : "";
   const lines = [
-    `<span class="chart-meta">${esc(k.period)}</span>`,
+    !compact ? `<span class="chart-meta">${esc(k.period)}</span>` : k.key === "learners" ? `<span class="chart-meta">On roll now</span>` : "",
     k.of ? esc(k.of) : "",
     // A plain reading from the figure alone (admin_impact.ts readout); an API from before it sends none.
     k.readout ? `<span class="kpi-readout">${esc(k.readout)}</span>` : "",
     before && before.value == null && k.value != null ? `No data for ${esc(before.period)} to compare with` : "",
     k.target
       ? `Target ${kpiValue(k.target.value, k.unit)}${k.target.percent != null ? ` · ${num(k.target.percent)}% achieved (${STATUS_WORD[k.target.status] ?? ""})` : ""} · M&amp;E ${esc(k.target.indicator)}`
-      : targets ? "No approved target" : "",
+      : targets && !compact ? "No approved target" : "",
     k.note ? `<b>${esc(k.note)}</b>` : "",
   ].filter(Boolean);
   return kpiCard({
@@ -548,114 +567,184 @@ function resultCard(k, { targets = true } = {}) {
   });
 }
 
-function resultsHtml(r, opts = {}) {
-  if (!r) return "";
-  if (r.error) return `<div class="alert alert-warn"><div><b>Programme results couldn't be worked out.</b>${esc(r.error)}</div></div>`;
-  const p = r.period;
-  const when = p.underway ? `${p.label} so far: day ${num(p.day)} of ${num(p.days)}.` : `${p.label}.`;
-  const against = r.previous
-    ? (p.underway ? ` Changes are against the same point of ${r.previous.label}.` : ` Changes are against ${r.previous.label}.`)
-    : " There's no earlier term to compare with.";
-  const T = r.targets;
-  const progress = !T
-    ? `<p class="chart-note">Targets are set for the whole programme and your area is part of it, so these figures are shown without targets.</p>`
-    : !T.indicators
-      ? `<p class="chart-note">No M&amp;E indicators are set up yet, so none of these figures has a target.</p>`
-      : `<p class="chart-note"><b>Progress against approved targets, ${esc(p.label)}:</b> ${["met", "close", "not_met", "no_data"].map((s) => `${num(T.summary[s] ?? 0)} ${STATUS_WORD[s]}`).join(" · ")}, of ${plural(T.indicators, "M&amp;E indicator")}.</p>`;
-  const support = r.support.length
-    ? r.support.map((x) => `<div class="alert alert-info"><div><b>${esc(plural(x.count, "school"))}: ${esc(x.rule.toLowerCase())}</b>${esc(some(x.schools))}</div></div>`).join("")
-    : `<div class="alert alert-ok"><div><b>No school meets a support rule this term.</b></div></div>`;
-  const R = r.rules;
-  const rules = `A school is listed when it has learners but no active teacher or no work set this term; when under ${R.completionBelow}% of work is handed in (${R.minAssigned} or more pieces set); when its average mark is in the two lowest bands (${R.minMarked} or more marked); or when it hasn't had a field visit this term.`;
-  const pctCell = (v) => (v == null ? "No data" : `${Math.round(v)}%`);
-  // A school opens its profile (its classes, learners, visits — each tab behind its own permission), for whoever may open profiles.
-  const profile = (s) => (opts.canOpen?.("school-profiles") && s.id
-    ? `<a href="#school-profiles?school=${encodeURIComponent(s.id)}&amp;via=admin-overview">${esc(s.school)}</a>` : esc(s.school));
-  const rows = r.schools.map((s) => [profile(s), esc(s.county ?? ""), count(s.learners), count(s.teachers),
-    s.assigned ? pctCell(s.completionRate) : "No work set", s.marked ? pctCell(s.averagePercent) : "Nothing marked",
-    count(s.visits), s.flags.length ? s.flags.map((f) => warnText(f)).join("<br>") : "—"]);
-  const more = r.schoolsTotal > r.schools.length
-    ? `<p class="chart-note">The first ${num(r.schools.length)} of ${plural(r.schoolsTotal, "school")}, those needing most support first.</p>` : "";
-  return `
-    <section class="ao-results" aria-labelledby="aoResultsHead">
-      <div class="attn-head"><h3 id="aoResultsHead">Programme results</h3></div>
-      <p class="chart-meta">${esc(when + against)} From the portal's own records: the roll, assignments and marks, field visits, the training register and the library. HPF staff aren't counted.</p>
-      <div class="stat-row results-row">${r.kpis.map((k) => resultCard(k, { targets: !!T?.indicators })).join("")}</div>
-      ${progress}
-      <section class="attn-section" aria-labelledby="aoSupportHead">
-        <div class="attn-head"><h3 id="aoSupportHead">Schools needing support</h3>${r.support.length ? `<span class="count-badge">${r.support.length}</span>` : ""}</div>
-        ${support}
-        <p class="chart-note">${esc(rules)}</p>
-      </section>
-      <details class="more-detail" data-more="ao-schools"><summary><b>School by school</b><span>${esc(plural(r.schoolsTotal, "school"))} this term: work handed in, marks, visits and what needs support</span></summary>
-        ${table(["School", "County", "Learners", "Teachers", "Work handed in", "Average mark", "Field visits", "Needs support"], rows, "No schools in your area yet.",
-          { find: rows.length > 10, exportAs: opts.canExport ? `school-results-${String(opts.fileTag || "all")}-${p.id}` : "" })}${more}
-      </details>
-    </section>`;
-}
+const pctCell = (v) => (v == null ? "No data" : `${Math.round(v)}%`);
+/** A school's name, opening its profile (its classes, learners, visits — each tab behind its own permission) for whoever may open profiles. */
+const profileLink = (s, opts, via) => (opts.canOpen?.("school-profiles") && s.id
+  ? `<a href="#school-profiles?school=${encodeURIComponent(s.id)}&amp;via=${via}">${esc(s.school)}</a>` : esc(s.school));
+const fileTagOf = (d) => String(d.filter?.school || d.filter?.county || "all").toLowerCase().replace(/[^a-z0-9]+/g, "-");
 
-/** The Administration overview, from one /admin/overview read. */
-export function adminOverviewHtml(d, opts = {}) {
+/** Gaps to fill: each kind once — the programme's support rules and the organising gaps merged, a
+    gap both name (no active teacher, not visited) said only once — the ones holding someone up first. */
+function gapsOf(d, r) {
   const o = d.organisation, p = d.people, ops = d.operations;
-  const via = (link) => withVia(link, "admin-overview");
-  // Gaps to fill: one line per kind, the ones holding something up first.
   const gap = (n, tone, title, detail, link, go) => (n ? { tone, title, detail, link, go } : null);
   const noTeacher = o.schoolsWithoutTeacher || { count: 0, names: [] };
   const notVisited = ops.schoolsNotVisitedThisTerm || { count: 0, names: [] };
   const unanswered = ops.formsWithoutResponses || { count: 0, titles: [] };
-  const items = [
+  const rule = (name) => r?.support?.find((x) => x.rule === name);
+  const ruleGap = (name, title) => { const x = rule(name); return x ? gap(x.count, "info", `${plural(x.count, "school")}: ${title}`, some(x.schools), "#admin-detail", "Schools") : null; };
+  return [
     gap(p.pending, "warn", `${plural(p.pending, "account")} waiting for approval`, "", "#users?status=pending", "Review"),
     gap(noTeacher.count, "warn", `${plural(noTeacher.count, "school")} without an active teacher`, some(noTeacher.names), "#teachers", "Teachers"),
     gap(o.schoolsWithoutHead, "warn", `${plural(o.schoolsWithoutHead, "school")} without a school head`, "", "#school-profiles", "Schools"),
     gap(o.fieldOfficersWithoutSchools, "warn", `${plural(o.fieldOfficersWithoutSchools, "field officer")} without assigned schools`, "", "#field-officers", "Assign"),
+    ruleGap("No work set", "no work set this term"),
+    ruleGap("Under half of work handed in", "under half of the work set handed in"),
+    ruleGap("Marks below expectations", "average mark in the two lowest bands"),
     gap(notVisited.count, "info", `${plural(notVisited.count, "school")} not visited${d.currentTerm ? ` in ${termWord(d.currentTerm)}` : " this term"}`, some(notVisited.names), "#field-visits", "Field visits"),
     gap(o.teachersWithoutClasses, "info", `${plural(o.teachersWithoutClasses, "teacher")} not teaching any class`, "", "#teachers", "Teachers"),
     gap(p.learnersWithoutClass, "info", `${plural(p.learnersWithoutClass, "learner")} not in a class`, "", "#learners", "Learners"),
     gap(unanswered.count, "info", `${plural(unanswered.count, "open form")} with no responses yet`, some(unanswered.titles.map((t) => `“${t}”`), 3), "#forms", "Forms"),
   ].filter(Boolean);
+}
+const gapHtml = (it, via) => `<div class="alert alert-${it.tone} alert-act" data-key="${esc(it.link)}"><div><b>${esc(it.title)}</b>${it.detail ? esc(it.detail) : ""}</div>
+  <a class="btn btn-outline q-small" href="${esc(via(it.link))}">${esc(it.go)}<span class="sr-only">: ${esc(it.title)}</span></a></div>`;
+
+/** What the page covers and how fresh it is ("Narok County · 2026 Term 3 · Live"). */
+const liveHead = (d) => `<span class="live-head"><span class="chart-meta" style="margin:0">${esc(d.scope.label)}${d.currentTerm ? ` · ${esc(String(d.currentTerm).replace(/^(\d{4})-T(\d)$/, "$1 Term $2"))}` : ""}</span><span data-live-host></span></span>`;
+/** The page's head: its name, then what it covers and how fresh it is. */
+const headHtml = (d, title) => `
+    <div class="panel-head" style="margin-bottom:.6rem"><h2 style="margin:0">${esc(title)}</h2>${liveHead(d)}</div>`;
+
+/** The overview's four pictures: where learners are, how marks spread, how each school does, and progress to the targets. */
+function picturesHtml(d, r, opts) {
+  const period = r.period.underway ? `${r.period.label} so far` : r.period.label;
+  const one = !!(d.filter?.county || d.filter?.school) || r.reach.filter((c) => c.schools).length < 2;
+  // 1. Reach: county by county — or, in one county, school by school.
+  const reach = !one
+    ? barList(r.reach.filter((c) => c.schools).map((c) => ({ label: c.county, value: c.learners, note: `${num(c.reached)} of ${plural(c.schools, "school")} on the portal`,
+      drill: { county: c.county } })), { noun: "learners", sort: true, insight: true, act: "show only this county", period: "On roll now", empty: "No learners on roll yet." })
+    : barList(r.schools.filter((s) => s.learners).map((s) => ({ label: s.school, value: s.learners, note: plural(s.teachers, "teacher"),
+      ...(opts.canOpen?.("school-profiles") && s.id ? { href: `#school-profiles?school=${encodeURIComponent(s.id)}&via=admin-overview` } : {}) })),
+    { noun: "learners", sort: true, insight: true, act: "open its profile", period: "On roll now", empty: "No learners on roll here yet." });
+  // 2. Learning outcomes: each learner's average on marked work.
+  const M = r.marks;
+  const marks = M ? marksSpread(M.bins, M.bands || [], { period, empty: "No work marked this term yet." }) + `<p class="chart-note">Teacher-marked classwork, not a standardised assessment.</p>`
+    : `<p class="chart-few">No work marked this term yet.</p>`;
+  // 3. School performance: only schools with enough marked work to compare.
+  const min = r.rules.minMarked;
+  const ranked = r.schools.filter((s) => s.marked >= min && s.averagePercent != null);
+  const overall = r.kpis.find((k) => k.key === "assessment")?.value ?? null;
+  const schools = ranked.length
+    ? barList(ranked.map((s) => ({ label: s.school, value: s.averagePercent, base: s.marked, note: `${num(s.marked)} marked`,
+      ...(opts.canOpen?.("school-profiles") && s.id ? { href: `#school-profiles?school=${encodeURIComponent(s.id)}&via=admin-overview` } : {}) })),
+    { unit: "%", noun: "average mark", sort: true, insight: true, compare: { value: overall, label: "all schools" }, period, act: "open its profile" })
+    : `<p class="chart-few">No school has ${num(min)} or more marked pieces of work this term yet.</p>`;
+  // 4. Progress against the approved targets.
+  const T = r.targets;
+  const fmt = (v, unit) => (v == null ? "—" : unit === "percent" ? `${Math.round(v)}%` : num(v));
+  const targets = !T ? `<p class="chart-few">Targets are set for the whole programme: choose no county or school to see progress against them.</p>`
+    : !T.rows?.length ? `<p class="chart-few">No approved M&amp;E targets yet. The M&amp;E team sets them in the Results framework.</p>`
+      : targetList(T.rows.map((i) => ({ label: `${i.code ? `${i.code} ` : ""}${i.name}`, value: i.value, target: i.target, percent: i.percent, status: i.status, unit: i.unit })),
+        { fmt, period, top: 8 }) + TARGET_KEY;
+  return `
+    <section class="ao-pictures" aria-labelledby="aoPicturesHead">
+      <div class="attn-head"><h2 id="aoPicturesHead">Where the programme stands</h2></div>
+      <div class="chart-grid chart-pairs">
+        ${chartCard("Where learners are", `Learners on roll, ${one ? "school by school" : "county by county"}`, reach, { period: "On roll now" })}
+        ${chartCard("How learners' average marks are spread", M?.learners ? `Each learner's average on marked work · ${plural(M.learners, "learner")} · median ${M.median}%` : "Each learner's average on marked work", marks, { period })}
+        ${chartCard("Average mark, school by school", `Schools with ${num(min)} or more marked pieces of work`, schools, { period })}
+        ${chartCard("Progress against approved targets", "Each M&E indicator's actual against its target", targets, { period })}
+      </div>
+    </section>`;
+}
+
+/** The Administration overview, from one /admin/overview read: the programme's findings at a glance. */
+export function adminOverviewHtml(d, opts = {}) {
+  const via = (link) => withVia(link, "admin-overview");
+  const r = d.results && !d.results.error ? d.results : null;
+  const items = gapsOf(d, r);
+  const shown = 4; // the first few; the rest one click away
+  const results = d.results?.error
+    ? `<div class="alert alert-warn"><div><b>Programme results couldn't be worked out.</b>${esc(d.results.error)}</div></div>`
+    : r ? `
+    <section class="ao-results" aria-labelledby="aoResultsHead">
+      <div class="attn-head ao-head"><h2 id="aoResultsHead">Programme results</h2>${liveHead(d)}</div>
+      <p class="chart-meta">${esc(periodLine(r))}.</p>
+      <div class="stat-row results-row ao-headline">${r.kpis.filter((k) => HEADLINE.includes(k.key)).map((k) => resultCard(k, { compact: true })).join("")}</div>
+    </section>` : "";
+  return `${r ? "" : headHtml(d, "Administration overview")}
+    ${results}
+    <section class="attn-section" aria-labelledby="aoAttnHead">
+      <div class="attn-head"><h2 id="aoAttnHead">Needs attention</h2>${items.length ? `<span class="count-badge">${items.length}</span>` : ""}</div>
+      ${items.length ? items.slice(0, shown).map((it) => gapHtml(it, via)).join("")
+        : `<div class="alert alert-ok"><div><b>Nothing needs attention right now.</b></div></div>`}
+      ${items.length > shown ? `<details class="attn-more"><summary>Show ${num(items.length - shown)} more</summary>${items.slice(shown).map((it) => gapHtml(it, via)).join("")}</details>` : ""}
+    </section>
+    ${r ? picturesHtml(d, r, opts) : ""}
+    <p class="ao-more"><a class="btn btn-outline" href="#admin-detail?via=admin-overview">In detail: every result, every school, how the programme is organised, the data checks<span aria-hidden="true"> →</span></a></p>
+    <p class="field-hint dash-source">Source: the portal's own records — the roll, assignments and marks, field visits, the training register and the library. HPF staff aren't counted.</p>`;
+}
+
+/** In detail: the same read, all of it — every result, every school, the organisation, the data checks. */
+export function adminDetailHtml(d, opts = {}) {
+  const o = d.organisation, p = d.people, ops = d.operations;
+  const via = (link) => withVia(link, "admin-detail");
+  const r = d.results && !d.results.error ? d.results : null;
+  const gap = (n, title, link, go) => (n ? { tone: "warn", title, detail: "", link, go } : null);
   // Data checks waiting on review: data operations, not programme results.
   const checks = [
-    gap(ops.koboNeedsReview, "warn", `${plural(ops.koboNeedsReview, "Kobo submission")} ${ops.koboNeedsReview === 1 ? "needs" : "need"} review`, "", "#kobo", "Review"),
-    gap(ops.dataQualityHigh, "warn", `${plural(ops.dataQualityHigh, "high-severity data issue")} open`, "", "#data-quality?severity=HIGH", "Data issues"),
+    gap(ops.koboNeedsReview, `${plural(ops.koboNeedsReview, "Kobo submission")} ${ops.koboNeedsReview === 1 ? "needs" : "need"} review`, "#kobo", "Review"),
+    gap(ops.dataQualityHigh, `${plural(ops.dataQualityHigh, "high-severity data issue")} open`, "#data-quality?severity=HIGH", "Data issues"),
   ].filter(Boolean);
-  const visitedLine = o.schools ? `at ${num(ops.schoolsVisitedThisTerm ?? 0)} of ${plural(o.schools, "school")}` : "";
-  return `
-    <div class="panel-head" style="margin-bottom:.6rem"><h2 style="margin:0">Administration overview</h2>
-      <span class="live-head"><span class="chart-meta" style="margin:0">${esc(d.scope.label)}${d.currentTerm ? ` · ${esc(String(d.currentTerm).replace(/^(\d{4})-T(\d)$/, "$1 Term $2"))}` : ""}</span><span data-live-host></span></span></div>
-    ${resultsHtml(d.results, { ...opts, fileTag: String(d.filter?.school || d.filter?.county || "all").toLowerCase().replace(/[^a-z0-9]+/g, "-") })}
-    <div class="attn-head"><h3>Programme organisation</h3></div>
-    <div class="stat-row exec-row">
-      ${kpiCard({ label: "Schools", icon: "school", value: count(o.schools), href: via("#schools"),
-        sub: `${plural(o.counties, "county", "counties")} · ${plural(o.classes, "class", "classes")} this year` })}
-      ${kpiCard({ label: "Teachers", icon: "teacher", value: count(p.teachers), href: via("#teachers"),
-        sub: plural(p.heads, "school head") })}
-      ${kpiCard({ label: "Learners", icon: "cap", value: count(p.learners), href: via("#learners"),
-        sub: p.learners ? `at ${plural(p.learnerSchools ?? 0, "school")}` : "None enrolled yet" })}
-      ${kpiCard({ label: "Field officers", icon: "users", value: count(p.fieldOfficers), href: via("#field-officers"),
-        sub: p.fieldOfficers ? `${num(p.fieldOfficersPlaced ?? 0)} with assigned schools` : "None yet" })}
-      ${kpiCard({ label: "Field visits this term", icon: "pin", value: count(ops.visitsThisTerm),
-        href: via(d.currentTerm ? `#field-visits?term=${encodeURIComponent(d.currentTerm)}` : "#field-visits"),
-        sub: [visitedLine, d.currentTerm ? `since ${esc(termWord(d.currentTerm))} began` : ""].filter(Boolean).join(" · ") })}
-    </div>
-    <section class="attn-section" aria-labelledby="aoAttnHead">
-      <div class="attn-head"><h3 id="aoAttnHead">Needs attention</h3>${items.length ? `<span class="count-badge">${items.length}</span>` : ""}</div>
-      ${items.length
-        ? items.map((it) => `<div class="alert alert-${it.tone} alert-act" data-key="${esc(it.link)}"><div><b>${esc(it.title)}</b>${it.detail ? esc(it.detail) : ""}</div>
-            <a class="btn btn-outline q-small" href="${esc(via(it.link))}">${esc(it.go)}<span class="sr-only">: ${esc(it.title)}</span></a></div>`).join("")
-        : `<div class="alert alert-ok"><div><b>Nothing needs attention right now.</b></div></div>`}
+  let resultsPart = "";
+  if (d.results?.error) resultsPart = `<div class="alert alert-warn"><div><b>Programme results couldn't be worked out.</b>${esc(d.results.error)}</div></div>`;
+  else if (r) {
+    const rows = r.schools.map((s) => [profileLink(s, opts, "admin-detail"), esc(s.county ?? ""), count(s.learners), count(s.teachers),
+      s.assigned ? pctCell(s.completionRate) : "No work set", s.marked ? pctCell(s.averagePercent) : "Nothing marked",
+      count(s.visits), s.flags.length ? s.flags.map((f) => warnText(f)).join("<br>") : "—"]);
+    const R = r.rules;
+    const rules = `Needs support: learners but no active teacher or no work set this term; under ${R.completionBelow}% of work handed in (${R.minAssigned} or more pieces set); an average mark in the two lowest bands (${R.minMarked} or more marked); no field visit this term.`;
+    resultsPart = `
+    <section class="ao-results" aria-labelledby="adResultsHead">
+      <div class="attn-head"><h3 id="adResultsHead">Every programme result</h3></div>
+      <p class="chart-meta">${esc(periodLine(r))}.</p>
+      <div class="stat-row results-row">${r.kpis.map((k) => resultCard(k, { targets: !!r.targets?.indicators })).join("")}</div>
     </section>
-    ${checks.length ? `<details class="more-detail" data-more="ao-checks"><summary><b>Data checks waiting</b><span>Kobo submissions and data issues to review: data operations, not programme results</span></summary>
-      ${checks.map((it) => `<div class="alert alert-${it.tone} alert-act"><div><b>${esc(it.title)}</b></div>
-        <a class="btn btn-outline q-small" href="${esc(via(it.link))}">${esc(it.go)}<span class="sr-only">: ${esc(it.title)}</span></a></div>`).join("")}</details>` : ""}
-    ${adminCharts(d)}`;
+    <section class="ao-schools" aria-labelledby="adSchoolsHead">
+      <div class="attn-head"><h3 id="adSchoolsHead">School by school</h3></div>
+      <p class="chart-meta">${esc(plural(r.schoolsTotal, "school"))}: learners, teachers, work handed in, marks, visits and what needs support — those needing most support first.</p>
+      ${table(["School", "County", "Learners", "Teachers", "Work handed in", "Average mark", "Field visits", "Needs support"], rows, "No schools in your area yet.",
+        { find: rows.length > 10, exportAs: opts.canExport ? `school-results-${fileTagOf(d)}-${r.period.id}` : "" })}
+      ${r.schoolsTotal > r.schools.length ? `<p class="chart-note">The first ${num(r.schools.length)} of ${plural(r.schoolsTotal, "school")}.</p>` : ""}
+      <p class="chart-note">${esc(rules)}</p>
+    </section>`;
+  }
+  const visitedLine = o.schools ? `at ${num(ops.schoolsVisitedThisTerm ?? 0)} of ${plural(o.schools, "school")}` : "";
+  return `${headHtml(d, "In detail")}
+    <p class="ao-back"><a href="#admin-overview">← Overview</a></p>
+    ${resultsPart}
+    <section class="ao-org" aria-labelledby="adOrgHead">
+      <div class="attn-head"><h3 id="adOrgHead">How the programme is organised</h3></div>
+      <div class="stat-row exec-row">
+        ${kpiCard({ label: "Schools", value: count(o.schools), href: via("#schools"), sub: `${plural(o.counties, "county", "counties")} · ${plural(o.classes, "class", "classes")} this year` })}
+        ${kpiCard({ label: "Teachers", value: count(p.teachers), href: via("#teachers"), sub: plural(p.heads, "school head") })}
+        ${kpiCard({ label: "Learners", value: count(p.learners), href: via("#learners"), sub: p.learners ? `at ${plural(p.learnerSchools ?? 0, "school")}` : "None enrolled yet" })}
+        ${kpiCard({ label: "Field officers", value: count(p.fieldOfficers), href: via("#field-officers"), sub: p.fieldOfficers ? `${num(p.fieldOfficersPlaced ?? 0)} with assigned schools` : "None yet" })}
+        ${kpiCard({ label: "Field visits this term", value: count(ops.visitsThisTerm), href: via(d.currentTerm ? `#field-visits?term=${encodeURIComponent(d.currentTerm)}` : "#field-visits"),
+          sub: [visitedLine, d.currentTerm ? `since ${esc(termWord(d.currentTerm))} began` : ""].filter(Boolean).join(" · ") })}
+      </div>
+      ${adminCharts(d)}
+    </section>
+    <section class="attn-section" aria-labelledby="adChecksHead">
+      <div class="attn-head"><h3 id="adChecksHead">Data checks waiting</h3>${checks.length ? `<span class="count-badge">${checks.length}</span>` : ""}</div>
+      <p class="chart-meta">Kobo submissions and data issues to review: data operations, not programme results.</p>
+      ${checks.length ? checks.map((it) => gapHtml(it, via)).join("") : `<div class="alert alert-ok"><div><b>No data checks waiting.</b></div></div>`}
+    </section>`;
 }
 
 /* opts.filter: the county and school chosen above (the period isn't one
    of this page's: its results are this term against the same point of the
    last). opts.canOpen, opts.canExport: what this person may open and download. */
-export function renderAdminOverview(el, { filter = {}, ...opts } = {}) {
+const overviewPath = (filter = {}) => {
   const qs = new URLSearchParams(Object.entries({ county: filter.county || "", school: filter.school || "" }).filter(([, v]) => v)).toString();
-  return liveLoad(el, `/admin/overview${qs ? `?${qs}` : ""}`, (d) => adminOverviewHtml(d, opts), { every: OVERVIEW_EVERY_MS });
+  return `/admin/overview${qs ? `?${qs}` : ""}`;
+};
+export function renderAdminOverview(el, { filter = {}, ...opts } = {}) {
+  return liveLoad(el, overviewPath(filter), (d) => adminOverviewHtml(d, opts), { every: OVERVIEW_EVERY_MS });
+}
+export function renderAdminDetail(el, { filter = {}, ...opts } = {}) {
+  return liveLoad(el, overviewPath(filter), (d) => adminDetailHtml(d, opts), { every: OVERVIEW_EVERY_MS });
 }
 
 /* ------------------------------------------------------------------ Permissions (Super Admin) */

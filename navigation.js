@@ -62,7 +62,8 @@ export const ICON = {
 /* ---- the console pages (platform / admin / me / education share them) ---- */
 const PAGES = {
   "platform-overview": { label: "Platform overview", icon: "dashboard", needs: ["platform.view"], purpose: "The platform at a glance, and what's waiting on someone." },
-  "admin-overview": { label: "Administration overview", icon: "dashboard", needs: ["users.view"], filters: ["county", "school"], purpose: "How the programme is organised, and what needs attention." },
+  "admin-overview": { label: "Administration overview", icon: "dashboard", needs: ["users.view"], filters: ["county", "school"], purpose: "The programme's main findings at a glance, and what needs attention." },
+  "admin-detail": { label: "In detail", icon: "dashboard", needs: ["users.view"], filters: ["county", "school"], purpose: "Every result, every school, how the programme is organised, and the data checks waiting." },
   "me-dashboard": { label: "M&E overview", icon: "target", needs: ["me.view"], filters: ["county", "school"], purpose: "Every indicator against its target." },
   overview: { label: "Executive overview", icon: "dashboard", needs: ["intelligence.view"], filters: true, purpose: "The programme at a glance." },
   reach: { label: "Reach", icon: "globe", needs: ["intelligence.view"], filters: true, purpose: "Where the programme reaches: counties, schools, learners and teachers." },
@@ -149,7 +150,7 @@ export const WORKSPACES = {
     title: "Programme Administration", page: "admin.html", roles: ["admin", "super_admin"],
     question: "Is the programme organised and running correctly?",
     groups: [
-      entry("dashboard", "Dashboard", "dashboard", [c("admin-overview", { label: "Dashboard" })]),
+      entry("dashboard", "Dashboard", "dashboard", [c("admin-overview", { label: "Overview" }), c("admin-detail")]),
       entry("schools", "Schools", "school", [
         c("school-profiles"), c("teachers"), c("learners"), c("field-officers"), c("field-visits"),
         c("classes", { hidden: true }), // a school's classes are on its page; the old address still works
