@@ -155,3 +155,22 @@ Deno.test("admin results: the cards carry readouts, never on missing data", () =
   assertEquals(kpi(r, "assessment").readout, "", "nothing marked: no reading");
   assertEquals(r.kpis.every((k) => !/improv|because|led to|caused/i.test(k.readout)), true, "no causal or learning claims");
 });
+
+Deno.test("admin results: each card's picture comes from the card's own figures", () => {
+  const r = buildAdminResults(world({
+    assignments: [{ id: "a1", school_id: "s1", class_id: "c1", subject_id: "maths", grade: "Grade 4", academic_year_id: "2026", term_id: "2026-T3",
+      status: "closed", due_at: "2026-09-20T00:00:00Z", created_by: "t1", created_at: "2026-09-10T00:00:00Z", published_at: "2026-09-10T00:00:00Z" }],
+    submissions: [
+      { id: "x1", assignment_id: "a1", learner_id: "l1", status: "marked", percentage: 85, submitted_at: "2026-09-15T00:00:00Z" },
+      { id: "x2", assignment_id: "a1", learner_id: "l2", status: "marked", percentage: 40, submitted_at: "2026-09-15T00:00:00Z" },
+    ],
+    enrollments: [
+      { id: "e1", learner_id: "l1", school_id: "s1", class_id: "c1", enrollment_date: "2026-05-02", exit_date: null, status: "ACTIVE" },
+      { id: "e2", learner_id: "l2", school_id: "s1", class_id: "c1", enrollment_date: "2026-09-02", exit_date: null, status: "ACTIVE" },
+    ],
+  }), TERMS, null, NOW);
+  assertEquals(r.growth.map((g) => [g.label, g.learners]), [["2026 Term 2", 1], ["2026 Term 3", 2]]);
+  assertEquals(r.stages, { teachers: 2, active: 1, settingWork: 1 }, "t1 set work; t2 did nothing this term");
+  assertEquals(r.bands.map((b) => [b.code, b.count]), [["EE", 1], ["ME", 0], ["AE", 1], ["BE", 0]]);
+  assertEquals(r.bands.reduce((t, b) => t + b.count, 0), kpi(r, "assessment").base, "the bands add up to the pieces marked");
+});

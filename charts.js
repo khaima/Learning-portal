@@ -768,6 +768,81 @@ export function meter(value, target, { direction = "increase" } = {}) {
   return `<div class="s-meter${met ? " is-met" : ""}" aria-hidden="true"><span style="width:${fill.toFixed(1)}%"></span><i style="left:${((target / scaleTop) * 100).toFixed(1)}%"></i></div>`;
 }
 
+/* ------------------------------------------------------------ a picture inside a result's card
+
+   Each small (about 70px tall) and each a different form, chosen for what
+   its result counts. They sit beside the card's own figures, so they draw
+   the shape rather than repeat the number — yet each says what it shows to
+   a screen reader, and each mark explains itself on hover or tap. */
+
+/** A few periods as small columns, each value on its cap; the latest strongest, the one under way paler. */
+export function miniColumns(points, { unit = "", noun = "" } = {}) {
+  const list = (points || []).filter((p) => p.value != null);
+  if (list.length < 2) return "";
+  const top = Math.max(...list.map((p) => p.value)) || 1;
+  const said = list.map((p) => `${p.full || p.label}: ${show(p.value, unit)}${p.partial ? " so far" : ""}`).join(", ");
+  return `<div class="mini-cols" role="img" aria-label="${esc(said)}">${list.map((p, i) => `<div class="mc${p.partial ? " is-partial" : ""}${i === list.length - 1 ? " is-last" : ""}"${
+    tip(p.full || p.label, [[show(p.value, unit), noun]], p.partial ? "So far: this period isn't over" : "")}><b>${esc(show(p.value, unit))}</b><i style="height:${Math.max(6, (p.value / top) * 100).toFixed(1)}%"></i><span>${esc(p.label)}</span></div>`).join("")}</div>`;
+}
+
+/** One share of one whole as a ring filling round from the top, the part and the whole in the middle. */
+export function ringGauge(value, { part = null, whole = null, noun = "", did = "" } = {}) {
+  if (value == null) return "";
+  const v = Math.max(0, Math.min(100, value));
+  const counts = part != null && whole != null;
+  return `<div class="ring-gauge" role="img" aria-label="${esc(`${show(v, "%")}${counts ? `: ${num(part)} of ${num(whole)} ${noun}${did ? ` ${did}` : ""}` : ""}`)}">
+    <span class="rg-ring"><svg viewBox="0 0 42 42" aria-hidden="true" focusable="false"><circle class="rg-track" cx="21" cy="21" r="15.9155"/>${
+      v > 0 ? `<circle class="rg-fill" cx="21" cy="21" r="15.9155" stroke-dasharray="${v.toFixed(2)} ${(100 - v).toFixed(2)}" stroke-dashoffset="25"/>` : ""}</svg>
+      <b>${esc(show(v, "%"))}</b></span>
+    ${counts ? `<span class="rg-text"><b>${num(part)}</b> of ${num(whole)} ${esc(noun)}${did ? ` ${esc(did)}` : ""}</span>` : ""}
+  </div>`;
+}
+
+/** People as figures — one each up to 20, else each stands for several — the first `part` filled. */
+export function pictogram(part, whole, { noun = "people", partWord = "", restWord = "not yet" } = {}) {
+  if (part == null || !whole) return "";
+  const per = Math.max(1, Math.ceil(whole / 20));
+  const figures = Math.ceil(whole / per), filled = Math.min(figures, Math.round(part / per));
+  const fig = (on) => `<svg class="pg-fig${on ? " is-on" : ""}" viewBox="0 0 12 20" aria-hidden="true" focusable="false"><circle cx="6" cy="3.6" r="3.1"/><path d="M1 19.5v-6.6c0-2.8 2.2-4.8 5-4.8s5 2 5 4.8v6.6z"/></svg>`;
+  return `<div class="pictogram" role="img" aria-label="${esc(`${num(part)} of ${num(whole)} ${noun} ${partWord}`)}">
+    <div class="pg-row">${Array.from({ length: figures }, (_, i) => fig(i < filled)).join("")}</div>
+    <p class="pg-key"><span><i class="is-on"></i>${esc(partWord)} ${num(part)}</span><span><i></i>${esc(restWord)} ${num(whole - part)}</span>${per > 1 ? `<span>each figure ${num(per)} ${esc(noun)}</span>` : ""}</p>
+  </div>`;
+}
+
+/** Steps, each inside the one before (everyone → active → doing it): centred bars narrowing, each with its count. */
+export function ladder(steps, { noun = "" } = {}) {
+  const list = (steps || []).filter((s) => s.value != null);
+  if (list.length < 2 || !list[0].value) return "";
+  const first = list[0].value;
+  const said = list.map((s) => `${s.label}: ${num(s.value)}`).join(", ");
+  return `<div class="ladder" role="img" aria-label="${esc(said)}">${list.map((s, i) => `<div class="ld-row"${tip(s.label, [[num(s.value), noun], [`${share(s.value, first)}%`, `of ${num(first)}`]])}>
+    <span class="ld-head"><span class="ld-label">${esc(s.label)}</span><b class="ld-val">${num(s.value)}</b></span><span class="ld-track"><span class="ld-bar ld-${Math.min(i, 2)}${s.key ? " is-key" : ""}" style="width:${Math.max(4, (s.value / first) * 100).toFixed(1)}%"></span></span></div>`).join("")}</div>`;
+}
+
+/** One square per item (a school), filled where it happened, its name on hover. */
+export function unitGrid(items, { on = "", off = "not yet", noun = "", max = 120 } = {}) {
+  const all = items || [];
+  const list = all.slice(0, max);
+  if (!list.length) return "";
+  const yes = list.filter((x) => x.on).length;
+  return `<div class="unit-grid-wrap" role="img" aria-label="${esc(`${num(yes)} of ${num(list.length)} ${noun} ${on}`)}">
+    <div class="unit-grid">${list.map((x) => `<i class="${x.on ? "is-on" : ""}"${tip(x.label, [[x.on ? on : off, ""]], x.note || "")}></i>`).join("")}</div>
+    <p class="pg-key"><span><i class="is-on sq"></i>${esc(on)} ${num(yes)}</span><span><i class="sq"></i>${esc(off)} ${num(list.length - yes)}</span>${all.length > max ? `<span>the first ${num(max)} shown</span>` : ""}</p>
+  </div>`;
+}
+
+/** A share on a half dial from 0 to 100: the arc fills to it. */
+export function halfGauge(value, { label = "" } = {}) {
+  if (value == null) return "";
+  const v = Math.max(0, Math.min(100, value));
+  const arc = "M5.08 21 A15.92 15.92 0 0 1 36.92 21";
+  return `<div class="half-gauge" role="img" aria-label="${esc(`${show(v, "%")}${label ? ` ${label}` : ""}`)}">
+    <svg viewBox="0 0 42 23" aria-hidden="true" focusable="false"><path class="hg-track" d="${arc}"/>${v > 0 ? `<path class="hg-fill" d="${arc}" pathLength="100" stroke-dasharray="${v.toFixed(1)} 100"/>` : ""}</svg>
+    <span class="hg-scale" aria-hidden="true"><small>0</small><small>${esc(label)}</small><small>100%</small></span>
+  </div>`;
+}
+
 /* ------------------------------------------------------------ tooltips
    One tooltip for the whole page. Hovering a mark shows it; so does a tap
    (it stays until the next tap or a scroll) and, on a line chart, the

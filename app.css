@@ -2296,6 +2296,57 @@ h2,h3{ font-family:inherit; letter-spacing:-.01em; }
 .donut .chart-key-rows{ flex:1 1 13rem; min-width:0; margin:0; }
 @media (prefers-reduced-motion:reduce){ .dn-seg{ transition:none; } }
 
+/* ---- A picture inside a result's card (charts.js): each a different form. */
+.s-viz{ margin:.6rem 0 .35rem; }
+.s-viz .pg-key{ display:flex; flex-wrap:wrap; gap:.15rem .8rem; margin:.35rem 0 0; font-size:var(--text-xs); color:var(--ink-soft); }
+.s-viz .pg-key span{ display:inline-flex; align-items:center; gap:.3rem; }
+.s-viz .pg-key i{ display:inline-block; width:9px; height:9px; border-radius:50%; background:var(--paper-sunk); box-shadow:inset 0 0 0 1px var(--line); }
+.s-viz .pg-key i.is-on{ background:var(--chart-1); box-shadow:none; }
+.s-viz .pg-key i.sq{ border-radius:2px; }
+/* the roll, term by term */
+.mini-cols{ display:flex; align-items:stretch; gap:6px; height:76px; }
+.mc{ flex:1 1 0; min-width:0; max-width:46px; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; }
+.mc i{ display:block; width:100%; max-width:30px; border-radius:4px 4px 0 0; background:color-mix(in srgb, var(--chart-1) 45%, var(--paper-raised)); }
+.mc.is-last i{ background:linear-gradient(to top, color-mix(in srgb, var(--chart-1) 60%, var(--paper-raised)), var(--chart-1)); }
+.mc.is-partial i{ background:color-mix(in srgb, var(--chart-1) 28%, var(--paper-raised)); box-shadow:inset 0 0 0 1.5px color-mix(in srgb, var(--chart-1) 70%, transparent); }
+.mc b{ font-size:var(--text-micro); font-weight:700; color:var(--ink); margin-bottom:.15rem; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.mc span{ margin-top:.2rem; font-size:var(--text-micro); color:var(--ink-soft); white-space:nowrap; }
+/* one share of one whole */
+.ring-gauge{ display:flex; align-items:center; gap:.8rem; }
+.rg-ring{ position:relative; flex:none; width:64px; height:64px; }
+.rg-ring svg{ display:block; width:100%; height:100%; }
+.rg-track{ fill:none; stroke:var(--paper-sunk); stroke-width:5.5; }
+.rg-fill{ fill:none; stroke:var(--chart-1); stroke-width:5.5; stroke-linecap:round; }
+.rg-ring b{ position:absolute; inset:0; display:grid; place-items:center; font-size:var(--text-xs); font-weight:800; color:var(--ink); }
+.rg-text{ font-size:var(--text-sm); line-height:1.35; color:var(--ink-soft); }
+.rg-text b{ color:var(--ink); font-variant-numeric:tabular-nums; }
+/* people as figures */
+.pg-row{ display:flex; flex-wrap:wrap; gap:3px; }
+.pg-fig{ width:11px; height:19px; fill:var(--paper-sunk); stroke:var(--line); stroke-width:.6; }
+.pg-fig.is-on{ fill:var(--chart-1); stroke:none; }
+/* steps, each inside the one before */
+.ladder{ display:grid; gap:6px; }
+.ld-row{ display:grid; gap:2px; }
+.ld-head{ display:flex; justify-content:space-between; gap:.5rem; }
+.ld-label{ font-size:var(--text-xs); color:var(--ink-soft); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ld-track{ display:flex; justify-content:center; }
+.ld-bar{ display:block; height:12px; border-radius:4px; }
+.ld-0{ background:color-mix(in srgb, var(--chart-1) 25%, var(--paper-raised)); }
+.ld-1{ background:color-mix(in srgb, var(--chart-1) 55%, var(--paper-raised)); }
+.ld-2, .ld-bar.is-key{ background:var(--chart-1); }
+.ld-val{ min-width:2ch; text-align:right; font-size:var(--text-xs); font-weight:700; font-variant-numeric:tabular-nums; color:var(--ink); }
+/* one square per school */
+.unit-grid{ display:grid; grid-template-columns:repeat(auto-fill, 14px); gap:3px; }
+.unit-grid i{ width:14px; height:14px; border-radius:3px; background:var(--paper-sunk); box-shadow:inset 0 0 0 1px var(--line); }
+.unit-grid i.is-on{ background:var(--chart-1); box-shadow:none; }
+/* a share on a half dial */
+.half-gauge{ width:min(100%, 132px); }
+.half-gauge svg{ display:block; width:100%; height:auto; overflow:visible; }
+.hg-track{ fill:none; stroke:var(--paper-sunk); stroke-width:5; stroke-linecap:round; }
+.hg-fill{ fill:none; stroke:var(--chart-1); stroke-width:5; stroke-linecap:round; }
+.hg-scale{ display:flex; justify-content:space-between; gap:.4rem; margin-top:.1rem; font-size:var(--text-micro); color:var(--ink-soft); }
+.hg-scale small:nth-child(2){ text-align:center; }
+
 /* ---- Before and after (charts.js dumbbell): two dots on one scale, joined. */
 .db-track{ position:relative; height:14px; margin:.15rem 0; border-radius:7px; background:var(--paper-sunk); }
 .db-span{ position:absolute; top:5px; height:4px; border-radius:2px; background:color-mix(in srgb, var(--chart-1) 35%, var(--paper-raised)); }

@@ -15,7 +15,8 @@ import { resultsTableHtml } from "./assignments-ui.js";
 import { extendTrail, withVia } from "./nav.js";
 import { ICON } from "./navigation.js";
 import { agoTag, liveStatus, swap } from "./live.js";
-import { barList, bulletList, donut, dumbbell, heatmap, histogram, lineChart, marksSpread, meter as targetMeter, monthPoints, periodChip, stackBar, TARGET_KEY, targetList } from "./charts.js";
+import { barList, bulletList, donut, dumbbell, halfGauge, heatmap, histogram, ladder, lineChart, marksSpread, meter as targetMeter, miniColumns, monthPoints, periodChip, pictogram,
+  ringGauge, stackBar, TARGET_KEY, targetList, unitGrid } from "./charts.js";
 import { insightsAll, insightsPanel } from "./insights-ui.js";
 import { kpiCard, trendTag } from "./kpi.js";
 
@@ -557,10 +558,40 @@ function periodLine(r) {
   return `${when} · ${against} · ${targets}`;
 }
 
+/* Each result's own picture — a different form for each, chosen for what it
+   counts (charts.js): the roll term by term, one share as a ring, teachers
+   as figures, the steps to teaching digitally, a square per school, the
+   bands of the marks, a share on a dial. From the same read as the card. */
+function resultPicture(k, r) {
+  if (!r || k.value == null) return "";
+  const part = (v, base) => Math.round(((v ?? 0) / 100) * (base ?? 0));
+  switch (k.key) {
+    case "learners":
+      return miniColumns((r.growth || []).map((g) => ({ label: String(g.label).replace(/^(\d{4}) Term (\d)$/, "T$2"), full: g.label, value: g.learners,
+        partial: r.period.underway && g.label === r.period.label })), { noun: "learners on roll" });
+    case "participation":
+      return ringGauge(k.value, { part: part(k.value, k.base), whole: k.base, noun: "learners", did: "took part" });
+    case "teachers_trained":
+      return pictogram(k.value, k.base, { noun: "teachers", partWord: "trained", restWord: "not yet" });
+    case "teachers_digital":
+      return r.stages ? ladder([{ label: "Active teachers", value: r.stages.teachers }, { label: "Used the portal", value: r.stages.active },
+        { label: "Set work", value: r.stages.settingWork, key: true }], { noun: "teachers" }) : "";
+    case "schools_supported":
+      return unitGrid([...(r.schools || [])].sort((x, y) => x.school.localeCompare(y.school)).map((s) => ({ label: s.school, on: s.visits > 0, note: s.visits ? plural(s.visits, "visit") : "" })),
+        { on: "visited", off: "not yet", noun: "schools" });
+    case "assessment":
+      return r.bands?.some((b) => b.count) ? stackBar(r.bands.map((b, i) => ({ label: b.code, value: b.count, colour: `var(--band-${i + 1})` })), { noun: "pieces", compact: true, title: "Marked work by band" }) : "";
+    case "teacher_resources":
+      return halfGauge(k.value, { label: "opened one" });
+    default:
+      return "";
+  }
+}
+
 /* A result as a key figure. `compact` (the overview): the period is said once
    above the row, so a card names it only where it differs (the roll is as it
    is now); "What this counts" stays one tap away on every card. */
-function resultCard(k, { targets = true, compact = false } = {}) {
+function resultCard(k, { targets = true, compact = false, r = null } = {}) {
   const before = k.previous;
   const trend = k.value != null && before?.value != null
     ? trendTag(k.value - before.value, { unit: k.unit === "percent" ? " pts" : "", what: `on ${before.period}` })
@@ -578,7 +609,7 @@ function resultCard(k, { targets = true, compact = false } = {}) {
   ].filter(Boolean);
   return kpiCard({
     label: k.label, value: kpiValue(k.value, k.unit), unit: k.value != null ? COUNT_UNIT[k.key] ?? "" : "", trend,
-    icon: RESULT_ICON[k.key] || "", meter: k.target ? targetMeter(k.value, k.target.value) : "",
+    icon: RESULT_ICON[k.key] || "", meter: k.target ? targetMeter(k.value, k.target.value) : "", viz: resultPicture(k, r),
     sub: lines.join("<br>") + `<details class="kpi-about"><summary>What this counts</summary>${esc(k.definition)}${k.caveat ? ` ${esc(k.caveat)}` : ""}</details>`,
   });
 }
@@ -710,7 +741,7 @@ export function adminOverviewHtml(d, opts = {}) {
     <section class="ao-results" aria-labelledby="aoResultsHead">
       <div class="attn-head ao-head"><h2 id="aoResultsHead">Programme results</h2>${liveHead(d)}</div>
       <p class="chart-meta">${esc(periodLine(r))}.</p>
-      <div class="stat-row results-row ao-headline">${r.kpis.filter((k) => HEADLINE.includes(k.key)).map((k) => resultCard(k, { compact: true })).join("")}</div>
+      <div class="stat-row results-row ao-headline">${r.kpis.filter((k) => HEADLINE.includes(k.key)).map((k) => resultCard(k, { compact: true, r })).join("")}</div>
     </section>` : "";
   // What the results say: a few findings, worked out from the records (insights.ts). Nothing the
   // cards above already show, and no gaps (Needs attention, just below, has those); In detail has every finding.
@@ -754,7 +785,7 @@ export function adminDetailHtml(d, opts = {}) {
     <section class="ao-results" aria-labelledby="adResultsHead">
       <div class="attn-head"><h3 id="adResultsHead">Every programme result</h3></div>
       <p class="chart-meta">${esc(periodLine(r))}.</p>
-      <div class="stat-row results-row">${r.kpis.map((k) => resultCard(k, { targets: !!r.targets?.indicators })).join("")}</div>
+      <div class="stat-row results-row">${r.kpis.map((k) => resultCard(k, { targets: !!r.targets?.indicators, r })).join("")}</div>
     </section>
     <section class="ao-schools" aria-labelledby="adSchoolsHead">
       <div class="attn-head"><h3 id="adSchoolsHead">School by school</h3></div>

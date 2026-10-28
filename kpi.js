@@ -31,14 +31,14 @@ import { ICON } from "./navigation.js";
                (work to mark, forms to finish) — not when only its context is
       href     the page it opens; with it the card is a link
       attrs    extra attributes for the link (e.g. data-open-sync-center) */
-export function kpiCard({ label, value, unit = "", icon = "", trend = "", sub = "", tone = "", href = "", attrs = "", spark = "", meter = "" }) {
+export function kpiCard({ label, value, unit = "", icon = "", trend = "", sub = "", tone = "", href = "", attrs = "", spark = "", meter = "", viz = "" }) {
   const cls = `stat-tile${href ? " stat-link" : ""}${tone ? ` intel-${tone}` : ""}`;
   // What the figure is about, as a small picture beside its name (decoration: the name says it).
   const pic = icon && ICON[icon] ? `<span class="s-ico" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${ICON[icon]}</svg></span>` : "";
   const body = `
     <div class="s-label">${pic}<span class="s-title">${esc(label)}</span>${href ? `<span class="s-go" aria-hidden="true">→</span>` : ""}</div>
     <div class="s-num">${value}${unit ? `<small class="s-unit"> ${esc(unit)}</small>` : ""}</div>
-    ${spark ? `<div class="s-spark">${spark}</div>` : ""}${meter}
+    ${spark ? `<div class="s-spark">${spark}</div>` : ""}${meter}${viz ? `<div class="s-viz">${viz}</div>` : ""}
     ${trend ? `<div class="s-trend">${trend}</div>` : ""}
     ${sub ? `<div class="s-sub">${sub}</div>` : ""}`;
   return href

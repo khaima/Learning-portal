@@ -152,3 +152,24 @@ test("inside a key figure: a trend needs three points; the meter marks the targe
   assert.match(C.meter(54, 80), /class="s-meter"/);
   assert.match(C.meter(90, 80), /s-meter is-met/);
 });
+
+test("a picture inside each result's card: each a different form, each saying what it shows", () => {
+  const cols = C.miniColumns([{ label: "T1", full: "2026 Term 1", value: 36 }, { label: "T2", value: 83 }, { label: "T3", full: "2026 Term 3", value: 127, partial: true }], { noun: "learners" });
+  assert.match(cols, /aria-label="2026 Term 1: 36, T2: 83, 2026 Term 3: 127 so far"/);
+  assert.match(cols, /class="mc is-partial is-last"/);
+  assert.equal(C.miniColumns([{ label: "T3", value: 5 }]), "", "one period isn't a trend");
+  assert.match(C.ringGauge(62, { part: 79, whole: 127, noun: "learners", did: "took part" }), /aria-label="62%: 79 of 127 learners took part"/);
+  const pg = C.pictogram(5, 13, { noun: "teachers", partWord: "trained" });
+  assert.equal((pg.match(/pg-fig is-on/g) || []).length, 5);
+  assert.equal((pg.match(/class="pg-fig/g) || []).length, 13, "one figure per teacher up to 20");
+  const many = C.pictogram(30, 90, { noun: "teachers", partWord: "trained" });
+  assert.equal((many.match(/class="pg-fig/g) || []).length, 18);
+  assert.match(text(many), /each figure 5 teachers/);
+  const ld = C.ladder([{ label: "Active teachers", value: 13 }, { label: "Used the portal", value: 11 }, { label: "Set work", value: 7, key: true }], { noun: "teachers" });
+  assert.match(ld, /aria-label="Active teachers: 13, Used the portal: 11, Set work: 7"/);
+  assert.match(ld, /ld-bar ld-2 is-key" style="width:53.8%"/);
+  const grid = C.unitGrid([{ label: "Aitong", on: true }, { label: "Chaka", on: false }], { on: "visited", off: "not yet", noun: "schools" });
+  assert.match(grid, /aria-label="1 of 2 schools visited"/);
+  assert.match(C.halfGauge(54, { label: "opened one" }), /stroke-dasharray="54.0 100"/);
+  assert.equal(C.halfGauge(null), "");
+});

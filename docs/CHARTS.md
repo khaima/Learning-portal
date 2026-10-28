@@ -264,6 +264,7 @@ purple failing the validator; then the donuts went altogether.
 | Every page | Key-figure cards | A small picture beside each name; the change on the period before as a badge |
 | Administration overview | How the results moved (new) | Two dots per share — the same point last term and now (not the classwork average: different work each term) |
 | Administration overview | Result cards | A meter towards the approved target, where M&E set one |
+| Administration overview and In detail | Each result's own picture in its card | Learners reached: the roll term by term (`miniColumns`) · Learners taking part: a ring (`ringGauge`) · Teachers trained: a figure per teacher (`pictogram`) · Teachers teaching digitally: active teachers → used the portal → set work (`ladder`) · Schools supported: a square per school, visited or not (`unitGrid`) · Average mark: one bar split into the bands (`stackBar`) · Teachers using digital resources: a half dial (`halfGauge`) |
 | Administration → In detail | Each learner's average mark; learners in each band (new) | The histogram moved here from the overview, beside a ring of the bands |
 | Executive overview | Learners, Completion, Average mark | A small trend inside the card, from three terms |
 | Education overview | Trained and teaching digitally, school by school; resources opened month by month; where marked work falls (new) | Grouped bars; columns; a ring |

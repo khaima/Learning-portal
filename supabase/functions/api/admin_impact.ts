@@ -268,6 +268,17 @@ export function buildAdminResults(
       learners: Number((a.reach.learnersByCounty as Row[]).find((l) => l.label === c.label)?.value ?? 0),
     })),
     marks: a.overview?.marks ? { ...a.overview.marks, bands: a.learning.bands } : null,
+    // Each result's own picture on its card (admin-ui.js), from the same figures as the card:
+    //   growth   the roll term by term (learners on roll at some point in each, latest 4)
+    //   stages   active teachers → active on the portal this term → set work this term (each inside the one before)
+    //   bands    pieces of marked work this term in each achievement band, best first
+    growth: (a.reach.growth as Row[]).slice(-4).map((t) => ({ label: String(t.label), learners: Number(t.learners) })),
+    stages: {
+      teachers: a.teachers.total,
+      active: Number(a.teachers.activity.participation.active.count ?? 0),
+      settingWork: Number(a.teachers.activity.participation.settingWork.count ?? 0),
+    },
+    bands: (a.learning.bands as Row[]).map((b) => ({ code: String(b.code), label: String(b.label ?? b.code), count: Number((a.learning.results.bands as Row)?.[b.code] ?? 0) })),
     schools: rows.slice(0, 200), schoolsTotal: rows.length,
     support,
     rules: { completionBelow: 50, minAssigned: 10, minMarked: 10, lowBands: [...low] },
