@@ -34,11 +34,12 @@ import {
   attendanceAndMarks, changesOf, cleanMarks, countsOf, eatDay, FOLLOW_UP_RATE, FOLLOW_UP_STREAK, isDay, learnerRecord,
   type LearnerInfo, MIN_DAYS, type RegisterRow, schoolDays, summarizeAttendance,
 } from "./attendance.ts";
-import { buildIntelligence, VISIT_TYPES as INTEL_VISIT_TYPES } from "./intelligence.ts";
+import { buildIntelligence, type IntelligenceInput, VISIT_TYPES as INTEL_VISIT_TYPES } from "./intelligence.ts";
 import { checkEmbeddable, cleanTopic } from "./embed.ts";
 export { __setFrameFetchForTests } from "./embed.ts";
-import { buildImpact, GENDERS } from "./impact.ts";
-import { buildAdminResults } from "./admin_impact.ts";
+import { buildImpact, GENDERS, type ImpactInput } from "./impact.ts";
+import { buildAdminResults, type ReportingTerm } from "./admin_impact.ts";
+import { buildInsights, type MelReporting, type SchoolTargets } from "./insights.ts";
 import { buildLibraryUsage } from "./library_usage.ts";
 import { type Jwk, verifyAccessToken } from "./jwt.ts";
 import { buildNotifications, missingVisitForms } from "./notifications.ts";
@@ -5220,7 +5221,7 @@ async function loadIntelligenceInput(): Promise<Parameters<typeof buildIntellige
     read("assignments", "id, school_id, class_id, subject_id, grade, academic_year_id, term_id, starts_at, due_at, status, created_by, created_at, published_at"),
     read("assignment_submissions", "id, assignment_id, learner_id, school_id, status, is_late, percentage, started_at, last_saved_at, submitted_at, marked_at, marked_by"),
     read("field_reports", "id, school, school_id, county, visit_type, officer_id, created_at"),
-    read("forms", "id, title, audience, county, visit_type, archived_at"),
+    read("forms", "id, title, audience, county, visit_type, archived_at, due_on, created_at"),
     read("responses", "id, form_id, respondent_id, respondent_role, submitted_at, visit_id"),
     read("kobo_forms", "id, title, active, submission_count, rejected_count, unattributed_count, synced_at"),
     read("kobo_submissions", "kobo_form_id, officer_id, submitted_at", "kobo_form_id"),
@@ -5277,6 +5278,28 @@ app.get("/impact", requirePermission("intelligence.view", "learning.dashboard.vi
   const { schoolsVisited: _v, ...executive } = d.executive;
   return c.json({ scope: d.scope, currentTerm: d.currentTerm, generatedAt: d.generatedAt, learningOnly: true,
     executive, learning: d.learning, teachers: d.teachers, resources: d.resources });
+});
+
+/* What the dashboards' figures say (insights.ts): a few findings worked out
+   from the records — targets, changes on a comparable point, schools apart,
+   reports overdue, gaps — each with its period, base and source. For the
+   term the chosen period ends in (?to=), else the one under way; within the
+   caller's area and the county / school picked. */
+app.get("/impact/insights", requirePermission("intelligence.view"), async (c) => {
+  const q = (k: string) => String(c.req.query(k) ?? "").trim() || null;
+  const to = q("to");
+  const sc = scopeOf(c);
+  const place = { county: q("county"), school: q("school") };
+  try {
+    const mc = await melCalendar();
+    const t = insightTerms(mc, to && DATE_RE.test(to) ? to : null);
+    if (!t) return c.json({ term: null, period: null, against: null, items: [] });
+    const input = await loadImpactInput();
+    const results = buildAdminResults(narrowInput(input, sc), { current: t.current, previous: t.previous }, null, undefined, place);
+    return c.json(await insightsFor(c, sc, place, input, results, mc, t.ended, actorCan(c, "me.view")));
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
 });
 
 // ---- training register (Teacher development) ----
@@ -7052,17 +7075,18 @@ const DASHBOARD_THEMES = ["reach", "learning", "teacher_development", "field_ope
 
 /** Live values for indicators in one period and scope, from Kobo records
     and the portal's own measures. Loads only what the indicators need. */
-async function melLive(indicators: Record<string, any>[], range: { from: string; to: string }, scopes: MelScope[]) {
-  return melCompute(await melLoad(indicators), indicators, range, scopes);
+async function melLive(indicators: Record<string, any>[], range: { from: string; to: string }, scopes: MelScope[], input?: IntelligenceInput) {
+  return melCompute(await melLoad(indicators, input), indicators, range, scopes);
 }
 
 /** The rows melCompute() needs for these indicators — loaded once, so a
-    trend can work out many periods from one read. */
-async function melLoad(indicators: Record<string, any>[]) {
+    trend can work out many periods from one read. `input`: the portal's rows,
+    when the caller has read them already. */
+async function melLoad(indicators: Record<string, any>[], rows?: IntelligenceInput) {
   const needIntel = indicators.some((i) => i.source === "portal");
   const formIds = [...new Set(indicators.filter((i) => i.source === "kobo").map((i) => i.source_config?.formId).filter(Boolean))] as string[];
   const [input, kobo] = await Promise.all([
-    needIntel ? loadIntelligenceInput() : null,
+    needIntel ? (rows ?? loadIntelligenceInput()) : null,
     formIds.length ? selectIn("kobo_records", "kobo_form_id", formIds, "id, kobo_form_id, status, review, observed_on, county, school_id, answers") : [],
   ]);
   return { input, kobo };
@@ -7448,7 +7472,7 @@ app.get("/mel/programmes/:id/results", requirePermission("me.view"), async (c) =
 /** The M&E indicators (one dashboard's, or all) against their targets for a
     period and place: GET /mel/dashboard, and the targets on the
     Administration overview. Throws when a source can't be read. */
-async function melDashboard(scope: MelScope, periodAsked: string, theme: string) {
+async function melDashboard(scope: MelScope, periodAsked: string, theme: string, input?: IntelligenceInput) {
   const cal = await melCalendar();
   const terms = cal.periods.filter((p) => /-T\d$/.test(p.id));
   const period = periodAsked || (terms.find((p) => p.current) ?? terms.at(-1))?.id || "";
@@ -7466,8 +7490,10 @@ async function melDashboard(scope: MelScope, periodAsked: string, theme: string)
   if (!indicators.length) return empty;
   const ids = indicators.map((i) => i.id as string);
   const [targets, actuals, live] = await Promise.all([
-      selectIn("me_targets", "indicator_id", ids), selectIn("me_actuals", "indicator_id", ids), melLive(indicators, range, [scope]),
+      selectIn("me_targets", "indicator_id", ids), selectIn("me_actuals", "indicator_id", ids), melLive(indicators, range, [scope], input),
   ]);
+  // Each period's label and start, to put an indicator's recorded actuals in order.
+  const periodOf = new Map(cal.periods.map((p) => [p.id, { label: p.label, from: periodRange(p.id, cal.terms, cal.years)?.from ?? "" }]));
   const outcomeOf = new Map(outcomes.map((o) => [o.id, o]));
   const progOf = new Map(progs.map((p) => [p.id, p]));
   const rows = indicators.map((i) => {
@@ -7485,6 +7511,17 @@ async function melDashboard(scope: MelScope, periodAsked: string, theme: string)
       target: tgt ? { value: tgt.value, from: tgt.from } : null,
       value, valueSource: rec && rec.status !== "rejected" ? rec.status : lv?.value != null ? "live" : "none",
       detail: lv ? { numerator: lv.numerator ?? null, denominator: lv.denominator ?? null, n: lv.n ?? null, method: lv.method } : null,
+      // What the value rests on: the recorded actual's counts, else the live ones.
+      basis: rec && rec.status !== "rejected" && rec.value != null
+        ? { n: rec.n ?? null, numerator: rec.numerator == null ? null : Number(rec.numerator), denominator: rec.denominator == null ? null : Number(rec.denominator) }
+        : lv ? { n: lv.n ?? null, numerator: lv.numerator ?? null, denominator: lv.denominator ?? null } : null,
+      // The recorded actuals for this place, oldest first, up to this period (rejected ones left out):
+      // a change is said only between recorded values (insights.ts).
+      history: actuals
+        .filter((a) => !a.superseded_at && a.indicator_id === i.id && a.scope_type === scope.type && (a.scope_id ?? "") === scope.id &&
+          a.status !== "rejected" && a.value != null && periodOf.has(a.period) && periodOf.get(a.period)!.from <= range.from)
+        .map((a) => ({ period: String(a.period), label: periodOf.get(a.period)!.label, from: periodOf.get(a.period)!.from, value: Number(a.value), status: String(a.status) }))
+        .sort((a, b) => a.from.localeCompare(b.from)).slice(-4).map(({ from: _f, ...h }) => h),
       achievement: ach,
       sort: [String(p.name), Number(o.position) || 0, String(o.code), Number(i.position) || 0, String(i.code)],
     };
@@ -7511,6 +7548,123 @@ app.get("/mel/dashboard", requirePermission("me.view"), async (c) => {
     return c.json({ error: (e as Error).message }, 500);
   }
 });
+
+/* ---- findings (insights.ts) ---- */
+
+/** The reporting term findings are for — the one `at` falls in (a date in a
+    period that has ended), else the one under way, else the last that ended
+    — the term before it, and the last term that has ended (M&E reporting). */
+function insightTerms(mc: Awaited<ReturnType<typeof melCalendar>>, at: string | null) {
+  const today = new Date().toISOString().slice(0, 10);
+  const on = at && at < today ? at : today;
+  const terms = mc.terms as Record<string, any>[];
+  const inTerm = terms.findIndex((t) => String(t.starts_on) <= on && on <= String(t.ends_on));
+  const i = inTerm >= 0 ? inTerm : terms.findLastIndex((t) => String(t.ends_on) < on);
+  if (i < 0) return null;
+  const term = (t: Record<string, any>): ReportingTerm => ({
+    id: String(t.id), label: periodRange(String(t.id), mc.terms, mc.years)?.label ?? String(t.id), from: String(t.starts_on), to: String(t.ends_on),
+  });
+  const done = terms.findLastIndex((t) => String(t.ends_on) < today);
+  return { current: term(terms[i]), previous: i > 0 ? term(terms[i - 1]) : null, ended: done >= 0 ? term(terms[done]) : null };
+}
+
+/** Approved targets for single schools in the period — the schools given,
+    up to 60 for each of the 5 indicators with most — and each school's value:
+    its recorded actual, else worked out live. */
+async function melSchoolTargets(mel: Awaited<ReturnType<typeof melDashboard>>, range: { from: string; to: string },
+  schools: Record<string, any>[], input: IntelligenceInput): Promise<SchoolTargets[]> {
+  const period = mel.period?.id;
+  if (!period || !mel.indicators.length || !schools.length) return [];
+  const here = new Map(schools.map((s) => [String(s.id), s]));
+  const targets = (await selectIn("me_targets", "indicator_id", mel.indicators.map((i) => i.id as string)))
+    .filter((t) => t.period === period && t.scope_type === "school" && here.has(String(t.scope_id)));
+  if (!targets.length) return [];
+  const per = new Map<string, Record<string, any>[]>();
+  for (const t of targets) per.set(t.indicator_id, [...(per.get(t.indicator_id) ?? []), t]);
+  const chosen = [...per.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0])).slice(0, 5)
+    .map(([id, ts]) => [id, ts.slice(0, 60)] as const);
+  const ids = chosen.map(([id]) => id);
+  const [raw, actuals] = await Promise.all([selectIn("me_indicators", "id", ids), selectIn("me_actuals", "indicator_id", ids)]);
+  const scopes: MelScope[] = [...new Set(chosen.flatMap(([, ts]) => ts.map((t) => String(t.scope_id))))].map((id) => {
+    const s = here.get(id)!;
+    return { type: "school" as const, id, label: `${s.name} (${s.code})`, schoolName: s.name as string, county: s.county as string };
+  });
+  const live = await melLive(raw, range, scopes, input);
+  return chosen.map(([id, ts]) => {
+    const i = mel.indicators.find((x) => x.id === id)!;
+    return {
+      indicator: { id, code: i.code, name: i.name, unit: i.unit, dashboardTheme: i.dashboardTheme, source: i.source, sourceConfig: i.sourceConfig },
+      rows: ts.map((t) => {
+        const sid = String(t.scope_id);
+        const rec = actuals.find((a) => !a.superseded_at && a.indicator_id === id && a.period === period && a.scope_type === "school" && String(a.scope_id) === sid);
+        const lv = live.get(`${id}|school|${sid}`) ?? null;
+        const value = rec && rec.status !== "rejected" && rec.value != null ? Number(rec.value) : lv?.value ?? null;
+        const ach = achievement(value, Number(t.target_value), i.direction === "decrease" ? "decrease" : "increase");
+        return { schoolId: sid, school: String(here.get(sid)!.name), target: Number(t.target_value), value, percent: ach.percent, status: ach.status };
+      }).sort((a, b) => a.school.localeCompare(b.school)),
+    };
+  });
+}
+
+/** The whole programme's M&E reporting for a term that has ended: indicators
+    with an approved target and no recorded actual, actuals waiting to be
+    verified, and whether its report is final (only once reports are made at all). */
+async function melReportingFor(period: { id: string; label: string }, indicators: Record<string, any>[]): Promise<MelReporting | null> {
+  if (!indicators.length) return null;
+  const ids = indicators.map((i) => i.id as string);
+  const [targets, actuals, reports] = await Promise.all([
+    selectIn("me_targets", "indicator_id", ids), selectIn("me_actuals", "indicator_id", ids),
+    selectAll(() => admin.from("me_reports").select("id, period, scope_type, status").order("id")),
+  ]);
+  if (reports.error) throw new Error(reports.error.message);
+  const withTarget = indicators.filter((i) => targets.some((t) => t.indicator_id === i.id && t.period === period.id && t.scope_type === "programme"));
+  const recorded = actuals.filter((a) => !a.superseded_at && a.period === period.id && a.scope_type === "programme");
+  const missing = withTarget.filter((i) => !recorded.some((a) => a.indicator_id === i.id && a.status !== "rejected" && a.value != null));
+  const all = (reports.data ?? []).filter((r) => r.scope_type === "programme");
+  const these = all.filter((r) => r.period === period.id);
+  return {
+    period, withTarget: withTarget.length, missing: missing.map((i) => ({ code: String(i.code ?? ""), name: String(i.name ?? "") })),
+    unverified: recorded.filter((a) => a.status === "recorded").length,
+    report: !all.length ? null : these.some((r) => r.status === "final") ? "final" : these.length ? "draft" : "none",
+  };
+}
+
+/** The findings for one place (insights.ts), from `results` (buildAdminResults
+    for the term and place). M&E's part — the place's own targets, single
+    schools' targets, recorded actuals and baselines, the last term's
+    reporting — only with `withMel`, and only for a place in the caller's area. */
+// deno-lint-ignore no-explicit-any
+async function insightsFor(c: any, sc: ReturnType<typeof scopeOf>, place: { county: string | null; school: string | null }, input: ImpactInput,
+  results: ReturnType<typeof buildAdminResults>, mc: Awaited<ReturnType<typeof melCalendar>>, ended: ReportingTerm | null, withMel: boolean,
+  melProgramme: Awaited<ReturnType<typeof melDashboard>> | null = null) {
+  const same = (a: unknown, b: unknown) => String(a ?? "").toLowerCase() === String(b ?? "").toLowerCase();
+  const mine = narrowInput(input, sc);
+  let mel: Awaited<ReturnType<typeof melDashboard>> | null = null;
+  let schoolTargets: SchoolTargets[] = [];
+  let melReporting: MelReporting | null = null;
+  if (withMel) {
+    const school = place.school ? (mine.schools as Record<string, any>[]).find((s) => s.name === place.school) : null;
+    const scope: MelScope | null = place.school
+      ? school ? { type: "school", id: String(school.id), label: `${school.name} (${school.code})`, schoolName: school.name, county: school.county } : null
+      : place.county ? { type: "county", id: place.county, label: `${place.county} County`, county: place.county }
+      : sc.global ? { type: "programme", id: "", label: "Whole programme" } : null;
+    if (scope && melScopeAllowed(c, scope)) {
+      mel = melProgramme && scope.type === "programme" ? melProgramme : await melDashboard(scope, results.period.id, "", input);
+      const range = mel.period ? periodRange(mel.period.id, mc.terms, mc.years) : null;
+      if (range && !place.school) {
+        schoolTargets = await melSchoolTargets(mel, range, (mine.schools as Record<string, any>[]).filter((s) => !place.county || same(s.county, place.county)), input);
+      }
+      if (scope.type === "programme" && ended) melReporting = await melReportingFor(ended, mel.indicators);
+    }
+  }
+  const p = results.period;
+  return {
+    term: p.id,
+    period: p.underway ? `${p.label} so far` : p.label,
+    against: results.previous ? (p.underway ? `the same point of ${results.previous.label}` : results.previous.label) : null,
+    items: buildInsights({ results, input: mine, place, mel, schoolTargets, melReporting }),
+  };
+}
 
 /* One indicator over time, for the place picked (?county= / ?school=):
    each term so far — the value (recorded, else live) against its target. */
@@ -8681,23 +8835,22 @@ app.get("/admin/overview", requirePermission("users.view"), async (c) => {
   // programme's, read only for an administrator of the whole programme.
   // Never fails the page: a problem here comes back as { error }.
   let results: ReturnType<typeof buildAdminResults> | { error: string } | null = null;
+  // What the results say (insights.ts), beside them; a problem here never fails the results.
+  let insights: Awaited<ReturnType<typeof insightsFor>> | { error: string } | null = null;
   try {
     const mc = await melCalendar();
-    const today = new Date().toISOString().slice(0, 10);
-    const terms = mc.terms as Record<string, any>[];
-    const inTerm = terms.findIndex((t) => String(t.starts_on) <= today && today <= String(t.ends_on));
-    const at = inTerm >= 0 ? inTerm : terms.findLastIndex((t) => String(t.ends_on) < today);
-    if (at >= 0) {
-      const term = (t: Record<string, any>) => ({
-        id: String(t.id), label: periodRange(String(t.id), mc.terms, mc.years)?.label ?? String(t.id), from: String(t.starts_on), to: String(t.ends_on),
-      });
-      const [input, mel] = await Promise.all([
-        loadImpactInput(),
-        // Targets are the whole programme's: shown only on the whole programme's figures, never on a county's or a school's.
-        sc.global && !picked ? melDashboard({ type: "programme", id: "", label: "Whole programme" }, String(terms[at].id), "") : Promise.resolve(null),
-      ]);
-      results = buildAdminResults(narrowInput(input, sc), { current: term(terms[at]), previous: at > 0 ? term(terms[at - 1]) : null }, mel,
-        undefined, { county: fCounty, school: fSchool });
+    const t = insightTerms(mc, null);
+    if (t) {
+      const input = await loadImpactInput();
+      // Targets are the whole programme's: shown only on the whole programme's figures, never on a county's or a school's.
+      const mel = sc.global && !picked ? await melDashboard({ type: "programme", id: "", label: "Whole programme" }, t.current.id, "", input) : null;
+      const r = buildAdminResults(narrowInput(input, sc), { current: t.current, previous: t.previous }, mel, undefined, { county: fCounty, school: fSchool });
+      results = r;
+      try {
+        insights = await insightsFor(c, sc, { county: fCounty, school: fSchool }, input, r, mc, t.ended, true, mel);
+      } catch (e) {
+        insights = { error: (e as Error).message };
+      }
     }
   } catch (e) {
     results = { error: (e as Error).message };
@@ -8707,6 +8860,7 @@ app.get("/admin/overview", requirePermission("users.view"), async (c) => {
     filter: { county: fCounty, school: fSchool },
     currentTerm: cal.termId,
     results,
+    insights,
     charts: {
       visits: { months: last12, rowsAre: byCounty ? "county" : "school", rows: visitRows },
       classSizes, perTeacher, enrolment,

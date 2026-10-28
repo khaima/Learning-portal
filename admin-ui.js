@@ -16,6 +16,7 @@ import { extendTrail, withVia } from "./nav.js";
 import { ICON } from "./navigation.js";
 import { agoTag, liveStatus, swap } from "./live.js";
 import { barList, heatmap, histogram, lineChart, marksSpread, monthPoints, periodChip, stackBar, TARGET_KEY, targetList } from "./charts.js";
+import { insightsAll, insightsPanel } from "./insights-ui.js";
 import { kpiCard, trendTag } from "./kpi.js";
 
 const fmtDay = (v) => (v ? new Date(v).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—");
@@ -663,8 +664,13 @@ export function adminOverviewHtml(d, opts = {}) {
       <p class="chart-meta">${esc(periodLine(r))}.</p>
       <div class="stat-row results-row ao-headline">${r.kpis.filter((k) => HEADLINE.includes(k.key)).map((k) => resultCard(k, { compact: true })).join("")}</div>
     </section>` : "";
+  // What the results say: a few findings, worked out from the records (insights.ts). Nothing the
+  // cards above already show, and no gaps (Needs attention, just below, has those); In detail has every finding.
+  const findings = r && "insights" in d
+    ? insightsPanel(d.insights, { max: 4, skip: ["gap"], cards: false, canOpen: opts.canOpen, via: "admin-overview", more: via("#admin-detail"), id: "aoFindingsHead" }) : "";
   return `${r ? "" : headHtml(d, "Administration overview")}
     ${results}
+    ${findings}
     <section class="attn-section" aria-labelledby="aoAttnHead">
       <div class="attn-head"><h2 id="aoAttnHead">Needs attention</h2>${items.length ? `<span class="count-badge">${items.length}</span>` : ""}</div>
       ${items.length ? items.slice(0, shown).map((it) => gapHtml(it, via)).join("")
@@ -672,7 +678,7 @@ export function adminOverviewHtml(d, opts = {}) {
       ${items.length > shown ? `<details class="attn-more"><summary>Show ${num(items.length - shown)} more</summary>${items.slice(shown).map((it) => gapHtml(it, via)).join("")}</details>` : ""}
     </section>
     ${r ? picturesHtml(d, r, opts) : ""}
-    <p class="ao-more"><a class="btn btn-outline" href="#admin-detail?via=admin-overview">In detail: every result, every school, how the programme is organised, the data checks<span aria-hidden="true"> →</span></a></p>
+    <p class="ao-more"><a class="btn btn-outline" href="#admin-detail?via=admin-overview">In detail: every result and finding, every school, how the programme is organised, the data checks<span aria-hidden="true"> →</span></a></p>
     <p class="field-hint dash-source">Source: the portal's own records — the roll, assignments and marks, field visits, the training register and the library. HPF staff aren't counted.</p>`;
 }
 
@@ -714,6 +720,7 @@ export function adminDetailHtml(d, opts = {}) {
   return `${headHtml(d, "In detail")}
     <p class="ao-back"><a href="#admin-overview">← Overview</a></p>
     ${resultsPart}
+    ${r && "insights" in d ? insightsAll(d.insights, { canOpen: opts.canOpen, via: "admin-detail", id: "adFindingsHead" }) : ""}
     <section class="ao-org" aria-labelledby="adOrgHead">
       <div class="attn-head"><h3 id="adOrgHead">How the programme is organised</h3></div>
       <div class="stat-row exec-row">

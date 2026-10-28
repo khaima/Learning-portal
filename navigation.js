@@ -63,7 +63,7 @@ export const ICON = {
 const PAGES = {
   "platform-overview": { label: "Platform overview", icon: "dashboard", needs: ["platform.view"], purpose: "The platform at a glance, and what's waiting on someone." },
   "admin-overview": { label: "Administration overview", icon: "dashboard", needs: ["users.view"], filters: ["county", "school"], purpose: "The programme's main findings at a glance, and what needs attention." },
-  "admin-detail": { label: "In detail", icon: "dashboard", needs: ["users.view"], filters: ["county", "school"], purpose: "Every result, every school, how the programme is organised, and the data checks waiting." },
+  "admin-detail": { label: "In detail", icon: "dashboard", needs: ["users.view"], filters: ["county", "school"], purpose: "Every result and finding, every school, how the programme is organised, and the data checks waiting." },
   "me-dashboard": { label: "M&E overview", icon: "target", needs: ["me.view"], filters: ["county", "school"], purpose: "Every indicator against its target." },
   overview: { label: "Executive overview", icon: "dashboard", needs: ["intelligence.view"], filters: true, purpose: "The programme at a glance." },
   reach: { label: "Reach", icon: "globe", needs: ["intelligence.view"], filters: true, purpose: "Where the programme reaches: counties, schools, learners and teachers." },

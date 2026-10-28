@@ -49,6 +49,7 @@ Rules that follow from this:
 | Component | Level | Now |
 | --- | --- | --- |
 | Schools, Learners, Teachers, Completion, Average mark, Data quality | Primary | One row of six tiles. |
+| Key findings (28 October 2026) | Primary | Under the tiles: up to five sentences worked out from the records — targets, changes on the same point of the last term, schools apart, reports overdue, gaps, baseline to follow-up — each with its period, base and source (docs/INSIGHTS.md). |
 | Needs attention | Primary | Straight under the tiles (it was last on the page). Up to four grouped items with a count and a link each. |
 | Three pictures (19 October; 27 October 2026) | Secondary | Under Needs attention: field visits by place × month (heatmap), learners' average marks (histogram, by band), work handed in by term (line). "When the portal is used" (day × time of day) moved to the Platform overview: it describes the system, not the programme. See docs/CHARTS.md. |
 | Active participants | Secondary | A line in the Reach card (was a tile): learners and school and field staff active in the period; HPF staff aren't counted. |
@@ -58,6 +59,12 @@ Rules that follow from this:
 | Each area's charts and tables | Detail | The area's own dashboard, from its card. |
 
 ## Programme dashboards
+
+Since 28 October 2026 each of the five also has up to three of its own key
+findings between the key figures and the charts (none shown when there are
+none), and each M&E indicator's row says what to read it against: its last
+recorded value, its baseline, and whether the value is verified, recorded or
+live (docs/INSIGHTS.md).
 
 The same order on all five: key figures → M&E indicators tagged for the
 page (target against actual) → the main charts → **More detail**. Where
@@ -191,12 +198,15 @@ both narrowed by the county and school chosen above (28 October 2026):
 | Component | Level | Now |
 | --- | --- | --- |
 | Programme results — learners reached, learners taking part, teachers trained, teachers teaching digitally, schools supported (visited), average mark on marked classwork | Primary | Six cards, three to a row on a laptop. The period, the comparison and where the targets stand are said once above the row; a card names its period only where it differs ("On roll now"). Each keeps its readout, change on the term before and "What this counts". |
+| Key findings (28 October 2026) | Primary | Up to four, under the cards: what the cards don't already say (no card's own target or change) and no gaps — Needs attention has those. "Every finding →" opens In detail. docs/INSIGHTS.md. |
 | Needs attention — one merged list: accounts waiting, schools without an active teacher, without a head, field officers without schools, schools with no work set / under half handed in / marks in the lowest bands, schools not visited this term, teachers not teaching a class, learners not in a class, forms nobody answered | Primary | The first four, then "Show N more". A gap that both the support rules and the organising checks found (no active teacher, not visited) is one line. |
 | Where the programme stands — four pictures: where learners are (county by county; in one county, school by school), how learners' average marks are spread, average mark school by school (schools with 10 or more marked), progress against approved targets | Secondary | Two to a row, at full chart size. A county's bar narrows the page; a school's opens its profile. With no approved targets the fourth says so in a sentence. |
 | "In detail →" and the source line | — | At the foot. |
 
 **In detail** — everything the overview summarises, for whoever asks:
 all seven results in full (with "Teachers using digital resources"),
+every finding (grouped by what it's about: reach, taking part, resource
+use, skills, learning outcomes, implementation, reporting),
 School by school (search, pages, CSV with `reports.export`), how the
 programme is organised (schools, teachers, learners, field officers, field
 visits this term; learners per teacher, class sizes, learners by school

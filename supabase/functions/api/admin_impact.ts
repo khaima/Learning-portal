@@ -34,6 +34,8 @@ export type Kpi = {
   unit: "count" | "percent";
   /** What a share is out of, or the wider figure it sits in. */
   of: string;
+  /** How many people, schools or pieces of work it rests on (insights.ts says a change only on 5 or more). */
+  base: number;
   period: string;
   /** The term before at the same point; null when there's no earlier term or the figure isn't comparable. */
   previous: { value: number | null; period: string } | null;
@@ -150,7 +152,7 @@ export function buildAdminResults(
   const learners = make({
     key: "learners", label: "Learners reached",
     definition: "Learners on roll now (active enrolment) at the programme's schools.",
-    value: E.learners, unit: "count",
+    value: E.learners, unit: "count", base: E.learners,
     of: `at ${plural(reach.schoolsReached, "school")} with learners or teachers on the portal, of ${plural(reach.schoolsTotal, "school")}`,
     note: E.learners ? "" : "No learners are on roll in your area yet.",
     caveat: "A count of the roll today, so it isn't compared with an earlier term.",
@@ -159,7 +161,7 @@ export function buildAdminResults(
   const taking = make({
     key: "participation", label: "Learners taking part",
     definition: "Learners on roll who started or handed in work, or opened a Digital Library resource, in the period.",
-    value: E.activeUsers.learnerShare, unit: "percent",
+    value: E.activeUsers.learnerShare, unit: "percent", base: E.learners,
     of: E.learners ? `${plural(E.activeUsers.learners, "learner")} of ${fmt(E.learners)}` : "",
     note: "", caveat: "Taking part shows use of the portal, not what learners learned.",
   }, EB?.activeUsers.learnerShare, "", true,
@@ -171,7 +173,7 @@ export function buildAdminResults(
   const trained = make({
     key: "teachers_trained", label: "Teachers trained",
     definition: "Active teachers who attended at least one session held in the period, from the training register.",
-    value: register ? T.teachersTrained : null, unit: "count",
+    value: register ? T.teachersTrained : null, unit: "count", base: teachers,
     of: register && teachers ? `${T.share ?? 0}% of ${plural(teachers, "teacher")} · ${plural(T.sessions, "session")}` : "",
     note: register ? "" : "No training sessions are in the register yet.",
     caveat: "Attendance at training, not what changed in the classroom.",
@@ -182,7 +184,7 @@ export function buildAdminResults(
   const digital = make({
     key: "teachers_digital", label: "Teachers teaching digitally",
     definition: "Active teachers who published at least one assignment on the portal in the period.",
-    value: teachers ? S.rate : null, unit: "percent",
+    value: teachers ? S.rate : null, unit: "percent", base: teachers,
     of: teachers ? `${fmt(S.count)} of ${plural(teachers, "teacher")}` : "",
     note: teachers ? "" : "No active teachers in your area yet.",
     caveat: "Counted apart from training: a trained teacher counts here only once they set work.",
@@ -193,7 +195,7 @@ export function buildAdminResults(
   const schools = make({
     key: "schools_supported", label: "Schools supported",
     definition: "Programme schools with at least one field visit in the period.",
-    value: V.total ? V.coverage : null, unit: "percent",
+    value: V.total ? V.coverage : null, unit: "percent", base: V.total,
     of: V.total ? `${fmt(V.visited)} of ${plural(V.total, "school")}` : "",
     note: V.total ? "" : "No schools in your area yet.",
     caveat: "Out of the schools on the portal: the portal holds no separate list of target schools.",
@@ -207,7 +209,7 @@ export function buildAdminResults(
   const marks = make({
     key: "assessment", label: "Average mark on marked classwork",
     definition: "The mean percentage of the work teachers marked on the portal in the period.",
-    value: R.marked ? R.averagePercent : null, unit: "percent",
+    value: R.marked ? R.averagePercent : null, unit: "percent", base: R.marked,
     of: R.marked ? `${plural(R.marked, "piece")} of marked work · ${meeting ?? 0}% meeting or exceeding expectations` : "",
     note: !R.marked ? "No work has been marked in the period."
       : R.marked < 30 ? `Based on only ${plural(R.marked, "piece")} of marked work: too few to draw conclusions.` : "",
@@ -218,7 +220,7 @@ export function buildAdminResults(
   const resources = make({
     key: "teacher_resources", label: "Teachers using digital resources",
     definition: "Active teachers who opened a Digital Library or Teacher Resources item in the period.",
-    value: teachers ? G.share : null, unit: "percent",
+    value: teachers ? G.share : null, unit: "percent", base: teachers,
     of: teachers ? `${fmt(G.teachersUsingLibrary)} of ${plural(teachers, "teacher")} · ${G.hours} hours · ${plural(G.teacherResourceOpens, "Teacher Resources open")}` : "",
     note: teachers ? "" : "No active teachers in your area yet.",
     caveat: "Use of resources, not evidence of better teaching or learning.",

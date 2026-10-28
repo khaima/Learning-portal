@@ -176,7 +176,8 @@ export function targetList(rows, { fmt = (v) => show(v), keepEmpty = false, empt
         <span class="bars-val"><b>${esc(value)}</b>${hasTarget ? `<small>target ${esc(fmt(r.target, r.unit))}</small>` : `<small>no target</small>`}${
           r.value != null && hasTarget ? `<span class="pill ${cls}">${word}</span>` : r.value == null ? `<span class="pill">No data</span>` : ""}</span></div>
       <div class="tg-track${hasTarget ? "" : " no-target"}">${width ? `<span class="tg-fill tg-${esc(r.status || "no_data")}" style="width:${width.toFixed(1)}%"></span>` : ""}${
-        hasTarget ? `<i class="tg-line" style="left:${LINE}%"></i>` : ""}</div>
+        hasTarget ? `<i class="tg-line" style="left:${LINE}%"></i>` : ""}</div>${r.note ? `
+      <p class="tg-note">${esc(r.note)}</p>` : ""}
     </div>`;
   };
   // `top`: the first rows, the rest one click away (a long list of schools).

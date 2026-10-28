@@ -210,6 +210,7 @@ const ROUTES: RouteSpec[] = [
   r("GET", "/stats", STATS),
   r("GET", "/intelligence", DASHBOARDS),
   r("GET", "/impact", LEARNING_DASHBOARDS),
+  r("GET", "/impact/insights", DASHBOARDS),
   r("GET", "/sync/status", ALL),
   r("GET", "/notifications", ALL),
   r("POST", "/notifications/:id/read", ALL, {}, "/notifications/ntf_1/read", {

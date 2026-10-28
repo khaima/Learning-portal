@@ -19,7 +19,7 @@ import {
   normalizeLibraryAudience, VISIT_TYPES,
 } from "./data.js";
 import {
-  getLibrary, addLibraryItem, setLibraryPublished, deleteLibraryItem, updateLibraryItem, getForms, addForm, deleteForm, archiveForm, restoreForm, getResponses, getStats, getImpact,
+  getLibrary, addLibraryItem, setLibraryPublished, deleteLibraryItem, updateLibraryItem, getForms, addForm, deleteForm, archiveForm, restoreForm, getResponses, getStats, getImpact, getInsights,
   dqSummary, dqIssues, dqBulkStatus, dqScan,
   melProgrammes, melProgramme, createMelProgramme, melResults, melReports, createMelReport, melReport, refreshMelReport, finalizeMelReport,
   melDashboard, melTrend, melBreakdown, getTrainings, setFormDue, notificationLog, runNotificationsNow,
@@ -45,6 +45,7 @@ const once = (load) => {
 };
 const adminUi = once(() => import("./admin-ui.js"));
 const impactUi = once(() => import("./impact-ui.js"));
+const insightsUi = once(() => import("./insights-ui.js"));
 const trainingUi = once(() => import("./training-ui.js"));
 const koboUi = once(() => import("./kobo-ui.js"));
 const dqUi = once(() => import("./dq-ui.js"));
@@ -424,9 +425,14 @@ async function main() {
     // One freshness line, shown on each of these pages.
     impactLive ||= liveStatus($$("[data-live-impact]"), { refresh: () => renderImpact({ quiet: true }), every: DASH_EVERY_MS });
     const run = ++impactRun;
+    // The findings (GET /impact/insights), read beside the figures and never holding them up.
+    const findings = has("intelligence.view")
+      ? Promise.all([getInsights({ county: gf.county, school: gf.school, to: gf.to }), insightsUi()]) : null;
+    findings?.catch(() => {}); // dealt with in fillInsights, once the figures are drawn
     if (!quiet) {
       impactLive.start();
       $("#statRow").innerHTML = skeletonCards(5);
+      if ($("#execInsights")) $("#execInsights").innerHTML = skeleton(3, { avatar: false });
       if ($("#execCharts")) $("#execCharts").innerHTML = skeletonCharts(2);
       for (const p of pagesHere) $(`#imp-${p}`).innerHTML = skeletonDashboard();
     }
@@ -463,7 +469,33 @@ async function main() {
     if (d.currentTerm) $("#topSub").textContent = d.currentTerm;
     fillMelSlots({ quiet });
     renderAttention();
+    if (findings) fillInsights(findings, run, { quiet });
     if (!quiet) impactLive.ok();
+  }
+
+  /* "Key findings" (insights-ui.js): a few on the Executive overview, and each
+     dashboard's own above its charts (the M&E overview's too). A finding that
+     is a gap links to the page that deals with it, if this person may open it. */
+  let lastInsights = null;
+  async function fillInsights(pending, run, { quiet = false } = {}) {
+    let ins, ui;
+    try {
+      [ins, ui] = await pending;
+    } catch (err) {
+      if (run !== impactRun || (quiet && lastInsights)) return; // a refresh that failed keeps what's there
+      ui = await insightsUi().catch(() => null);
+      if (!ui) return;
+      ins = { error: friendlyError(err, "Couldn't load the findings.") };
+    }
+    if (run !== impactRun) return; // the filters changed while this was being read
+    if (!ins.error) lastInsights = ins;
+    const exec = $("#execInsights");
+    if (exec && canOpen("overview")) swap(exec, ui.insightsPanel(ins, { canOpen, via: "overview", max: 5, id: "execFindingsHead" }), { replace: !quiet });
+    for (const slot of $$("[data-insights-area]")) {
+      const html = ui.insightsPanel(ins, { canOpen, via: slot.dataset.via || "", area: slot.dataset.insightsArea, max: 3, level: 3, quiet: true });
+      slot.hidden = !html;
+      swap(slot, html, { replace: !quiet });
+    }
   }
 
   /* M&E: the dashboard page, the indicators shown on each dashboard, and

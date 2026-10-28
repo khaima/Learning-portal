@@ -979,6 +979,12 @@ export async function getImpact({ county, school, from, to } = {}) {
   return apiGet(`/impact${qs({ county, school, from, to })}`);
 }
 
+/** What the dashboards' figures say: a few findings from the records, for the
+    term the chosen period ends in (insights.ts, docs/INSIGHTS.md). */
+export async function getInsights({ county, school, to } = {}) {
+  return apiGet(`/impact/insights${qs({ county, school, to })}`);
+}
+
 /* ---------------------------------------------------------------- training register */
 export async function getTrainings({ archived = false } = {}) {
   return apiGet(`/trainings${archived ? "?archived=1" : ""}`);

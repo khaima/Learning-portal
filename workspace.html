@@ -224,6 +224,7 @@
         <div class="panel-head" style="margin-bottom:.6rem"><h2 data-page-title style="margin:0">Executive overview</h2><span class="live-head"><span class="chart-meta" data-imp-meta style="margin:0"></span><span data-live-impact></span></span></div>
         <!-- Read top to bottom: the key figures, what needs doing about them, the pictures, then each programme area (docs/DASHBOARD-HIERARCHY.md). -->
         <div class="stat-row exec-row" id="statRow"></div>
+        <div class="panel insights-host" id="execInsights"><div data-skeleton="list" data-rows="3"></div></div>
         <div class="panel">
           <div class="panel-head"><h2>Needs attention</h2><span class="count-badge" id="attentionCount" hidden></span></div>
           <div id="attentionList"><div data-skeleton="list" data-rows="2"></div></div>
@@ -273,6 +274,7 @@
         <div class="panel">
           <div class="panel-head"><h2>M&amp;E — target against actual</h2><span class="live-head"><span class="chart-meta" id="melDashMeta" style="margin:0"></span><span id="melDashLive"></span></span></div>
           <p class="hint page-note">Record and verify actuals on <a href="#mel-results">Indicator results</a>.</p>
+          <div class="insights-slot" data-live-keep data-insights-area="me" data-via="me-dashboard" hidden></div>
           <div class="filter-bar-row" style="margin-bottom:.8rem">
             <div class="field"><label for="melDashPeriod">Period</label><select id="melDashPeriod"></select></div>
           </div>

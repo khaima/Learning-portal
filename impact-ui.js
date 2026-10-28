@@ -133,6 +133,9 @@ function more(key, what, cards, { pairs = false } = {}) {
 /** Where the M&E indicators tagged for a page go (console.js fills them):
     first on the page when there are some; when there are none, the note
     about choosing them waits at the foot instead. */
+/* "Key findings" for this dashboard (insights-ui.js), filled by console.js once
+   GET /impact/insights is in: kept through a refresh, hidden when there are none. */
+const insightSlot = (area, page) => `<div class="insights-slot" data-live-keep data-insights-area="${area}" data-via="${page}" hidden></div>`;
 const melFirst = (theme) => `<div class="intel-wide" data-live-keep data-mel-theme="${theme}" data-mel-when="some" hidden></div>`;
 const melLast = (theme) => `<div class="mel-foot" data-live-keep data-mel-theme="${theme}" data-mel-when="none" hidden></div>`;
 
@@ -160,8 +163,21 @@ function bandNames(bands) {
 
 const schoolLink = (name) => `<button type="button" class="intel-link" data-pick-school="${esc(name)}">${esc(name)}</button>`;
 
+const VALUE_IS = { verified: "verified actual", recorded: "recorded, not yet verified", live: "worked out live, not yet recorded" };
+/** What to read an indicator's value against: its last recorded value before
+    this period, its baseline, and whether the value is verified, recorded or live. */
+export function indicatorContext(i, periodId = "") {
+  const before = (i.history || []).filter((h) => h.period !== periodId).at(-1);
+  return [
+    before ? `${before.label}: ${fmtValue(before.value, i.unit)}` : "",
+    i.baselineValue != null ? `baseline ${fmtValue(i.baselineValue, i.unit)}${i.baselinePeriod ? ` (${i.baselinePeriod})` : ""}` : "",
+    i.value != null ? VALUE_IS[i.valueSource] || "" : "",
+  ].filter(Boolean).join(" · ");
+}
+
 /** An indicator (or a place's value for one) as a row of the target chart. */
-const indicatorRow = (i) => ({
+const indicatorRow = (i, periodId = "") => ({
+  note: indicatorContext(i, periodId),
   label: `${i.code ? `${i.code} ` : ""}${i.name}`,
   html: `<button type="button" class="intel-link" data-mel-dash-ind="${esc(i.id)}">${i.code ? `${esc(i.code)} ` : ""}${esc(i.name)}</button>`,
   value: i.value, target: i.target?.value ?? null, percent: i.achievement.percent, status: i.achievement.status, unit: i.unit,
@@ -194,7 +210,7 @@ export function themeIndicatorsHtml(dash, theme, { canManage = false } = {}) {
       ? ` Choose some on <a href="#mel-framework">Results framework</a> (“Also show on: ${esc(THEMES[theme])}”).` : ""}</p>`, { wide: true });
   }
   return card(`Progress against M&E targets — ${THEMES[theme]}`, `Each indicator's actual against its approved target${where} · <a href="#me-dashboard">all indicators</a>`,
-    targetList(rows.map(indicatorRow), { fmt: fmtValue, period: dash.period?.label || "" }) + TARGET_KEY, { wide: true, period: dash.period?.label || "" });
+    targetList(rows.map((i) => indicatorRow(i, dash.period?.id)), { fmt: fmtValue, period: dash.period?.label || "" }) + TARGET_KEY, { wide: true, period: dash.period?.label || "" });
 }
 
 /* ------------------------------------------------------------ 1. executive overview */
@@ -377,6 +393,7 @@ export function reachHtml(d, opts = {}) {
       ${kpiCard({ label: "Teachers", icon: "teacher", value: num(S.teachers), href: linkTo(opts, "teachers"),
         sub: `${pct(d.teachers.training.share)} trained · ${plural(S.fieldOfficers, "field officer")} supporting them` })}
     </div>
+    ${insightSlot("reach", "reach")}
     <div class="chart-grid">
       ${melFirst("reach")}
       ${card("Reach in each county", d.scope?.county ? "Schools on the portal of all schools · learners · teachers" : "Schools on the portal of all schools · learners · teachers · pick a county to see only it",
@@ -415,8 +432,9 @@ export function learningHtml(d, opts = {}) {
       ${kpiCard({ label: "To be marked", icon: "clock", value: num(A.awaitingMarking), tone: A.awaitingMarking ? "warn" : "", href: linkTo(opts, "assignments"),
         sub: A.awaitingMarking ? "handed in, waiting for a mark" : "nothing waiting" })}
       ${kpiCard({ label: "Learners improving", icon: "activity", value: pct(P.improvedShare),
-        sub: P.compared ? `${P.improved} improved · ${P.steady} steady · ${P.declined} declined, of ${P.compared} with marks in two terms` : "needs marks in two terms" })}
+        sub: P.compared ? `${P.improved} improved · ${P.steady} steady · ${P.declined} declined, of ${P.compared} with marks in two terms<br>Different work each term: not a like-for-like test` : "needs marks in two terms" })}
     </div>
+    ${insightSlot("learning", "learning")}
     <div class="chart-grid">
       ${melFirst("learning")}
       ${card("Which grades hand in their work", "% of set work handed in",
@@ -472,6 +490,7 @@ export function teachersHtml(d, opts = {}) {
       ${kpiCard({ label: "Teacher support visits", icon: "pin", value: num(T.activity.supportVisits.visits), href: linkTo(opts, "field-visits"),
         sub: plural(T.activity.supportVisits.schools, "school") })}
     </div>
+    ${insightSlot("teachers", "teacher-development")}
     <div class="chart-grid chart-pairs">
       ${melFirst("teacher_development")}
       ${card("Share of teachers trained, by county", "% of active teachers who attended a session",
@@ -528,6 +547,7 @@ export function fieldOpsHtml(d, opts = {}) {
       ${kpiCard({ label: "Survey records", icon: "survey", value: num(K.counted), href: linkTo(opts, "kobo"),
         sub: `from ${plural(K.forms.length, "Kobo survey")} · ${plural(K.schoolsCovered, "school")}` })}
     </div>
+    ${insightSlot("field", "field-operations")}
     <div class="chart-grid">
       ${melFirst("field_operations")}
       ${card("Field visits, month by month", "Visits recorded each month",
@@ -566,6 +586,7 @@ export function resourcesHtml(d, opts = {}) {
       ${kpiCard({ label: "Active users", icon: "users", value: num(U.total),
         sub: `${num(U.learners)} learners — ${pct(U.learnerReach)} of active learners · ${num(U.staff)} staff` })}
     </div>
+    ${insightSlot("resources", "digital-resources")}
     <div class="chart-grid chart-pairs">
       ${melFirst("digital_resources")}
       ${card("Which resources are used most", "Opens, readers and time, most opened first", table(["Resource", "Shelf", "Opens", "Readers", "Time"],
@@ -605,7 +626,7 @@ export function melDashHtml(dash, { canManage = false } = {}) {
     ${groups.map((g) => `
       <div class="mel-outcome">
         <h3><span class="hint-inline">${esc(g.programme)} ·</span> ${g.outcome.code ? `<span class="code-chip">${esc(g.outcome.code)}</span> ` : ""}${esc(g.outcome.title)}</h3>
-        ${targetList(g.rows.map(indicatorRow), { fmt: fmtValue, keepEmpty: true })}
+        ${targetList(g.rows.map((i) => indicatorRow(i, dash.period?.id)), { fmt: fmtValue, keepEmpty: true })}
       </div>`).join("")}
     <p class="chart-note"><i class="tg-key" aria-hidden="true"></i>Bar: actual · line: target · <b>met</b> 100%+ · <b>close</b> 80%+ · recorded where entered, otherwise live.</p>`;
 }

@@ -2055,6 +2055,36 @@ h2,h3{ font-family:inherit; letter-spacing:-.01em; }
 .attn-head{ display:flex; align-items:center; gap:.5rem; margin-bottom:.55rem; }
 .attn-head h3,.attn-head h2{ margin:0; font-size:var(--text-section); }
 /* The overview's first heading also says what it covers and how fresh it is. */
+/* ---- Key findings (insights-ui.js): a few sentences from the records, each
+   with its period, what it rests on and its source. The mark says the tone in
+   shape as well as colour (! a look, ✓ the right way, i for information). */
+.insights-panel{ margin-bottom:var(--gap-section); }
+.panel > .insights-panel, .insights-slot .insights-panel{ margin-bottom:0; }
+.insights-slot{ margin-bottom:var(--gap-section); }
+.insights{ list-style:none; margin:0; padding:0; }
+.insight{ display:flex; align-items:flex-start; gap:.7rem; padding:.7rem 0; border-top:1px solid var(--line); }
+.insight:first-child{ border-top:0; padding-top:.15rem; }
+.insight-mark{
+  flex:none; width:1.4rem; height:1.4rem; margin-top:.1rem; border-radius:50%; display:grid; place-items:center;
+  font-size:var(--text-xs); font-weight:700; line-height:1; background:var(--paper-sunk); color:var(--ink-soft);
+}
+.insight[data-tone="attention"] .insight-mark{ background:var(--accent-soft); color:var(--accent-fg); }
+.insight[data-tone="positive"] .insight-mark{ background:var(--success-soft); color:var(--success-fg); }
+.insight-body{ flex:1; min-width:0; overflow-wrap:anywhere; }
+.insight-tags{ margin:0 0 .12rem; font-size:var(--text-micro); font-weight:700; letter-spacing:.03em; text-transform:uppercase; color:var(--ink-soft); }
+.insight-text{ margin:0; max-width:72ch; font-size:var(--text-body); font-weight:600; line-height:1.4; color:var(--ink); }
+.insight-meta{ margin:.2rem 0 0; max-width:80ch; font-size:var(--text-sm); line-height:1.45; color:var(--ink-soft); }
+.insight > .btn{ flex:none; align-self:center; }
+.insight-foot{ margin:.45rem 0 0; }
+.insights-group{ margin:1rem 0 .15rem; font-size:var(--text-sm); color:var(--ink-soft); }
+/* A target row's context: the value before, the baseline, whether it's verified. */
+.tg-note{ margin:.28rem 0 0; font-size:var(--text-xs); line-height:1.4; color:var(--ink-soft); }
+/* A phone: the text keeps the full width; the button goes under it, a fingertip tall. */
+@media (max-width:640px){
+  .insight{ flex-wrap:wrap; }
+  .insight-body{ flex-basis:calc(100% - 2.1rem); }
+  .insight > .btn{ margin-left:2.1rem; min-height:44px; }
+}
 .attn-head.ao-head{ flex-wrap:wrap; justify-content:space-between; }
 .attn-section .alert:last-child{ margin-bottom:0; }
 /* On the page itself (not inside a panel) an alert needs its own white card. */
