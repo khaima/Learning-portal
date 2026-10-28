@@ -52,10 +52,13 @@ function card(title, meta, body, { wide = false, period: when = period } = {}) {
     ${body}
   </div>`;
 }
-function table(head, rows, { num: numCols = [] } = {}) {
+let exportOK = false; // reports.export: the detail tables can be downloaded
+let fileTag = "all";
+function table(head, rows, { num: numCols = [], name = "" } = {}) {
   if (!rows.length) return `<div class="chart-empty">${esc(none())}</div>`;
   const cls = (i) => (i === 0 ? ' class="lms-name"' : numCols.includes(i) ? ' class="num"' : "");
-  return `<div class="lms-table-wrap" tabindex="0"><table class="lms-table intel-table"${rows.length > 3 ? " data-sortable" : ""}>
+  return `<div class="lms-table-wrap" tabindex="0"><table class="lms-table intel-table"${rows.length > 3 ? " data-sortable" : ""}${rows.length > 10 ? " data-find" : ""}${
+    exportOK && name ? ` data-export="${esc(`${name}-${fileTag}`)}"` : ""}>
     <thead><tr>${head.map((h, i) => `<th${cls(i)}>${h}</th>`).join("")}</tr></thead>
     <tbody>${rows.map((r) => `<tr>${r.map((c, i) => `<td${cls(i)}>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
 }
@@ -216,18 +219,18 @@ function detail(u, opts) {
   const resources = table(["Resource", "Shelf", "Opens", "People", "Time", "Typical open", "Under 30s", "Last opened"],
     u.byResource.map((r) => [link(r.title), esc(r.shelf || "—"), num(r.views), num(r.users), esc(dur(r.totalSeconds)),
       esc(r.typicalSeconds == null ? "—" : dur(r.typicalSeconds)), r.timedViews ? `${num(r.quickExits)} of ${num(r.timedViews)}` : "—", esc(shortDate(r.lastOpened))]),
-    { num: [2, 3, 4, 5, 6] });
+    { num: [2, 3, 4, 5, 6], name: "resource-use" });
   const notOpened = u.attention.notOpened.items;
   const schools = table(["School", "Opens", "People", "Time", "Last opened"],
     u.bySchool.map((s) => [esc(s.school === NOT_SET ? "No school (staff)" : s.school), num(s.sessions), num(s.users), esc(dur(s.totalSeconds)), esc(shortDate(s.lastOpened))]),
-    { num: [1, 2, 3] });
+    { num: [1, 2, 3], name: "school-use" });
   const topicRows = u.byTopic.flatMap((t) => t.subtopics.map((s) => [esc(t.topic), esc(s.subtopic), esc(dur(s.totalSeconds)), num(s.sessions), num(s.users)]));
   return more("content-usage", "Every resource, school and topic", `
     ${card("Every resource opened", plural(u.byResource.length, "resource"), resources, { wide: true })}
     ${notOpened.length ? card("Not opened", `${plural(u.attention.notOpened.count, "published resource")}, newest first`,
       table(["Resource", "Shelf", "Uploaded"], notOpened.map((i) => [link(i.title), esc(i.shelf), esc(shortDate(i.uploadedAt))])), { wide: true }) : ""}
     ${u.school ? "" : card("Every school", plural(u.bySchool.length, "school"), schools)}
-    ${topicRows.length ? card("Topics and sub-topics", "Time, opens and people", table(["Topic", "Sub-topic", "Time", "Opens", "People"], topicRows, { num: [2, 3, 4] })) : ""}`);
+    ${topicRows.length ? card("Topics and sub-topics", "Time, opens and people", table(["Topic", "Sub-topic", "Time", "Opens", "People"], topicRows, { num: [2, 3, 4], name: "topic-use" })) : ""}`);
 }
 
 /* ------------------------------------------------------------ the page */
@@ -237,6 +240,8 @@ function detail(u, opts) {
       opts.roleLabel(role) a role's name */
 export function usageHtml(u, opts = {}) {
   forScope(u);
+  exportOK = !!opts.canExport;
+  fileTag = [String(u.school || u.county || "all").toLowerCase().replace(/[^a-z0-9]+/g, "-"), u.from || u.to ? `${u.from || "start"}-to-${u.to || "today"}` : "all-time"].join("-");
   const roleLabel = opts.roleLabel || ((r) => r);
   const nothing = !u.totals.sessions;
   return `

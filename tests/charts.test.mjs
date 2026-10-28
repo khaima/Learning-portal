@@ -78,3 +78,10 @@ test("the reporting period's words", () => {
   assert.match(C.periodLabel({ from: "2026-09-01", to: "2026-10-27" }), /2026 – .*2026/);
   assert.equal(C.periodChip(""), "");
 });
+
+test("bars: a tooltip can carry the figure to compare with", () => {
+  const html = C.barList([{ label: "Narok", value: 71 }], { unit: "%", compare: { value: 77, label: "all counties" } });
+  assert.match(html, /77%/);
+  assert.match(html, /all counties/);
+  assert.doesNotMatch(C.barList([{ label: "Narok", value: 71 }], { unit: "%", compare: { value: null, label: "all counties" } }), /all counties/, "nothing to compare: no row");
+});

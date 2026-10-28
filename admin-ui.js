@@ -27,8 +27,8 @@ const ago = (v) => {
 };
 const count = (n) => (n == null ? "—" : Number(n).toLocaleString());
 const warnText = (t) => `<b class="warn-text">${esc(t)}</b>`;
-const table = (head, rows, empty = "Nothing to show.") => rows.length
-  ? `<div class="lms-table-wrap"><table class="lms-table intel-table"${rows.length > 3 ? " data-sortable" : ""}><thead><tr>${head.map((h, i) => `<th${i === 0 ? ' class="lms-name"' : ""}>${esc(h)}</th>`).join("")}</tr></thead>
+const table = (head, rows, empty = "Nothing to show.", { find = false, exportAs = "" } = {}) => rows.length
+  ? `<div class="lms-table-wrap"><table class="lms-table intel-table"${rows.length > 3 ? " data-sortable" : ""}${find ? " data-find" : ""}${exportAs ? ` data-export="${esc(exportAs)}"` : ""}><thead><tr>${head.map((h, i) => `<th${i === 0 ? ' class="lms-name"' : ""}>${esc(h)}</th>`).join("")}</tr></thead>
       <tbody>${rows.map((r) => `<tr>${r.map((c, i) => `<td${i === 0 ? ' class="lms-name"' : ""}>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
   : `<div class="empty-state">${esc(empty)}</div>`;
 /** Fill a page's own filter list from the data (`want`: a choice asked for in the address, used once). */
@@ -69,16 +69,20 @@ async function load(el, path, render, retry, placeholder = skeletonTable(4, 4)) 
     only if it has aged. */
 function liveLoad(el, path, render, { every = 0 } = {}) {
   if (el.liveFor === path && el.querySelector("[data-live-host] .live")) { el.live.refreshIfStale(); return Promise.resolve(); }
-  const refresh = async () => { swap(el, render(await apiGet(path))); };
+  // Each load is numbered: an answer for filters no longer chosen (a refresh
+  // still on its way when they changed) is dropped, never drawn over the new one.
+  const gen = (el.liveGen = (el.liveGen || 0) + 1);
+  const refresh = async () => { const d = await apiGet(path); if (el.liveGen === gen) swap(el, render(d)); };
   const first = async () => {
     el.innerHTML = skeletonCards(6) + skeleton(2, { avatar: false });
     let d;
     try {
       d = await apiGet(path);
     } catch (err) {
-      el.innerHTML = errorState(navigator.onLine ? friendlyError(err) : "This page needs a connection.", first);
+      if (el.liveGen === gen) el.innerHTML = errorState(navigator.onLine ? friendlyError(err) : "This page needs a connection.", first);
       return;
     }
+    if (el.liveGen !== gen) return;
     swap(el, render(d), { replace: true });
     el.liveFor = path;
     el.live = liveStatus(el.querySelector("[data-live-host]"), { refresh, every });
@@ -544,7 +548,7 @@ function resultCard(k, { targets = true } = {}) {
   });
 }
 
-function resultsHtml(r) {
+function resultsHtml(r, opts = {}) {
   if (!r) return "";
   if (r.error) return `<div class="alert alert-warn"><div><b>Programme results couldn't be worked out.</b>${esc(r.error)}</div></div>`;
   const p = r.period;
@@ -564,7 +568,10 @@ function resultsHtml(r) {
   const R = r.rules;
   const rules = `A school is listed when it has learners but no active teacher or no work set this term; when under ${R.completionBelow}% of work is handed in (${R.minAssigned} or more pieces set); when its average mark is in the two lowest bands (${R.minMarked} or more marked); or when it hasn't had a field visit this term.`;
   const pctCell = (v) => (v == null ? "No data" : `${Math.round(v)}%`);
-  const rows = r.schools.map((s) => [esc(s.school), esc(s.county ?? ""), count(s.learners), count(s.teachers),
+  // A school opens its profile (its classes, learners, visits — each tab behind its own permission), for whoever may open profiles.
+  const profile = (s) => (opts.canOpen?.("school-profiles") && s.id
+    ? `<a href="#school-profiles?school=${encodeURIComponent(s.id)}&amp;via=admin-overview">${esc(s.school)}</a>` : esc(s.school));
+  const rows = r.schools.map((s) => [profile(s), esc(s.county ?? ""), count(s.learners), count(s.teachers),
     s.assigned ? pctCell(s.completionRate) : "No work set", s.marked ? pctCell(s.averagePercent) : "Nothing marked",
     count(s.visits), s.flags.length ? s.flags.map((f) => warnText(f)).join("<br>") : "—"]);
   const more = r.schoolsTotal > r.schools.length
@@ -581,13 +588,14 @@ function resultsHtml(r) {
         <p class="chart-note">${esc(rules)}</p>
       </section>
       <details class="more-detail" data-more="ao-schools"><summary><b>School by school</b><span>${esc(plural(r.schoolsTotal, "school"))} this term: work handed in, marks, visits and what needs support</span></summary>
-        ${table(["School", "County", "Learners", "Teachers", "Work handed in", "Average mark", "Field visits", "Needs support"], rows, "No schools in your area yet.")}${more}
+        ${table(["School", "County", "Learners", "Teachers", "Work handed in", "Average mark", "Field visits", "Needs support"], rows, "No schools in your area yet.",
+          { find: rows.length > 10, exportAs: opts.canExport ? `school-results-${String(opts.fileTag || "all")}-${p.id}` : "" })}${more}
       </details>
     </section>`;
 }
 
 /** The Administration overview, from one /admin/overview read. */
-export function adminOverviewHtml(d) {
+export function adminOverviewHtml(d, opts = {}) {
   const o = d.organisation, p = d.people, ops = d.operations;
   const via = (link) => withVia(link, "admin-overview");
   // Gaps to fill: one line per kind, the ones holding something up first.
@@ -614,7 +622,7 @@ export function adminOverviewHtml(d) {
   return `
     <div class="panel-head" style="margin-bottom:.6rem"><h2 style="margin:0">Administration overview</h2>
       <span class="live-head"><span class="chart-meta" style="margin:0">${esc(d.scope.label)}${d.currentTerm ? ` · ${esc(String(d.currentTerm).replace(/^(\d{4})-T(\d)$/, "$1 Term $2"))}` : ""}</span><span data-live-host></span></span></div>
-    ${resultsHtml(d.results)}
+    ${resultsHtml(d.results, { ...opts, fileTag: String(d.filter?.school || d.filter?.county || "all").toLowerCase().replace(/[^a-z0-9]+/g, "-") })}
     <div class="attn-head"><h3>Programme organisation</h3></div>
     <div class="stat-row exec-row">
       ${kpiCard({ label: "Schools", icon: "school", value: count(o.schools), href: via("#schools"),
@@ -642,8 +650,12 @@ export function adminOverviewHtml(d) {
     ${adminCharts(d)}`;
 }
 
-export function renderAdminOverview(el) {
-  return liveLoad(el, "/admin/overview", adminOverviewHtml, { every: OVERVIEW_EVERY_MS });
+/* opts.filter: the county and school chosen above (the period isn't one
+   of this page's: its results are this term against the same point of the
+   last). opts.canOpen, opts.canExport: what this person may open and download. */
+export function renderAdminOverview(el, { filter = {}, ...opts } = {}) {
+  const qs = new URLSearchParams(Object.entries({ county: filter.county || "", school: filter.school || "" }).filter(([, v]) => v)).toString();
+  return liveLoad(el, `/admin/overview${qs ? `?${qs}` : ""}`, (d) => adminOverviewHtml(d, opts), { every: OVERVIEW_EVERY_MS });
 }
 
 /* ------------------------------------------------------------------ Permissions (Super Admin) */

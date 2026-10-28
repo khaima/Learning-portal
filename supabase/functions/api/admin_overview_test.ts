@@ -72,3 +72,33 @@ Deno.test("admin overview: gaps to fill — schools without a teacher, not visit
   assertEquals(ops.formsWithoutResponses.titles.includes("Term 3 check-in"), true);
   assertEquals(p.learnerSchools, 2);
 });
+
+Deno.test("admin overview: a county or school filter narrows every figure alike, inside the caller's area", async () => {
+  const db = freshWorld();
+  db.schools.push({ id: "sch_ny", name: "Nyeri Hill", county: "Nyeri", code: "NYR-001" });
+  const get = async (qs: string) => {
+    const res = await call("GET", `/admin/overview${qs}`, "tok_admin");
+    assertEquals(res.status, 200, JSON.stringify(res.json));
+    return res.json;
+  };
+  const all = await get("");
+  assertEquals([all.organisation.schools, all.people.learners, all.filter], [3, 2, { county: null, school: null }]);
+
+  const one = await get(`?school=${encodeURIComponent(SCHOOL_B.name)}`);
+  assertEquals(one.scope.label, SCHOOL_B.name);
+  assertEquals([one.organisation.schools, one.people.learners, one.people.teachers], [1, 1, 1], "Olpusimoru: Kid B and Teacher B only");
+  assertEquals(one.charts.perTeacher.map((r: { label: string }) => r.label), [SCHOOL_B.name]);
+  assertEquals(one.people.programmeStaff, null, "HPF staff belong to no one school");
+  if (one.results && !one.results.error) {
+    assertEquals(one.results.schoolsTotal, 1, "the school table: that school only");
+    assertEquals(one.results.kpis.find((k: { key: string }) => k.key === "learners").value, 1, "the KPI agrees with the count above");
+    assertEquals(one.results.targets, null, "whole-programme targets aren't put against one school");
+  }
+
+  const nyeri = await get("?county=Nyeri");
+  assertEquals([nyeri.organisation.schools, nyeri.people.learners, nyeri.scope.label], [1, 0, "Nyeri County"]);
+  assertEquals(nyeri.organisation.schoolsWithoutTeacher.names, ["Nyeri Hill"]);
+
+  const nowhere = await get("?school=Not%20a%20school");
+  assertEquals([nowhere.organisation.schools, nowhere.people.learners], [0, 0], "an unknown school: nothing, not everything");
+});

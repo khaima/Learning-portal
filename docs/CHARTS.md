@@ -169,9 +169,46 @@ keyboard:
   Content library searched for it.
 - A chart with a page of its own detail has a line under it leading there
   ("Every visit, newest first →", "Results by grade, in full →").
+- **A school** (a heatmap row, a "How each school is doing" row, a school
+  not visited) narrows the dashboard to it; the filter bar then offers
+  **"School profile →"**: the school's teachers, learners and classes,
+  visits, assessments and devices, each tab behind its own permission and
+  only for a school in the viewer's area. On the Administration overview a
+  school's name in "School by school" opens the profile directly. So:
+  programme overview → county → school → its records.
+
+Nothing links where the data has no link: a grade's bar doesn't open a
+list of that grade's work (work isn't filed by grade), and there is no
+programme filter — schools, learners, work and visits carry no programme;
+only the M&E layer does, on its own pages.
+
+## Tooltips
+
+Hovering, tapping or stepping to a mark shows its exact value, what it
+counts, the reporting period, and — where there is one — the figure to
+read it against: a county's or grade's share beside all counties' or all
+grades' (`barList(…, { compare })`), an indicator's target, a period's
+note. The Executive overview's headline figures are defined once, under
+the charts ("What these figures count"); every chart's description says
+what it counts.
+
+## Tables
 
 Tables with more than three rows sort by any column: press its heading,
 again to reverse (`tables.js`). A table drawn again keeps its sort.
+
+- **More than 10 rows: a search box** above it (every word must appear in
+  the row) and, past 25, **pages** — "Rows 26–50 of 80", Previous page,
+  Next page. A sort reorders every row before the page is cut; the search,
+  page and sort all survive a live refresh.
+- **"Download CSV"** on the detail tables of the programme dashboards,
+  Content usage and the Administration overview — for someone with
+  `reports.export` only, and only aggregate tables (schools, counties,
+  subjects, forms, resources, topics): never a list of learners or
+  teachers. It holds exactly the rows the filters and the search leave,
+  as the plain text on screen; the file is named for the filters
+  (`schools-narok-2026-09-01-to-2026-12-31.csv`). A value a spreadsheet
+  would run as a formula is kept as text.
 
 ## Colour
 
@@ -283,9 +320,27 @@ right form. (The key-figure cards are described above.)
 - The filter bar above the dashboards and the filters inside a page
   (period, issue type, severity, search) share one look: a small label
   over the control.
+- **One filter bar per workspace** — county, school, period — and every
+  page that can be narrowed reads it: the Executive overview, the five
+  area dashboards, Content usage, the Administration overview (county and
+  school: its results are always this term against the same point of the
+  last), Schools, Teachers, Assignments, Field visits. No chart has a
+  filter of its own.
 - A filter that is set looks set (brand border and tint), and the bar
-  says in pills what is being shown ("Showing data for Narok County").
-- "Clear filters" is idle until there is something to clear.
+  **always** says what is shown — "Showing data for Narok County × ·
+  Term 3, 2026 ×", or "every county and school · all time" with nothing
+  chosen — and each dashboard's header repeats it ("Narok County · Term 3,
+  2026").
+- Charts, key figures and tables are drawn from **one read with one set of
+  filters**, so they can't disagree; an answer for filters no longer
+  chosen (a refresh on its way when they changed) is dropped, never drawn
+  over the new one.
+- "Clear filters" is idle until there is something to clear. **"Reset
+  view"** also closes every open section and puts every table back as
+  first drawn (no sort, search or page).
+- On a page where `?school=` is a school's id (its profile, classes,
+  assignments, results, learners) the address keeps it, and the school
+  filter is left as it was.
 
 ## Adding a chart
 

@@ -8573,7 +8573,19 @@ async function publicSignupsOpen(): Promise<boolean | null> {
    organisation and operations, within the caller's area. */
 app.get("/admin/overview", requirePermission("users.view"), async (c) => {
   const sc = scopeOf(c);
-  const here = (schoolId: unknown, county?: unknown) => inPlaceScope(sc, schoolId, county);
+  // The filters above the dashboard (console.js): a county and a school (by
+  // name), applied to every figure on the page alike — and only ever inside
+  // the caller's own area, never beyond it.
+  const fCounty = (c.req.query("county") || "").trim() || null;
+  const fSchool = (c.req.query("school") || "").trim() || null;
+  let picked: Set<unknown> | null = null; // the schools the filters leave (set once the list is read)
+  const sameCounty = (v: unknown) => String(v ?? "").toLowerCase() === String(fCounty ?? "").toLowerCase();
+  const here = (schoolId: unknown, county?: unknown) => {
+    if (!inPlaceScope(sc, schoolId, county)) return false;
+    if (!picked) return true;
+    // A record with no school (a county-level visit, a field officer) belongs to a chosen county, never to one school.
+    return schoolId ? picked.has(schoolId) : !fSchool && !!fCounty && sameCounty(county);
+  };
   const cal = await currentCalendar();
   const [profs, learners, schools, classes, ct, visits, forms, responses, kobo, dq] = await Promise.all([
     selectAll(() => admin.from("profiles").select("id, role, status, school_id, county").order("id")),
@@ -8591,7 +8603,10 @@ app.get("/admin/overview", requirePermission("users.view"), async (c) => {
       ? selectAll(() => admin.from("dq_issues").select("id, school_id, county, severity").eq("status", "OPEN").order("id"))
       : Promise.resolve({ data: [] as Record<string, any>[], error: null }),
   ]);
-  const people = (profs.data ?? []).filter((p) => sc.global || (p.school_id ? here(p.school_id) : here(null, p.county)));
+  if (fCounty || fSchool) {
+    picked = new Set((schools.data ?? []).filter((s) => (!fCounty || sameCounty(s.county)) && (!fSchool || s.name === fSchool)).map((s) => s.id));
+  }
+  const people = (profs.data ?? []).filter((p) => (sc.global && !picked) || (p.school_id ? here(p.school_id) : here(null, p.county)));
   const active = people.filter((p) => (p.status ?? "active") === "active");
   const mySchools = (schools.data ?? []).filter((s) => here(s.id));
   const yearClasses = (classes.data ?? []).filter((k) => here(k.school_id) && !k.archived_at && k.academic_year_id === cal.yearId);
@@ -8657,7 +8672,8 @@ app.get("/admin/overview", requirePermission("users.view"), async (c) => {
   const notVisited = mySchools.filter((s) => !visitedTerm.has(s.id)).map((s) => s.name as string).sort();
   // Open forms nobody has answered yet.
   const answered = new Set((responses.data ?? []).map((r) => r.form_id));
-  const openForms = (forms.data ?? []).filter((f) => !f.archived_at && (sc.global || !f.county || sc.areaCounties.has(String(f.county).toLowerCase())));
+  const openForms = (forms.data ?? []).filter((f) => !f.archived_at && (sc.global || !f.county || sc.areaCounties.has(String(f.county).toLowerCase()))
+    && (!fCounty || !f.county || sameCounty(f.county)));
   const unanswered = openForms.filter((f) => !answered.has(f.id)).map((f) => String(f.title ?? "")).sort();
 
   // ---- programme results (admin_impact.ts): this term so far against the
@@ -8677,15 +8693,18 @@ app.get("/admin/overview", requirePermission("users.view"), async (c) => {
       });
       const [input, mel] = await Promise.all([
         loadImpactInput(),
-        sc.global ? melDashboard({ type: "programme", id: "", label: "Whole programme" }, String(terms[at].id), "") : Promise.resolve(null),
+        // Targets are the whole programme's: shown only on the whole programme's figures, never on a county's or a school's.
+        sc.global && !picked ? melDashboard({ type: "programme", id: "", label: "Whole programme" }, String(terms[at].id), "") : Promise.resolve(null),
       ]);
-      results = buildAdminResults(narrowInput(input, sc), { current: term(terms[at]), previous: at > 0 ? term(terms[at - 1]) : null }, mel);
+      results = buildAdminResults(narrowInput(input, sc), { current: term(terms[at]), previous: at > 0 ? term(terms[at - 1]) : null }, mel,
+        undefined, { county: fCounty, school: fSchool });
     }
   } catch (e) {
     results = { error: (e as Error).message };
   }
   return c.json({
-    scope: { global: sc.global, label: sc.label },
+    scope: { global: sc.global, label: fSchool || (fCounty ? `${fCounty} County` : sc.label) },
+    filter: { county: fCounty, school: fSchool },
     currentTerm: cal.termId,
     results,
     charts: {
@@ -8694,7 +8713,7 @@ app.get("/admin/overview", requirePermission("users.view"), async (c) => {
     },
     people: {
       teachers: count("teacher"), heads: count("school_leader"), fieldOfficers: count("field_officer"),
-      programmeStaff: sc.global ? active.filter((p) => ["admin", "me", "education_team", "super_admin"].includes(p.role)).length : null,
+      programmeStaff: sc.global && !picked ? active.filter((p) => ["admin", "me", "education_team", "super_admin"].includes(p.role)).length : null,
       pending: people.filter((p) => p.status === "pending").length,
       learners: (learners.data ?? []).filter((l) => here(l.school_id) && (l.enrollment_status ?? ACTIVE) === ACTIVE).length,
       learnersWithoutClass: (learners.data ?? []).filter((l) => here(l.school_id) && (l.enrollment_status ?? ACTIVE) === ACTIVE && !l.class_id).length,

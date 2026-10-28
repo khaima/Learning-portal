@@ -114,6 +114,8 @@ export function buildAdminResults(
   terms: { current: ReportingTerm; previous: ReportingTerm | null },
   mel: { indicators: Row[]; summary: Record<string, number> } | null,
   now = new Date(),
+  /** The dashboard's filters: one county, one school (by name) — every figure narrowed alike. */
+  place: { county?: string | null; school?: string | null } = {},
 ) {
   const today = now.toISOString().slice(0, 10);
   const { current, previous } = terms;
@@ -122,8 +124,9 @@ export function buildAdminResults(
   const elapsed = daysBetween(current.from, to);
   // The term before, cut to the same number of days in while this one is under way.
   const prevTo = previous ? (underway ? [previous.to, addDays(previous.from, elapsed)].sort()[0] : previous.to) : null;
-  const a = buildImpact(d, { from: current.from, to }, now);
-  const b = previous && prevTo ? buildImpact(d, { from: previous.from, to: prevTo }, now) : null;
+  const where = { county: place.county || null, school: place.school || null };
+  const a = buildImpact(d, { ...where, from: current.from, to }, now);
+  const b = previous && prevTo ? buildImpact(d, { ...where, from: previous.from, to: prevTo }, now) : null;
   const period = underway ? `${current.label} so far` : current.label;
   const prevPeriod = previous ? (underway ? `the same point of ${previous.label}` : previous.label) : "";
   const targets = portalTargets(mel?.indicators ?? []);
@@ -232,7 +235,7 @@ export function buildAdminResults(
     if (s.marked >= 10 && low.has(s.band)) flags.push(SUPPORT_RULES[3]);
     if (!s.visits) flags.push(SUPPORT_RULES[4]);
     return {
-      school: String(s.school), code: s.code ?? null, county: s.county ?? null, learners: Number(s.learners), teachers: Number(s.teachers),
+      id: s.id ?? null, school: String(s.school), code: s.code ?? null, county: s.county ?? null, learners: Number(s.learners), teachers: Number(s.teachers),
       assigned: Number(s.assigned), completionRate: s.assigned ? (s.completionRate as number | null) : null,
       marked: Number(s.marked), averagePercent: s.marked ? (s.averagePercent as number | null) : null,
       visits: Number(s.visits), flags,

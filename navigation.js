@@ -62,7 +62,7 @@ export const ICON = {
 /* ---- the console pages (platform / admin / me / education share them) ---- */
 const PAGES = {
   "platform-overview": { label: "Platform overview", icon: "dashboard", needs: ["platform.view"], purpose: "The platform at a glance, and what's waiting on someone." },
-  "admin-overview": { label: "Administration overview", icon: "dashboard", needs: ["users.view"], purpose: "How the programme is organised, and what needs attention." },
+  "admin-overview": { label: "Administration overview", icon: "dashboard", needs: ["users.view"], filters: ["county", "school"], purpose: "How the programme is organised, and what needs attention." },
   "me-dashboard": { label: "M&E overview", icon: "target", needs: ["me.view"], filters: ["county", "school"], purpose: "Every indicator against its target." },
   overview: { label: "Executive overview", icon: "dashboard", needs: ["intelligence.view"], filters: true, purpose: "The programme at a glance." },
   reach: { label: "Reach", icon: "globe", needs: ["intelligence.view"], filters: true, purpose: "Where the programme reaches: counties, schools, learners and teachers." },

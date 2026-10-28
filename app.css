@@ -2269,3 +2269,24 @@ abbr.band-abbr{ text-decoration:none; border-bottom:1px dotted var(--ink-soft); 
 #gfClear:disabled{ opacity:.45; cursor:default; }
 .filter-summary{ display:flex; flex-wrap:wrap; align-items:center; gap:.35rem .45rem; margin:.65rem 0 0; font-size:var(--text-sm); color:var(--ink-soft); }
 .filter-summary .pill{ background:var(--brand-soft); color:var(--brand-fg); font-weight:600; }
+/* Nothing chosen is said too ("every county and school · all time"); one school chosen: its profile. */
+.filter-summary .gf-all{ font-weight:600; color:var(--ink); }
+.filter-summary .gf-go{ margin-left:auto; font-weight:600; color:var(--brand-fg); text-decoration:none; }
+.filter-summary .gf-go:hover{ text-decoration:underline; text-underline-offset:2px; }
+@media (max-width:640px){ .filter-summary .gf-go{ margin-left:0; min-height:44px; display:inline-flex; align-items:center; } }
+/* A detail table's search box and download above it; its status line and pages under it (tables.js). */
+.table-tools{ display:flex; flex-wrap:wrap; align-items:center; gap:.5rem .75rem; margin:0 0 .6rem; }
+.table-find{ flex:1 1 14rem; max-width:22rem; }
+.table-find input{ width:100%; border:1px solid var(--line-control); border-radius:var(--radius-sm); padding:.45rem .65rem;
+  font:inherit; font-size:var(--text-sm); background:var(--paper-raised); color:var(--ink); }
+.table-find input:focus{ border-color:var(--brand); outline:2px solid var(--focus); outline-offset:1px; }
+.table-tools [data-table-csv]{ margin-left:auto; }
+.table-status{ margin:.5rem 0 0; font-size:var(--text-xs); color:var(--ink-soft); }
+.table-status:empty{ display:none; }
+.table-pager{ display:flex; flex-wrap:wrap; gap:.5rem; margin-top:.45rem; }
+.table-pager button:disabled{ opacity:.45; cursor:default; }
+/* The Executive overview's definitions: one list, closed until wanted. */
+.defs{ display:grid; grid-template-columns:minmax(7rem,auto) 1fr; gap:.45rem 1rem; margin:.4rem 0 0; font-size:var(--text-sm); }
+.defs dt{ font-weight:600; color:var(--ink); }
+.defs dd{ margin:0; color:var(--ink-soft); line-height:1.45; }
+@media (max-width:560px){ .defs{ grid-template-columns:1fr; } .defs dd{ margin-bottom:.35rem; } }

@@ -388,7 +388,7 @@ export function buildIntelligence(d: IntelligenceInput, f: IntelligenceFilter = 
     const g = bySchool.get(s.id);
     const sLib = lib.filter((i) => i.school === s.name);
     return {
-      school: s.name, code: s.code, county: s.county,
+      id: s.id, school: s.name, code: s.code, county: s.county,
       learners: learners.filter((l) => l.school_id === s.id).length,
       teachers: teachers.filter((t) => t.school_id === s.id).length,
       completionRate: g?.completion.rate ?? null, assigned: g?.completion.assigned ?? 0,

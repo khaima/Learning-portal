@@ -15,11 +15,46 @@
    off-screen there, so a sortable table gets a "Sort by" list instead.
    A long table, or a list marked data-clamp, shows its first rows and a
    "Show all" button; nothing is left out of a search or a sort.
+
+   Finding and paging. A table marked data-find gets a search box above it
+   and, past 25 rows, pages ("Rows 26–50 of 80", Previous, Next): the search
+   covers every row, and a sort reorders all of them before the page is
+   cut. Exporting. A table marked data-export="name" gets "Download CSV":
+   the rows the search leaves, every page of them, as plain text. The page
+   that draws the table decides who may export (reports.export); the
+   figures are the ones already on screen. Search and page survive a
+   redraw, like the sort.
    ============================================================ */
 
 const chosen = new Map(); // table → { col, dir } by its page and headings
 const keyOf = (t) => `${location.hash.split("?")[0]}|${[...(t.tHead?.rows[0]?.cells || [])].map((c) => c.textContent.trim()).join("|")}`;
 const LONG = 15; // rows a phone shows before "Show all"
+const PAGE = 25; // rows a page of a findable table shows
+const found = new Map(); // table → { q, page } by its page and headings, like `chosen`
+const toolsOf = new WeakMap(); // table → its search box, status line and pager
+
+/** Does a row's text hold every word of the search? */
+export function matches(text, query) {
+  const words = String(query || "").toLowerCase().split(/\s+/).filter(Boolean);
+  const t = String(text || "").toLowerCase();
+  return words.every((w) => t.includes(w));
+}
+/** Rows of plain values as CSV: quoted where needed, and a value a
+    spreadsheet would run as a formula (=, +, -, @) kept as text. */
+export function csvOf(rows) {
+  const safe = (v) => {
+    let x = String(v ?? "");
+    if (/^[=+\-@\t\r]/.test(x) && !/^-?\d/.test(x)) x = `'${x}`;
+    return /[",\n\r]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x;
+  };
+  return rows.map((r) => r.map(safe).join(",")).join("\r\n");
+}
+/** A cell's words as a reader sees them: no screen-reader-only extras ("…: show only this county"). */
+function cellText(cell) {
+  const c = cell.cloneNode(true);
+  c.querySelectorAll(".sr-only, .th-arrow").forEach((x) => x.remove());
+  return c.textContent.replace(/\s+/g, " ").trim();
+}
 
 function valueOf(cell) {
   const raw = (cell?.dataset.sort ?? cell?.textContent ?? "").trim();
@@ -140,10 +175,12 @@ function enhance(t) {
   }
   const shell = shellOf(t);
   const rows = t.tBodies[0].rows.length;
-  // Long: the first rows on a phone, and a button for the rest.
-  t.classList.toggle("is-long", rows > LONG);
+  // Long: the first rows on a phone, and a button for the rest (a findable table pages instead).
+  const clamp = !t.hasAttribute("data-find");
+  t.classList.toggle("is-long", clamp && rows > LONG);
   const more = shell.nextElementSibling?.matches?.(".table-more") ? shell.nextElementSibling : null;
-  if (rows > LONG && !more && !t.classList.contains("is-expanded")) {
+  if (!clamp) { if (more) more.remove(); } // pages of its own: never a "Show all" (and never one made again next sweep)
+  else if (rows > LONG && !more && !t.classList.contains("is-expanded")) {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "btn btn-outline table-more";
@@ -152,7 +189,7 @@ function enhance(t) {
   } else if (rows <= LONG && more) more.remove();
   else if (more && more.textContent !== `Show all ${rows} rows`) more.textContent = `Show all ${rows} rows`; // only a change: the observer sees every write
 
-  if (!t.hasAttribute("data-sortable")) return;
+  if (!t.hasAttribute("data-sortable")) { tools(t); applyFind(t); return; }
   for (const th of t.tHead.rows[0].cells) {
     if (th.querySelector(".th-sort") || !th.textContent.trim()) continue;
     const b = document.createElement("button");
@@ -184,6 +221,106 @@ function enhance(t) {
   }
   const was = chosen.get(keyOf(t));
   if (was) sortTable(t, was.col, was.dir);
+  tools(t);
+  applyFind(t);
+}
+
+/** The search box and "Download CSV" above a table, the status line and pager under it — made once per table. */
+function tools(t) {
+  const find = t.hasAttribute("data-find"), csv = !!t.dataset.export;
+  if ((!find && !csv) || toolsOf.has(t)) return;
+  const shell = shellOf(t);
+  const box = document.createElement("div");
+  box.className = "table-tools";
+  box.tableRef = t;
+  let input = null;
+  if (find) {
+    const label = document.createElement("label");
+    label.className = "table-find";
+    const said = document.createElement("span");
+    said.className = "sr-only";
+    said.textContent = "Search this table";
+    input = document.createElement("input");
+    input.type = "search";
+    input.autocomplete = "off";
+    input.dataset.tableFind = "";
+    label.append(said, input);
+    box.append(label);
+  }
+  if (csv) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn btn-outline q-small";
+    b.dataset.tableCsv = "";
+    b.textContent = "Download CSV";
+    box.append(b);
+  }
+  // Above the "Sort by" list a phone shows, or above the table.
+  const above = shell.previousElementSibling?.matches?.(".table-sort-mobile") ? shell.previousElementSibling : shell;
+  above.before(box);
+  let status = null, pager = null;
+  if (find) {
+    status = document.createElement("p");
+    status.className = "table-status";
+    status.setAttribute("aria-live", "polite");
+    pager = document.createElement("div");
+    pager.className = "table-pager";
+    pager.hidden = true;
+    pager.tableRef = t;
+    pager.innerHTML = `<button type="button" class="btn btn-outline q-small" data-table-page="-1">Previous page</button><button type="button" class="btn btn-outline q-small" data-table-page="1">Next page</button>`;
+    shell.after(status, pager);
+  }
+  toolsOf.set(t, { input, status, pager });
+}
+
+/** Show the rows the search leaves, one page of them, and say so. */
+function applyFind(t) {
+  const k = toolsOf.get(t);
+  if (!k?.status || !t.tBodies[0]) return;
+  const st = found.get(keyOf(t)) || { q: "", page: 0 };
+  if (k.input.value !== st.q) k.input.value = st.q;
+  const rows = [...t.tBodies[0].rows];
+  const hits = rows.filter((r) => matches(r.textContent, st.q));
+  const pages = Math.max(1, Math.ceil(hits.length / PAGE));
+  st.page = Math.max(0, Math.min(st.page, pages - 1));
+  found.set(keyOf(t), st);
+  const from = st.page * PAGE;
+  const shown = new Set(hits.slice(from, from + PAGE));
+  for (const r of rows) { const hide = !shown.has(r); if (r.hidden !== hide) r.hidden = hide; }
+  const placeholder = `Search ${rows.length} rows`;
+  if (k.input.placeholder !== placeholder) k.input.placeholder = placeholder;
+  const q = st.q.trim();
+  const text = !hits.length ? `No rows match “${q}”.`
+    : hits.length > PAGE ? `Rows ${from + 1}–${from + shown.size} of ${hits.length}${q ? ` matching “${q}”` : ""}`
+    : q ? `${hits.length} of ${rows.length} rows match “${q}”` : "";
+  if (k.status.textContent !== text) k.status.textContent = text; // only a change: the observer sees every write
+  const paged = hits.length > PAGE;
+  if (k.pager.hidden === paged) k.pager.hidden = !paged;
+  const [prev, next] = k.pager.querySelectorAll("button");
+  prev.disabled = st.page === 0;
+  next.disabled = st.page >= pages - 1;
+}
+
+/** "Download CSV": the column names, then every row the search leaves. */
+function download(t) {
+  const st = found.get(keyOf(t)) || { q: "" };
+  const head = columnLabels(t);
+  const rows = [...t.tBodies[0].rows].filter((r) => matches(r.textContent, st.q)).map((r) => [...r.cells].map(cellText));
+  const blob = new Blob([`\ufeff${csvOf([head, ...rows])}`], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `${t.dataset.export}.csv`;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+/** "Reset view": every table back as drawn — no sort, search or page kept. */
+export function resetTables(root = document.body) {
+  chosen.clear();
+  found.clear();
+  root.querySelectorAll("table.lms-table").forEach((t) => applyFind(t));
 }
 
 /** A list (data-clamp="10") shows its first rows on a phone, then "Show all". */
@@ -220,6 +357,20 @@ export function enableSortableTables(root = document.body) {
       more.remove();
       return;
     }
+    const step = target?.closest("[data-table-page]");
+    if (step) {
+      const t = step.closest(".table-pager")?.tableRef;
+      const st = t && found.get(keyOf(t));
+      if (!st) return;
+      st.page += Number(step.dataset.tablePage);
+      busy = true;
+      applyFind(t);
+      busy = false;
+      t.closest(".lms-table-wrap, table")?.scrollIntoView({ block: "nearest" });
+      return;
+    }
+    const csv = target?.closest("[data-table-csv]");
+    if (csv) { const t = csv.closest(".table-tools")?.tableRef; if (t) download(t); return; }
     const b = target?.closest(".th-sort");
     if (!b) return;
     const th = b.closest("th"), t = th.closest("table");
@@ -228,6 +379,16 @@ export function enableSortableTables(root = document.body) {
     chosen.set(keyOf(t), { col, dir });
     busy = true;
     sortTable(t, col, dir);
+    applyFind(t);
+    busy = false;
+  });
+  root.addEventListener("input", (e) => {
+    const box = e.target instanceof Element ? e.target.closest("input[data-table-find]") : null;
+    const t = box?.closest(".table-tools")?.tableRef;
+    if (!t) return;
+    found.set(keyOf(t), { q: box.value, page: 0 });
+    busy = true;
+    applyFind(t);
     busy = false;
   });
   root.addEventListener("change", (e) => {
@@ -241,6 +402,7 @@ export function enableSortableTables(root = document.body) {
     chosen.set(keyOf(t), { col, dir });
     busy = true;
     sortTable(t, col, dir);
+    applyFind(t);
     busy = false;
   });
   // Tables drawn again keep their reader's sort, and get their labels.

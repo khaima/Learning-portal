@@ -9,7 +9,7 @@
     "check": "node scripts/check-csp.mjs",
     "serve": "node scripts/serve-dist.mjs",
     "lint": "eslint .",
-    "test": "node --test tests/charts.test.mjs"
+    "test": "node --test tests/charts.test.mjs tests/tables.test.mjs"
   },
   "dependencies": {
     "@supabase/auth-js": "2.117.2",

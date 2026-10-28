@@ -92,8 +92,9 @@ const names = (rows) => (rows.length > 3 ? `${rows.length} groups` : rows.length
              12 shows its top 10 unless told otherwise (0: every row)
       insight  a sentence above the bars: the highest and lowest. A row's
              `base` (what its rate rests on) under 5 keeps it out of that.
-      period   the reporting period, in every tooltip */
-export function barList(rows, { unit = "", max = null, share: withShare = false, shareOf = null, shareWord = "", sort = false, noun = "", text = null, zeros = "", act = "", empty = "Nothing recorded yet.", top = null, insight = false, period = "" } = {}) {
+      period   the reporting period, in every tooltip
+      compare  { value, label } — the figure each bar is read against ("all counties"), in every tooltip */
+export function barList(rows, { unit = "", max = null, share: withShare = false, shareOf = null, shareWord = "", sort = false, noun = "", text = null, zeros = "", act = "", empty = "Nothing recorded yet.", top = null, insight = false, period = "", compare = null } = {}) {
   let list = (rows || []).filter((r) => r.value != null);
   if (!list.length || !list.some((r) => r.value)) return none(empty);
   if (sort) list = [...list].sort((a, b) => b.value - a.value);
@@ -106,6 +107,7 @@ export function barList(rows, { unit = "", max = null, share: withShare = false,
     const part = (withShare || shareOf != null) && total ? `${share(r.value, total)}%` : "";
     const rows = [[value, noun]];
     if (part) rows.push([part, `of ${num(total)}${shareWord ? ` ${shareWord}` : ""}`]);
+    if (compare?.value != null) rows.push([show(compare.value, unit), compare.label]);
     // A row that leads somewhere is one big target: its name is the link or button.
     const said = act ? `<span class="sr-only"> — ${esc(act)}</span>` : "";
     const name = r.href ? `<a class="bars-link" href="${esc(r.href)}">${r.html ?? esc(r.label)}${said}</a>`

@@ -9,7 +9,7 @@ import "./supabase-auth.js";
 import { menuFor, WORKSPACES } from "./navigation.js";
 import { apiGet } from "./api.js";
 import { liveStatus, swap } from "./live.js";
-import { enableSortableTables } from "./tables.js";
+import { enableSortableTables, resetTables } from "./tables.js";
 import { barList, periodChip, proportion } from "./charts.js";
 import { kpiCard, trendTag } from "./kpi.js";
 import { $, $$, esc, initials, toast, formatDuration, skeleton, skeletonTable, skeletonCards, skeletonCharts, skeletonDashboard, FILTERED_EMPTY, errorState, friendlyError, confirmDialog } from "./util.js";
@@ -192,10 +192,17 @@ async function main() {
     $(".gf-count").hidden = !parts.length;
     $(".gf-count").textContent = parts.length || "";
     $(".gf-open").setAttribute("aria-label", parts.length ? `Filters — ${parts.length} chosen` : "Filters");
+    // Always said, even when nothing is chosen: which places, and which dates.
     const el = $("#gfSummary");
-    if (!parts.length) { el.hidden = true; el.textContent = ""; return; }
     el.hidden = false;
-    el.innerHTML = `<span>Showing data for</span>${parts.map(([k, p]) => `<span class="pill gf-pill">${esc(p)}<button type="button" class="gf-x" data-gf-clear="${k}" aria-label="Remove ${esc(p)}">×</button></span>`).join("")}`;
+    const wide = [];
+    if (!gf.county && !gf.school && (fields.includes("county") || fields.includes("school"))) wide.push("every county and school");
+    if (!gf.from && !gf.to && fields.includes("term")) wide.push("all time");
+    // One school chosen: its profile — its classes, learners and visits, each behind its own permission.
+    const sid = gf.school && fields.includes("school") && canOpen("school-profiles") ? schoolDir.schools.find((x) => x.name === gf.school)?.id : "";
+    el.innerHTML = `<span>Showing data for</span>${parts.map(([k, p]) => `<span class="pill gf-pill">${esc(p)}<button type="button" class="gf-x" data-gf-clear="${k}" aria-label="Remove ${esc(p)}">×</button></span>`).join("")}${
+      wide.length ? `<span class="gf-all">${esc(wide.join(" · "))}</span>` : ""}${
+      sid ? `<a class="gf-go" href="#school-profiles?school=${encodeURIComponent(sid)}&amp;via=${encodeURIComponent(pageNow || "overview")}">School profile<span aria-hidden="true"> →</span></a>` : ""}`;
   }
   // Taking one filter off goes back up a level: without the school, the
   // county; without the county, everywhere.
@@ -216,6 +223,16 @@ async function main() {
     if (c) c.classList.toggle("is-set", c.value !== (c.dataset.default ?? ""));
   });
   updateFilterSummary(); // nothing is set yet: "Clear filters" starts out idle
+  $("#gfReset")?.addEventListener("click", () => {
+    gf.county = ""; gf.school = "";
+    setRange({ from: "", to: "" });
+    for (const d of $$(".app-main details[open]")) d.open = false;
+    resetTables($(".app-main"));
+    renderGlobalFilterOptions();
+    applyFilters();
+    window.scrollTo({ top: 0 });
+    $("#gfReset").focus();
+  });
 
   /* On a phone the filters open as a sheet from the bottom ("Filters"),
      so the page's figures come first; each choice applies as it's made,
@@ -432,15 +449,17 @@ async function main() {
     lastImpact = d;
     const put = (el, html) => swap(el, html, { replace: !quiet });
     if (canOpen("overview") && !d.learningOnly) {
-      const o = imp.executiveHtml(d, { canOpen, via: "overview" });
+      const o = imp.executiveHtml(d, { canOpen, via: "overview", canExport: has("reports.export") });
       put($("#statRow"), o.headline + dqSlot());
       put($("#intelAreas"), o.areas);
       put($("#execCharts"), o.charts);
     }
-    for (const p of pagesHere) put($(`#imp-${p}`), imp[IMP_PAGES[p]](d, { canOpen, via: p }));
+    for (const p of pagesHere) put($(`#imp-${p}`), imp[IMP_PAGES[p]](d, { canOpen, via: p, canExport: has("reports.export") }));
     for (const m of $$("details[data-more]")) m.open = moreOpen.has(m.dataset.more);
+    // Above each dashboard: the places and the dates its figures are for.
     const scope = d.scope.school || (d.scope.county ? `${d.scope.county} County` : "every school");
-    for (const m of $$("[data-imp-meta]")) m.textContent = scope;
+    const when = gf.from || gf.to ? termLabelFor(gf.from, gf.to) || dateRangeLabel(gf.from, gf.to) : "all time";
+    for (const m of $$("[data-imp-meta]")) m.textContent = `${scope} · ${when}`;
     if (d.currentTerm) $("#topSub").textContent = d.currentTerm;
     fillMelSlots({ quiet });
     renderAttention();
@@ -1500,7 +1519,7 @@ async function main() {
     }
     if (run !== usageRun) return; // the filters changed while this was being read
     $("#usageMeta").textContent = u.school || (u.county ? `${u.county} County` : "Every school");
-    swap($("#usageBody"), ui.usageHtml(u, { canOpen, roleLabel: (r) => ROLE_LABEL[r] || r }), { replace: !quiet });
+    swap($("#usageBody"), ui.usageHtml(u, { canOpen, roleLabel: (r) => ROLE_LABEL[r] || r, canExport: has("reports.export") }), { replace: !quiet });
     for (const m of $$('#usageBody details[data-more]')) m.open = moreOpen.has(m.dataset.more);
     if (!quiet) usageLive.ok();
   }
@@ -3440,9 +3459,12 @@ async function main() {
   const teachersFilter = () => ({ q: $("#tchSearch").value, role: $("#tchRole").value, county: gf.county, school: gf.school });
   const asgRedraw = (A) => A.renderAssignments($("#asgBody"), { schoolId: $("#asgSchool").value, status: $("#asgStatus").value, subject: $("#asgSubject").value,
     county: gf.county, from: gf.from, to: gf.to }, schoolNames(), new Map(schoolDir.schools.map((x) => [x.id, x.county])));
+  /** What the Administration overview is drawn with: the filters above, and this person's rights. */
+  const adminOverviewOpts = () => ({ filter: { county: gf.county, school: gf.school }, canOpen, canExport: has("reports.export") });
   function refreshFilteredPage() {
-    if (!["field-visits", "teachers", "school-profiles", "assignments"].includes(pageNow)) return;
+    if (!["field-visits", "teachers", "school-profiles", "assignments", "admin-overview"].includes(pageNow)) return;
     adminUi().then((A) => {
+      if (pageNow === "admin-overview") A.renderAdminOverview($("#aoBody"), adminOverviewOpts());
       if (pageNow === "field-visits") A.renderFieldVisits($("#fvBody"), visitsFilter());
       if (pageNow === "teachers") A.renderTeachers($("#tchBody"), teachersFilter());
       if (pageNow === "assignments") { schoolOptions($("#asgSchool"), { all: "All schools in your area", county: gf.county }); asgRedraw(A); }
@@ -3458,8 +3480,11 @@ async function main() {
 
   async function onPage(page, params) {
     pageNow = page;
-    // A link can carry the filters (?county=…&school=…&term=2026 Term 3&month=2026-10).
-    const carried = Object.fromEntries(["county", "school", "term", "month"].map((k) => [k, params.get(k)]).filter(([, v]) => v));
+    // A link can carry the filters (?county=…&school=…&term=2026 Term 3&month=2026-10) — except
+    // where ?school= is a school's id (its profile, classes, work, results, learners): there it
+    // stays in the address for the page, and the school filter (a name) is left as it was.
+    const idPage = ["school-profiles", "classes", "assignments", "results", "learners"].includes(page);
+    const carried = Object.fromEntries(["county", "school", "term", "month"].filter((k) => !(k === "school" && idPage)).map((k) => [k, params.get(k)]).filter(([, v]) => v));
     if (Object.keys(carried).length) {
       applyDrill(carried); saveFilters(); renderStats();
       // From here on they're the filters above (kept for the tab): the address drops them, so taking one off sticks.
@@ -3485,7 +3510,7 @@ async function main() {
         // Recent activity in the Audit log's own words.
         A.renderPlatformOverview($("#pfBody"), { describe: (e) => ({ what: AUDIT_ACTION[e.action] || e.action, detail: auditDetail(e) }) });
         break;
-      case "admin-overview": A.renderAdminOverview($("#aoBody")); break;
+      case "admin-overview": A.renderAdminOverview($("#aoBody"), adminOverviewOpts()); break;
       case "field-officers":
         import("./officers-ui.js").then((m) => m.renderFieldOfficers($("#foBody")))
           .catch(() => { $("#foBody").innerHTML = errorState("Couldn't open this page — check your connection.", () => onPage("field-officers", params)); });

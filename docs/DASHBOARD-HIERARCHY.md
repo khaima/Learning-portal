@@ -224,6 +224,12 @@ Kobo review and high-severity data issues moved into a folded "Data checks
 waiting" (data operations, not results). System diagnostics stay on the
 Platform overview (Super Admin).
 
+28 October 2026: the page takes the county and school filters (every part
+narrowed alike, inside the admin's own area; whole-programme M&E targets
+aren't put against one county or school), a school's name opens its
+profile, and "School by school" can be searched and downloaded (CSV, with
+`reports.export`).
+
 ## School head (`leader.html`)
 
 | Component | Level | Now |
