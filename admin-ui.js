@@ -15,7 +15,7 @@ import { resultsTableHtml } from "./assignments-ui.js";
 import { extendTrail, withVia } from "./nav.js";
 import { ICON } from "./navigation.js";
 import { agoTag, liveStatus, swap } from "./live.js";
-import { barList, heatmap, histogram, lineChart, marksSpread, monthPoints, periodChip, stackBar, TARGET_KEY, targetList } from "./charts.js";
+import { barList, bulletList, heatmap, histogram, lineChart, marksSpread, monthPoints, periodChip, stackBar, TARGET_KEY, targetList } from "./charts.js";
 import { insightsAll, insightsPanel } from "./insights-ui.js";
 import { kpiCard, trendTag } from "./kpi.js";
 
@@ -637,9 +637,9 @@ function picturesHtml(d, r, opts) {
   const ranked = r.schools.filter((s) => s.marked >= min && s.averagePercent != null);
   const overall = r.kpis.find((k) => k.key === "assessment")?.value ?? null;
   const schools = ranked.length
-    ? barList(ranked.map((s) => ({ label: s.school, value: s.averagePercent, base: s.marked, note: `${num(s.marked)} marked`,
+    ? bulletList(ranked.map((s) => ({ label: s.school, value: s.averagePercent, base: s.marked, note: `${num(s.marked)} marked`,
       ...(opts.canOpen?.("school-profiles") && s.id ? { href: `#school-profiles?school=${encodeURIComponent(s.id)}&via=admin-overview` } : {}) })),
-    { unit: "%", noun: "average mark", sort: true, insight: true, compare: { value: overall, label: "all schools" }, period, act: "open its profile" })
+    { unit: "%", noun: "average mark", insight: true, line: { value: overall, label: "All schools" }, period, act: "open its profile" })
     : `<p class="chart-few">No school has ${num(min)} or more marked pieces of work this term yet.</p>`;
   // 4. Progress against the approved targets.
   const T = r.targets;

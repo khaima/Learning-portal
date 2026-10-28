@@ -9,11 +9,14 @@ does that better, there is no chart.
 
 | The question | The picture | In `charts.js` |
 | --- | --- | --- |
-| How has this changed over time? | A **line** | `lineChart`, `trendOrBars` |
+| How has this changed over time? | A **line** with a fading wash, its latest, highest and lowest points labelled | `lineChart`, `trendOrBars` |
+| How many each month or term — is the programme growing? | **Columns**, the value on each cap, the period under way paler | `columnChart(…, { time: true })` |
+| How do a few ordered groups compare (grades)? | **Columns** with a dashed line for the overall figure | `columnChart(…, { line })` |
 | How do these groups compare (schools, counties, activities)? | **Horizontal bars**, one colour, from zero | `barList` |
+| How does each group stand against a line — its approved target, or the overall figure? | **A bar per group with the line across it**: full colour at or past it, paler short of it | `bulletList` |
 | How do two periods or groups compare, category by category (last term and this; a baseline and a follow-up)? | **Grouped bars**, side by side on one scale | `groupedBars` |
 | How far towards the target? | A **bar filling towards a line** | `targetList` |
-| What share of one whole? | **Bars, each with its share** — no pies or donuts | `proportion` |
+| What share of one whole? | **Bars, each with its share** — or, for 2 to 5 parts at a glance, **a ring** with every count and share in its key | `proportion`, `donut` |
 | What share, on a scale that has an order? | **One bar, split in order** | `stackBar` |
 | …the same scale, for several groups side by side (bands by subject)? | **A split bar per group**, one key | `stackRows` |
 | How many, in each cell of a grid (a place × a month, a day × a time)? | A **heatmap** | `heatmap` |
@@ -27,9 +30,20 @@ Rules that go with them:
 
 - **A line needs three points.** With fewer, the periods are compared as
   bars (`trendOrBars` decides).
-- **No pies or donuts** (27 October 2026). The parts of a whole are bars,
-  each with its count and share: lengths on one scale compare more exactly
-  than angles, and need no colour key.
+- **A ring only for a few parts of one whole** (28 October 2026, replacing
+  "no pies or donuts" of 27 October at the programme's request for richer
+  pictures): 2 to 5 parts (the achievement bands, the library's shelves, how
+  teachers are employed), the total in the middle and every part's count and
+  share in the key, so nothing is read from an angle alone. More parts, or
+  parts to be compared closely, are bars (`donut` falls back to them).
+- **Columns carry their value on the cap**; a single hue deepens towards
+  the top. The period still under way is paler and outlined, says "so far",
+  and is left out of the sentence above.
+- **A line across bars or columns is always named** in the key — "All
+  schools: 63%", "All grades", or a school's approved target — never
+  assumed to be a target. Bars short of an *average* line are paler, not
+  red: some are always below an average. Two figures that read the same
+  are "on the line", never "0 pts below".
 - **Grouped bars for two periods or groups**, side by side per category on
   one scale (0–100 for percentages): the earlier one lighter, the latest
   in the brand blue, a key above. "No data" where a period has too little
@@ -220,7 +234,7 @@ blindness and contrast validator against the card surface:
 | `--chart-1` | Every single-measure bar and line. |
 | `--chart-target` | The dashed target line on a trend: grey ink, because a target is a reference, not a warning (was orange `--chart-2` until 27 October 2026). |
 | `--seq-3`, `--chart-1` | A grouped bar's two periods: the earlier lighter, the latest brand blue (three periods: `--seq-4`, `--seq-2`, `--chart-1`). |
-| `--cat-1` … `--cat-3` | Unused since the donuts went (27 October 2026); kept, validated, for a chart that ever needs unordered categories in colour (blue, cyan, orchid — no status hue; figures in DESIGN-SYSTEM.md). |
+| `--cat-1` … `--cat-3` | A ring's unordered parts, in this order (blue, cyan, orchid — no status hue; validated, figures in DESIGN-SYSTEM.md); a part that is "Not specified" is `--neutral`. A ring of the bands uses `--band-*`. |
 | `--band-1` … `--band-4` | The four achievement bands, best to weakest. |
 | `--seq-1` … `--seq-4` | One hue, strongest to weakest, for an ordered scale (how recently staff signed in) and a heatmap's four shades. |
 | `--hm-ink-1` … `--hm-ink-4` | The count printed on each heatmap shade: 4.5:1 or more on its shade in both themes (checked). |
@@ -230,6 +244,22 @@ blindness and contrast validator against the card surface:
 Until 27 October 2026 the donut used blue, orange, purple and green —
 orange and green being the attention and positive colours, and blue and
 purple failing the validator; then the donuts went altogether.
+
+## Richer pictures, 28 October 2026
+
+| Dashboard | Chart | Now |
+| --- | --- | --- |
+| Executive overview | How much set work is handed in, term by term | Columns, the value on each |
+| Reach | Learners on roll, term by term | Columns (the roll growing) |
+| Reach (more detail) | How teachers are employed | A ring, the counts in its key |
+| Learning | Which grades hand in their work | A bar per grade with the all-grades line |
+| Learning | Average mark in each grade | Columns with the all-grades line |
+| Learning | Where marked work falls (new) | A ring of the four bands |
+| Teacher development | Trained / active, by county | A bar per county with the all-counties line |
+| Field operations | Field visits / survey records, month by month | Columns (12 months, the month under way paler) |
+| Digital resources (more detail) | What the library holds, by shelf | A ring of the three shelves |
+| Administration overview | Average mark, school by school | A bar per school with the all-schools line |
+| Every page | Key-figure cards | A small picture beside each name; the change on the period before as a badge |
 
 ## What each chart was, and is
 

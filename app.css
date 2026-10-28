@@ -267,6 +267,15 @@ th[aria-sort="descending"] .th-arrow{ opacity:1; } th[aria-sort="descending"] .t
 /* Key figures (kpi.js, docs/CHARTS.md "Key figures"): a change against an
    earlier period, when there is one, sits between the value and its context. */
 .stat-tile .s-title{ min-width:0; }
+/* What a figure is about, as a small tile beside its name; the change on the period before as a badge. */
+.stat-tile .s-ico{ flex:none; display:grid; place-items:center; width:1.75rem; height:1.75rem; border-radius:.55rem; background:var(--brand-soft); color:var(--brand-fg); }
+.stat-tile .s-ico .icon{ width:.95rem; height:.95rem; }
+.stat-tile .s-label .s-title{ flex:1 1 auto; }
+.stat-tile .s-label .s-go{ flex:none; }
+.stat-tile.intel-warn .s-ico{ background:var(--accent-soft); color:var(--accent-fg); }
+.stat-tile .s-trend .trend-delta{ display:inline-block; padding:.08rem .5rem; border-radius:999px; font-size:var(--text-xs); line-height:1.5; }
+.stat-tile .s-trend .trend.good .trend-delta{ background:var(--success-soft); }
+.stat-tile .s-trend .trend.bad .trend-delta{ background:var(--danger-soft); }
 .stat-tile .s-trend{ font-size:var(--text-sm); line-height:1.4; margin-top:.4rem; color:var(--ink-soft); }
 .trend{ font-weight:700; } .trend-delta{ white-space:nowrap; }
 .trend.good{ color:var(--success-fg); } .trend.bad{ color:var(--danger-fg); } .trend.flat{ color:var(--ink-soft); font-weight:600; }
@@ -2189,7 +2198,10 @@ h2,h3{ font-family:inherit; letter-spacing:-.01em; }
 .lc-line{ fill:none; stroke:var(--chart-1); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; vector-effect:non-scaling-stroke; }
 .lc-line-t{ stroke:var(--chart-target); stroke-dasharray:5 4; }
 .lc-line-partial{ stroke-dasharray:3 4; }
-.lc-area{ fill:var(--chart-1); stroke:none; opacity:.1; }
+.lc-area{ stroke:none; }
+/* The wash under a line fades from a light tint to nothing at the baseline. */
+.lc-fade-top{ stop-color:var(--chart-1); stop-opacity:.22; }
+.lc-fade-end{ stop-color:var(--chart-1); stop-opacity:0; }
 /* Each point owns a full-height strip: pointing anywhere in it picks the point. */
 .lc-pt{ position:absolute; top:0; bottom:0; }
 .lc-pt::before{ content:""; position:absolute; left:50%; top:0; bottom:0; width:1px; margin-left:-.5px; background:var(--ink-soft); opacity:0; }
@@ -2251,6 +2263,48 @@ h2,h3{ font-family:inherit; letter-spacing:-.01em; }
   .heatmap .hm-total{ width:2.1rem; padding-left:.2rem; }
 }
 /* ---- histogram (charts.js): columns side by side on one scale */
+/* ---- Columns (charts.js columnChart): one per period or group, its value on the cap,
+   a single hue deepening towards the top; the period under way paler, outlined. */
+.cols{ display:grid; grid-template-columns:auto minmax(0,1fr); grid-template-rows:var(--col-h,170px) auto; column-gap:.5rem; margin-top:1.6rem; }
+.cols-plot{ position:relative; display:flex; align-items:stretch; justify-content:space-around; gap:6px; border-bottom:1px solid color-mix(in srgb, var(--ink-soft) 40%, var(--line)); }
+.col{ position:relative; flex:1 1 0; min-width:0; max-width:64px; display:flex; flex-direction:column; justify-content:flex-end; align-items:center;
+  background:none; border:0; padding:0; margin:0; font:inherit; color:inherit; z-index:2; }
+.col-bar{ display:block; width:min(100%, 40px); min-height:2px; border-radius:4px 4px 0 0;
+  background:linear-gradient(to top, color-mix(in srgb, var(--chart-1) 58%, var(--paper-raised)), var(--chart-1)); }
+.col.is-partial .col-bar{ background:color-mix(in srgb, var(--chart-1) 30%, var(--paper-raised)); box-shadow:inset 0 0 0 1.5px color-mix(in srgb, var(--chart-1) 70%, transparent); }
+.col-val{ margin-bottom:.22rem; font-size:var(--text-xs); font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums; white-space:nowrap; }
+.col-val.is-none{ color:var(--ink-soft); font-weight:600; }
+.col.is-drill{ cursor:pointer; border-radius:6px; }
+.col.is-drill:hover .col-bar, .col.is-drill:focus-visible .col-bar{ filter:saturate(1.15) brightness(1.08); }
+.col:focus-visible{ outline:2px solid var(--focus); outline-offset:3px; }
+.cols-ref{ position:absolute; left:0; right:0; height:0; border-top:2px dashed var(--chart-target); z-index:3; pointer-events:none; }
+.cols-x{ grid-column:2; display:flex; justify-content:space-around; gap:6px; margin-top:.4rem; }
+.cols-x span{ flex:1 1 0; max-width:64px; text-align:center; font-size:var(--text-xs); line-height:1.25; color:var(--ink-soft); overflow-wrap:anywhere; }
+.cols-x small{ display:block; }
+.key-ref{ display:inline-block; width:16px; height:0; border-top:2px dashed var(--chart-target); vertical-align:middle; background:none !important; border-radius:0 !important; }
+
+/* ---- A ring (charts.js donut): one whole in a few parts, the total in the middle, the numbers in the key. */
+.donut{ display:flex; flex-wrap:wrap; align-items:center; gap:1rem 1.6rem; margin-top:.9rem; }
+.dn-ring{ position:relative; flex:none; width:150px; height:150px; }
+.dn-ring svg{ display:block; width:100%; height:100%; }
+.dn-track{ fill:none; stroke:var(--paper-sunk); stroke-width:6.2; }
+.dn-seg{ fill:none; stroke-width:6.2; cursor:default; transition:stroke-width .15s; }
+.dn-seg:hover{ stroke-width:7.2; }
+.dn-centre{ position:absolute; inset:0; display:grid; place-content:center; text-align:center; pointer-events:none; line-height:1.15; }
+.dn-centre b{ font-size:var(--text-lg); font-weight:800; font-variant-numeric:tabular-nums; color:var(--ink); }
+.dn-centre span{ font-size:var(--text-xs); color:var(--ink-soft); }
+.donut .chart-key-rows{ flex:1 1 13rem; min-width:0; margin:0; }
+@media (prefers-reduced-motion:reduce){ .dn-seg{ transition:none; } }
+
+/* ---- Each group against its line (charts.js bulletList): the bar, and the line across it. */
+.bul-track{ position:relative; height:12px; border-radius:6px; background:var(--paper-sunk); }
+.bul-fill{ position:absolute; left:0; top:0; bottom:0; min-width:3px; border-radius:6px; background:var(--chart-1); }
+.bul-row.is-under .bul-fill{ background:color-mix(in srgb, var(--chart-1) 42%, var(--paper-raised)); }
+.bul-line{ position:absolute; top:-5px; bottom:-5px; width:3px; margin-left:-1.5px; border-radius:2px; background:var(--ink); box-shadow:0 0 0 1.5px var(--paper-raised); }
+.chart-key .key-swatch{ display:inline-block; width:14px; height:9px; border-radius:3px; background:var(--chart-1); vertical-align:middle; }
+.chart-key .key-swatch.is-under{ background:color-mix(in srgb, var(--chart-1) 42%, var(--paper-raised)); }
+.chart-key .key-tick{ display:inline-block; width:3px; height:13px; border-radius:2px; background:var(--ink); vertical-align:middle; }
+
 .hist{ display:grid; grid-template-columns:auto minmax(0,1fr); grid-template-rows:150px auto; column-gap:.5rem; margin-top:1.35rem; container:hist / inline-size; }
 /* A narrow histogram names every other edge: 0, 20, 40 … */
 @container hist (max-width:420px){ .hist-x span:nth-child(even){ visibility:hidden; } }

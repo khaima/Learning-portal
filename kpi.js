@@ -18,6 +18,7 @@
    ============================================================ */
 
 import { esc } from "./util.js";
+import { ICON } from "./navigation.js";
 
 /** A key figure.
       label    the title (plain text)
@@ -32,8 +33,10 @@ import { esc } from "./util.js";
       attrs    extra attributes for the link (e.g. data-open-sync-center) */
 export function kpiCard({ label, value, unit = "", icon = "", trend = "", sub = "", tone = "", href = "", attrs = "" }) {
   const cls = `stat-tile${href ? " stat-link" : ""}${tone ? ` intel-${tone}` : ""}`;
+  // What the figure is about, as a small picture beside its name (decoration: the name says it).
+  const pic = icon && ICON[icon] ? `<span class="s-ico" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${ICON[icon]}</svg></span>` : "";
   const body = `
-    <div class="s-label"><span class="s-title">${esc(label)}</span>${href ? `<span class="s-go" aria-hidden="true">→</span>` : ""}</div>
+    <div class="s-label">${pic}<span class="s-title">${esc(label)}</span>${href ? `<span class="s-go" aria-hidden="true">→</span>` : ""}</div>
     <div class="s-num">${value}${unit ? `<small class="s-unit"> ${esc(unit)}</small>` : ""}</div>
     ${trend ? `<div class="s-trend">${trend}</div>` : ""}
     ${sub ? `<div class="s-sub">${sub}</div>` : ""}`;

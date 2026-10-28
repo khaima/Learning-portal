@@ -37,11 +37,51 @@ test("bars: the period is in every tooltip", () => {
   assert.match(C.barList(grades, { unit: "%", period: "1 Sep 2026 – 27 Oct 2026" }), /1 Sep 2026 – 27 Oct 2026/);
 });
 
-test("parts of one whole are bars with shares — no pies or donuts", () => {
+test("parts of one whole: bars by default; a ring only for 2–5 parts, every number in its key", () => {
   const parts = C.proportion([{ label: "TSC", value: 11 }, { label: "BOM", value: 4 }], { noun: "teachers" });
   assert.doesNotMatch(parts, /donut|<svg/);
   assert.match(text(parts), /TSC 11 73%/);
-  assert.equal(C.donut, undefined);
+  const ring = C.donut([{ label: "Exceeding", value: 20, colour: "var(--band-1)" }, { label: "Meeting", value: 45, colour: "var(--band-2)" }, { label: "Below", value: 0, colour: "var(--band-4)" }],
+    { noun: "pieces", title: "Marked work by band" });
+  assert.match(ring, /class="donut"/);
+  assert.match(text(ring), /Exceeding 20 31%.*Meeting 45 69%.*Below 0 0%/, "every part's count and share in the key, a part with none included");
+  assert.equal((ring.match(/class="dn-seg"/g) || []).length, 2, "no slice for a part with nothing");
+  assert.match(ring, /aria-label="Marked work by band: Exceeding 20 \(31%\), Meeting 45 \(69%\), Below 0 \(0%\), of 65 pieces"/);
+  assert.match(ring, /<b>65<\/b>/, "the total in the middle");
+  const many = C.donut(["A", "B", "C", "D", "E", "F"].map((label, i) => ({ label, value: i + 1 })), { noun: "x" });
+  assert.doesNotMatch(many, /class="donut"/, "six parts are bars");
+  assert.match(C.donut([], { empty: "Nothing yet." }), /Nothing yet/);
+});
+
+test("columns: the value on each cap, the period under way paler, a reference line named in the key", () => {
+  const pts = [{ label: "T3", full: "2025 Term 3", value: 66 }, { label: "T1", full: "2026 Term 1", value: 70 }, { label: "T2", full: "2026 Term 2", value: 78 }, { label: "T3", full: "2026 Term 3", value: 81, partial: true }];
+  const cols = C.columnChart(pts, { unit: "%", noun: "handed in", title: "Handed in by term", time: true, insight: true, line: { value: 75, label: "All grades" } });
+  assert.equal((cols.match(/class="col-val"/g) || []).length, 4, "each column carries its value");
+  assert.match(cols, /class="col is-partial"/);
+  assert.match(text(cols), /2026 Term 3 isn't over yet/);
+  assert.match(cols, /2026 Term 2: 78%, up from 70% in 2026 Term 1\./, "the sentence leaves the period under way out");
+  assert.match(text(cols), /All grades: 75%/, "the line is named in the key");
+  assert.match(cols, /role="img" aria-label="Handed in by term: 2025 Term 3 66%, 2026 Term 1 70%, 2026 Term 2 78%, 2026 Term 3 81% so far; All grades 75%"/);
+  const drill = C.columnChart([{ label: "Sep", value: 4, drill: { month: "2026-09" } }, { label: "Oct", value: 2, drill: { month: "2026-10" } }], { drill: true, noun: "visits" });
+  assert.match(drill, /<button type="button" class="col is-drill" data-drill=/, "a column that narrows the page is a button");
+  assert.match(drill, /role="group"/);
+  assert.match(C.columnChart([{ label: "A", value: 0 }], { empty: "None." }), /None\./, "all zero: said, not drawn");
+});
+
+test("each group against its line: paler when short of it, how far in words, the line named", () => {
+  const rows = [{ label: "Aitong", value: 69 }, { label: "Chaka", value: 58 }, { label: "Sipili", value: 63 }, { label: "Ilkerin", value: 63 }];
+  const b = C.bulletList(rows, { unit: "%", noun: "average mark", line: { value: 63, label: "All schools" }, insight: true });
+  assert.match(text(b), /^3 of 4 at or above the all schools line\./);
+  assert.equal((b.match(/bul-row is-under/g) || []).length, 1, "only Chaka is short of the line");
+  assert.match(text(b), /Chaka 58% 5 pts below/);
+  assert.match(text(b), /Sipili 63% on the line/);
+  const close = C.bulletList([{ label: "Chaka", value: 62.6 }], { unit: "%", line: { value: 63.2, label: "All schools" } });
+  assert.match(text(close), /Chaka 63% on the line/, "figures that read the same are on the line — never “0 pts below”");
+  assert.doesNotMatch(close, /bul-row is-under/);
+  assert.match(text(b), /All schools: 63%/);
+  const own = C.bulletList([{ label: "A", value: 40, line: 50, lineLabel: "its target" }, { label: "B", value: 60, line: 50 }], { unit: "%", line: { label: "Each school's approved target" } });
+  assert.match(text(own), /A 40% 10 pts below/);
+  assert.match(text(own), /Each school(&#39;|')s approved target$/);
 });
 
 test("grouped bars: two periods side by side, missing data said as such", () => {
