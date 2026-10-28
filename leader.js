@@ -147,8 +147,10 @@ async function main() {
   /* How the school's marks spread: each learner's average on marked work, in tens, coloured by band. */
   function renderMarks() {
     const m = overview.marks;
-    $("#headMarksMeta").textContent = m?.learners ? `${m.learners} learner${m.learners === 1 ? "" : "s"} · median ${m.median}%` : "";
-    $("#headMarks").innerHTML = m ? marksSpread(m.bins, overview.bands || []) : emptyState("No marked work yet.");
+    // Every piece of the school's marked work so far — the reporting period, said in words.
+    $("#headMarksMeta").textContent = m?.learners
+      ? `Each learner's average on marked work · ${m.learners} learner${m.learners === 1 ? "" : "s"} · median ${m.median}% · all marked work so far` : "";
+    $("#headMarks").innerHTML = m ? marksSpread(m.bins, overview.bands || [], { period: "All marked work so far" }) : emptyState("No marked work yet.");
   }
 
   function renderLearningByGrade() {
@@ -435,7 +437,7 @@ async function main() {
     try {
       el.innerHTML = resultsTableHtml(await getResults({
         by: $("#hr_by").value, classId: $("#hr_class").value, subjectId: $("#hr_subject").value, termId: $("#hr_term").value,
-      }));
+      }), { period: $("#hr_term").selectedOptions?.[0]?.textContent || "" });
     } catch (err) {
       el.innerHTML = errorState(friendlyError(err), renderHeadResults);
     }

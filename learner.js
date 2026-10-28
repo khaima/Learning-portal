@@ -36,7 +36,6 @@ sync.registerPrefetch(async () => {
   await Promise.all([getLibrary(), getLibraryFolders(), getMyLibraryUsage(), getResults({ by: "subject" })]);
 });
 
-const CIRCUMFERENCE = 2 * Math.PI * 34;
 const HOME_TEASER_LIMIT = 3; // keep the digest scannable — the sidebar is where the full list lives
 
 async function main() {
@@ -128,8 +127,7 @@ async function main() {
     const overdue = set.filter((a) => a.overdue).length;
     const lateOpen = toDo.filter((a) => a.overdue).length;
     $("#progressText").textContent = `${handedIn}/${total}`;
-    $("#progressArc").setAttribute("stroke-dasharray", String(CIRCUMFERENCE));
-    $("#progressArc").setAttribute("stroke-dashoffset", String(CIRCUMFERENCE * (1 - fraction)));
+    $("#progressFill").style.width = `${Math.round(fraction * 100)}%`; // the heading beside it says the same in words
     $("#progressHeading").textContent = total ? `${handedIn} of ${total} assignments handed in` : "No assignments yet";
     $("#progressSub").textContent = toDo.length
       ? `${toDo.length} to do, starting with "${toDo[0].title}" (${toDo[0].subject})${toDo[0].dueAt ? `, due ${fmtWhen(toDo[0].dueAt)}` : ""}.`

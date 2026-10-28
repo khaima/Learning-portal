@@ -307,7 +307,11 @@ th[aria-sort="descending"] .th-arrow{ opacity:1; } th[aria-sort="descending"] .t
 
 /* ---- learner-specific ---- */
 .hero-progress{ background:var(--panel); color:#fff; border-radius:var(--radius-lg); padding:1.5rem 1.6rem; display:flex; align-items:center; gap:1.4rem; margin-bottom:1.4rem; flex-wrap:wrap; }
-.ring{ width:78px; height:78px; flex:none; }
+/* The learner's work handed in: the count, and a bar of the share — not a ring. */
+.hero-meter{ flex:none; width:8.5rem; }
+.hero-meter b{ display:block; font-size:var(--text-kpi); font-weight:700; line-height:1.1; color:#fff; font-variant-numeric:tabular-nums; }
+.hero-meter-track{ display:block; height:8px; margin-top:.45rem; border-radius:4px; background:rgba(255,255,255,.25); overflow:hidden; }
+.hero-meter-track i{ display:block; width:0; height:100%; border-radius:4px; background:#fff; }
 .hero-progress h2{ color:#fff; font-size:var(--text-lg); margin-bottom:.25rem; }
 .hero-progress p{ margin:0; color:rgba(255,255,255,.82); font-size:var(--text-body); max-width:24rem; }
 

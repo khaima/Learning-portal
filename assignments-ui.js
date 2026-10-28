@@ -84,14 +84,16 @@ const BY_LABEL = {
 };
 
 /** Completion and achievement side by side, under their own headings. */
-export function resultsTableHtml(data) {
+/* `period`: which term(s) the results cover ("2026 Term 3", "All terms") — the
+   term picked above them; it heads the marks spread and is in its tooltips. */
+export function resultsTableHtml(data, { period = "" } = {}) {
   if (!data?.rows?.length) {
     return `<div class="empty-state">No results yet — they appear once published work is due or handed in.</div>`;
   }
   // By learner: how their marks spread, above the table (each learner's average on marked work, in tens).
   const marked = data.by === "learner" ? data.rows.filter((r) => r.achievement.marked && r.achievement.averagePercent != null) : [];
-  const spread = marked.length ? `<div class="results-spread"><div class="chart-subhead">Learners' average marks · ${marked.length} with marked work</div>
-    ${marksSpread(marksBins(marked.map((r) => r.achievement.averagePercent), data.bands || []), data.bands || [])}</div>` : "";
+  const spread = marked.length ? `<div class="results-spread"><div class="chart-subhead">How learners' average marks are spread · ${marked.length} with marked work${period ? ` · ${esc(period)}` : ""}</div>
+    ${marksSpread(marksBins(marked.map((r) => r.achievement.averagePercent), data.bands || []), data.bands || [], { period })}</div>` : "";
   const bandsKey = (data.bands || []).map((b) => `<b>${esc(b.code)}</b> ${esc(b.label)} (${b.minPercent}%+)`).join(" · ");
   const row = (label, r, tag = "td") => `
     <tr>

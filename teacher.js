@@ -387,7 +387,7 @@ async function main() {
     try {
       el.innerHTML = resultsTableHtml(await getResults({
         by: $("#rf_by").value, classId: $("#rf_class").value, subjectId: $("#rf_subject").value, termId: $("#rf_term").value,
-      }));
+      }), { period: $("#rf_term").selectedOptions?.[0]?.textContent || "" });
     } catch (err) {
       el.innerHTML = errorState(friendlyError(err), renderResults);
     }

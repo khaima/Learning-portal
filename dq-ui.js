@@ -25,18 +25,21 @@ export function statusPill(s) {
   return `<span class="pill ${cls}">${esc(STATUS_LABEL[s] || s)}</span>`;
 }
 
-/** A small line chart of the score over the last scans. */
+/** A small line chart of the score over the last scans, on the score's whole
+    0–100 scale — a cut-off scale would make a few points look like a leap —
+    with the scans' dates and first and last scores printed beside it. */
 function sparkline(history) {
   const pts = (history || []).filter((h) => h.score != null);
   if (pts.length < 2) return "";
   const w = 160, h = 36;
-  const min = Math.min(...pts.map((p) => p.score), 50), max = 100;
-  const xy = pts.map((p, i) => [(i / (pts.length - 1)) * w, h - ((p.score - min) / (max - min || 1)) * h]);
+  const xy = pts.map((p, i) => [(i / (pts.length - 1)) * w, h - (Math.max(0, Math.min(100, p.score)) / 100) * h]);
+  const day = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "");
+  const when = pts[0].at && pts.at(-1).at ? `, ${day(pts[0].at)} – ${day(pts.at(-1).at)}` : "";
   const [ex, ey] = xy.at(-1);
-  return `<svg class="dq-spark" viewBox="-4 -4 ${w + 8} ${h + 8}" role="img" aria-label="Score over the last ${pts.length} scans: ${esc(pts.map((p) => p.score).join(", "))}">
+  return `<svg class="dq-spark" viewBox="-4 -4 ${w + 8} ${h + 8}" role="img" aria-label="Score out of 100 over the last ${pts.length} scans${esc(when)}: ${esc(pts.map((p) => p.score).join(", "))}">
     <polyline fill="none" stroke="var(--chart-1)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" points="${xy.map((p) => p.map((n) => n.toFixed(1)).join(",")).join(" ")}"/>
     <circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="3.5" fill="var(--chart-1)" stroke="var(--paper-raised)" stroke-width="2"/></svg>
-    <small class="dq-spark-note">Last ${pts.length} scans: ${esc(String(pts[0].score))} → ${esc(String(pts.at(-1).score))}</small>`;
+    <small class="dq-spark-note">Score out of 100, last ${pts.length} scans${esc(when)}: ${esc(String(pts[0].score))} → ${esc(String(pts.at(-1).score))}</small>`;
 }
 
 /** Score, counts, and the last scan. */

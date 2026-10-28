@@ -959,7 +959,8 @@ export function renderAssignments(el, { schoolId = "", status = "", subject = ""
 /* ------------------------------------------------------------------ Results */
 export function renderResults(el, { by = "school", schoolId = "", termId = "" } = {}) {
   const qs = new URLSearchParams(Object.entries({ by, schoolId, termId }).filter(([, v]) => v)).toString();
-  return load(el, `/results?${qs}`, (d) => (d.rows?.length ? resultsTableHtml(d) : `<div class="empty-state">No results yet — they appear once work is handed in and marked.</div>`),
+  const period = termId ? termId.replace(/^(\d{4})-T(\d)$/, "$1 Term $2") : "All terms";
+  return load(el, `/results?${qs}`, (d) => (d.rows?.length ? resultsTableHtml(d, { period }) : `<div class="empty-state">No results yet — they appear once work is handed in and marked.</div>`),
     () => renderResults(el, { by, schoolId, termId }));
 }
 

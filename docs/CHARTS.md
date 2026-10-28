@@ -336,6 +336,10 @@ answer, and is this the clearest picture for it? What changed:
 | M&E indicator | Actual against target, term by term | On track? | Line with its target (one measure, one axis) | Title |
 | M&E indicator | Progress to target in each school | Which schools are behind? | Target bars | Was cut at 25; now the first 25 and "Show all" |
 | Survey results | Each question | What did people answer? | Bars with shares (no donuts) | "Every response so far" |
+| School head: Learning | How learners' average marks are spread | How the school's marks spread | Histogram | Title; "All marked work so far" (28 October) |
+| Results pages (teacher, head, programme) | How learners' average marks are spread | The same, for the results shown | Histogram | The term picked above it is its period (28 October) |
+| Data quality center | Score trend | Is the data getting cleaner? | Sparkline | On the score's whole 0–100 scale (it started near the lowest score, so a few points looked like a leap); the scans' dates in its note (28 October) |
+| Learner: My progress | Work handed in | How much of my work is in? | Ring → a count and a bar | No donut (28 October) |
 
 Not changed, and why: the platform overview's "When the portal is used"
 and sign-in recency (system health, for the Super Admin); key-figure

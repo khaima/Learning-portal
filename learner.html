@@ -104,12 +104,10 @@
 
       <section class="dash-page" data-page="my-progress" hidden>
         <div class="hero-progress">
-          <svg class="ring" viewBox="0 0 80 80" id="progressRing">
-            <circle cx="40" cy="40" r="34" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="8"/>
-            <circle cx="40" cy="40" r="34" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round"
-              id="progressArc" transform="rotate(-90 40 40)"/>
-            <text x="40" y="46" text-anchor="middle" font-family="Baloo 2, sans-serif" font-weight="700" font-size="18" fill="#fff" id="progressText">0/0</text>
-          </svg>
+          <div class="hero-meter" id="progressRing" aria-hidden="true">
+            <b id="progressText">0/0</b>
+            <span class="hero-meter-track"><i id="progressFill"></i></span>
+          </div>
           <div>
             <h2 id="progressHeading">This week</h2>
             <p id="progressSub">—</p>
