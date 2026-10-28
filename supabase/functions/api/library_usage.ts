@@ -103,8 +103,10 @@ export function buildLibraryUsage(input: UsageInput, f: UsageFilter) {
     const compare = place.filter(inRange);
     return { place, compare, shown: f.school ? compare.filter((r) => (r.school || "") === f.school) : compare };
   };
-  const { place: placeRows, compare: compareRows, shown: rows } = narrow(interactions.filter((r) => !hpfRole.has(r.role as string)));
-  const hpfRows = narrow(interactions.filter((r) => hpfRole.has(r.role as string))).shown;
+  // HPF staff: the role recorded on the open, or (readings.ts, where the rows were prepared) the reader's role now.
+  const isHpf = (r: Row) => !!r.hpf || hpfRole.has(r.role as string);
+  const { place: placeRows, compare: compareRows, shown: rows } = narrow(interactions.filter((r) => !isHpf(r)));
+  const hpfRows = narrow(interactions.filter(isHpf)).shown;
 
   const all = sum(rows);
   const learners = new Set(rows.filter((r) => r.actor_kind === "learner").map((r) => r.actor_id)).size;

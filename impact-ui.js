@@ -68,6 +68,15 @@ const byPlace = (d, rows, more = (r) => r) => (rows || []).map((r) => ({ ...more
 const PLACE = { act: "show only this county" };
 /** Where a dashboard's figures come from, at its foot: one plain line. */
 const source = (text) => `<p class="field-hint dash-source">Source: ${text}</p>`;
+const when = (iso) => new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+/** How fresh the Kobo records are: when they last synced, and — said plainly — when a sync failed. */
+function koboFreshness(d) {
+  const F = d.freshness;
+  if (!F) return "";
+  const failing = F.koboSyncFailing || [];
+  return [F.koboLastSynced ? `Kobo surveys last synced ${esc(when(F.koboLastSynced))}.` : "",
+    failing.length ? `<b>The last sync failed for ${plural(failing.length, "survey")} (${esc(failing.join(", "))}): their newest records may be missing.</b>` : ""].filter(Boolean).join(" ");
+}
 /** A line under a chart that leads to its detail. */
 const seeAll = (href, text) => (href ? `<p class="chart-note"><a href="${esc(href)}">${esc(text)} →</a></p>` : "");
 /** The latest entry of a series and the one before it, if there are two. */
@@ -315,7 +324,7 @@ export function executiveHtml(d, opts = {}) {
       kpiCard({ label: "Learners", icon: "cap", value: num(E.learners), href: linkTo(opts, "learners"),
         sub: [joinedLine(R.growth), `${pct(E.activeUsers.learnerShare)} used the portal ${esc(E.activeUsers.window)}`].filter(Boolean).join(" · ") }),
       kpiCard({ label: "Teachers", icon: "teacher", value: num(E.teachers), href: linkTo(opts, "teachers"),
-        sub: `${pct(T.training.share)} trained · ${pct(T.activity.participation.active.rate)} active` }),
+        sub: `${T.training.recorded === false ? "training not recorded yet" : `${pct(T.training.share)} trained`} · ${pct(T.activity.participation.active.rate)} active` }),
       kpiCard({ label: "Completion", icon: "assignment", value: pct(c.rate), href: linkTo(opts, "learning"),
         trend: periodTrend(L.progress.byTerm, (t) => t.completionRate),
         sub: c.assigned ? `${num(c.submitted)} of ${num(c.assigned)} pieces of work handed in` : "no work set yet" }),
@@ -337,14 +346,15 @@ export function executiveHtml(d, opts = {}) {
       ]),
       area("teacher-development", "Teacher development", [
         [num(T.training.sessions), T.training.sessions === 1 ? "training session" : "training sessions"],
-        [`${num(T.training.teachersTrained)}/${num(T.total)}`, "teachers trained"],
+        T.training.recorded === false ? ["—", "teachers trained: no sessions in the register yet"] : [`${num(T.training.teachersTrained)}/${num(T.total)}`, "teachers trained"],
         [num(T.digital.teachersUsingLibrary), "teachers using digital resources"],
       ]),
       area("field-operations", "Field operations", [
         [num(F.visits.visits), `field ${F.visits.visits === 1 ? "visit" : "visits"} · ${F.visits.officersReporting}/${F.visits.officers} officers reporting`],
         [num(F.forms.visitFormsFilled), F.forms.visitFormsFilled === 1 ? "visit form completed" : "visit forms completed"],
         [pct(F.forms.responseRateOverall), "form response rate"],
-        [num(F.kobo.counted), `Kobo ${F.kobo.counted === 1 ? "submission" : "submissions"} counted · ${num(F.kobo.totalSubmissions)} received`],
+        [num(F.kobo.counted), `Kobo ${F.kobo.counted === 1 ? "submission" : "submissions"} counted · ${num(F.kobo.totalSubmissions)} received${
+          d.freshness?.koboLastSynced ? ` · synced ${esc(when(d.freshness.koboLastSynced))}` : ""}${d.freshness?.koboSyncFailing?.length ? " · last sync failed" : ""}`],
       ]),
       area("digital-resources", "Digital resources", [
         [num(S.items.total), "resources published"],
@@ -481,8 +491,8 @@ export function teachersHtml(d, opts = {}) {
     <div class="stat-row">
       ${kpiCard({ label: "Teachers", icon: "teacher", value: num(T.total), href: linkTo(opts, "teachers"),
         sub: T.byType.filter((t) => t.label !== "Not specified").map((t) => `${t.value} ${esc(t.label)}`).join(" · ") || "active · type not recorded" })}
-      ${kpiCard({ label: "Trained", icon: "star", value: num(Tr.teachersTrained), href: linkTo(opts, "training"),
-        sub: `${pct(Tr.share)} of teachers · ${plural(Tr.sessions, "session")}` })}
+      ${kpiCard({ label: "Trained", icon: "star", value: Tr.recorded === false ? "—" : num(Tr.teachersTrained), href: linkTo(opts, "training"),
+        sub: Tr.recorded === false ? "No sessions in the training register yet" : `${pct(Tr.share)} of teachers · ${plural(Tr.sessions, "session")}` })}
       ${kpiCard({ label: "Using digital resources", icon: "book", value: num(D.teachersUsingLibrary),
         sub: `${pct(D.share)} of teachers · ${hrs(D.hours)} · ${plural(D.teacherResourceOpens, "Teacher Resource")} opened` })}
       ${kpiCard({ label: "Active teachers", icon: "activity", value: num(T.activity.activeInWindow),
@@ -494,7 +504,8 @@ export function teachersHtml(d, opts = {}) {
     <div class="chart-grid chart-pairs">
       ${melFirst("teacher_development")}
       ${card("Share of teachers trained, by county", "% of active teachers who attended a session",
-        barList(byPlace(d, Tr.byCounty, (c) => ({ label: c.label, value: c.share ?? 0, base: c.teachers, note: `${num(c.trained)} of ${num(c.teachers)}` })), { unit: "%", noun: "trained", sort: true, compare: { value: Tr.share, label: "all counties" }, ...PLACE })
+        barList(Tr.recorded === false ? [] : byPlace(d, Tr.byCounty, (c) => ({ label: c.label, value: c.share ?? 0, base: c.teachers, note: `${num(c.trained)} of ${num(c.teachers)}` })),
+          { unit: "%", noun: "trained", sort: true, compare: { value: Tr.share, label: "all counties" }, empty: "No sessions in the training register yet.", ...PLACE })
         + seeAll(linkTo(opts, "training"), "The training register"))}
       ${card("Training sessions, by kind", `${plural(Tr.sessions, "session")}`,
         barList(Tr.byKind.map((k) => ({ label: KIND_LABEL[k.label] || k.label, value: k.value })), { share: true, sort: true, noun: "sessions" }))}
@@ -539,13 +550,16 @@ export function fieldOpsHtml(d, opts = {}) {
   return `
     <div class="stat-row">
       ${kpiCard({ label: "Field visits", icon: "pin", value: num(V.visits), href: linkTo(opts, "field-visits"),
-        sub: [termCounts, `by ${plural(V.officersReporting, "officer")} (${V.officers} active)`].filter(Boolean).join("<br>") })}
+        sub: [termCounts, `by ${plural(V.officersReporting, "officer")} (${V.officers} active)`,
+          V.notLinked ? `${num(V.notLinked)} not linked to a portal school` : ""].filter(Boolean).join("<br>") })}
       ${kpiCard({ label: "Schools visited", icon: "school", value: `${V.schools.visited}/${V.schools.total}`, href: linkTo(opts, "school-profiles"),
         sub: `${pct(V.schools.coverage)} · ${V.schools.visitedThisTerm} in ${esc(V.schools.currentTerm ? termName(V.schools.currentTerm) : "this term")}` })}
       ${kpiCard({ label: "Visit forms completed", icon: "form", value: num(Fm.visitFormsFilled), sub: `${pct(Fm.visitsWithFormsShare)} of visits have one` })}
-      ${kpiCard({ label: "Form response rate", icon: "check", value: pct(Fm.responseRateOverall), href: linkTo(opts, "forms"), sub: plural(Fm.responses, "response") })}
+      ${kpiCard({ label: "Form response rate", icon: "check", value: pct(Fm.responseRateOverall), href: linkTo(opts, "forms"),
+        sub: Fm.responseRateOverall == null ? "No forms sent to staff yet" : plural(Fm.responses, "response") })}
       ${kpiCard({ label: "Survey records", icon: "survey", value: num(K.counted), href: linkTo(opts, "kobo"),
-        sub: `from ${plural(K.forms.length, "Kobo survey")} · ${plural(K.schoolsCovered, "school")}` })}
+        sub: [`from ${plural(K.forms.length, "Kobo survey")} · ${plural(K.schoolsCovered, "school")}`,
+          K.countedNoSchool ? `${num(K.countedNoSchool)} name no portal school` : ""].filter(Boolean).join("<br>") })}
     </div>
     ${insightSlot("field", "field-operations")}
     <div class="chart-grid">
@@ -566,7 +580,7 @@ export function fieldOpsHtml(d, opts = {}) {
       ${card("Forms answered, of those sent", "Responses received against responses expected", table(["Form", "For", "Expected", "Received", "Rate"],
         Fm.responseRates.map((r) => [esc(r.label), esc(r.kind === "visit" ? "Visit form" : audience(r.audience)), num(r.expected), num(r.received), rate(r.rate)]), { name: "forms" }), { wide: true })}
       ${card("Survey records in each county", "Records and each county's share", barList(byPlace(d, K.byCounty), { share: true, sort: true, noun: "records", ...PLACE }))}`, { pairs: true })}
-    ${source(`field visit reports, forms and Kobo survey records that passed their checks.${linkTo(opts, "kobo") ? ` Checks and the data pipeline: <a href="${esc(linkTo(opts, "kobo"))}">Kobo surveys</a>.` : ""}`)}
+    ${source(`field visit reports, forms and Kobo survey records that passed their checks.${linkTo(opts, "kobo") ? ` Checks and the data pipeline: <a href="${esc(linkTo(opts, "kobo"))}">Kobo surveys</a>.` : ""} ${koboFreshness(d)}`)}
     ${melLast("field_operations")}`;
 }
 

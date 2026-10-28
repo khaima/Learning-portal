@@ -40,6 +40,7 @@ export { __setFrameFetchForTests } from "./embed.ts";
 import { buildImpact, GENDERS, type ImpactInput } from "./impact.ts";
 import { buildAdminResults, type ReportingTerm } from "./admin_impact.ts";
 import { buildInsights, type MelReporting, type SchoolTargets } from "./insights.ts";
+import { prepareReadings } from "./readings.ts";
 import { buildLibraryUsage } from "./library_usage.ts";
 import { type Jwk, verifyAccessToken } from "./jwt.ts";
 import { buildNotifications, missingVisitForms } from "./notifications.ts";
@@ -2865,6 +2866,12 @@ app.post("/library/:id/interactions", requireActive(), async (c) => {
   if (!item || !canSeeLibrary(item.audience as string, actor.permissions)) {
     return c.json({ error: "Resource not found" }, 404);
   }
+  // The reader's school by its registered name (the account's school_id), not a name typed on the account.
+  let readerSchool = actor.school ?? "";
+  if (actor.schoolId) {
+    const { data: s } = await admin.from("schools").select("name").eq("id", actor.schoolId).maybeSingle();
+    if (s?.name) readerSchool = String(s.name);
+  }
   const { data, error } = await admin
     .from("library_interactions")
     .insert({
@@ -2877,7 +2884,7 @@ app.post("/library/:id/interactions", requireActive(), async (c) => {
       actor_id: actor.id,
       role: actor.role,
       full_name: actor.fullName,
-      school: actor.school ?? "",
+      school: readerSchool,
       ...(offline ?? {}),
     })
     .select()
@@ -3012,21 +3019,25 @@ app.post("/library/:id/badge", requireActive(), async (c) => {
 app.get("/library/usage", requirePermission("library.usage.view"), async (c) => {
   const q = (k: string) => String(c.req.query(k) ?? "").trim() || null;
   const date = (k: string) => { const v = q(k); return v && DATE_RE.test(v) ? v : null; };
-  const [itemsRes, interRes, schoolsRes] = await Promise.all([
+  const [itemsRes, interRes, schoolsRes, peopleRes, learnersRes] = await Promise.all([
     selectAll(() => admin.from("library_items").select("id, title, subject, type, audience, published, uploaded_at, topic, subtopic").order("id")),
     selectAll(() => admin.from("library_interactions")
       .select("library_item_id, actor_id, actor_kind, role, school, started_at, duration_seconds, topic, subtopic").order("id")),
     selectAll(() => admin.from("schools").select("id, name, county").order("id")),
+    selectAll(() => admin.from("profiles").select("id, role, school_id").order("id")),
+    selectAll(() => admin.from("learners").select("id, school_id").order("id")),
   ]);
   // A failed read must not render as "nobody used the library".
-  const usageErr = itemsRes.error || interRes.error || schoolsRes.error;
+  const usageErr = itemsRes.error || interRes.error || schoolsRes.error || peopleRes.error || learnersRes.error;
   if (usageErr) return c.json({ error: usageErr.message }, 500);
   // Reading is recorded against the reader's school name: an area-scoped
   // reader sees the schools in their area, and the reading done there.
   const sc = scopeOf(c);
   const schools = (schoolsRes.data ?? []).filter((s) => sc.global || sc.schoolIds.has(s.id as string));
   const names = sc.global ? null : new Set(schools.map((s) => s.name as string));
-  const interactions = (interRes.data ?? []).filter((r) => !names || names.has(r.school as string));
+  // Each open under the school it belongs to, HPF staff marked — as on the dashboards (readings.ts).
+  const readings = prepareReadings(interRes.data ?? [], schoolsRes.data ?? [], [...(peopleRes.data ?? []), ...(learnersRes.data ?? [])]);
+  const interactions = readings.filter((r) => !names || names.has(r.school as string));
   return c.json(buildLibraryUsage(
     { items: itemsRes.data ?? [], interactions, schools, now: new Date() },
     { school: q("school"), county: q("county"), from: date("from"), to: date("to") },
@@ -5223,10 +5234,10 @@ async function loadIntelligenceInput(): Promise<Parameters<typeof buildIntellige
     read("field_reports", "id, school, school_id, county, visit_type, officer_id, created_at"),
     read("forms", "id, title, audience, county, visit_type, archived_at, due_on, created_at"),
     read("responses", "id, form_id, respondent_id, respondent_role, submitted_at, visit_id"),
-    read("kobo_forms", "id, title, active, submission_count, rejected_count, unattributed_count, synced_at"),
+    read("kobo_forms", "id, title, active, submission_count, rejected_count, unattributed_count, synced_at, last_sync_error"),
     read("kobo_submissions", "kobo_form_id, officer_id, submitted_at", "kobo_form_id"),
     read("library_items", "id, title, audience, subject, type, published"),
-    read("library_interactions", "id, library_item_id, actor_kind, actor_id, school, started_at, completed_at, duration_seconds"),
+    read("library_interactions", "id, library_item_id, actor_kind, actor_id, role, school, started_at, completed_at, duration_seconds"),
     read("kobo_records", "id, kobo_form_id, status, review, school_id, county, officer_id, submitted_at, warning_count"),
     read("kobo_record_issues", "id, record_id, rule, severity"),
   ]);
@@ -5236,7 +5247,9 @@ async function loadIntelligenceInput(): Promise<Parameters<typeof buildIntellige
     fieldReports, forms, responses, koboForms, koboSubmissions, libraryItems, libraryInteractions, koboRecords, koboIssues] = r.map((x) => x.data);
   return {
     schools, profiles, learners, enrollments, terms, classes, classTeachers, subjects, assignments, submissions,
-    fieldReports, forms, responses, koboForms, koboSubmissions, libraryItems, libraryInteractions, koboRecords, koboIssues,
+    fieldReports, forms, responses, koboForms, koboSubmissions, libraryItems, koboRecords, koboIssues,
+    // Each open under the school it belongs to, HPF staff marked (readings.ts).
+    libraryInteractions: prepareReadings(libraryInteractions, schools, [...profiles, ...learners]),
     bands: await loadBands(),
   };
 }
@@ -6349,10 +6362,19 @@ const KOBO_STATUS_TEXT: Record<string, string> = { valid: "Passed checks", inval
 
 // ---- 8. library usage
 async function reportLibrary(x: RCtx): Promise<Section[]> {
-  const [{ data: items }, { data: interactions }] = await Promise.all([
+  const [itemsRes, interRes, schoolsRes, peopleRes, learnersRes] = await Promise.all([
     selectAll(() => admin.from("library_items").select("id, title, subject, type, audience, published").order("id")),
-    selectAll(() => admin.from("library_interactions").select("id, library_item_id, actor_kind, actor_id, school, started_at, completed_at, duration_seconds").order("id")),
+    selectAll(() => admin.from("library_interactions").select("id, library_item_id, actor_kind, actor_id, role, school, started_at, completed_at, duration_seconds").order("id")),
+    selectAll(() => admin.from("schools").select("id, name").order("id")),
+    selectAll(() => admin.from("profiles").select("id, role, school_id").order("id")),
+    selectAll(() => admin.from("learners").select("id, school_id").order("id")),
   ]);
+  const readErr = [itemsRes, interRes, schoolsRes, peopleRes, learnersRes].find((r) => r.error)?.error;
+  if (readErr) throw new Error(readErr.message);
+  const items = itemsRes.data;
+  // Each open under the school it belongs to; HPF staff checking content isn't programme use (readings.ts).
+  const interactions = prepareReadings(interRes.data ?? [], schoolsRes.data ?? [], [...(peopleRes.data ?? []), ...(learnersRes.data ?? [])])
+    .filter((i) => !i.hpf);
   const placeNames = new Set([...x.schools.values()].filter((s) => x.inPlace(s.id)).map((s) => s.name));
   const area = await schoolNamesInScope(x.c);
   const rows = (interactions ?? []).filter((i) => inDates(x.f, i.started_at) && (!area || area.has(i.school)) &&
@@ -8757,6 +8779,9 @@ app.get("/admin/overview", requirePermission("users.view"), async (c) => {
       ? selectAll(() => admin.from("dq_issues").select("id, school_id, county, severity").eq("status", "OPEN").order("id"))
       : Promise.resolve({ data: [] as Record<string, any>[], error: null }),
   ]);
+  // A read that failed must not show as "0 teachers" or "nothing needs attention".
+  const readFailed = [profs, learners, schools, classes, ct, visits, forms, responses, kobo, dq].find((x) => x.error)?.error;
+  if (readFailed) return c.json({ error: `Couldn't read the programme's records: ${readFailed.message}` }, 500);
   if (fCounty || fSchool) {
     picked = new Set((schools.data ?? []).filter((s) => (!fCounty || sameCounty(s.county)) && (!fSchool || s.name === fSchool)).map((s) => s.id));
   }
@@ -8765,7 +8790,8 @@ app.get("/admin/overview", requirePermission("users.view"), async (c) => {
   const mySchools = (schools.data ?? []).filter((s) => here(s.id));
   const yearClasses = (classes.data ?? []).filter((k) => here(k.school_id) && !k.archived_at && k.academic_year_id === cal.yearId);
   const teaching = new Set((ct.data ?? []).filter((t) => !t.ended_at).map((t) => t.teacher_id));
-  const { data: assigned } = await admin.from("staff_scopes").select("profile_id").is("ended_at", null);
+  const { data: assigned, error: scopesErr } = await admin.from("staff_scopes").select("profile_id").is("ended_at", null);
+  if (scopesErr) return c.json({ error: `Couldn't read the programme's records: ${scopesErr.message}` }, 500);
   const placed = new Set((assigned ?? []).map((r) => r.profile_id));
   const termStart = cal.termId ? (await admin.from("terms").select("starts_on").eq("id", cal.termId).maybeSingle()).data?.starts_on ?? null : null;
   const count = (role: string) => active.filter((p) => p.role === role).length;

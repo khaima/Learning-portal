@@ -167,8 +167,9 @@ export function buildAdminResults(
   }, EB?.activeUsers.learnerShare, "", true,
   { value: E.activeUsers.learnerShare, base: E.learners, who: "learners on roll", did: "took part" });
 
-  // Training: null when the register has no sessions at all — that's no data, not no training.
-  const register = d.trainings.some((t) => !t.archived_at);
+  // Training: null when the register has no sessions at all — that's no data, not no training
+  // (impact.ts's rule, so every page says the same).
+  const register = a.teachers.training.recorded;
   const T = a.teachers.training;
   const trained = make({
     key: "teachers_trained", label: "Teachers trained",

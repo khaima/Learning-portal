@@ -129,7 +129,7 @@ export function buildIntelligence(d: IntelligenceInput, f: IntelligenceFilter = 
   // ---- library usage (dated by start; scoped by the reader's school name).
   // HPF's own staff opening resources (to check them) isn't programme use.
   const hpf = new Set(d.profiles.filter((p) => (HPF_STAFF_ROLES as string[]).includes(p.role)).map((p) => p.id));
-  const libraryUse = d.libraryInteractions.filter((i) => !hpf.has(i.actor_id));
+  const libraryUse = d.libraryInteractions.filter((i) => !i.hpf && !hpf.has(i.actor_id));
   const libTitle = Object.fromEntries(d.libraryItems.map((i) => [i.id, i.title]));
   const lib = libraryUse.filter((i) => inRange(i.started_at) && (!scoped || schoolNames.has(i.school)));
   const libMinutes = (rows: Row[]) => Math.round(rows.reduce((t, i) => t + (Number(i.duration_seconds) || 0), 0) / 60);
@@ -202,7 +202,9 @@ export function buildIntelligence(d: IntelligenceInput, f: IntelligenceFilter = 
   const types = [...VISIT_TYPES, ...new Set(visits.map((r) => r.visit_type).filter((t) => !VISIT_TYPES.includes(t)))];
   const implementation = {
     visits: visits.length,
-    officersReporting: new Set(visits.map((r) => r.officer_id)).size,
+    officersReporting: new Set(visits.map((r) => r.officer_id).filter((id) => officers.some((o) => o.id === id))).size,
+    // Visits filed against a school name that isn't a portal school: counted as visits, never as a school visited.
+    notLinked: visits.filter((r) => !r.school_id).length,
     officers: officers.length,
     byType: types.map((t) => {
       const rows = visits.filter((r) => r.visit_type === t);
@@ -226,17 +228,21 @@ export function buildIntelligence(d: IntelligenceInput, f: IntelligenceFilter = 
   // active staff they reach. Visit forms are filled inside visits instead.
   const formsLive = d.forms.filter((fm) => !fm.archived_at && (!f.county || !fm.county || fm.county === f.county));
   const responses = d.responses.filter((r) => inRange(r.submitted_at) && formsLive.some((fm) => fm.id === r.form_id));
-  const reach = (fm: Row) => activeStaff.filter((p) => p.role === fm.audience && (!fm.county || p.county === fm.county) && (!f.county || p.county === f.county)).length;
+  // Received counts only those it is divided by: the staff a form was expected
+  // from (in the county chosen), or the visits in view — never an answer from
+  // someone outside them (another county's, a deactivated account's).
+  const audienceOf = (fm: Row) => new Set(activeStaff
+    .filter((p) => p.role === fm.audience && (!fm.county || p.county === fm.county) && (!f.county || p.county === f.county)).map((p) => p.id));
   const responseRates = formsLive.map((fm) => {
     const rs = responses.filter((r) => r.form_id === fm.id);
     if (fm.visit_type) {
-      const due = visits.filter((v) => v.visit_type === fm.visit_type).length;
-      const got = new Set(rs.map((r) => r.visit_id).filter(Boolean)).size;
-      return { label: fm.title, audience: fm.audience, kind: "visit", expected: due, received: got, rate: pct(got, due) };
+      const due = new Set(visits.filter((v) => v.visit_type === fm.visit_type).map((v) => v.id));
+      const got = new Set(rs.map((r) => r.visit_id).filter((id) => id && due.has(id))).size;
+      return { label: fm.title, audience: fm.audience, kind: "visit", expected: due.size, received: got, rate: pct(got, due.size) };
     }
-    const expected = reach(fm);
-    const got = new Set(rs.map((r) => r.respondent_id)).size;
-    return { label: fm.title, audience: fm.audience, kind: "form", expected, received: got, rate: pct(Math.min(got, expected), expected) };
+    const who = audienceOf(fm);
+    const got = new Set(rs.map((r) => r.respondent_id).filter((id) => who.has(id))).size;
+    return { label: fm.title, audience: fm.audience, kind: "form", expected: who.size, received: got, rate: pct(got, who.size) };
   });
   const koboForms = d.koboForms.filter((k) => k.active !== false);
   const officerIds = new Set(officers.map((o) => o.id));
@@ -253,7 +259,8 @@ export function buildIntelligence(d: IntelligenceInput, f: IntelligenceFilter = 
   const kIssues = d.koboIssues.filter((i) => kIds.has(i.record_id));
   const koboTotal = kRecs.length;
   const officerPairsExpected = koboForms.length * officers.length;
-  const officerPairsDone = new Set(koboSubs.filter((s) => koboForms.some((k) => k.id === s.kobo_form_id)).map((s) => `${s.kobo_form_id}|${s.officer_id}`)).size;
+  const officerPairsDone = new Set(koboSubs.filter((s) => officerIds.has(s.officer_id) && koboForms.some((k) => k.id === s.kobo_form_id))
+    .map((s) => `${s.kobo_form_id}|${s.officer_id}`)).size;
 
   const allVisits = d.fieldReports.filter((r) => (!f.county || r.county === f.county));
   const quality = [
@@ -313,12 +320,14 @@ export function buildIntelligence(d: IntelligenceInput, f: IntelligenceFilter = 
         return {
           title: k.title, submissions: mine.length, counted: mine.filter((r) => koboCounts(r.status, r.review)).length,
           invalid: mine.filter((r) => r.status === "invalid").length, duplicate: mine.filter((r) => r.status === "duplicate").length,
-          rejected: mine.filter((r) => r.status === "rejected").length, syncedAt: k.synced_at ?? null,
-          officersDone: new Set(koboSubs.filter((s) => s.kobo_form_id === k.id).map((s) => s.officer_id)).size,
+          rejected: mine.filter((r) => r.status === "rejected").length, syncedAt: k.synced_at ?? null, syncError: k.last_sync_error ?? null,
+          officersDone: new Set(koboSubs.filter((s) => s.kobo_form_id === k.id && officerIds.has(s.officer_id)).map((s) => s.officer_id)).size,
         };
       }),
       totalSubmissions: koboTotal,
       counted: kCounted.length,
+      // Counted, but naming no portal school: in the totals, never in a county's or school's view.
+      countedNoSchool: kCounted.filter((r) => !r.school_id).length,
       needsReview: kNeedsReview,
       byStatus: { valid: kBy("valid"), invalid: kBy("invalid"), duplicate: kBy("duplicate"), rejected: kBy("rejected") },
       withWarnings: kRecs.filter((r) => Number(r.warning_count) > 0).length,
@@ -331,6 +340,8 @@ export function buildIntelligence(d: IntelligenceInput, f: IntelligenceFilter = 
       inRange: koboSubs.length,
       officerCompletion: { expected: officerPairsExpected, done: officerPairsDone, rate: pct(officerPairsDone, officerPairsExpected) },
       lastSynced: koboForms.map((k) => k.synced_at).filter(Boolean).sort().pop() ?? null,
+      // Surveys whose last sync failed: their newest records may be missing (incomplete, not zero).
+      syncFailing: koboForms.filter((k) => k.last_sync_error).map((k) => String(k.title ?? "")),
     },
     forms: {
       active: formsLive.length,

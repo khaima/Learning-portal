@@ -150,8 +150,8 @@ export function buildImpact(d: ImpactInput, f: IntelligenceFilter = {}, now = ne
 
   // ---- library (scoped by the reader's school name, like buildIntelligence),
   // without HPF's own staff checking content
-  const libraryUse = d.libraryInteractions.filter((i) => !hpfIds.has(i.actor_id));
-  const hpfLib = scoped ? [] : d.libraryInteractions.filter((i) => hpfIds.has(i.actor_id) && inRange(i.started_at));
+  const libraryUse = d.libraryInteractions.filter((i) => !i.hpf && !hpfIds.has(i.actor_id));
+  const hpfLib = scoped ? [] : d.libraryInteractions.filter((i) => (i.hpf || hpfIds.has(i.actor_id)) && inRange(i.started_at));
   const lib = libraryUse.filter((i) => inRange(i.started_at) && (!scoped || schoolNames.has(i.school)));
   const minutesOf = (rows: Row[]) => Math.round(rows.reduce((t, i) => t + (Number(i.duration_seconds) || 0), 0) / 60);
   const itemById = new Map(d.libraryItems.map((i) => [i.id, i]));
@@ -272,6 +272,8 @@ export function buildImpact(d: ImpactInput, f: IntelligenceFilter = {}, now = ne
     total: teachers.length,
     byType: tally(teachers, (t) => t.teacher_type || "Not specified"),
     training: {
+      // Whether the register holds any session at all: without one, "trained" is no data, not 0%.
+      recorded: d.trainings.some((t) => !t.archived_at),
       sessions: trainings.length,
       attendances: attended.length,
       teachersTrained: trained.size,
@@ -431,8 +433,14 @@ export function buildImpact(d: ImpactInput, f: IntelligenceFilter = {}, now = ne
     }).sort((a, b) => b.total - a.total || a.label.localeCompare(b.label)),
   };
 
+  // How fresh the figures are: worked out now from the portal's records; Kobo's as of its last sync.
+  const freshness = {
+    generatedAt: now.toISOString(),
+    koboLastSynced: intel.dataCollection.kobo.lastSynced,
+    koboSyncFailing: intel.dataCollection.kobo.syncFailing,
+  };
   return {
-    scope: intel.scope, currentTerm: intel.currentTerm, generatedAt: now.toISOString(),
+    scope: intel.scope, currentTerm: intel.currentTerm, generatedAt: now.toISOString(), freshness,
     executive, reach: { ...reach, gradeByPlace }, learning, teachers: teachersOut, fieldOps, resources: { ...resources, when: resourcesWhen }, overview,
     // Still used by the overview's "needs attention" and the Data quality link.
     dataCollection: { notSchoolScoped: intel.dataCollection.notSchoolScoped },

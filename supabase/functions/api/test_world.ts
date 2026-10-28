@@ -42,6 +42,9 @@ export function fakeAdmin(db: Db, users: Record<string, { id: string; email: str
     // Embedded-resource filters ("learners.teacher_id") aren't modelled.
     const f = (k: string, test: (v: unknown) => boolean) => { if (!k.includes(".")) filters.push((r) => test(r[k])); return api; };
     const run = () => {
+      // A test can make a table's reads fail (db.__fail_reads = ["profiles"]): a failed read must never show as zero.
+      const failing = (db as unknown as { __fail_reads?: string[] }).__fail_reads;
+      if (op === "select" && failing?.includes(table)) return { data: null, error: { message: `could not read ${table}` } };
       const rows = db[table];
       const match = (r: Row) => filters.every((t) => t(r));
       let out: Row[] = [];

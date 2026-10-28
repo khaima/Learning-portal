@@ -5,6 +5,9 @@ colours, type, spacing, components — is in DESIGN-SYSTEM.md. The aim is that
 someone opening a dashboard can **see** the situation, **understand** it,
 **decide** and **act** — in that order, without reading every card first.
 
+What each figure counts, from which table, for which period — and how it says
+zero, no data, not complete and couldn't load: docs/KPI-DEFINITIONS.md.
+
 ## The three levels
 
 Every component on a dashboard is one of three things.
