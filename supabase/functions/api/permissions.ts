@@ -29,10 +29,21 @@ export const PROGRAMME_STAFF_ROLES: StaffRole[] = ["teacher", "school_leader", "
 export const HPF_STAFF_ROLES: StaffRole[] = ["education_team", "me", "admin", "super_admin"];
 export type Role = StaffRole | "learner";
 
+/** The role a person is counted under in breakdowns: "admin" is the Programme
+    Admin (Education Team) — one role since 29 October 2026 — so it never
+    shows as a second row with the same name. */
+export const roleGroup = (role: string | null | undefined) => (role === "admin" ? "education_team" : role ?? "");
+/** The staff roles as breakdowns show them (no separate "admin"). */
+export const STAFF_ROLE_GROUPS = STAFF_ROLES.filter((r) => r !== "admin");
+
+/* One role runs learning and education (29 October 2026): the Programme
+   Admin and the Education Team were merged. `education_team` is the role;
+   `admin` is kept, with exactly the same permissions and workspace, for
+   accounts that already had it — it is no longer given to anyone. */
 export const ROLE_LABEL: Record<Role, string> = {
   super_admin: "Super Admin",
-  admin: "Admin",
-  education_team: "Education Team",
+  admin: "Programme Admin (Education Team)",
+  education_team: "Programme Admin (Education Team)",
   me: "M&E",
   field_officer: "Field Officer",
   school_leader: "School Head",
@@ -144,45 +155,42 @@ const USER_ADMIN: Permission[] = [
   "users.password.reset", "users.placement.assign", "users.edit",
 ];
 
-/* Programme Administration: organisation, people, learning and programme
-   operations, data quality. Not the M&E results framework, not the
-   platform (audit log, permissions, the Kobo connection). */
-const ADMIN: Permission[] = [
+/* Programme Administration — the Education Team (one role since 29 October
+   2026): learning and education. Schools, the calendar, classes, teachers
+   and learners; assignments, results and attendance; the content library,
+   subjects and training; forms; the learning dashboards and programme
+   reports. Not accounts, data quality, device sync, Kobo or the platform:
+   those are the Super Admin's (SYSTEM). */
+const PROGRAMME: Permission[] = [
   "schools.manage", "schools.profile.view", "calendar.manage", "classes.manage.all",
   "learners.view.all", "learners.manage.all", "learners.transfer", "teachers.view",
-  ...LIBRARY_READ, "library.usage.view",
+  ...LIBRARY_READ, "library.manage", "library.usage.view", "subjects.manage", "trainings.manage",
   "forms.manage", "forms.responses.view",
-  "assignments.view.all", "attendance.view.all", "field_reports.view.all", "stats.view",
+  "assignments.view.all", "attendance.view.all", "field_reports.view.all",
+  "learning.dashboard.view", "stats.view",
+  "reports.export", "reports.programme",
+];
+
+/* The system, the Super Admin's alone: accounts and roles, data quality,
+   device sync, the Kobo pipeline, notifications sent. */
+const SYSTEM: Permission[] = [
   "data_quality.view", "data_quality.manage",
   "kobo.sync", "kobo.review", "kobo.results.view",
   "sync.monitor", "sync.problems.view", "notifications.view.all",
-  "reports.export", "reports.programme",
   ...USER_ADMIN,
 ];
 
 /* Monitoring & Evaluation: reads programme data, owns the results
-   framework, indicator results, evidence, data quality and reporting.
-   Changes no learner, school, account or integration. */
+   framework, indicator results, evidence and reporting (data quality is the
+   Super Admin's since 29 October 2026). Changes no learner, school, account
+   or integration. */
 const ME: Permission[] = [
   "intelligence.view", "learning.dashboard.view", "stats.view", "schools.profile.view",
   "learners.view.all", "teachers.view", ...LIBRARY_READ, "library.usage.view",
   "forms.responses.view", "assignments.view.all", "attendance.view.all", "field_reports.view.all",
-  "data_quality.view", "data_quality.manage",
   "me.view", "me.framework.manage", "me.actuals.record", "me.actuals.verify", "me.reports.manage",
   "kobo.review", "kobo.results.view",
   "reports.export", "reports.programme",
-];
-
-/* Learning & Education: learners, teachers, classes, assignments and
-   results (read), content, training, subjects, field support, forms. */
-const EDUCATION_TEAM: Permission[] = [
-  "learning.dashboard.view", "schools.profile.view", "subjects.manage",
-  "learners.view.all", "teachers.view",
-  ...LIBRARY_READ, "library.manage", "library.usage.view",
-  "forms.manage", "forms.responses.view",
-  "assignments.view.all", "attendance.view.all", "field_reports.view.all", "trainings.manage",
-  "sync.problems.view",
-  "reports.export",
 ];
 
 /* Platform Administration on top of everything the management roles hold.
@@ -192,10 +200,10 @@ const EDUCATION_TEAM: Permission[] = [
 const PLATFORM: Permission[] = ["platform.view", "permissions.manage", "audit.view", "kobo.configure", "kobo.manage"];
 
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
-  super_admin: uniq([...ADMIN, ...ME, ...EDUCATION_TEAM, ...PLATFORM]),
-  admin: uniq(ADMIN),
+  super_admin: uniq([...PROGRAMME, ...SYSTEM, ...ME, ...PLATFORM]),
+  admin: uniq(PROGRAMME),
   me: uniq(ME),
-  education_team: uniq(EDUCATION_TEAM),
+  education_team: uniq(PROGRAMME),
   field_officer: [
     "forms.respond", "field_reports.create", "field_reports.view.own", "kobo.surveys.fill",
     "schools.profile.view", "teachers.view", "reports.export",
@@ -236,7 +244,7 @@ export const WORKSPACE: Record<Role, { id: string; title: string; page: string }
   super_admin: { id: "platform", title: "Platform Administration", page: "platform.html" },
   admin: { id: "admin", title: "Programme Administration", page: "admin.html" },
   me: { id: "me", title: "Monitoring & Evaluation", page: "me.html" },
-  education_team: { id: "education", title: "Learning & Education", page: "education.html" },
+  education_team: { id: "admin", title: "Programme Administration", page: "admin.html" },
   field_officer: { id: "field", title: "Field Operations", page: "field.html" },
   school_leader: { id: "school", title: "School Management", page: "leader.html" },
   teacher: { id: "teacher", title: "Teaching & Learning", page: "teacher.html" },
@@ -259,8 +267,9 @@ export const rankOf = (role: string | null | undefined) => RANK[role as StaffRol
 
 /** Roles this actor may hand out (invite as, approve as, change to). */
 export function grantableRoles(actorRole: string | null | undefined): StaffRole[] {
-  if (actorRole === "super_admin") return [...STAFF_ROLES];
-  if (actorRole === "admin") return STAFF_ROLES.filter((r) => rankOf(r) < rankOf("admin"));
+  // "admin" is no longer given: the Programme Admin is the Education Team (ROLE_LABEL). Only the
+  // Super Admin manages accounts and roles (29 October 2026).
+  if (actorRole === "super_admin") return STAFF_ROLES.filter((r) => r !== "admin");
   return [];
 }
 

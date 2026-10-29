@@ -40,7 +40,7 @@ function withMel() {
 
 Deno.test("insights API: for whoever sees the impact dashboards (the Education Team: their learning side) — not admin or school roles", async () => {
   freshWorld();
-  for (const [token, status] of [["tok_me", 200], ["tok_super_admin", 200], ["tok_education_team", 200], ["tok_admin", 403], ["tok_teacher", 403], ["tok_field_officer", 403]] as const) {
+  for (const [token, status] of [["tok_me", 200], ["tok_super_admin", 200], ["tok_education_team", 200], ["tok_admin", 200], ["tok_teacher", 403], ["tok_field_officer", 403]] as const) {
     const res = await call("GET", "/impact/insights", token);
     assertEquals(res.status, status, token);
   }

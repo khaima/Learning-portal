@@ -273,7 +273,8 @@ function identityLine(user) {
   return [role, user.scope?.label || user.county].filter(Boolean).join(" · ");
 }
 const ROLE_TEXT = {
-  super_admin: "Super Admin", admin: "Admin", me: "M&E", education_team: "Education Team",
+  // One role since 29 October 2026: "admin" is the same Programme Admin, kept for accounts that had it.
+  super_admin: "Super Admin", admin: "Programme Admin (Education Team)", me: "M&E", education_team: "Programme Admin (Education Team)",
   field_officer: "Field Officer", school_leader: "School Head", teacher: "Teacher", learner: "Learner",
 };
 

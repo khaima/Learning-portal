@@ -260,7 +260,7 @@ Deno.test("a suspended account can't sign in again with a fresh session either",
   // Suspending also blocks sign-in at Supabase Auth (a ban); and the API
   // refuses the account whatever token it brings.
   const db = freshWorld();
-  assertEquals((await call("POST", "/users/teacher2-id/status", "tok_admin", { action: "suspend", reason: "Investigation" })).status, 200);
+  assertEquals((await call("POST", "/users/teacher2-id/status", "tok_super_admin", { action: "suspend", reason: "Investigation" })).status, 200);
   assertEquals(db.profiles.find((p) => p.id === "teacher2-id")!.status, "suspended");
   for (const path of ["/forms", "/learners", "/classes", "/schools", "/library", "/notifications"]) {
     const res = await call("GET", path, "tok_teacher2");

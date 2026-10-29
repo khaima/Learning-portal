@@ -62,8 +62,8 @@ export const ICON = {
 /* ---- the console pages (platform / admin / me / education share them) ---- */
 const PAGES = {
   "platform-overview": { label: "Platform overview", icon: "dashboard", needs: ["platform.view"], purpose: "The platform at a glance, and what's waiting on someone." },
-  "admin-overview": { label: "Administration overview", icon: "dashboard", needs: ["users.view"], filters: ["county", "school"], purpose: "The programme's main findings at a glance, and what needs attention." },
-  "admin-detail": { label: "In detail", icon: "dashboard", needs: ["users.view"], filters: ["county", "school"], purpose: "Every result and finding, every school, how the programme is organised, and the data checks waiting." },
+  "admin-overview": { label: "Administration overview", icon: "dashboard", needs: ["schools.manage"], filters: ["county", "school"], purpose: "The programme's main findings at a glance, and what needs attention." },
+  "admin-detail": { label: "In detail", icon: "dashboard", needs: ["schools.manage"], filters: ["county", "school"], purpose: "Every result and finding, every school, how the programme is organised, and the data checks waiting." },
   "me-dashboard": { label: "M&E overview", icon: "target", needs: ["me.view"], filters: ["county", "school"], purpose: "Every indicator against its target." },
   "me-data": { label: "Data completeness", icon: "check", needs: ["me.view"], filters: ["county", "school"],
     purpose: "Each indicator's definition, target, value and evidence; reporting coverage; data exceptions; Kobo surveys." },
@@ -135,6 +135,7 @@ export const WORKSPACES = {
       entry("users", "Users & roles", "users", [
         c("users", { label: "Accounts" }), // waiting requests are listed first, and its count filters to them
         c("permissions"),
+        c("field-officers"),
         c("notifications", { label: "Notifications sent" }),
       ], { badge: "approvals" }),
       entry("organisation", "Organisation setup", "school", [
@@ -151,24 +152,23 @@ export const WORKSPACES = {
       ]),
     ],
   },
+  /* Programme Administration is the Education Team (one role since 29 October
+     2026): learning and education. Accounts, data quality, device sync and
+     Kobo are the Super Admin's (the platform workspace). */
   admin: {
-    title: "Programme Administration", page: "admin.html", roles: ["admin", "super_admin"],
-    question: "Is the programme organised and running correctly?",
+    title: "Programme Administration", page: "admin.html", roles: ["education_team", "admin", "super_admin"],
+    question: "How are learning and education going, and what support is needed?",
     groups: [
-      entry("dashboard", "Dashboard", "dashboard", [c("admin-overview", { label: "Overview" }), c("admin-detail")]),
+      entry("dashboard", "Dashboard", "dashboard", [c("admin-overview", { label: "Overview" }), c("education-overview", { label: "Teaching progress" }), c("admin-detail")]),
       entry("schools", "Schools", "school", [
-        c("school-profiles"), c("teachers"), c("learners"), c("field-officers"), c("field-visits"),
+        c("school-profiles"), c("teachers"), c("learners"), c("field-visits"),
         c("classes", { hidden: true }), // a school's classes are on its page; the old address still works
         c("schools", { label: "Counties & schools" }), c("calendar"),
       ]),
-      entry("teaching", "Teaching & learning", "cap", [c("assignments"), c("results"), c("content"), c("content-usage", { label: "Content usage" })]),
-      entry("surveys", "Surveys & forms", "survey", [c("forms"), c("kobo", { label: "Kobo surveys" }), c("survey-results")], { badge: "koboReview" }),
-      entry("data-quality", "Data quality", "check", [c("data-quality", { label: "Data issues" }), c("sync-problems")], { badge: "dataQuality" }),
-      entry("reports", "Reports", "download", [c("reports", { label: "Reports" })]),
-      entry("users", "Users", "users", [
-        c("users", { label: "Accounts" }), // waiting requests are listed first, and its count filters to them
-        c("notifications", { label: "Notifications sent" }),
-      ], { badge: "approvals" }),
+      entry("teaching", "Teaching & learning", "cap", [c("assignments"), c("results"), c("training")]),
+      entry("content", "Content library", "book", [c("content", { label: "Library" }), c("content-usage"), c("subjects")]),
+      entry("forms", "Forms", "form", [c("forms")]),
+      entry("analytics", "Dashboards & reports", "chart", [c("learning"), c("teacher-development"), c("digital-resources"), c("reports", { label: "Reports" })]),
     ],
   },
   me: {
@@ -180,27 +180,12 @@ export const WORKSPACES = {
       entry("analytics", "Dashboards & reports", "chart", [
         c("overview"), c("mel-reports"), c("reports", { label: "Exports" }), ...AREA_DASHBOARDS(),
       ]),
-      entry("data-quality", "Data quality", "check", [c("data-quality")], { badge: "dataQuality" }),
       entry("surveys", "Surveys & forms", "survey", [c("survey-results"), c("kobo", { label: "Kobo review", purpose: "Kobo submissions waiting for a decision before they are counted." }),
         c("forms", { label: "Form responses", purpose: "The forms sent to staff, and their responses." })], { badge: "koboReview" }),
       entry("schools", "Schools", "school", [
         c("school-profiles"), c("teachers"), c("learners"), c("field-visits"), c("classes", { hidden: true }),
       ]),
       entry("teaching", "Teaching & learning", "cap", [c("assignments"), c("results"), c("training"), c("content"), c("content-usage", { label: "Content usage" })]),
-    ],
-  },
-  education: {
-    title: "Learning & Education", page: "education.html", roles: ["education_team", "super_admin"],
-    question: "How is learning going, and what support is needed?",
-    groups: [
-      entry("dashboard", "Dashboard", "dashboard", [c("education-overview", { label: "Overview" }), c("learning")]),
-      entry("schools", "Schools", "school", [
-        c("school-profiles"), c("teachers"), c("learners"), c("field-visits"), c("classes", { hidden: true }), c("sync-problems"),
-      ]),
-      entry("teaching", "Teaching & learning", "cap", [c("assignments"), c("results"), c("training")]),
-      entry("content", "Content library", "book", [c("content", { label: "Library" }), c("content-usage"), c("subjects")]),
-      entry("forms", "Forms", "form", [c("forms")]),
-      entry("analytics", "Dashboards & reports", "chart", [c("teacher-development"), c("digital-resources"), c("reports", { label: "Exports" })]),
     ],
   },
   field: {
@@ -278,7 +263,7 @@ export const WORKSPACES = {
 
 /** Each role's own workspace. */
 export const ROLE_WORKSPACE = {
-  super_admin: "platform", admin: "admin", me: "me", education_team: "education",
+  super_admin: "platform", admin: "admin", me: "me", education_team: "admin",
   field_officer: "field", school_leader: "school", teacher: "teacher", learner: "learner",
 };
 export const workspacePage = (role) => WORKSPACES[ROLE_WORKSPACE[role]]?.page ?? "index.html";
@@ -290,7 +275,7 @@ export const workspacesFor = (role) => [ROLE_WORKSPACE[role], ...Object.keys(WOR
    Education Team member granted kobo.results.view) are listed together, so
    a grant shows in the menu as well as being allowed by the API. Each
    role's own menu above already lists every page its role opens. */
-const CONSOLE_WORKSPACES = new Set(["platform", "admin", "me", "education"]);
+const CONSOLE_WORKSPACES = new Set(["platform", "admin", "me"]);
 
 /** The menu for this person in this workspace: its entries, each with the
     items (tabs) their permissions allow — an entry with none is left out —

@@ -5,13 +5,20 @@
    the pages and code on this device so the portal opens without a
    connection.
 
-   A new version of the portal downloads in the background and then waits.
-   When it's ready this shows "Update available — Reload"; it starts only
-   when the person chooses, so nobody's page changes under them halfway
-   through marking or a field visit (anything not yet sent is kept on the
-   device either way). "Later" puts it off until the next check. A
-   dashboard can stay open all day, so it looks for a new version when the
-   tab comes back into view, and every hour.
+   A new version of the portal downloads in the background. It takes over
+   by itself whenever that can't lose anything (29 October 2026 — before,
+   it always waited for a click on a notice that was easy to miss, so
+   people kept seeing the old portal):
+     - just after the page opens (the first 30 seconds), before anyone has
+       typed anything;
+     - while the tab is in the background, or when it comes back into view,
+       if nothing has been typed on the page.
+   Once someone has typed on the page — marking, a form, a learner's
+   answers — it shows "Update available — Reload" instead and starts only
+   when they choose, so nobody's page changes under them halfway through.
+   Anything not yet sent is kept on the device either way. A dashboard can
+   stay open all day, so it looks for a new version when the tab comes back
+   into view, and every hour.
    ============================================================ */
 
 // Every page loads this file, so every page reports its errors (telemetry.js).
@@ -28,8 +35,36 @@ if (TARGET === "staging" || PREVIEW) {
 }
 
 const CHECK_EVERY_MS = 60 * 60 * 1000;
+/** A new version found this soon after the page opened takes over at once. */
+const FRESH_MS = 30 * 1000;
 let registration = null;
 let reloading = false;
+let waitingWorker = null;
+// Typing on the page — a field someone fills in — means a reload could lose it.
+// Choosing a filter or searching a table doesn't count: those are kept, or cost nothing.
+let typed = false;
+document.addEventListener("input", (e) => {
+  const el = e.target;
+  if (!(el instanceof HTMLElement)) return;
+  if (el.isContentEditable || el.tagName === "TEXTAREA") { typed = true; return; }
+  if (el.tagName === "INPUT" && !["search", "checkbox", "radio", "range", "color", "file"].includes(el.type) && !el.closest(".table-tools, .filter-bar, .gf-bar")) typed = true;
+}, true);
+
+/** The new version takes over now: the page reloads once it has. */
+function applyUpdate(worker) {
+  if (reloading) return;
+  reloading = true;
+  worker.postMessage({ type: "SKIP_WAITING" }); // → controllerchange → reload
+  setTimeout(() => location.reload(), 4000); // in case the switch-over is never reported
+}
+
+/** A new version is installed and waiting: take it now if nothing can be lost, else offer it. */
+function ready(worker) {
+  waitingWorker = worker;
+  const fresh = performance.now() < FRESH_MS;
+  if (!typed && (fresh || document.visibilityState === "hidden")) applyUpdate(worker);
+  else showUpdate(worker);
+}
 
 function showUpdate(worker) {
   if (document.querySelector(".update-notice")) return;
@@ -40,10 +75,8 @@ function showUpdate(worker) {
     <button type="button" class="btn btn-primary" data-update-reload>Reload</button>
     <button type="button" class="update-later" data-update-later>Later</button>`;
   box.querySelector("[data-update-reload]").addEventListener("click", () => {
-    reloading = true;
     box.querySelector("[data-update-reload]").disabled = true;
-    worker.postMessage({ type: "SKIP_WAITING" }); // the new version takes over → controllerchange → reload
-    setTimeout(() => location.reload(), 4000); // in case the switch-over is never reported
+    applyUpdate(worker);
   });
   box.querySelector("[data-update-later]").addEventListener("click", () => box.remove());
   document.body.appendChild(box);
@@ -52,12 +85,12 @@ function showUpdate(worker) {
 /** Watch a registration for a new version that has finished installing. */
 function watch(reg) {
   // A version installed earlier (e.g. while another tab was open) is already waiting.
-  if (reg.waiting && navigator.serviceWorker.controller) showUpdate(reg.waiting);
+  if (reg.waiting && navigator.serviceWorker.controller) ready(reg.waiting);
   reg.addEventListener("updatefound", () => {
     const worker = reg.installing;
     worker?.addEventListener("statechange", () => {
       // "installed" with a controller = an update (the very first install has none).
-      if (worker.state === "installed" && navigator.serviceWorker.controller) showUpdate(worker);
+      if (worker.state === "installed" && navigator.serviceWorker.controller) ready(worker);
     });
   });
 }
@@ -73,7 +106,11 @@ if (import.meta.env.PROD && "serviceWorker" in navigator && location.protocol !=
       .then((reg) => {
         registration = reg;
         watch(reg);
-        document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkForUpdate(); });
+        document.addEventListener("visibilitychange", () => {
+          // Going to the background with a new version waiting, or coming back to it: take it if nothing was typed.
+          if (waitingWorker && !typed && !reloading) applyUpdate(waitingWorker);
+          else if (document.visibilityState === "visible") checkForUpdate();
+        });
         setInterval(checkForUpdate, CHECK_EVERY_MS);
       })
       .catch((err) => console.warn("offline app not available:", err?.message));

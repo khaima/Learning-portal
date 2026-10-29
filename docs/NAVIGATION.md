@@ -1109,3 +1109,21 @@ One more tab in an area each role already has — no new menu rows:
 - Every library list — the Education Team's and each dashboard's shelves —
   opens a folder in place, with *All ›* to come back, instead of stacking
   every folder as a large open box.
+
+## 28. One Programme Admin; the system is the Super Admin's, 29 October 2026
+
+- The Programme Admin is the Education Team: one role, one workspace
+  (**Programme Administration**, `admin.html`; `education.html` opens the
+  same). Menu: Dashboard (Overview · Teaching progress · In detail) ·
+  Schools (School profiles · Teachers · Learners · Field visits · Counties &
+  schools · Calendar) · Teaching & learning (Assignments · Results ·
+  Training) · Content library (Library · Usage · Subjects) · Forms ·
+  Dashboards & reports (Learning · Teacher development · Digital resources ·
+  Reports). The old Learning & Education workspace is gone.
+- **Data quality** and **Device sync** appear in the Super Admin's
+  *Data & integrations* only (no longer in M&E or the Programme Admin's
+  menus). **Field officers** (who works where) moved to the Super Admin's
+  *Users & roles*, beside Accounts and Permissions.
+- The Super Admin's *Switch workspace* lists Programme Administration and
+  M&E.
+- Role permissions and the reasons: [RBAC.md §14](RBAC.md).

@@ -55,7 +55,7 @@ const syncProblemsUi = once(() => import("./sync-problems-ui.js"));
 const usageUi = once(() => import("./usage-ui.js"));
 
 const AUDIENCE_LABEL = Object.fromEntries(FORM_AUDIENCES.map((a) => [a.value, a.label]));
-const STAFF_ROLES = ROLES.filter((r) => r.value !== "learner");
+const STAFF_ROLES = ROLES.filter((r) => r.value !== "learner" && !r.legacy);
 const ROLE_LABEL = Object.fromEntries(ROLES.map((r) => [r.value, r.label]));
 
 const ICON = {
@@ -67,7 +67,7 @@ const ICON = {
 const svg = (paths) => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${paths}</svg>`;
 
 async function main() {
-  const wsId = WORKSPACES[document.body.dataset.workspace] ? document.body.dataset.workspace : "education";
+  const wsId = WORKSPACES[document.body.dataset.workspace] ? document.body.dataset.workspace : "admin";
   const ws = WORKSPACES[wsId];
   const user = await requireRole(ws.roles);
   if (!user) return;
@@ -2848,7 +2848,8 @@ async function main() {
     const role = $("#usersRole").value;
     let filtered = allUsers.filter((u) => userMatchesSearch(u, q));
     if (status) filtered = filtered.filter((u) => (u.status || "active") === status);
-    if (role) filtered = filtered.filter((u) => u.role === role);
+    // The Programme Admin is the Education Team: accounts that still carry the old "admin" code are in it.
+    if (role) filtered = filtered.filter((u) => u.role === role || (role === "education_team" && u.role === "admin"));
 
     const pendingCount = allUsers.filter((u) => u.status === "pending").length;
     $("#usersMeta").innerHTML = esc(filtered.length === allUsers.length

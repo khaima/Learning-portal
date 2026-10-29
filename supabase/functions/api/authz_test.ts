@@ -29,21 +29,25 @@ import {
 /* Named after responsibilities (docs/RBAC.md). Super Admin is in every
    management group: they keep every right. */
 const SA_ONLY: R[] = ["super_admin"];
-const ADMINS: R[] = ["super_admin", "admin"];                                  // organisation, people, operations
+/* The Programme Admin is the Education Team (29 October 2026): one role.
+   `admin` is that same role, kept for accounts that already had it. */
+const ADMINS: R[] = ["super_admin", "admin", "education_team"];               // schools, counties, the calendar, transfers, the programme's overview
+const SYSTEM: R[] = SA_ONLY;                                                  // accounts, field officers' schools, notifications sent, device sync, the Kobo pipeline
 const ME_ROLES: R[] = ["super_admin", "me"];                                   // results framework, indicator results, M&E reports
-const CONTENT: R[] = ["super_admin", "education_team"];                        // content, training register, subjects
+const CONTENT: R[] = ["super_admin", "admin", "education_team"];               // content, training register, subjects
 const FORM_MANAGERS: R[] = ["super_admin", "admin", "education_team"];         // build and send forms
-const DATA_QUALITY: R[] = ["super_admin", "admin", "me"];                      // data quality, Kobo review and results
-const STATS: R[] = ["super_admin", "admin", "me"];
+const DATA_QUALITY: R[] = SA_ONLY;                                            // data quality: the Super Admin's alone
+const KOBO_REVIEW: R[] = ["super_admin", "me"];                               // Kobo review and results
+const STATS: R[] = ["super_admin", "admin", "education_team", "me"];
 const DASHBOARDS: R[] = ["super_admin", "me"];                                 // programme performance
-const LEARNING_DASHBOARDS: R[] = ["super_admin", "me", "education_team"];      // the learning side
+const LEARNING_DASHBOARDS: R[] = ["super_admin", "admin", "me", "education_team"]; // the learning side
 const ANALYSTS: R[] = ["super_admin", "admin", "education_team", "me"];        // read programme data within their scope
 const PLACE_VIEWERS: R[] = [...ANALYSTS, "field_officer", "school_leader"];    // schools and teachers within scope
 const LEARNER_VIEWERS: R[] = [...ANALYSTS, "school_leader", "teacher"];
-const LEARNER_MANAGERS: R[] = ["super_admin", "admin", "school_leader", "teacher"];
-const CLASS_MANAGERS: R[] = ["super_admin", "admin", "school_leader"];
-const USER_ADMIN = ADMINS;
-const SYNC_PROBLEMS: R[] = ["super_admin", "admin", "education_team"];      // devices with work stuck 48 hours, sync failures
+const LEARNER_MANAGERS: R[] = ["super_admin", "admin", "education_team", "school_leader", "teacher"];
+const CLASS_MANAGERS: R[] = ["super_admin", "admin", "education_team", "school_leader"];
+const USER_ADMIN = SYSTEM;
+const SYNC_PROBLEMS: R[] = SA_ONLY;                                           // devices with work stuck 48 hours, sync failures
 
 /* Every allowed role must get a real success (2xx), not just get past the
    guard — so a route whose work needs records (an M&E programme, a started
@@ -133,7 +137,7 @@ const ROUTES: RouteSpec[] = [
   r("GET", "/learners/:id/activity", LEARNER_VIEWERS, undefined, "/learners/learner-id/activity"),
   r("GET", "/enrollments", ["super_admin", "admin", "education_team", "me", "school_leader"], undefined, "/enrollments?schoolId=sch_1"),
   r("GET", "/academic-years", [...STAFF]),
-  r("POST", "/academic-years", USER_ADMIN, { id: "2027" }),
+  r("POST", "/academic-years", ADMINS, { id: "2027" }),
   r("GET", "/classes", LEARNER_VIEWERS),
   r("POST", "/classes", CLASS_MANAGERS, { grade: "Grade 6", name: "Grade 6 West", schoolId: "sch_1" }),
   r("PATCH", "/classes/:id", CLASS_MANAGERS, { name: "Renamed" }, "/classes/cls_1"),
@@ -198,7 +202,7 @@ const ROUTES: RouteSpec[] = [
   r("POST", "/learner/assignments/:id/submit", ["learner"], {}, "/learner/assignments/asg_1/submit", { setup: () => startedWork() }),
   r("GET", "/results", [...LEARNER_VIEWERS, "learner"]),
   r("GET", "/results/compare", LEARNER_VIEWERS, undefined, "/results/compare?rows=class"),
-  r("GET", "/field-officers", ADMINS),
+  r("GET", "/field-officers", SYSTEM),
   r("POST", "/class-teachers", CLASS_MANAGERS, { teacherIds: ["teacher-id"], classIds: ["cls_1"], role: "subject_teacher" }),
   // Class attendance: a teacher takes their class's register; heads and the programme roles see it.
   r("GET", "/attendance/register", LEARNER_VIEWERS, undefined, "/attendance/register?classId=cls_1"),
@@ -217,13 +221,13 @@ const ROUTES: RouteSpec[] = [
     setup: (db, role) => { db.notifications.push({ id: "ntf_1", recipient_id: idOfRole(role), recipient_kind: role === "learner" ? "learner" : "staff", kind: "form_due", title: "A form is due", body: "", link: null, dedupe_key: "k1", created_at: new Date().toISOString(), read_at: null }); },
   }),
   r("POST", "/notifications/read-all", ALL, {}),
-  r("GET", "/notifications/log", ADMINS),
-  r("POST", "/notifications/run-now", ADMINS, {}),
+  r("GET", "/notifications/log", SYSTEM),
+  r("POST", "/notifications/run-now", SYSTEM, {}),
   r("PATCH", "/forms/:id", FORM_MANAGERS, { dueOn: "2026-10-10" }, "/forms/form_1"),
   r("POST", "/sync/report", ALL, { deviceId: "device-0001" }),
   r("POST", "/sync/events", ALL, { deviceId: "device-0001", events: [{ id: "event-00001", event: "failed", kind: "mark", status: 400, message: "Closed" }] }),
   r("GET", "/sync/problems", SYNC_PROBLEMS),
-  r("GET", "/sync/devices", ADMINS),
+  r("GET", "/sync/devices", SYSTEM),
   // Reports export: each report's own permissions decide who may export it.
   r("GET", "/reports", [...STAFF]),
   r("GET", "/reports/:id", LEARNER_VIEWERS, undefined, "/reports/learner-register"),
@@ -232,10 +236,10 @@ const ROUTES: RouteSpec[] = [
   r("GET", "/reports/:id", LEARNER_VIEWERS, undefined, "/reports/assignment-report"),
   r("GET", "/reports/:id", LEARNER_VIEWERS, undefined, "/reports/assessment-report"),
   r("GET", "/reports/:id", [...ANALYSTS, "field_officer"], undefined, "/reports/field-visit-report"),
-  r("GET", "/reports/:id", DATA_QUALITY, undefined, "/reports/kobo-report"),
+  r("GET", "/reports/:id", KOBO_REVIEW, undefined, "/reports/kobo-report"),
   r("GET", "/reports/:id", ANALYSTS, undefined, "/reports/library-usage"),
   r("GET", "/reports/:id", ME_ROLES, undefined, "/reports/me-indicator-report"),
-  r("GET", "/reports/:id", ["super_admin", "admin", "me", "school_leader"], undefined, "/reports/term-report"),
+  r("GET", "/reports/:id", ["super_admin", "admin", "education_team", "me", "school_leader"], undefined, "/reports/term-report"),
   r("GET", "/reports/:id", STATS, undefined, "/reports/county-report"),
   r("GET", "/trainings", LEARNING_DASHBOARDS),
   r("GET", "/trainings/teachers", CONTENT),
@@ -275,7 +279,7 @@ const ROUTES: RouteSpec[] = [
   r("POST", "/mel/reports/:id/refresh", ME_ROLES, {}, "/mel/reports/{report}/refresh", { setup: meReport }),
   r("POST", "/mel/reports/:id/finalize", ME_ROLES, {}, "/mel/reports/{report}/finalize", { setup: meReport }),
   r("GET", "/school/overview", ["school_leader"]),
-  r("GET", "/users", ADMINS),
+  r("GET", "/users", SYSTEM),
   r("GET", "/users/invitations", USER_ADMIN),
   r("POST", "/users/invitations", USER_ADMIN, { email: "fresh@test.org", role: "teacher", schoolId: "sch_1" }),
   r("DELETE", "/users/invitations/:id", USER_ADMIN, undefined, "/users/invitations/{invitation}", { setup: async () => ({ invitation: (await made("POST", "/users/invitations", { email: "fresh@test.org", role: "teacher", schoolId: "sch_1" })).invitation.id }) }),
@@ -287,27 +291,27 @@ const ROUTES: RouteSpec[] = [
   r("POST", "/users/:id/reset-link", USER_ADMIN, {}, "/users/teacher2-id/reset-link"),
   r("POST", "/users/:id/temporary-password", USER_ADMIN, {}, "/users/teacher2-id/temporary-password"),
   r("GET", "/audit", SA_ONLY),
-  r("GET", "/kobo/config", DATA_QUALITY),
+  r("GET", "/kobo/config", KOBO_REVIEW),
   r("PUT", "/kobo/config", SA_ONLY, { apiToken: "test-token", baseUrl: "https://kobo.test" }, undefined, { setup: () => { afterCall.push(stubKobo(() => [])); } }),
   r("GET", "/kobo/assets", SA_ONLY, undefined, undefined, { setup: koboConnected }),
-  r("GET", "/kobo/forms", DATA_QUALITY),
+  r("GET", "/kobo/forms", KOBO_REVIEW),
   r("POST", "/kobo/forms", SA_ONLY, { assetUid: "aNewSurvey77" }, undefined, { setup: koboConnected }),
   r("GET", "/kobo/assets/:uid/preview", SA_ONLY, undefined, undefined, {
     setup: (db) => { connectKobo(db); afterCall.push(stubKobo(() => [], { ...KOBO_ASSET, deployment__links: { url: "https://ee.kobo.test/x/aAbC" } })); },
   }),
   r("DELETE", "/kobo/forms/:id", SA_ONLY, undefined, "/kobo/forms/kb_1"),
   r("POST", "/kobo/forms/:id/restore", SA_ONLY, {}, "/kobo/forms/kb_1/restore"),
-  r("POST", "/kobo/sync", ADMINS, {}, undefined, { setup: koboConnected }),
-  r("GET", "/kobo/forms/:id/results", DATA_QUALITY, undefined, "/kobo/forms/kb_1/results"),
-  r("GET", "/kobo/forms/:id/pipeline", DATA_QUALITY, undefined, "/kobo/forms/kb_1/pipeline"),
+  r("POST", "/kobo/sync", SYSTEM, {}, undefined, { setup: koboConnected }),
+  r("GET", "/kobo/forms/:id/results", KOBO_REVIEW, undefined, "/kobo/forms/kb_1/results"),
+  r("GET", "/kobo/forms/:id/pipeline", KOBO_REVIEW, undefined, "/kobo/forms/kb_1/pipeline"),
   r("PUT", "/kobo/forms/:id/mapping", SA_ONLY, { school: null }, "/kobo/forms/kb_1/mapping", { setup: koboSynced }),
-  r("POST", "/kobo/forms/:id/reprocess", ADMINS, {}, "/kobo/forms/kb_1/reprocess", { setup: koboSynced }),
-  r("GET", "/kobo/records", DATA_QUALITY, undefined, "/kobo/records?formId=kb_1"),
-  r("GET", "/kobo/records/:id", DATA_QUALITY, undefined, "/kobo/records/{record}", { setup: koboSynced }),
-  r("POST", "/kobo/records/:id/review", DATA_QUALITY, { decision: "accepted", note: "Checked by phone" }, "/kobo/records/{record}/review", { setup: koboSynced }),
-  r("GET", "/kobo/school-aliases", DATA_QUALITY),
-  r("POST", "/kobo/school-aliases", DATA_QUALITY, { value: "Aitong Pri", schoolId: "sch_1" }),
-  r("DELETE", "/kobo/school-aliases/:key", DATA_QUALITY, undefined, "/kobo/school-aliases/aitong%20pri", { setup: async () => { await made("POST", "/kobo/school-aliases", { value: "Aitong Pri", schoolId: "sch_1" }); } }),
+  r("POST", "/kobo/forms/:id/reprocess", SYSTEM, {}, "/kobo/forms/kb_1/reprocess", { setup: koboSynced }),
+  r("GET", "/kobo/records", KOBO_REVIEW, undefined, "/kobo/records?formId=kb_1"),
+  r("GET", "/kobo/records/:id", KOBO_REVIEW, undefined, "/kobo/records/{record}", { setup: koboSynced }),
+  r("POST", "/kobo/records/:id/review", KOBO_REVIEW, { decision: "accepted", note: "Checked by phone" }, "/kobo/records/{record}/review", { setup: koboSynced }),
+  r("GET", "/kobo/school-aliases", KOBO_REVIEW),
+  r("POST", "/kobo/school-aliases", KOBO_REVIEW, { value: "Aitong Pri", schoolId: "sch_1" }),
+  r("DELETE", "/kobo/school-aliases/:key", KOBO_REVIEW, undefined, "/kobo/school-aliases/aitong%20pri", { setup: async () => { await made("POST", "/kobo/school-aliases", { value: "Aitong Pri", schoolId: "sch_1" }); } }),
   r("POST", "/kobo/webhook", SA_ONLY, {}, undefined, { setup: (db) => connectKobo(db) }),
   r("DELETE", "/kobo/webhook", SA_ONLY),
   // Workspaces: badges, overviews, people, scope, grants.
@@ -317,9 +321,9 @@ const ROUTES: RouteSpec[] = [
   r("GET", "/admin/overview", ADMINS),
   r("GET", "/teachers", PLACE_VIEWERS),
   r("GET", "/schools/:id/profile", PLACE_VIEWERS, undefined, "/schools/sch_1/profile"),
-  r("GET", "/users/:id/access", ADMINS, undefined, "/users/teacher2-id/access"),
-  r("GET", "/users/:id/history", ADMINS, undefined, "/users/teacher2-id/history"),
-  r("PUT", "/users/:id/scope", ADMINS, { counties: ["Narok"] }, "/users/field_officer-id/scope"),
+  r("GET", "/users/:id/access", SYSTEM, undefined, "/users/teacher2-id/access"),
+  r("GET", "/users/:id/history", SYSTEM, undefined, "/users/teacher2-id/history"),
+  r("PUT", "/users/:id/scope", SYSTEM, { counties: ["Narok"] }, "/users/field_officer-id/scope"),
   r("POST", "/users/:id/grants", SA_ONLY, { permission: "kobo.review", reason: "Covering M&E" }, "/users/education_team-id/grants"),
   r("POST", "/users/:id/grants/:grantId/revoke", SA_ONLY, { reason: "Done" }, "/users/education_team-id/grants/{grant}/revoke", {
     setup: async () => ({ grant: (await made("POST", "/users/education_team-id/grants", { permission: "kobo.review", reason: "Covering M&E" })).grant?.id }),
@@ -451,7 +455,7 @@ Deno.test("nobody can change their own account", async () => {
 
 Deno.test("approve, reject, suspend, deactivate and reactivate follow the allowed transitions", async () => {
   let db = freshWorld();
-  let res = await call("POST", "/users/pending-id/approve", "tok_admin", { role: "school_leader", schoolId: "sch_1" });
+  let res = await call("POST", "/users/pending-id/approve", "tok_super_admin", { role: "school_leader", schoolId: "sch_1" });
   assertEquals(res.status, 200);
   assertEquals(db.profiles.find((p) => p.id === "pending-id")!.status, "active");
   assertEquals(db.profiles.find((p) => p.id === "pending-id")!.role, "school_leader");
@@ -459,17 +463,17 @@ Deno.test("approve, reject, suspend, deactivate and reactivate follow the allowe
   assert(db.audit_log.some((a) => a.action === "role.changed" && a.details.to === "school_leader"));
 
   db = freshWorld();
-  res = await call("POST", "/users/pending-id/reject", "tok_admin", { reason: "Unknown person" });
+  res = await call("POST", "/users/pending-id/reject", "tok_super_admin", { reason: "Unknown person" });
   assertEquals(res.status, 200);
   assertEquals(db.profiles.find((p) => p.id === "pending-id")!.status, "rejected");
   assert(db.audit_log.some((a) => a.action === "account.rejected"));
 
   db = freshWorld();
-  assertEquals((await call("POST", "/users/teacher2-id/approve", "tok_admin", {})).status, 409, "an active account can't be 'approved'");
-  assertEquals((await call("POST", "/users/teacher2-id/status", "tok_admin", { action: "deactivate", reason: "Left" })).status, 200);
+  assertEquals((await call("POST", "/users/teacher2-id/approve", "tok_super_admin", {})).status, 409, "an active account can't be 'approved'");
+  assertEquals((await call("POST", "/users/teacher2-id/status", "tok_super_admin", { action: "deactivate", reason: "Left" })).status, 200);
   assertEquals(db.profiles.find((p) => p.id === "teacher2-id")!.status, "deactivated");
   assertEquals((await call("GET", "/forms", "tok_teacher2")).status, 403, "deactivated account is locked out at once");
-  assertEquals((await call("POST", "/users/teacher2-id/status", "tok_admin", { action: "reactivate" })).status, 200);
+  assertEquals((await call("POST", "/users/teacher2-id/status", "tok_super_admin", { action: "reactivate" })).status, 200);
   assertEquals((await call("GET", "/forms", "tok_teacher2")).status, 200, "reactivated account works again");
   const actions = db.audit_log.map((a) => a.action);
   assert(actions.includes("account.deactivated") && actions.includes("account.reactivated"));
@@ -478,9 +482,9 @@ Deno.test("approve, reject, suspend, deactivate and reactivate follow the allowe
 Deno.test("role, school and password changes are audited (never the password)", async () => {
   const db = freshWorld();
   db.schools.push({ id: "sch_2", name: "Other Primary", county: "Narok", code: "NRK-002", seq: 2 });
-  assertEquals((await call("PATCH", "/users/teacher2-id", "tok_admin", { role: "school_leader", schoolId: "sch_2" })).status, 200);
-  assertEquals((await call("POST", "/users/teacher2-id/reset-link", "tok_admin", {})).status, 200);
-  const temp = await call("POST", "/users/teacher2-id/temporary-password", "tok_admin", {});
+  assertEquals((await call("PATCH", "/users/teacher2-id", "tok_super_admin", { role: "school_leader", schoolId: "sch_2" })).status, 200);
+  assertEquals((await call("POST", "/users/teacher2-id/reset-link", "tok_super_admin", {})).status, 200);
+  const temp = await call("POST", "/users/teacher2-id/temporary-password", "tok_super_admin", {});
   assertEquals(temp.status, 200);
   const byAction = (x: string) => db.audit_log.filter((a) => a.action === x && a.target_id === "teacher2-id");
   assertEquals(byAction("password.reset_link_sent").length, 1);
@@ -488,7 +492,7 @@ Deno.test("role, school and password changes are audited (never the password)", 
   assert(!JSON.stringify(db.audit_log).includes(temp.json.temporaryPassword), "the password must never be logged");
   assertEquals(byAction("role.changed")[0].details, { from: "teacher", to: "school_leader" });
   assertEquals(byAction("school.changed")[0].details.to, "sch_2");
-  assertEquals(byAction("role.changed")[0].actor_id, "admin-id");
+  assertEquals(byAction("role.changed")[0].actor_id, "super_admin-id");
 });
 
 Deno.test("learner creation and removal are audited (removal archives, never deletes)", async () => {
@@ -503,7 +507,7 @@ Deno.test("learner creation and removal are audited (removal archives, never del
 
 Deno.test("invitation: the role comes from the invitation, for the invited email only, once", async () => {
   const db = freshWorld();
-  const created = await call("POST", "/users/invitations", "tok_admin", { email: "new@test.org", role: "field_officer", county: "Narok" });
+  const created = await call("POST", "/users/invitations", "tok_super_admin", { email: "new@test.org", role: "field_officer", county: "Narok" });
   assertEquals(created.status, 200);
   const token = created.json.token as string;
   assert(token && !JSON.stringify(db.staff_invitations).includes(token), "only the hash of the token is stored");
@@ -545,8 +549,8 @@ async function withMail(fn: (sent: Row[], fail: (e: string | null) => void) => P
 
 Deno.test("invitation email: not set up yet — the invitation is still made, to copy", () => withMail(async (sent) => {
   const db = freshWorld();
-  assertEquals((await call("GET", "/users/invitations", "tok_admin")).json.emailReady, false);
-  const res = await call("POST", "/users/invitations", "tok_admin", { email: "new@test.org", role: "teacher", schoolId: "sch_1", send: true });
+  assertEquals((await call("GET", "/users/invitations", "tok_super_admin")).json.emailReady, false);
+  const res = await call("POST", "/users/invitations", "tok_super_admin", { email: "new@test.org", role: "teacher", schoolId: "sch_1", send: true });
   assertEquals(res.status, 200);
   assertEquals(res.json.emailed, false);
   assert(/isn't set up/.test(res.json.emailError), res.json.emailError);
@@ -558,18 +562,18 @@ Deno.test("invitation email: not set up yet — the invitation is still made, to
 
 Deno.test("invitation email: sent to the invited address with the same one-time link, and audited", () => withMail(async (sent) => {
   const db = freshWorld();
-  assertEquals((await call("GET", "/users/invitations", "tok_admin")).json.emailReady, true);
-  const res = await call("POST", "/users/invitations", "tok_admin",
+  assertEquals((await call("GET", "/users/invitations", "tok_super_admin")).json.emailReady, true);
+  const res = await call("POST", "/users/invitations", "tok_super_admin",
     { email: "New@Test.org", role: "teacher", schoolId: "sch_1", send: true, portalUrl: "https://khaima.github.io/Learning-portal/" });
   assertEquals([res.status, res.json.emailed], [200, true]);
   assertEquals(res.cache, "no-store");
   const token = res.json.token as string;
   assertEquals(sent.length, 1);
   const m = sent[0];
-  assertEquals([m.to, m.replyTo], ["new@test.org", "admin@test.org"]);
+  assertEquals([m.to, m.replyTo], ["new@test.org", "super_admin@test.org"]);
   const link = `https://khaima.github.io/Learning-portal/index.html?invite=${encodeURIComponent(token)}`;
   assert(m.html.includes(link) && m.text.includes(link), "the email carries the invitation link");
-  assert(m.text.includes("Teacher") && m.text.includes("Aitong Primary (NRK-001)") && m.text.includes("admin person"));
+  assert(m.text.includes("Teacher") && m.text.includes("Aitong Primary (NRK-001)") && m.text.includes("super_admin person"));
   // The link in the email is the real one…
   assertEquals((await call("GET", `/invitations/${token}`)).json.invitation.email, "new@test.org");
   // …and it's never stored or logged.
@@ -577,19 +581,19 @@ Deno.test("invitation email: sent to the invited address with the same one-time 
     assert(!JSON.stringify(db[table]).includes(token), `the link token leaked into ${table}`);
   }
   const a = db.audit_log.find((x) => x.action === "invitation.emailed")!;
-  assertEquals([a.actor_id, a.target_id, a.details.email], ["admin-id", db.staff_invitations[0].id, "new@test.org"]);
+  assertEquals([a.actor_id, a.target_id, a.details.email], ["super_admin-id", db.staff_invitations[0].id, "new@test.org"]);
   // Without "send", nothing is emailed.
-  await call("POST", "/users/invitations", "tok_admin", { email: "copy@test.org", role: "teacher", schoolId: "sch_1" });
+  await call("POST", "/users/invitations", "tok_super_admin", { email: "copy@test.org", role: "teacher", schoolId: "sch_1" });
   assertEquals(sent.length, 1);
   // A link only ever points at the portal itself.
-  await call("POST", "/users/invitations", "tok_admin", { email: "x@test.org", role: "teacher", schoolId: "sch_1", send: true, portalUrl: "https://evil.example/" });
+  await call("POST", "/users/invitations", "tok_super_admin", { email: "x@test.org", role: "teacher", schoolId: "sch_1", send: true, portalUrl: "https://evil.example/" });
   assert(sent[1].text.includes("https://learning-portal-mu-two.vercel.app/index.html?invite="));
 }));
 
 Deno.test("invitation email: when the mail provider refuses, the invitation stands and the link can be copied", () => withMail(async (sent, fail) => {
   const db = freshWorld();
   fail("the mail provider refused the API key");
-  const res = await call("POST", "/users/invitations", "tok_admin", { email: "new@test.org", role: "teacher", schoolId: "sch_1", send: true });
+  const res = await call("POST", "/users/invitations", "tok_super_admin", { email: "new@test.org", role: "teacher", schoolId: "sch_1", send: true });
   assertEquals([res.status, res.json.emailed], [200, false]);
   assert(res.json.emailError.includes("refused the API key") && res.json.token);
   assertEquals(db.staff_invitations.length, 1);
@@ -599,12 +603,12 @@ Deno.test("invitation email: when the mail provider refuses, the invitation stan
 
 Deno.test("renewing an invitation: a new link (emailed or to copy), the old one stops working", () => withMail(async (sent) => {
   const db = freshWorld();
-  const first = await call("POST", "/users/invitations", "tok_admin", { email: "new@test.org", role: "field_officer", county: "Narok" });
+  const first = await call("POST", "/users/invitations", "tok_super_admin", { email: "new@test.org", role: "field_officer", county: "Narok" });
   const id = first.json.invitation.id as string;
   const oldToken = first.json.token as string;
   db.staff_invitations[0].expires_at = new Date(Date.now() - 864e5).toISOString(); // lapsed
 
-  const renewed = await call("POST", `/users/invitations/${id}/renew`, "tok_admin", { send: true, portalUrl: "https://learning-portal-mu-two.vercel.app/index.html" });
+  const renewed = await call("POST", `/users/invitations/${id}/renew`, "tok_super_admin", { send: true, portalUrl: "https://learning-portal-mu-two.vercel.app/index.html" });
   assertEquals([renewed.status, renewed.json.emailed, renewed.json.invitation.status], [200, true, "open"]);
   const newToken = renewed.json.token as string;
   assert(newToken && newToken !== oldToken);
@@ -613,29 +617,28 @@ Deno.test("renewing an invitation: a new link (emailed or to copy), the old one 
   assert(sent[0].text.includes(`https://learning-portal-mu-two.vercel.app/index.html?invite=${encodeURIComponent(newToken)}`));
   assert(Date.parse(renewed.json.invitation.expiresAt) > Date.now() + 13 * 864e5, "another 14 days");
   const r = db.audit_log.find((x) => x.action === "invitation.renewed")!;
-  assertEquals([r.actor_id, r.target_id], ["admin-id", id]);
+  assertEquals([r.actor_id, r.target_id], ["super_admin-id", id]);
   assert(!JSON.stringify(db.audit_log).includes(newToken));
 
   // Renew without emailing: a link to copy.
-  const copy = await call("POST", `/users/invitations/${id}/renew`, "tok_admin", {});
+  const copy = await call("POST", `/users/invitations/${id}/renew`, "tok_super_admin", {});
   assertEquals([copy.status, copy.json.emailed], [200, false]);
   assertEquals(sent.length, 1);
 
   // Not once it's used…
   assertEquals((await call("POST", "/me/accept-invite", "tok_new", { token: copy.json.token, fullName: "New Officer" })).status, 200);
-  assertEquals((await call("POST", `/users/invitations/${id}/renew`, "tok_admin", {})).status, 409);
-  // …or revoked, or for a role above yours, or not there.
-  const other = await call("POST", "/users/invitations", "tok_admin", { email: "other@test.org", role: "teacher", schoolId: "sch_1" });
-  await call("DELETE", `/users/invitations/${other.json.invitation.id}`, "tok_admin");
-  assertEquals((await call("POST", `/users/invitations/${other.json.invitation.id}/renew`, "tok_admin", {})).status, 409);
-  const adminInvite = await call("POST", "/users/invitations", "tok_super_admin", { email: "boss@test.org", role: "admin" });
-  assertEquals((await call("POST", `/users/invitations/${adminInvite.json.invitation.id}/renew`, "tok_admin", {})).status, 403);
-  assertEquals((await call("POST", "/users/invitations/inv_none/renew", "tok_admin", {})).status, 404);
+  assertEquals((await call("POST", `/users/invitations/${id}/renew`, "tok_super_admin", {})).status, 409);
+  // …or revoked, or by someone who doesn't manage accounts, or not there.
+  const other = await call("POST", "/users/invitations", "tok_super_admin", { email: "other@test.org", role: "teacher", schoolId: "sch_1" });
+  assertEquals((await call("POST", `/users/invitations/${other.json.invitation.id}/renew`, "tok_admin", {})).status, 403, "a Programme Admin doesn't manage accounts");
+  await call("DELETE", `/users/invitations/${other.json.invitation.id}`, "tok_super_admin");
+  assertEquals((await call("POST", `/users/invitations/${other.json.invitation.id}/renew`, "tok_super_admin", {})).status, 409);
+  assertEquals((await call("POST", "/users/invitations/inv_none/renew", "tok_super_admin", {})).status, 404);
 }));
 
 Deno.test("audit history is readable only with audit.view, and shows the entries", async () => {
   const db = freshWorld();
-  await call("POST", "/users/teacher2-id/temporary-password", "tok_admin", {});
+  await call("POST", "/users/teacher2-id/temporary-password", "tok_super_admin", {});
   const res = await call("GET", "/audit?targetId=teacher2-id", "tok_super_admin");
   assertEquals(res.status, 200);
   assertEquals(res.json.entries[0].action, "password.temporary_set");
@@ -658,32 +661,32 @@ function sessionToken(userId: string, email: string, at: number) {
 
 Deno.test("a reset link is emailed by Supabase Auth to the account's own address, and audited", async () => {
   const db = freshWorld();
-  let res = await call("POST", "/users/teacher2-id/reset-link", "tok_admin", { redirectTo: "https://khaima.github.io/Learning-portal/index.html?flow=recovery" });
+  let res = await call("POST", "/users/teacher2-id/reset-link", "tok_super_admin", { redirectTo: "https://khaima.github.io/Learning-portal/index.html?flow=recovery" });
   assertEquals(res.status, 200);
   assertEquals(db.auth_emails, [{ email: "teacher2@test.org", redirectTo: "https://khaima.github.io/Learning-portal/index.html?flow=recovery" }]);
   const a = db.audit_log.find((x) => x.action === "password.reset_link_sent")!;
-  assertEquals([a.actor_id, a.target_id, a.details.email], ["admin-id", "teacher2-id", "teacher2@test.org"]);
+  assertEquals([a.actor_id, a.target_id, a.details.email], ["super_admin-id", "teacher2-id", "teacher2@test.org"]);
   // The link only ever leads back to the portal itself.
-  await call("POST", "/users/teacher2-id/reset-link", "tok_admin", { redirectTo: "https://evil.example/index.html" });
-  await call("POST", "/users/teacher2-id/reset-link", "tok_admin", { redirectTo: "https://learning-portal-mu-two.vercel.app/" });
-  await call("POST", "/users/teacher2-id/reset-link", "tok_admin", { redirectTo: "https://khaima.github.io/Other/index.html" });
+  await call("POST", "/users/teacher2-id/reset-link", "tok_super_admin", { redirectTo: "https://evil.example/index.html" });
+  await call("POST", "/users/teacher2-id/reset-link", "tok_super_admin", { redirectTo: "https://learning-portal-mu-two.vercel.app/" });
+  await call("POST", "/users/teacher2-id/reset-link", "tok_super_admin", { redirectTo: "https://khaima.github.io/Other/index.html" });
   assertEquals(db.auth_emails.slice(1).map((e: Row) => e.redirectTo), [
     "https://learning-portal-mu-two.vercel.app/index.html?flow=recovery",
     "https://learning-portal-mu-two.vercel.app/index.html?flow=recovery",
     "https://learning-portal-mu-two.vercel.app/index.html?flow=recovery",
   ]);
   // Never to someone the caller can't manage, or an account that can't sign in.
-  assertEquals((await call("POST", "/users/super_admin-id/reset-link", "tok_admin", {})).status, 403);
-  assertEquals((await call("POST", "/users/admin-id/reset-link", "tok_admin", {})).status, 403, "not your own account");
-  assertEquals((await call("POST", "/users/suspended-id/reset-link", "tok_admin", {})).status, 409);
-  assertEquals((await call("POST", "/users/no-such-id/reset-link", "tok_admin", {})).status, 404);
+  assertEquals((await call("POST", "/users/super_admin-id/reset-link", "tok_super_admin", {})).status, 403, "not your own account");
+  assertEquals((await call("POST", "/users/teacher2-id/reset-link", "tok_admin", {})).status, 403, "a Programme Admin doesn't manage accounts");
+  assertEquals((await call("POST", "/users/suspended-id/reset-link", "tok_super_admin", {})).status, 409);
+  assertEquals((await call("POST", "/users/no-such-id/reset-link", "tok_super_admin", {})).status, 404);
   assertEquals(db.auth_emails.length, 4);
   // The mail server refusing is reported, and nothing is audited for it.
   db.auth_mail_error = [{ status: 429, message: "email rate limit exceeded" }];
-  res = await call("POST", "/users/teacher2-id/reset-link", "tok_admin", {});
+  res = await call("POST", "/users/teacher2-id/reset-link", "tok_super_admin", {});
   assertEquals(res.status, 429);
   db.auth_mail_error = [{ status: 500, message: "Error sending recovery email" }];
-  assertEquals((await call("POST", "/users/teacher2-id/reset-link", "tok_admin", {})).status, 502);
+  assertEquals((await call("POST", "/users/teacher2-id/reset-link", "tok_super_admin", {})).status, 502);
   assertEquals(db.audit_log.filter((x) => x.action === "password.reset_link_sent").length, 4);
 });
 
@@ -695,7 +698,7 @@ Deno.test("the old 'set a new password' route is gone", async () => {
 Deno.test("a temporary password is shown once, must be changed at next sign-in, and is never stored or logged", async () => {
   const db = freshWorld();
   const issued = Date.now();
-  const res = await call("POST", "/users/teacher2-id/temporary-password", "tok_admin", {}, { "Idempotency-Key": "temp-pass-key-1" });
+  const res = await call("POST", "/users/teacher2-id/temporary-password", "tok_super_admin", {}, { "Idempotency-Key": "temp-pass-key-1" });
   assertEquals(res.status, 200);
   const temp = res.json.temporaryPassword as string;
   assert(/^[A-HJ-NP-Za-hj-np-z2-9]{4}(-[A-HJ-NP-Za-hj-np-z2-9]{4}){3}$/.test(temp), temp);
@@ -706,7 +709,7 @@ Deno.test("a temporary password is shown once, must be changed at next sign-in, 
   assert(!String(prof.temporary_password_hash).includes(temp), "only a hash is kept");
   // Not in the audit log, and not kept for an offline-retry replay.
   const a = db.audit_log.find((x) => x.action === "password.temporary_set")!;
-  assertEquals([a.actor_id, a.target_id], ["admin-id", "teacher2-id"]);
+  assertEquals([a.actor_id, a.target_id], ["super_admin-id", "teacher2-id"]);
   for (const table of ["audit_log", "sync_requests", "notifications"]) {
     assert(!JSON.stringify(db[table] ?? []).includes(temp), `the temporary password leaked into ${table}`);
   }
@@ -743,21 +746,23 @@ Deno.test("a temporary password is shown once, must be changed at next sign-in, 
   assertEquals((await call("GET", "/forms", fresh)).status, 200);
   assertEquals((await call("GET", "/me", fresh)).json.profile.mustChangePassword, false);
   // The admin's list shows it waiting, then done.
-  const list = await call("GET", "/users", "tok_admin");
+  const list = await call("GET", "/users", "tok_super_admin");
   assertEquals(list.json.users.find((u: Row) => u.id === "teacher2-id").mustChangePassword, false);
 });
 
 Deno.test("temporary passwords follow the same authority rules as other account changes", async () => {
   const db = freshWorld();
-  assertEquals((await call("POST", "/users/super_admin-id/temporary-password", "tok_admin", {})).status, 403);
-  assertEquals((await call("POST", "/users/admin-id/temporary-password", "tok_admin", {})).status, 403, "not your own account");
-  assertEquals((await call("POST", "/users/pending-id/temporary-password", "tok_admin", {})).status, 409);
-  assertEquals((await call("POST", "/users/teacher2-id/temporary-password", "tok_education_team", {})).status, 403);
+  assertEquals((await call("POST", "/users/super_admin-id/temporary-password", "tok_super_admin", {})).status, 403, "not your own account");
+  assertEquals((await call("POST", "/users/pending-id/temporary-password", "tok_super_admin", {})).status, 409);
+  for (const tok of ["tok_admin", "tok_education_team"]) {
+    assertEquals((await call("POST", "/users/teacher2-id/temporary-password", tok, {})).status, 403, `${tok}: a Programme Admin doesn't manage accounts`);
+  }
   assertEquals(db.auth_passwords ?? [], []);
   assert(!db.profiles.some((p) => p.must_change_password), "a refused request changes nothing");
-  // A Super Admin can for an admin.
+  // A Super Admin can for a Programme Admin, who is then held at the password step.
   assertEquals((await call("POST", "/users/admin-id/temporary-password", "tok_super_admin", {})).status, 200);
-  assertEquals((await call("GET", "/users", "tok_admin")).status, 403, "and that admin is held at the password step");
+  const held = await call("GET", "/admin/overview", "tok_admin");
+  assertEquals([held.status, held.json.mustChangePassword], [403, true], "and that admin is held at the password step");
 });
 
 Deno.test("a password known from a data breach is refused at sign-up and when changing it", async () => {
@@ -1265,7 +1270,7 @@ Deno.test("Kobo pipeline: sync stores raw, validates, normalizes; dashboards cou
   ];
   const restore = stubKobo(() => rows);
   try {
-    const sync = await call("POST", "/kobo/sync", "tok_admin");
+    const sync = await call("POST", "/kobo/sync", "tok_super_admin");
     assertEquals(sync.status, 200, JSON.stringify(sync.json));
     const st = sync.json.forms[0];
     assertEquals([st.received, st.valid, st.invalid, st.duplicate, st.rejected], [5, 1, 2, 1, 1]);
@@ -1285,7 +1290,7 @@ Deno.test("Kobo pipeline: sync stores raw, validates, normalizes; dashboards cou
     assertEquals(res.json.questions.find((q: Row) => q.name === "tablets_used").data, [{ label: "Yes", value: 1 }, { label: "No", value: 0 }]);
 
     // What needs looking at, by rule; the school it couldn't place, with a suggestion.
-    const pipe = await call("GET", "/kobo/forms/kb_1/pipeline", "tok_admin");
+    const pipe = await call("GET", "/kobo/forms/kb_1/pipeline", "tok_super_admin");
     assertEquals(pipe.json.stats.needsReview, 3);
     assertEquals(pipe.json.unknownSchools, [{ value: "Aitongg Pri", count: 1, suggestion: { id: "sch_1", name: "Aitong Primary", code: "NRK-001" } }]);
     assertEquals((await call("GET", "/kobo/records?formId=kb_1&rule=type", "tok_me")).json.records.map((r: Row) => r.koboId), [5]);
@@ -1303,12 +1308,12 @@ Deno.test("Kobo pipeline: sync stores raw, validates, normalizes; dashboards cou
     assertEquals(res.json.submissionCount, 3);
     assertEquals((await call("GET", "/intelligence", "tok_me")).json.dataCollection.kobo.counted, 3);
     // Re-syncing leaves the decision alone.
-    await call("POST", "/kobo/sync", "tok_admin");
+    await call("POST", "/kobo/sync", "tok_super_admin");
     assertEquals(recByKobo(db, 5).review, "accepted");
 
     // Deleted in Kobo → removed here too (kept, never counted).
     rows = rows.filter((r) => r._id !== 1);
-    await call("POST", "/kobo/sync", "tok_admin");
+    await call("POST", "/kobo/sync", "tok_super_admin");
     assertEquals(recByKobo(db, 1).status, "removed");
     assertEquals(db.kobo_raw_submissions.length, 5, "nothing is deleted");
     assertEquals(recByKobo(db, 3).status, "valid", "with the original gone, its copy is the one that counts");
@@ -1393,9 +1398,10 @@ Deno.test("Kobo field mapping: only the survey's own questions; saving re-checks
   const restore = stubKobo(() => [kRow(1, { school_code: "Nowhere Primary" })]);
   try {
     assertEquals((await call("PUT", "/kobo/forms/kb_1/mapping", "tok_super_admin", { school: "school_code" })).status, 409, "not synced yet");
-    assertEquals((await call("POST", "/kobo/sync", "tok_admin")).status, 200, "an Admin syncs…");
+    assertEquals((await call("POST", "/kobo/sync", "tok_admin")).status, 403, "the Kobo pipeline is the Super Admin's…");
+    assertEquals((await call("POST", "/kobo/sync", "tok_super_admin")).status, 200);
     assertEquals(recByKobo(db, 1).status, "invalid");
-    assertEquals((await call("PUT", "/kobo/forms/kb_1/mapping", "tok_admin", { school: null })).status, 403, "…but mapping fields is the Super Admin's");
+    assertEquals((await call("PUT", "/kobo/forms/kb_1/mapping", "tok_admin", { school: null })).status, 403, "…and so is mapping fields");
     assertEquals((await call("PUT", "/kobo/forms/kb_1/mapping", "tok_super_admin", { school: "no_such_question" })).status, 400);
     assertEquals((await call("PUT", "/kobo/forms/kb_1/mapping", "tok_me", { school: null })).status, 403, "M&E can look, not change");
     const saved = await call("PUT", "/kobo/forms/kb_1/mapping", "tok_super_admin",
@@ -1431,7 +1437,7 @@ const dqByKey = (db: Db, key: string) => db.dq_issues.find((i) => i.issue_key ==
 
 Deno.test("data quality: scans open issues, keep first-detected dates, resolve what's fixed at the source, reopen what comes back", async () => {
   const db = dqWorld();
-  const scan = await call("POST", "/data-quality/scan", "tok_me");
+  const scan = await call("POST", "/data-quality/scan", "tok_super_admin");
   assertEquals(scan.status, 200, JSON.stringify(scan.json));
   const nc = dqByKey(db, "learner_without_class:learner:noclass-id");
   const bg = dqByKey(db, "invalid_grade:learner:badgrade-id");
@@ -1439,17 +1445,17 @@ Deno.test("data quality: scans open issues, keep first-detected dates, resolve w
   assertEquals([nc.status, nc.severity, nc.school_id, nc.county], ["OPEN", "LOW", SCHOOL.id, "Narok"]);
   assert(db.dq_issue_events.some((e) => e.issue_id === nc.id && e.action === "detected"));
   const first = nc.first_detected_at;
-  const sum = await call("GET", "/data-quality/summary", "tok_me");
+  const sum = await call("GET", "/data-quality/summary", "tok_super_admin");
   assert(sum.json.score.value < 100);
   assertEquals(sum.json.byType.find((t: Row) => t.type === "learner_without_class").OPEN, 1);
   // Fixed elsewhere (e.g. by the school head): the next scan resolves it — by the scan, not a person.
   db.learners.find((l) => l.id === "noclass-id")!.class_id = "cls_1";
-  await call("POST", "/data-quality/scan", "tok_me");
+  await call("POST", "/data-quality/scan", "tok_super_admin");
   assertEquals([nc.status, nc.resolved_by, nc.resolution, nc.still_present], ["RESOLVED", null, "No longer found — fixed at the source", false]);
   assert(db.dq_issue_events.some((e) => e.issue_id === nc.id && e.action === "auto_resolved"));
   // It comes back: the same issue reopens, with its history and first-detected date.
   db.learners.find((l) => l.id === "noclass-id")!.class_id = null;
-  await call("POST", "/data-quality/scan", "tok_me");
+  await call("POST", "/data-quality/scan", "tok_super_admin");
   assertEquals([nc.status, nc.reopened_count, nc.first_detected_at], ["OPEN", 1, first]);
   assertEquals(db.dq_issues.filter((i) => i.issue_key === nc.issue_key).length, 1);
   assertEquals(db.dq_scans.length, 3);
@@ -1460,23 +1466,23 @@ Deno.test("data quality: status workflow with reasons, ignore sticks, filters by
   const db = dqWorld();
   db.learners.push({ ...db.learners[1], id: "b-noclass", username: "kid.bnc", full_name: "Kid B Noclass", class_id: null, learner_code: "NRK-002-L0009" });
   db.learner_enrollments.push({ id: "enr-bnc", learner_id: "b-noclass", school_id: SCHOOL_B.id, class_id: null, status: "ACTIVE", enrollment_date: "2026-09-01" });
-  await call("POST", "/data-quality/scan", "tok_me");
+  await call("POST", "/data-quality/scan", "tok_super_admin");
   const nc = dqByKey(db, "learner_without_class:learner:noclass-id");
-  assertEquals((await call("PATCH", `/data-quality/issues/${nc.id}`, "tok_me", { status: "UNDER_REVIEW" })).status, 200);
-  assertEquals((await call("PATCH", `/data-quality/issues/${nc.id}`, "tok_me", { status: "IGNORED" })).status, 400, "a reason is required");
-  assertEquals((await call("PATCH", `/data-quality/issues/${nc.id}`, "tok_me", { status: "IGNORED", note: "Joins a class next term" })).status, 200);
-  assertEquals((await call("PATCH", `/data-quality/issues/${nc.id}`, "tok_me", { status: "UNDER_REVIEW" })).status, 400, "reopen it first");
+  assertEquals((await call("PATCH", `/data-quality/issues/${nc.id}`, "tok_super_admin", { status: "UNDER_REVIEW" })).status, 200);
+  assertEquals((await call("PATCH", `/data-quality/issues/${nc.id}`, "tok_super_admin", { status: "IGNORED" })).status, 400, "a reason is required");
+  assertEquals((await call("PATCH", `/data-quality/issues/${nc.id}`, "tok_super_admin", { status: "IGNORED", note: "Joins a class next term" })).status, 200);
+  assertEquals((await call("PATCH", `/data-quality/issues/${nc.id}`, "tok_super_admin", { status: "UNDER_REVIEW" })).status, 400, "reopen it first");
   assert(db.audit_log.some((a) => a.action === "dq.status_changed" && a.target_id === nc.id && a.details.to === "IGNORED"));
-  await call("POST", "/data-quality/scan", "tok_me");
+  await call("POST", "/data-quality/scan", "tok_super_admin");
   assertEquals(nc.status, "IGNORED", "a scan never overrides a person's decision to ignore");
   // Resolving by hand while it's still there: the next scan reopens it.
   const bg = dqByKey(db, "invalid_grade:learner:badgrade-id");
-  await call("PATCH", `/data-quality/issues/${bg.id}`, "tok_me", { status: "RESOLVED", note: "Told the school" });
-  assertEquals([bg.status, bg.resolved_by], ["RESOLVED", "me-id"]);
-  await call("POST", "/data-quality/scan", "tok_me");
+  await call("PATCH", `/data-quality/issues/${bg.id}`, "tok_super_admin", { status: "RESOLVED", note: "Told the school" });
+  assertEquals([bg.status, bg.resolved_by], ["RESOLVED", "super_admin-id"]);
+  await call("POST", "/data-quality/scan", "tok_super_admin");
   assertEquals(bg.status, "OPEN");
   // Filters.
-  const list = async (qs: string) => (await call("GET", `/data-quality/issues?${qs}`, "tok_me")).json.issues.map((i: Row) => i.entity.id).sort();
+  const list = async (qs: string) => (await call("GET", `/data-quality/issues?${qs}`, "tok_super_admin")).json.issues.map((i: Row) => i.entity.id).sort();
   assertEquals(await list(`school=${encodeURIComponent(SCHOOL_B.name)}&type=learner_without_class`), ["b-noclass"]);
   assertEquals(await list(`county=Narok&type=learner_without_class&status=OPEN`), ["b-noclass"], "ignored ones drop out of OPEN");
   assertEquals(await list("type=invalid_grade&severity=MEDIUM"), ["badgrade-id"]);
@@ -1484,11 +1490,11 @@ Deno.test("data quality: status workflow with reasons, ignore sticks, filters by
   assertEquals(await list("from=2099-01-01"), [], "first detected in that range");
   const today = new Date().toISOString().slice(0, 10);
   assert((await list(`from=${today}&to=${today}`)).length >= 4);
-  const ignoredSummary = (await call("GET", "/data-quality/summary?status=IGNORED", "tok_me")).json;
+  const ignoredSummary = (await call("GET", "/data-quality/summary?status=IGNORED", "tok_super_admin")).json;
   assertEquals(ignoredSummary.totals.byStatus.IGNORED, 1);
   // Bulk: several at once, each audited.
   const ids = db.dq_issues.filter((i) => i.status === "OPEN").map((i) => i.id);
-  const bulk = await call("POST", "/data-quality/issues/bulk", "tok_me", { ids, status: "UNDER_REVIEW" });
+  const bulk = await call("POST", "/data-quality/issues/bulk", "tok_super_admin", { ids, status: "UNDER_REVIEW" });
   assertEquals(bulk.json.changed, ids.length);
   assertEquals(db.dq_issue_events.filter((e) => e.action === "status_changed" && e.to_status === "UNDER_REVIEW").length, ids.length + 1);
 });
@@ -1496,39 +1502,43 @@ Deno.test("data quality: status workflow with reasons, ignore sticks, filters by
 Deno.test("data quality corrections: through the normal edit, audited before/after, never a deletion, permission-checked", async () => {
   const db = dqWorld();
   await call("POST", "/data-quality/scan", "tok_admin");
+  assertEquals((db.dq_issues ?? []).length, 0, "a Programme Admin can't scan: data quality is the Super Admin's");
+  await call("POST", "/data-quality/scan", "tok_super_admin");
   const bg = dqByKey(db, "invalid_grade:learner:badgrade-id");
-  // The fixes offered depend on who's asking.
+  assertEquals((await call("GET", `/data-quality/issues/${bg.id}`, "tok_me")).status, 403, "nor is it M&E's");
+  // The fixes offered depend on who's asking: given it to look at, M&E can triage, not edit learners.
+  db.permission_grants.push({ id: "g_dq", profile_id: "me-id", permission: "data_quality.view", reason: "test", granted_by: "super_admin-id", granted_at: new Date().toISOString(), revoked_at: null });
   assertEquals((await call("GET", `/data-quality/issues/${bg.id}`, "tok_me")).json.fixes, [], "M&E can triage, not edit learners");
   assertEquals((await call("POST", `/data-quality/issues/${bg.id}/fix`, "tok_education_team", { action: "set_learner_grade", grade: "Grade 4" })).status, 403);
-  const offered = (await call("GET", `/data-quality/issues/${bg.id}`, "tok_admin")).json.fixes.map((f: Row) => f.action);
+  const offered = (await call("GET", `/data-quality/issues/${bg.id}`, "tok_super_admin")).json.fixes.map((f: Row) => f.action);
   assertEquals(offered, ["set_learner_grade"]);
-  assertEquals((await call("POST", `/data-quality/issues/${bg.id}/fix`, "tok_admin", { action: "set_learner_grade", grade: "Grade 99" })).status, 400);
-  const fixed = await call("POST", `/data-quality/issues/${bg.id}/fix`, "tok_admin", { action: "set_learner_grade", grade: "Grade 4", note: "Checked the register" });
+  assertEquals((await call("POST", `/data-quality/issues/${bg.id}/fix`, "tok_super_admin", { action: "set_learner_grade", grade: "Grade 99" })).status, 400);
+  const fixed = await call("POST", `/data-quality/issues/${bg.id}/fix`, "tok_super_admin", { action: "set_learner_grade", grade: "Grade 4", note: "Checked the register" });
   assertEquals(fixed.status, 200, JSON.stringify(fixed.json));
   assertEquals(db.learners.find((l) => l.id === "badgrade-id")!.grade, "Grade 4");
-  assertEquals([bg.status, bg.resolved_by], ["RESOLVED", "admin-id"]);
+  assertEquals([bg.status, bg.resolved_by], ["RESOLVED", "super_admin-id"]);
   assert(String(bg.resolution).startsWith("Corrected: Grade set to Grade 4"));
   const ev = db.dq_issue_events.find((e) => e.issue_id === bg.id && e.action === "corrected")!;
-  assertEquals([ev.details.before, ev.details.after, ev.actor_id], [{ grade: "Std 4" }, { grade: "Grade 4" }, "admin-id"]);
+  assertEquals([ev.details.before, ev.details.after, ev.actor_id], [{ grade: "Std 4" }, { grade: "Grade 4" }, "super_admin-id"]);
   assert(db.audit_log.some((a) => a.action === "dq.corrected" && a.target_id === bg.id));
   assert(db.audit_log.some((a) => a.action === "learner.updated" && a.target_id === "badgrade-id" && a.details.via === "data_quality"));
   assertEquals(fixed.json.issue.status, "RESOLVED", "the re-scan agrees it's fixed");
   // Place the class-less learner; archive the duplicate (kept, reversible).
   const nc = dqByKey(db, "learner_without_class:learner:noclass-id");
-  assertEquals((await call("POST", `/data-quality/issues/${nc.id}/fix`, "tok_admin", { action: "place_learner_in_class", classId: "cls_1" })).status, 200);
+  assertEquals((await call("POST", `/data-quality/issues/${nc.id}/fix`, "tok_super_admin", { action: "place_learner_in_class", classId: "cls_1" })).status, 200);
   assertEquals(db.learners.find((l) => l.id === "noclass-id")!.class_id, "cls_1");
   const dup = dqByKey(db, `duplicate_learner:${SCHOOL.id}|kid one`);
-  assertEquals((await call("POST", `/data-quality/issues/${dup.id}/fix`, "tok_admin", { action: "archive_duplicate_learner", learnerId: "learner-b-id" })).status, 400, "only one of the duplicates");
-  assertEquals((await call("POST", `/data-quality/issues/${dup.id}/fix`, "tok_admin", { action: "archive_duplicate_learner", learnerId: "dup-id" })).status, 200);
+  assertEquals((await call("POST", `/data-quality/issues/${dup.id}/fix`, "tok_super_admin", { action: "archive_duplicate_learner", learnerId: "learner-b-id" })).status, 400, "only one of the duplicates");
+  assertEquals((await call("POST", `/data-quality/issues/${dup.id}/fix`, "tok_super_admin", { action: "archive_duplicate_learner", learnerId: "dup-id" })).status, 200);
   const d = db.learners.find((l) => l.id === "dup-id")!;
   assertEquals([d.enrollment_status, db.learners.length], ["INACTIVE", 5], "archived, never deleted");
   assert(String(d.exit_reason).includes("Duplicate record of NRK-001-L0001"));
   assertEquals(dup.status, "RESOLVED");
   // A correction that isn't on offer for this issue is refused.
-  assertEquals((await call("POST", `/data-quality/issues/${nc.id}/fix`, "tok_admin", { action: "set_learner_grade", grade: "Grade 4" })).status, 403);
+  assertEquals((await call("POST", `/data-quality/issues/${nc.id}/fix`, "tok_super_admin", { action: "set_learner_grade", grade: "Grade 4" })).status, 403);
   // The issue's own history reads in order.
   const hist = (await call("GET", `/data-quality/issues/${bg.id}`, "tok_me")).json.events.map((e: Row) => `${e.action}:${e.by}`);
-  assertEquals(hist, ["detected:Scan", "corrected:admin person"]);
+  assertEquals(hist, ["detected:Scan", "corrected:super_admin person"]);
 });
 
 /* ------------------------------------------------------------ 12. M&E layer */
@@ -1658,11 +1668,12 @@ Deno.test("impact dashboards: analysts only, the six areas, gender kept optional
   const r = await call("GET", "/impact", "tok_me");
   assertEquals(r.status, 200, JSON.stringify(r.json));
   for (const k of ["executive", "reach", "learning", "teachers", "fieldOps", "resources"]) assert(k in r.json, k);
-  // The Education Team gets the learning side only — never reach or field operations.
-  const learning = (await call("GET", "/impact", "tok_education_team")).json;
-  assertEquals(Object.keys(learning).filter((k) => ["executive", "reach", "learning", "teachers", "fieldOps", "resources"].includes(k)).sort(),
-    ["executive", "learning", "resources", "teachers"]);
-  assertEquals((await call("GET", "/impact", "tok_admin")).status, 403, "administration isn't programme analysis");
+  // The Programme Admin (Education Team) gets the learning side only — never reach or field operations.
+  for (const tok of ["tok_education_team", "tok_admin"]) {
+    const learning = (await call("GET", "/impact", tok)).json;
+    assertEquals(Object.keys(learning).filter((k) => ["executive", "reach", "learning", "teachers", "fieldOps", "resources"].includes(k)).sort(),
+      ["executive", "learning", "resources", "teachers"], tok);
+  }
   assertEquals([r.json.executive.schools, r.json.executive.learners], [2, 2]);
   // Gender: optional, checked, and never shown for fewer than 5 people.
   assertEquals((await call("POST", "/learners", "tok_teacher", { fullName: "Kid Two", username: "kid.two", pin: "1234", classId: "cls_1", gender: "boy" })).status, 400);
@@ -1671,7 +1682,7 @@ Deno.test("impact dashboards: analysts only, the six areas, gender kept optional
   assertEquals((await call("PATCH", "/learners/learner-id", "tok_teacher", { gender: "prefer not to say" })).json.learner.gender, "prefer_not_to_say");
   assertEquals((await call("PATCH", "/learners/learner-id", "tok_teacher", { gender: "" })).json.learner.gender, null, "it can be cleared");
   assert(db.audit_log.some((x) => x.action === "learner.updated" && x.details?.fields?.includes("gender")));
-  assertEquals((await call("PATCH", "/users/teacher2-id", "tok_admin", { gender: "male" })).json.user.gender, "male");
+  assertEquals((await call("PATCH", "/users/teacher2-id", "tok_super_admin", { gender: "male" })).json.user.gender, "male");
   const g = (await call("GET", "/impact", "tok_me")).json.reach.gender.learners;
   assertEquals([g.total, g.recorded], [3, 1]);
   assertEquals(g.overall.find((x: Row) => x.key === "female").value, null, "one girl is shown as fewer than 5");
@@ -1853,7 +1864,7 @@ Deno.test("sync center: Kobo connection, last sync and each survey's error; what
   connectKobo(db);
   const restore = stubKobo(() => [kRow(1), kRow(2, { school_code: "Aitongg Pri" })]);
   try {
-    assertEquals((await call("POST", "/kobo/sync", "tok_admin")).status, 200);
+    assertEquals((await call("POST", "/kobo/sync", "tok_super_admin")).status, 200);
   } finally { restore(); }
   status = (await call("GET", "/sync/status", "tok_field_officer")).json;
   assert(status.kobo.connected && status.kobo.lastSyncedAt);
@@ -1871,9 +1882,9 @@ Deno.test("sync center: Kobo connection, last sync and each survey's error; what
     if (url.includes("kobo.test")) return Promise.resolve(new Response("{}", { status: 401 }));
     return real(input);
   }) as typeof fetch;
-  try { await call("POST", "/kobo/sync", "tok_admin"); } finally { globalThis.fetch = real; }
+  try { await call("POST", "/kobo/sync", "tok_super_admin"); } finally { globalThis.fetch = real; }
   assertEquals(db.kobo_forms[0].last_sync_error, "KoboToolbox rejected the API token");
-  const admin = (await call("GET", "/sync/status", "tok_admin")).json.kobo;
+  const admin = (await call("GET", "/sync/status", "tok_super_admin")).json.kobo;
   assertEquals([admin.failing, admin.surveys[0].error, admin.surveys[0].received], [1, "KoboToolbox rejected the API token", 2]);
   assert(!JSON.stringify(admin).includes("test-token"));
 });
@@ -1901,7 +1912,10 @@ Deno.test("sync center: staff devices report their sync state; administrators se
   assertEquals((await call("POST", "/sync/report", LEARNER, report)).status, 200, "a learner's tablet reports too…");
   assertEquals([db.learner_device_sync_status.length, db.device_sync_status.length], [1, 1], "…in a table of its own, never among the staff");
   await call("POST", "/sync/report", "tok_teacher", { deviceId: "laptop-0001", lastSyncAt: new Date().toISOString(), lastSyncAtFuture: true });
-  const res = await call("GET", "/sync/devices", "tok_admin");
+  for (const tok of ["tok_admin", "tok_education_team", "tok_me"]) {
+    assertEquals((await call("GET", "/sync/devices", tok)).status, 403, `${tok}: device sync is the Super Admin's`);
+  }
+  const res = await call("GET", "/sync/devices", "tok_super_admin");
   assertEquals(res.status, 200);
   const fo = res.json.people.find((p: Row) => p.id === "field_officer-id");
   assertEquals([fo.pending, fo.devices[0].deviceLabel], [3, "Android · Chrome"]);
@@ -1909,7 +1923,7 @@ Deno.test("sync center: staff devices report their sync state; administrators se
   assertEquals(res.json.people[0].id, "field_officer-id", "the ones needing a look come first");
   assertEquals(res.json.people.find((p: Row) => p.id === "teacher-id").attention, null, "synced just now");
   assertEquals(res.json.people.find((p: Row) => p.id === "teacher2-id").attention, "No device has reported yet");
-  assertEquals((await call("GET", "/sync/devices?role=field_officer", "tok_admin")).json.people.length, 1);
+  assertEquals((await call("GET", "/sync/devices?role=field_officer", "tok_super_admin")).json.people.length, 1);
 });
 
 /* ------------------------------------------------------------ notifications */
@@ -1929,9 +1943,9 @@ Deno.test("notifications: stored per person, never twice, read with a record of 
   const learner = (await call("GET", "/notifications", LEARNER)).json;
   assertEquals(learner.notifications.map((n: Row) => n.title), ["1 assignment is due tomorrow."]);
   // Again (and a manual run): nothing new.
-  assertEquals((await call("POST", "/notifications/run-now", "tok_admin", {})).json.created >= 0, true);
+  assertEquals((await call("POST", "/notifications/run-now", "tok_super_admin", {})).json.created >= 0, true);
   const before = db.notifications.length;
-  await call("POST", "/notifications/run-now", "tok_admin", {});
+  await call("POST", "/notifications/run-now", "tok_super_admin", {});
   assertEquals(db.notifications.length, before, "the same thing is never said twice");
   assertEquals(db.notification_events.filter((e) => e.notification_id === due.id).map((e) => e.action), ["created"]);
   // Reading: only your own; recorded once.
@@ -1941,12 +1955,14 @@ Deno.test("notifications: stored per person, never twice, read with a record of 
   await call("POST", `/notifications/${due.id}/read`, "tok_teacher", {});
   assertEquals(db.notification_events.filter((e) => e.notification_id === due.id).map((e) => [e.action, e.actor_id]), [["created", null], ["read", "teacher-id"]]);
   assert(db.notifications.find((n) => n.id === due.id)!.read_at);
-  // Approvers: pending accounts. The Education Team can't approve, so isn't told.
-  assertEquals((await call("GET", "/notifications", "tok_admin")).json.notifications.find((n: Row) => n.kind === "accounts_pending")?.title, "1 staff account awaiting approval.");
-  assertEquals((await call("GET", "/notifications", "tok_education_team")).json.notifications.some((n: Row) => n.kind === "accounts_pending"), false);
+  // Approvers: pending accounts. Only the Super Admin approves, so only they are told.
+  assertEquals((await call("GET", "/notifications", "tok_super_admin")).json.notifications.find((n: Row) => n.kind === "accounts_pending")?.title, "1 staff account awaiting approval.");
+  for (const tok of ["tok_admin", "tok_education_team"]) {
+    assertEquals((await call("GET", "/notifications", tok)).json.notifications.some((n: Row) => n.kind === "accounts_pending"), false, tok);
+  }
   // Mark all read.
-  await call("POST", "/notifications/read-all", "tok_admin", {});
-  assertEquals((await call("GET", "/notifications", "tok_admin")).json.unread, 0);
+  await call("POST", "/notifications/read-all", "tok_super_admin", {});
+  assertEquals((await call("GET", "/notifications", "tok_super_admin")).json.unread, 0);
 });
 
 Deno.test("notifications: 'Term return is due.' from a form's due date; dates checked", async () => {
@@ -1999,7 +2015,7 @@ Deno.test("notifications: the hourly run needs the database's secret; Kobo recei
   await app.request("/api/notifications/run", { method: "POST", headers: { "X-Cron-Secret": CRON_SECRET } });
   assertEquals(db.notifications.filter((n) => n.recipient_id === "me-id" && n.kind === "kobo_received").length, 1, "told once");
   // The log: who was told what, and whether they've read it.
-  const log = (await call("GET", "/notifications/log?kind=kobo_received&status=unread", "tok_admin")).json;
+  const log = (await call("GET", "/notifications/log?kind=kobo_received&status=unread", "tok_super_admin")).json;
   assert(log.notifications.some((n: Row) => n.recipient.name === "me person" && !n.readAt));
   assertEquals(log.runs[0].trigger, "schedule");
 });
@@ -2041,9 +2057,10 @@ Deno.test("reports: the catalogue lists only the reports a person may export", a
   reportWorld();
   const ids = async (tok: string) => ((await call("GET", "/reports", tok)).json.reports as Row[]).map((x) => x.id);
   assertEquals((await ids("tok_super_admin")).length, 11, "the Super Admin keeps every right");
-  assertEquals(await ids("tok_education_team"), ["learner-register", "teacher-register", "school-register", "assignment-report",
-    "assessment-report", "field-visit-report", "library-usage"], "learning reports");
-  assertEquals((await ids("tok_admin")).includes("me-indicator-report"), false, "not the M&E results framework");
+  const programme = ["learner-register", "teacher-register", "school-register", "assignment-report",
+    "assessment-report", "field-visit-report", "library-usage", "term-report", "county-report"];
+  assertEquals(await ids("tok_education_team"), programme, "learning and programme reports");
+  assertEquals(await ids("tok_admin"), programme, "the same role under its old code: not the M&E results framework, not Kobo");
   assertEquals(await ids("tok_teacher"), ["learner-register", "assignment-report", "assessment-report"]);
   assertEquals(await ids("tok_field_officer"), ["teacher-register", "school-register", "field-visit-report"], "their assigned schools");
   assertEquals(await ids("tok_school_leader"), ["learner-register", "teacher-register", "school-register", "assignment-report", "assessment-report", "term-report"]);
@@ -2080,8 +2097,10 @@ Deno.test("reports: never PINs or usernames; staff emails only for those who man
   const text = JSON.stringify(learners);
   assert(!text.includes("kid.one") && !text.includes("pin_") && !text.includes("username"), "no usernames or PINs");
   assertEquals(sectionRows(learners, "Learners").map((x) => x.name), ["Kid One", "Kid B"], "by school, then name");
-  const ed = (await call("GET", "/reports/teacher-register", "tok_admin")).json;
+  const ed = (await call("GET", "/reports/teacher-register", "tok_super_admin")).json;
   assert(sectionRows(ed, "Teachers").every((x) => String(x.email).endsWith("@test.org")));
+  const pa = (await call("GET", "/reports/teacher-register", "tok_admin")).json;
+  assert(!JSON.stringify(pa).includes("@test.org"), "the Programme Admin doesn't manage accounts, so sees no emails");
   const me = (await call("GET", "/reports/teacher-register", "tok_me")).json;
   assert(!JSON.stringify(me).includes("@test.org"), "the M&E team sees the register, not emails");
   assertEquals(sectionRows(me, "Teachers").length, 3, "all schools' active teachers");
@@ -2130,11 +2149,12 @@ Deno.test("access: /me says which workspace, what scope and which permissions �
   const me = async (tok: string) => (await call("GET", "/me", tok)).json.profile;
   const sa = await me("tok_super_admin");
   assertEquals([sa.workspace.page, sa.workspace.title, sa.scope.global], ["platform.html", "Platform Administration", true]);
-  assertEquals(sa.workspaces, ["platform", "admin", "me", "education"], "a Super Admin can open every management workspace");
+  assertEquals(sa.workspaces, ["platform", "admin", "me"], "a Super Admin can open every management workspace");
   for (const p of ["users.roles.assign", "me.framework.manage", "library.manage", "kobo.configure", "permissions.manage", "audit.view"]) assert(sa.permissions.includes(p), p);
   assertEquals([(await me("tok_admin")).workspace.page, (await me("tok_me")).workspace.page, (await me("tok_education_team")).workspace.page],
-    ["admin.html", "me.html", "education.html"]);
+    ["admin.html", "me.html", "admin.html"], "the Programme Admin is the Education Team: one workspace");
   assertEquals((await me("tok_admin")).workspaces, ["admin"], "no other workspace");
+  assertEquals((await me("tok_education_team")).workspaces, ["admin"]);
   const fo = await me("tok_field_officer");
   assertEquals([fo.workspace.title, fo.scope.global, fo.scope.label], ["Field Operations", false, "Narok County"]);
 });
@@ -2142,16 +2162,24 @@ Deno.test("access: /me says which workspace, what scope and which permissions �
 Deno.test("access: separation of duties holds at the API, whatever the browser shows", async () => {
   freshWorld();
   const st = async (method: string, path: string, tok: string, body?: unknown) => (await call(method, path, tok, body)).status;
-  // Education Team: learning work, no account administration, security or integrations.
-  assertEquals(await st("GET", "/users", "tok_education_team"), 403);
-  assertEquals(await st("PUT", "/kobo/config", "tok_education_team", { apiToken: "x" }), 403);
-  assertEquals(await st("GET", "/audit", "tok_education_team"), 403);
-  assertEquals(await st("POST", "/schools", "tok_education_team", { name: "X", county: "Narok" }), 403);
+  // The Programme Admin (Education Team, under either code): learning and education —
+  // no accounts, data quality, device sync, security or integrations.
+  for (const tok of ["tok_education_team", "tok_admin"]) {
+    assertEquals(await st("GET", "/users", tok), 403, tok);
+    assertEquals(await st("PUT", "/kobo/config", tok, { apiToken: "x" }), 403, tok);
+    assertEquals(await st("POST", "/kobo/sync", tok, {}), 403, tok);
+    assertEquals(await st("GET", "/audit", tok), 403, tok);
+    assertEquals(await st("GET", "/data-quality/issues", tok), 403, tok);
+    assertEquals(await st("GET", "/sync/problems", tok), 403, tok);
+    assertEquals(await st("GET", "/sync/devices", tok), 403, tok);
+    assertEquals(await st("GET", "/admin/overview", tok), 200, tok);
+  }
+  assertEquals(await st("POST", "/schools", "tok_education_team", { name: "X", county: "Narok" }), 200, "it runs the schools");
   // M&E: measures, never changes accounts or records.
   assertEquals(await st("PATCH", "/users/teacher2-id", "tok_me", { fullName: "X" }), 403);
   assertEquals(await st("POST", "/learners/learner-id/transfer", "tok_me", { toSchoolId: "sch_2" }), 403);
   assertEquals(await st("POST", "/kobo/sync", "tok_me", {}), 403);
-  // Admin: not the M&E framework, not the platform.
+  // Nor the M&E framework, nor the platform.
   assertEquals(await st("POST", "/mel/programmes", "tok_admin", { name: "X" }), 403);
   assertEquals(await st("GET", "/platform/overview", "tok_admin"), 403);
   assertEquals(await st("GET", "/permissions", "tok_admin"), 403);
@@ -2162,14 +2190,19 @@ Deno.test("access: separation of duties holds at the API, whatever the browser s
   assertEquals(await st("GET", "/learners", "tok_field_officer"), 403);
   assertEquals(await st("GET", "/assignments", LEARNER), 403);
   // The Super Admin can do all of it.
-  for (const [m, path] of [["GET", "/users"], ["GET", "/audit"], ["GET", "/platform/overview"], ["GET", "/admin/overview"], ["GET", "/mel/programmes"], ["GET", "/permissions"]]) {
+  for (const [m, path] of [["GET", "/users"], ["GET", "/audit"], ["GET", "/platform/overview"], ["GET", "/admin/overview"], ["GET", "/mel/programmes"], ["GET", "/permissions"],
+    ["GET", "/data-quality/issues"], ["GET", "/sync/problems"], ["GET", "/sync/devices"]]) {
     assertEquals(await st(m, path, "tok_super_admin"), 200, path);
   }
 });
 
-Deno.test("scope: M&E narrowed to one county sees only that county — lists, dashboards, data quality, M&E, reports", async () => {
+Deno.test("scope: M&E narrowed to one county sees only that county — lists, dashboards, data quality (given it), M&E, reports", async () => {
   const db = twoCounties();
   assign(db, "me-id", [{ county: "Meru" }]);
+  // Data quality is the Super Admin's; given it as a grant, it is scoped like everything else.
+  for (const permission of ["data_quality.view", "data_quality.manage"]) {
+    db.permission_grants.push({ id: `g_${permission}`, profile_id: "me-id", permission, reason: "test", granted_by: "super_admin-id", granted_at: new Date().toISOString(), revoked_at: null });
+  }
   const get = async (path: string) => (await call("GET", path, "tok_me")).json;
   assertEquals((await get("/me")).profile.scope.label, "Meru County");
   assertEquals((await get("/learners")).learners.map((l: Row) => l.fullName), ["Kid C"]);
@@ -2196,22 +2229,19 @@ Deno.test("scope: M&E narrowed to one county sees only that county — lists, da
   assertEquals((await call("POST", "/data-quality/scan", "tok_me", {})).status, 403);
 });
 
-Deno.test("scope: an Admin narrowed to a county manages people there, and only in school or field roles", async () => {
+Deno.test("scope: a Programme Admin narrowed to a county runs schools there; accounts stay with the Super Admin", async () => {
   const db = twoCounties();
   assign(db, "admin-id", [{ county: "Meru" }]);
-  const users = (await call("GET", "/users", "tok_admin")).json.users;
-  assertEquals(users.map((u: Row) => u.fullName).sort(), ["Teacher C"], "only people placed in Meru");
-  assertEquals((await call("PATCH", "/users/teacher2-id", "tok_admin", { fullName: "X" })).status, 404, "a Narok teacher isn't theirs");
-  assertEquals((await call("PATCH", "/users/teacher-c-id", "tok_admin", { fullName: "Teacher Cee" })).status, 200);
-  assertEquals((await call("POST", "/users/invitations", "tok_admin", { email: "n@test.org", role: "teacher", schoolId: SCHOOL.id })).status, 403, "not in their area");
-  assertEquals((await call("POST", "/users/invitations", "tok_admin", { email: "m@test.org", role: "teacher", schoolId: SCHOOL_C.id })).status, 200);
-  assertEquals((await call("POST", "/users/invitations", "tok_admin", { email: "e@test.org", role: "education_team" })).status, 403,
-    "a programme-wide role would see more than they do");
+  assertEquals((await call("GET", "/learners", "tok_admin")).json.learners.map((l: Row) => l.fullName), ["Kid C"], "only Meru's learners");
+  assertEquals((await call("GET", "/users", "tok_admin")).status, 403, "accounts are the Super Admin's");
+  assertEquals((await call("POST", "/users/invitations", "tok_admin", { email: "m@test.org", role: "teacher", schoolId: SCHOOL_C.id })).status, 403);
+  assertEquals((await call("PATCH", "/users/teacher-c-id", "tok_admin", { fullName: "Teacher Cee" })).status, 403);
   assertEquals((await call("POST", "/schools", "tok_admin", { name: "Narok New", county: "Narok" })).status, 403);
   assertEquals((await call("POST", "/schools", "tok_admin", { name: "Meru New", county: "Meru" })).status, 200);
   assertEquals((await call("POST", "/counties", "tok_admin", { name: "Kajiado", code: "KJD" })).status, 403, "counties are for whole-portal admins");
   assertEquals((await call("POST", "/academic-years", "tok_admin", { id: "2027" })).status, 403, "so is the calendar");
   assertEquals((await call("POST", "/learners/learner-id/transfer", "tok_admin", { toSchoolId: SCHOOL_C.id })).status, 404, "a Narok learner isn't theirs");
+  assertEquals(db.staff_invitations?.length ?? 0, 0);
 });
 
 Deno.test("scope: a field officer works only at assigned schools", async () => {
@@ -2235,18 +2265,18 @@ Deno.test("scope: a field officer works only at assigned schools", async () => {
 Deno.test("scope: assignments are set on the Users page, ended (never deleted) and audited", async () => {
   const db = twoCounties();
   const put = (tok: string, id: string, body: unknown) => call("PUT", `/users/${id}/scope`, tok, body);
-  assertEquals((await put("tok_admin", "teacher-id", { counties: ["Meru"] })).status, 400, "a teacher's data comes from their classes");
-  const res = await put("tok_admin", "field_officer-id", { counties: ["Meru"], schoolIds: [SCHOOL.id] });
+  assertEquals((await put("tok_super_admin", "teacher-id", { counties: ["Meru"] })).status, 400, "a teacher's data comes from their classes");
+  const res = await put("tok_super_admin", "field_officer-id", { counties: ["Meru"], schoolIds: [SCHOOL.id] });
   assertEquals([res.status, res.json.scope.label], [200, "Meru County and Aitong Primary"]);
   const ended = db.staff_scopes.filter((x) => x.profile_id === "field_officer-id" && x.ended_at);
-  assertEquals(ended.map((x) => [x.county, x.ended_by]), [["Narok", "admin-id"]], "the old Narok assignment is kept, ended");
+  assertEquals(ended.map((x) => [x.county, x.ended_by]), [["Narok", "super_admin-id"]], "the old Narok assignment is kept, ended");
   assert(db.audit_log.some((a) => a.action === "scope.changed" && a.target_id === "field_officer-id"));
-  const access = (await call("GET", "/users/field_officer-id/access", "tok_admin")).json;
+  const access = (await call("GET", "/users/field_officer-id/access", "tok_super_admin")).json;
   assertEquals([access.scope.label, access.canEditScope, access.scope.rows.length], ["Meru County and Aitong Primary", true, 3]);
-  // Narrowed admins hand out only what they hold, and never manage programme staff.
+  // A Programme Admin places no one, even narrowed to an area.
   assign(db, "admin-id", [{ county: "Meru" }]);
   assign(db, "me-id", [{ county: "Meru" }]);
-  assertEquals((await put("tok_admin", "me-id", { counties: ["Meru"] })).status, 404, "programme staff aren't placed in their area");
+  assertEquals((await put("tok_admin", "me-id", { counties: ["Meru"] })).status, 403, "placing people is the Super Admin's");
   assertEquals((await put("tok_super_admin", "me-id", { counties: [] })).status, 200, "a Super Admin can make M&E global again");
   assertEquals((await call("GET", "/me", "tok_me")).json.profile.scope.global, true);
 });
@@ -2337,16 +2367,23 @@ Deno.test("access: overviews, badges, the users list and account activity", asyn
   assertEquals(pf.accounts.pending, 1);
   assert(pf.checks.some((x: Row) => x.label === "More than one active Super Admin" && !x.ok), "one Super Admin is a risk");
   assert(pf.checks.some((x: Row) => x.label === "Every field officer has assigned schools" && x.ok));
+  // One row per role: accounts still on the old "admin" code count as the Programme Admin (Education Team).
+  const labels = pf.accounts.byRole.map((r: Row) => r.label);
+  assertEquals(new Set(labels).size, labels.length, labels.join(", "));
+  assertEquals(pf.accounts.byRole.some((r: Row) => r.role === "admin"), false);
   const ad = (await call("GET", "/admin/overview", "tok_admin")).json;
   assertEquals(pf.platform.environment, "development");
   assertEquals([ad.organisation.schools, ad.people.learners, ad.people.pending], [2, 2, 1]);
-  assertEquals((await call("GET", "/nav/badges", "tok_admin")).json.badges.approvals, 1);
-  assertEquals((await call("GET", "/nav/badges", "tok_education_team")).json.badges.approvals, undefined, "only badges they may see");
-  const users = (await call("GET", "/users", "tok_admin")).json.users;
+  assertEquals((await call("GET", "/nav/badges", "tok_super_admin")).json.badges.approvals, 1);
+  for (const tok of ["tok_admin", "tok_education_team"]) {
+    assertEquals((await call("GET", "/nav/badges", tok)).json.badges.approvals, undefined, `${tok}: only badges they may see`);
+  }
+  const users = (await call("GET", "/users", "tok_super_admin")).json.users;
   const t = users.find((u: Row) => u.id === "teacher-id");
   assertEquals([t.lastSignInAt, t.scope.label], ["2026-10-02T08:00:00.000Z", "Aitong Primary"]);
   assertEquals(users.find((u: Row) => u.id === "field_officer-id").scope.label, "Narok County");
   const act = (await call("GET", "/security/activity", "tok_super_admin")).json;
   assertEquals(act.staff[0].lastSignInAt, "2026-10-02T08:00:00.000Z", "most recent first");
-  assertEquals((await call("GET", "/users/teacher2-id/history", "tok_admin")).status, 200);
+  assertEquals((await call("GET", "/users/teacher2-id/history", "tok_super_admin")).status, 200);
+  assertEquals((await call("GET", "/users/teacher2-id/history", "tok_admin")).status, 403);
 });

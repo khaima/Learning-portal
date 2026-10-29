@@ -81,18 +81,28 @@ Deno.test("permissions: the HPF separation of duties", () => {
   for (const p of ["platform.view", "permissions.manage", "audit.view", "kobo.configure", "kobo.manage"]) {
     assert(has("super_admin", p) && !has("admin", p), p);
   }
-  // Admin syncs the Kobo surveys; attaching them and mapping their fields is the Super Admin's (7 Oct 2026).
-  assert(has("admin", "kobo.sync") && has("super_admin", "kobo.sync"));
-  // Admin doesn't run the M&E results framework.
+  // The Programme Admin is the Education Team (29 October 2026): one role, the same permissions.
+  assertEquals([...permissionsFor("admin")].sort(), [...permissionsFor("education_team")].sort());
+  // It runs learning and education: schools, classes, learners, teaching, content, training, forms, reports.
+  for (const p of ["schools.manage", "calendar.manage", "classes.manage.all", "learners.manage.all", "learners.transfer", "library.manage",
+    "subjects.manage", "trainings.manage", "forms.manage", "learning.dashboard.view", "reports.programme"]) assert(has("education_team", p), p);
+  // Accounts, data quality, device sync, the Kobo pipeline and notifications are the Super Admin's alone.
+  for (const p of ["users.view", "users.invite", "users.roles.assign", "users.status.manage", "users.placement.assign", "data_quality.view",
+    "data_quality.manage", "sync.monitor", "sync.problems.view", "kobo.sync", "notifications.view.all"]) {
+    assert(has("super_admin", p) && !has("education_team", p) && !has("admin", p) && !has("me", p), p);
+  }
+  assert(!has("education_team", "kobo.review") && !has("admin", "kobo.review"), "Kobo review: M&E and the Super Admin");
+  // M&E keeps reviewing the Kobo data it measures with.
+  assert(has("me", "kobo.review") && has("me", "kobo.results.view"));
+  // The Programme Admin doesn't run the M&E results framework.
   for (const p of ["me.view", "me.framework.manage", "me.actuals.verify", "me.reports.manage"]) assert(!has("admin", p), p);
   // M&E measures; it doesn't manage accounts, settings, integrations or records.
   for (const p of ["users.view", "users.roles.assign", "users.status.manage", "permissions.manage", "kobo.configure",
     "kobo.manage", "schools.manage", "learners.transfer", "learners.manage.all", "library.manage", "audit.view", "platform.view"]) {
     assert(!has("me", p), p);
   }
-  // Education Team: learning work, not administration or security.
-  for (const p of ["users.view", "users.invite", "users.roles.assign", "schools.manage", "audit.view", "platform.view",
-    "permissions.manage", "kobo.configure", "kobo.manage", "notifications.view.all", "sync.monitor", "me.view", "data_quality.manage"]) {
+  // The Programme Admin (Education Team): not security, the platform or M&E.
+  for (const p of ["audit.view", "platform.view", "permissions.manage", "kobo.configure", "kobo.manage", "me.view"]) {
     assert(!has("education_team", p), p);
   }
   // Administrators don't act as a teacher, head, field officer or learner.

@@ -19,7 +19,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { Buffer } from "node:buffer";
 import {
-  ACCOUNT_STATUSES, can, canManageAccount, COUNTY_ROLES, effectivePermissions, GRANTABLE_PERMISSIONS, grantableRoles,
+  ACCOUNT_STATUSES, can, canManageAccount, COUNTY_ROLES, effectivePermissions, GRANTABLE_PERMISSIONS, grantableRoles, roleGroup, STAFF_ROLE_GROUPS,
   isPermission, type Permission, PERMISSION_GROUPS, PERMISSION_LABEL, PERMISSIONS, permissionsFor, type Role, ROLE_LABEL, ROLE_PERMISSIONS, SELF_REQUESTABLE_ROLES,
   STAFF_ROLES, STATUS_TRANSITIONS, GRADES, nextGrade, type EnrollmentStatus, WORKSPACE,
 } from "./permissions.ts";
@@ -383,7 +383,7 @@ const mapProfile = (r: Record<string, unknown>, access?: { grants: string[]; sco
   scope: access ? { global: access.scope.global, label: access.scope.label } : null,
   workspace: WORKSPACE[r.role as Role] ?? null,
   // A Super Admin may open every management workspace; everyone else only their own.
-  workspaces: r.role === "super_admin" ? ["platform", "admin", "me", "education"] : [WORKSPACE[r.role as Role]?.id].filter(Boolean),
+  workspaces: r.role === "super_admin" ? ["platform", "admin", "me"] : [WORKSPACE[r.role as Role]?.id].filter(Boolean),
 });
 const mapLearnerSelf = (r: Record<string, unknown>) => ({
   id: r.id,
@@ -5043,7 +5043,8 @@ app.get("/stats", requirePermission("stats.view"), async (c) => {
     education_team: 0,
   };
   for (const p of staffRows) {
-    if (p.role in byRole) byRole[p.role as string]++;
+    const k = roleGroup(p.role as string);
+    if (k in byRole) byRole[k]++;
   }
   const teachersByType = tally(staffRows.filter((p) => p.role === "teacher"), "teacher_type");
 
@@ -8710,8 +8711,11 @@ app.get("/platform/overview", requirePermission("platform.view"), async (c) => {
     publicSignupsOpen(),
   ]);
   const staff = profs.data ?? [];
-  const byRole = Object.fromEntries(STAFF_ROLES.map((r) => [r, Object.fromEntries(ACCOUNT_STATUSES.map((s) => [s, 0]))]));
-  for (const p of staff) if (byRole[p.role]) byRole[p.role][p.status ?? "active"] = (byRole[p.role][p.status ?? "active"] ?? 0) + 1;
+  const byRole = Object.fromEntries(STAFF_ROLE_GROUPS.map((r) => [r, Object.fromEntries(ACCOUNT_STATUSES.map((s) => [s, 0]))]));
+  for (const p of staff) {
+    const g = byRole[roleGroup(p.role)];
+    if (g) g[p.status ?? "active"] = (g[p.status ?? "active"] ?? 0) + 1;
+  }
   const active = staff.filter((p) => (p.status ?? "active") === "active");
   const last = (p: Record<string, any>) => signIns.get(p.id)?.lastSignInAt ?? null;
   const assigned = new Set((scopes.data ?? []).map((r) => r.profile_id));
@@ -8743,7 +8747,7 @@ app.get("/platform/overview", requirePermission("platform.view"), async (c) => {
       conflicts: (syncFails.data ?? []).filter((e) => e.event === "conflict").length,
     },
     accounts: {
-      byRole: STAFF_ROLES.map((r) => ({ role: r, label: ROLE_LABEL[r], ...byRole[r] })),
+      byRole: STAFF_ROLE_GROUPS.map((r) => ({ role: r, label: ROLE_LABEL[r], ...byRole[r] })),
       total: staff.length, active: active.length, pending,
       signedIn7d: active.filter((p) => (last(p) ?? "") >= ago(7)).length,
       neverSignedIn: active.filter((p) => !last(p)).length,
@@ -8820,7 +8824,8 @@ async function publicSignupsOpen(): Promise<boolean | null> {
 
 /* Administration overview (Admin, and Super Admin): the programme's
    organisation and operations, within the caller's area. */
-app.get("/admin/overview", requirePermission("users.view"), async (c) => {
+// Programme Administration (the Education Team) and the Super Admin: schools.manage since 29 October 2026.
+app.get("/admin/overview", requirePermission("schools.manage"), async (c) => {
   const sc = scopeOf(c);
   // The filters above the dashboard (console.js): a county and a school (by
   // name), applied to every figure on the page alike — and only ever inside

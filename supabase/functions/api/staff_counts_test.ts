@@ -62,14 +62,14 @@ Deno.test("staff counts: only active teacher accounts are on staff, on every pag
 
 Deno.test("staff counts: a suspended teacher drops off, and is back once reactivated", async () => {
   typedWorld();
-  const res = await call("POST", "/users/teacher2-id/status", "tok_admin", { action: "suspend", reason: "On leave" });
+  const res = await call("POST", "/users/teacher2-id/status", "tok_super_admin", { action: "suspend", reason: "On leave" });
   assertEquals(res.status, 200, JSON.stringify(res.json));
   let a = await aitong();
   assertEquals(a.counts, everywhere(1));
   assertEquals(a.types, { overview: { TSC: 1 }, stats: { TSC: 1 } }, "the suspended BOM teacher isn't counted by type");
   assertEquals(a.listed.placed, 8, "a suspended teacher is still in the school, so it can't be removed");
 
-  assertEquals((await call("POST", "/users/teacher2-id/status", "tok_admin", { action: "reactivate" })).status, 200);
+  assertEquals((await call("POST", "/users/teacher2-id/status", "tok_super_admin", { action: "reactivate" })).status, 200);
   a = await aitong();
   assertEquals(a.counts, everywhere(2));
   assertEquals(a.types.overview, { TSC: 1, BOM: 1 });
@@ -80,7 +80,7 @@ Deno.test("staff counts: a pending teacher isn't on staff until approved", async
   assertEquals(db.profiles.find((p) => p.id === "pending-id")!.status, "pending");
   assertEquals((await aitong()).counts, everywhere(2), "waiting for approval: not counted");
 
-  const res = await call("POST", "/users/pending-id/approve", "tok_admin", {});
+  const res = await call("POST", "/users/pending-id/approve", "tok_super_admin", {});
   assertEquals(res.status, 200, JSON.stringify(res.json));
   const a = await aitong();
   assertEquals(a.counts, everywhere(3));

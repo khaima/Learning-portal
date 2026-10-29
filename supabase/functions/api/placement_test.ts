@@ -13,7 +13,7 @@ type Row = Record<string, any>;
 
 Deno.test("field officers: each officer's schools and counties, and each school's officers", async () => {
   twoCounties();
-  const res = await call("GET", "/field-officers", "tok_admin");
+  const res = await call("GET", "/field-officers", "tok_super_admin");
   assertEquals(res.status, 200, JSON.stringify(res.json));
   const fo = res.json.officers.find((o: Row) => o.id === "field_officer-id");
   assertEquals([fo.counties, fo.schools.length, fo.covers, fo.canEdit], [["Narok"], 0, 2, true], "all of Narok County: two schools");
@@ -26,15 +26,15 @@ Deno.test("field officers: each officer's schools and counties, and each school'
 Deno.test("assigning schools one by one, several at once, and taking one away â€” kept and audited", async () => {
   const db = twoCounties();
   // Instead of all of Narok: two named schools, one in each county.
-  const put = await call("PUT", "/users/field_officer-id/scope", "tok_admin", { counties: [], schoolIds: ["sch_1", "sch_3"] });
+  const put = await call("PUT", "/users/field_officer-id/scope", "tok_super_admin", { counties: [], schoolIds: ["sch_1", "sch_3"] });
   assertEquals(put.status, 200, JSON.stringify(put.json));
-  let res = await call("GET", "/field-officers", "tok_admin");
+  let res = await call("GET", "/field-officers", "tok_super_admin");
   let fo = res.json.officers.find((o: Row) => o.id === "field_officer-id");
   assertEquals(fo.schools.map((s: Row) => s.id), ["sch_1", "sch_3"]);
   assertEquals(res.json.schools.find((s: Row) => s.id === "sch_2").officers, [], "Olpusimoru isn't theirs any more");
   // Taking one away ends it; nothing is deleted.
-  await call("PUT", "/users/field_officer-id/scope", "tok_admin", { counties: [], schoolIds: ["sch_1"] });
-  res = await call("GET", "/field-officers", "tok_admin");
+  await call("PUT", "/users/field_officer-id/scope", "tok_super_admin", { counties: [], schoolIds: ["sch_1"] });
+  res = await call("GET", "/field-officers", "tok_super_admin");
   fo = res.json.officers.find((o: Row) => o.id === "field_officer-id");
   assertEquals(fo.schools.map((s: Row) => s.id), ["sch_1"]);
   const ended = db.staff_scopes.filter((r) => r.profile_id === "field_officer-id" && r.ended_at);
@@ -47,10 +47,12 @@ Deno.test("assigning schools one by one, several at once, and taking one away â€
 
 Deno.test("field officers: only for those who place staff, and only in their own area", async () => {
   const db = twoCounties();
-  for (const role of ["field_officer", "teacher", "school_leader", "education_team", "me"]) {
+  // Placing staff is the Super Admin's (29 October 2026).
+  for (const role of ["field_officer", "teacher", "school_leader", "education_team", "admin", "me"]) {
     assertEquals((await call("GET", "/field-officers", `tok_${role}`)).status, 403, role);
   }
-  // An admin narrowed to Meru sees Meru's schools only, and can't hand out Narok's.
+  // Someone given it as a grant, narrowed to Meru, sees Meru's schools only, and can't hand out Narok's.
+  db.permission_grants.push({ id: "g_place", profile_id: "admin-id", permission: "users.placement.assign", reason: "test", granted_by: "super_admin-id", granted_at: new Date().toISOString(), revoked_at: null });
   db.staff_scopes.push({ id: "scp_adm", profile_id: "admin-id", scope_type: "county", county: "Meru", school_id: null, note: "", created_at: new Date().toISOString(), created_by: null, ended_at: null, ended_by: null });
   const res = await call("GET", "/field-officers", "tok_admin");
   assertEquals(res.json.schools.map((s: Row) => s.id), ["sch_3"]);

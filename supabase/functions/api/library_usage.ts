@@ -26,7 +26,7 @@
  * `hpfStaff` says how much of it there was.
  */
 import { DAY_BLOCKS, dayBlocks } from "./impact.ts";
-import { HPF_STAFF_ROLES } from "./permissions.ts";
+import { HPF_STAFF_ROLES, roleGroup } from "./permissions.ts";
 
 // deno-lint-ignore no-explicit-any
 type Row = Record<string, any>;
@@ -160,7 +160,7 @@ export function buildLibraryUsage(input: UsageInput, f: UsageFilter) {
 
   // Who opens resources.
   const roles = new Map<string, Agg>();
-  for (const r of rows) { const k = (r.role as string) || "unknown"; if (!roles.has(k)) roles.set(k, agg()); add(roles.get(k)!, r); }
+  for (const r of rows) { const k = roleGroup(r.role as string) || "unknown"; if (!roles.has(k)) roles.set(k, agg()); add(roles.get(k)!, r); }
   const byRole = [...roles.entries()].map(([role, a]) => ({ role, ...figures(a) }))
     .sort((a, b) => b.sessions - a.sessions || b.users - a.users || a.role.localeCompare(b.role));
 

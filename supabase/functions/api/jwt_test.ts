@@ -86,7 +86,7 @@ Deno.test("API: a genuine token is accepted without asking Supabase Auth; the ro
   assertEquals(me.status, 200);
   assertEquals(me.json.profile.role, "admin");
   assertEquals(me.json.profile.email, "jwt.person@test.org");
-  assertEquals((await call("GET", "/users", await genuine())).status, 200, "past the admin guard");
+  assertEquals((await call("GET", "/admin/overview", await genuine())).status, 200, "past the admin guard");
   assertEquals(db.auth_lookups ?? [], [], "Auth was never asked");
   assert(/auth;desc="local";dur=\d+, total;dur=\d+/.test(me.headers.get("server-timing") ?? ""), me.headers.get("server-timing") ?? "no Server-Timing");
   // A role in the token means nothing: the database says admin, so Super Admin pages stay shut.

@@ -17,10 +17,9 @@ roles it isn't for (role_views_test.ts), not only hidden from a menu.
 
 | Role (workspace) | Lands on | What it answers |
 | --- | --- | --- |
-| Programme Administration — leadership (`admin`) | Administration overview; In detail | Programme reach and approved targets, school and county comparisons, verified findings and the major gaps, and **Reports to share** (the Term and County reports, opened ready to export) |
-| Learning & Education (`education_team`) | **Overview** (new, `#education-overview`); Learning | Teacher training and digital teaching, **school by school** (teachers trained and setting work, work handed in and marked, library opens), resources used, the results there are, and **What to follow up** — teachers with no training this school year, work waiting over 14 days for a mark, resources never opened, forms past due, each linked to the page where it's done |
-| Monitoring & Evaluation (`me`) | M&E overview; **Data completeness** (new, `#me-data`) | Indicator definitions, approved targets and how achievement is worked out, values and how far they're verified, evidence and baselines, reporting coverage, data-quality exceptions, Kobo surveys, and the evidence and exports |
-| Platform Administration — technical (`super_admin`) | Platform overview | Availability (the API and database answering, and how fast), sign-in problems, integration errors (Kobo, notifications, email), sync failures and devices, backups, access — the health checks |
+| Programme Administration — the Programme Admin (Education Team) (`education_team`; `admin` is the same role) | Administration overview; **Teaching progress** (`#education-overview`); In detail | Programme reach and approved targets, school and county comparisons, verified findings and the major gaps, and **Reports to share** (the Term and County reports); teacher training and digital teaching **school by school**, resources used, and **What to follow up** |
+| Monitoring & Evaluation (`me`) | M&E overview; **Data completeness** (new, `#me-data`) | Indicator definitions, approved targets and how achievement is worked out, values and how far they're verified, evidence and baselines, reporting coverage, Kobo surveys, and the evidence and exports |
+| Platform Administration — technical (`super_admin`) | Platform overview | Availability (the API and database answering, and how fast), sign-in problems, integration errors (Kobo, notifications, email), sync failures and devices, data quality, accounts, backups, access — the health checks |
 
 Shared, not copied: the Education overview uses the same /impact read (its
 learning side), key-figure cards, findings panel and tables as the impact

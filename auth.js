@@ -29,7 +29,7 @@ export const DASHBOARD_PATH = {
   learner: "learner.html",
   school_leader: "leader.html",
   field_officer: "field.html",
-  education_team: "education.html",
+  education_team: "admin.html", // the Programme Admin is the Education Team (29 October 2026)
   me: "me.html",
   admin: "admin.html",
   super_admin: "platform.html",

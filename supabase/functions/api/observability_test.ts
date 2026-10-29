@@ -213,7 +213,7 @@ Deno.test("stuck devices: work unsent for 48 hours or more, staff and learners, 
   // An older copy of the app reports only its oldest WAITING item.
   db.device_sync_status.push({ actor_id: "teacher2-id", device_id: "old-app-0001", pending: 3, failed: 0, conflicts: 0, oldest_pending_at: hoursAgo(72), oldest_queued_at: null, reported_at: hoursAgo(70) });
 
-  const res = await call("GET", "/sync/problems", "tok_education_team");
+  const res = await call("GET", "/sync/problems", "tok_super_admin");
   assertEquals(res.status, 200);
   assertEquals(res.json.hours, 48);
   assertEquals(res.json.stuck.map((d: Row) => [d.kind, d.name, d.waitingHours]), [
@@ -225,7 +225,7 @@ Deno.test("stuck devices: work unsent for 48 hours or more, staff and learners, 
   assertEquals([kid.roleLabel, kid.school, kid.failed, kid.lastEvent.event, kid.lastEvent.message], ["Learner · Grade 4", "Aitong Primary", 1, "failed", "The assignment is closed"]);
   assertEquals(res.json.summary.failed, 1);
   assertEquals([res.json.events[0].name, res.json.events[0].route], ["Kid One", "/assignments/:id/submit"]);
-  assertEquals((await call("GET", "/sync/problems?hours=72", "tok_education_team")).json.stuck.length, 2);
+  assertEquals((await call("GET", "/sync/problems?hours=72", "tok_super_admin")).json.stuck.length, 2);
 });
 
 Deno.test("stuck devices: only within the caller's scope", async () => {
@@ -233,7 +233,10 @@ Deno.test("stuck devices: only within the caller's scope", async () => {
   await call("POST", "/sync/report", "tok_teacher_b", { deviceId: "laptop-000b", pending: 1, oldestQueuedAt: hoursAgo(60) });  // school B
   await call("POST", "/sync/report", "tok_teacher", { deviceId: "laptop-000a", pending: 1, oldestQueuedAt: hoursAgo(60) });    // school A
   await call("POST", "/sync/events", "tok_teacher_b", { deviceId: "laptop-000b", events: [ev("evt-00000b", { kind: "mark" })] });
-  assertEquals((await call("GET", "/sync/problems", "tok_admin")).json.stuck.length, 2, "programme-wide until a scope is set");
+  assertEquals((await call("GET", "/sync/problems", "tok_super_admin")).json.stuck.length, 2, "the Super Admin: programme-wide");
+  assertEquals((await call("GET", "/sync/problems", "tok_education_team")).status, 403, "device sync is the Super Admin's (29 October 2026)");
+  // Given it as a grant, someone narrowed to one school sees that school's devices only.
+  db.permission_grants.push({ id: "g_sync", profile_id: "education_team-id", permission: "sync.problems.view", reason: "test", granted_by: "super_admin-id", granted_at: new Date().toISOString(), revoked_at: null });
   assign(db, "education_team-id", [{ school_id: "sch_1" }]);
   const scoped = (await call("GET", "/sync/problems", "tok_education_team")).json;
   assertEquals(scoped.stuck.map((d: Row) => d.name), ["teacher person"]);

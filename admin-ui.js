@@ -733,7 +733,9 @@ function reportsLine(opts, via) {
 export function adminOverviewHtml(d, opts = {}) {
   const via = (link) => withVia(link, "admin-overview");
   const r = d.results && !d.results.error ? d.results : null;
-  const items = gapsOf(d, r);
+  // Only gaps this person can act on: accounts and field officers' schools are the Super Admin's.
+  const pageOf = (link) => String(link).replace(/^#/, "").split("?")[0];
+  const items = gapsOf(d, r).filter((it) => !opts.canOpen || opts.canOpen(pageOf(it.link)));
   const shown = 4; // the first few; the rest one click away
   const results = d.results?.error
     ? `<div class="alert alert-warn"><div><b>Programme results couldn't be worked out.</b>${esc(d.results.error)}</div></div>`
@@ -758,7 +760,7 @@ export function adminOverviewHtml(d, opts = {}) {
     </section>
     ${r ? picturesHtml(d, r, opts) : ""}
     ${reportsLine(opts, via)}
-    <p class="ao-more"><a class="btn btn-outline" href="#admin-detail?via=admin-overview">In detail: every result and finding, every school, how the programme is organised, the data checks<span aria-hidden="true"> →</span></a></p>
+    <p class="ao-more"><a class="btn btn-outline" href="#admin-detail?via=admin-overview">In detail: every result and finding, every school, how the programme is organised${opts.canOpen && !opts.canOpen("kobo") && !opts.canOpen("data-quality") ? "" : ", the data checks"}<span aria-hidden="true"> →</span></a></p>
     <p class="field-hint dash-source">Source: the portal's own records — the roll, assignments and marks, field visits, the training register and the library. HPF staff aren't counted.</p>`;
 }
 
@@ -768,11 +770,14 @@ export function adminDetailHtml(d, opts = {}) {
   const via = (link) => withVia(link, "admin-detail");
   const r = d.results && !d.results.error ? d.results : null;
   const gap = (n, title, link, go) => (n ? { tone: "warn", title, detail: "", link, go } : null);
-  // Data checks waiting on review: data operations, not programme results.
+  // Data checks waiting on review: data operations, not programme results — the Super Admin's
+  // (data quality) and M&E's (Kobo review); left out for anyone who can open neither.
+  const mayOpen = (link) => !opts.canOpen || opts.canOpen(String(link).replace(/^#/, "").split("?")[0]);
+  const mayCheck = mayOpen("#kobo") || mayOpen("#data-quality");
   const checks = [
     gap(ops.koboNeedsReview, `${plural(ops.koboNeedsReview, "Kobo submission")} ${ops.koboNeedsReview === 1 ? "needs" : "need"} review`, "#kobo", "Review"),
     gap(ops.dataQualityHigh, `${plural(ops.dataQualityHigh, "high-severity data issue")} open`, "#data-quality?severity=HIGH", "Data issues"),
-  ].filter(Boolean);
+  ].filter(Boolean).filter((it) => mayOpen(it.link));
   let resultsPart = "";
   if (d.results?.error) resultsPart = `<div class="alert alert-warn"><div><b>Programme results couldn't be worked out.</b>${esc(d.results.error)}</div></div>`;
   else if (r) {
@@ -814,11 +819,11 @@ export function adminDetailHtml(d, opts = {}) {
       </div>
       ${adminCharts(d)}
     </section>
-    <section class="attn-section" aria-labelledby="adChecksHead">
+    ${mayCheck ? `<section class="attn-section" aria-labelledby="adChecksHead">
       <div class="attn-head"><h3 id="adChecksHead">Data checks waiting</h3>${checks.length ? `<span class="count-badge">${checks.length}</span>` : ""}</div>
       <p class="chart-meta">Kobo submissions and data issues to review: data operations, not programme results.</p>
       ${checks.length ? checks.map((it) => gapHtml(it, via)).join("") : `<div class="alert alert-ok"><div><b>No data checks waiting.</b></div></div>`}
-    </section>`;
+    </section>` : ""}`;
 }
 
 /* opts.filter: the county and school chosen above (the period isn't one

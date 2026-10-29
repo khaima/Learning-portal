@@ -32,12 +32,12 @@ Deno.test("menus: each management role reaches every page its permissions open, 
 });
 
 Deno.test("menus: the Super Admin's own menu is the system; the operational areas are a workspace switch away", () => {
-  assertEquals(workspacesFor("super_admin"), ["platform", "admin", "me", "education"]);
+  assertEquals(workspacesFor("super_admin"), ["platform", "admin", "me"]);
   for (const role of ["admin", "me", "education_team", "field_officer", "school_leader", "teacher", "learner"]) {
     assertEquals(workspacesFor(role), [(ROLE_WORKSPACE as Record<string, string>)[role]], `${role} has one workspace`);
   }
   const platform = pagesIn(menuFor("platform", permsOf("super_admin")));
-  for (const p of ["users", "permissions", "schools", "kobo", "sync-problems", "reports", "audit", "account-activity"]) assert(platform.has(p), `platform has ${p}`);
+  for (const p of ["users", "permissions", "schools", "kobo", "sync-problems", "data-quality", "field-officers", "reports", "audit", "account-activity"]) assert(platform.has(p), `platform has ${p}`);
   for (const p of ["admin-overview", "me-dashboard", "learners", "assignments", "mel-framework", "field-visits"]) assert(!platform.has(p), `platform leaves ${p} to its workspace`);
 });
 
@@ -75,12 +75,24 @@ Deno.test("menus: the field officer's menu is the small, task-focused one", () =
 
 Deno.test("menus: a granted page shows up for that person only, in an entry of its own", () => {
   const perms = [...permsOf("education_team"), "kobo.results.view"];
-  const groups = menuFor("education", perms, ["kobo.results.view"]);
+  const groups = menuFor("admin", perms, ["kobo.results.view"]);
   const granted = groups.find((g: Entry) => g.label === "Granted to you");
   assertEquals(granted?.items.map((i: Item) => i.page).sort(), ["kobo", "survey-results"]);
-  assertEquals(menuFor("education", permsOf("education_team")).some((g: Entry) => g.label === "Granted to you"), false);
+  assertEquals(menuFor("admin", permsOf("education_team")).some((g: Entry) => g.label === "Granted to you"), false);
 });
 
-Deno.test("menus: the workspaces are the eight known ones", () => {
-  assertEquals(Object.keys(WORKSPACES).sort(), ["admin", "education", "field", "learner", "me", "platform", "school", "teacher"]);
+Deno.test("menus: the workspaces are the seven known ones — the Education Team is Programme Administration", () => {
+  assertEquals(Object.keys(WORKSPACES).sort(), ["admin", "field", "learner", "me", "platform", "school", "teacher"]);
+  assertEquals((ROLE_WORKSPACE as Record<string, string>).education_team, "admin");
+});
+
+Deno.test("menus: data quality and device sync are the Super Admin's alone (29 October 2026)", () => {
+  for (const role of ["admin", "education_team", "me"]) {
+    const pages = new Set(workspacesFor(role).flatMap((ws: string) => [...pagesIn(menuFor(ws, permsOf(role)))]));
+    for (const p of ["data-quality", "sync-problems", "users"]) assert(!pages.has(p), `${role} has no ${p}`);
+  }
+  const prog = pagesIn(menuFor("admin", permsOf("education_team")));
+  for (const p of ["admin-overview", "education-overview", "school-profiles", "assignments", "training", "content", "subjects", "forms", "learning", "reports"]) {
+    assert(prog.has(p), `the Programme Admin (Education Team) has ${p}`);
+  }
 });
