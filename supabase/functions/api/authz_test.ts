@@ -298,6 +298,8 @@ const ROUTES: RouteSpec[] = [
   r("POST", "/users/:id/reset-link", USER_ADMIN, {}, "/users/teacher2-id/reset-link"),
   r("POST", "/users/:id/temporary-password", USER_ADMIN, {}, "/users/teacher2-id/temporary-password"),
   r("GET", "/audit", SA_ONLY),
+  // The M&E hub: every dashboard's figures in one read (me.view).
+  r("GET", "/me/hub", ME_ROLES),
   // The change history: the Super Admin's.
   r("GET", "/changes", CHANGE_VIEWERS),
   r("GET", "/changes/:id", CHANGE_VIEWERS, undefined, "/changes/{change}", { setup: renamedSchool }),

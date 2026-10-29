@@ -18,7 +18,7 @@ roles it isn't for (role_views_test.ts), not only hidden from a menu.
 | Role (workspace) | Lands on | What it answers |
 | --- | --- | --- |
 | Programme Administration — the Programme Admin (Education Team) (`education_team`; `admin` is the same role) | Administration overview; **Teaching progress** (`#education-overview`); In detail | Programme reach and approved targets, school and county comparisons, verified findings and the major gaps, and **Reports to share** (the Term and County reports); teacher training and digital teaching **school by school**, resources used, and **What to follow up** |
-| Monitoring & Evaluation (`me`) | M&E overview; **Data completeness** (new, `#me-data`) | Indicator definitions, approved targets and how achievement is worked out, values and how far they're verified, evidence and baselines, reporting coverage, Kobo surveys, and the evidence and exports |
+| Monitoring & Evaluation (`me`) | **Programme impact** (`#me-hub`, its landing page since 29 October 2026: every dashboard's figures in one place); Indicators; **Data completeness** (`#me-data`) | Indicator definitions, approved targets and how achievement is worked out, values and how far they're verified, evidence and baselines, reporting coverage, Kobo surveys, and the evidence and exports |
 | Platform Administration — technical (`super_admin`) | Platform overview | Availability (the API and database answering, and how fast), sign-in problems, integration errors (Kobo, notifications, email), sync failures and devices, data quality, accounts, backups, access — the health checks |
 
 Shared, not copied: the Education overview uses the same /impact read (its

@@ -45,6 +45,7 @@ const once = (load) => {
 };
 const adminUi = once(() => import("./admin-ui.js"));
 const impactUi = once(() => import("./impact-ui.js"));
+const hubUi = once(() => import("./hub-ui.js")); // Programme impact, the M&E landing page
 const insightsUi = once(() => import("./insights-ui.js"));
 const trainingUi = once(() => import("./training-ui.js"));
 const koboUi = once(() => import("./kobo-ui.js"));
@@ -258,6 +259,7 @@ async function main() {
     updateFilterSummary();
     refreshFilteredPage();
     if (pageNow === "me-data") renderMeData();
+    if (pageNow === "me-hub") renderHub();
     await renderStats();
     renderUsersList();
     renderUsage();
@@ -488,6 +490,25 @@ async function main() {
     } catch (err) {
       if (run !== meDataRun) return;
       $("#meDataBody").innerHTML = errorState(friendlyError(err, "Couldn't load the data completeness checks."), renderMeData);
+    }
+  }
+
+  /* Programme impact (hub-ui.js): every dashboard's figures in one read
+     (GET /me/hub), under the county and school above. */
+  let hubRun = 0;
+  async function renderHub() {
+    if (!canOpen("me-hub")) return;
+    const run = ++hubRun;
+    $("#hubBody").innerHTML = skeletonDashboard({ cards: 7, charts: 6 });
+    try {
+      const qs = new URLSearchParams(Object.entries({ county: gf.county, school: gf.school }).filter(([, v]) => v)).toString();
+      const [d, ui] = await Promise.all([apiGet(`/me/hub${qs ? `?${qs}` : ""}`), hubUi()]);
+      if (run !== hubRun) return;
+      $("#hubMeta").textContent = d.scope?.label || "";
+      $("#hubBody").innerHTML = ui.hubHtml(d, { canOpen, via: "me-hub" });
+    } catch (err) {
+      if (run !== hubRun) return;
+      $("#hubBody").innerHTML = errorState(friendlyError(err, "Couldn't load the programme's impact."), renderHub);
     }
   }
 
@@ -3420,6 +3441,7 @@ async function main() {
         break;
       case "admin-overview": A.renderAdminOverview($("#aoBody"), adminOverviewOpts()); break;
       case "me-data": renderMeData(); break;
+      case "me-hub": renderHub(); break;
       case "admin-detail": A.renderAdminDetail($("#adBody"), adminOverviewOpts()); break;
       case "changes":
         import("./changes-ui.js").then((m) => m.renderChanges($("#chBody"), { scopeEl: $("#chScope") }))

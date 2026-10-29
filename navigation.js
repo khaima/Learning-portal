@@ -65,7 +65,9 @@ const PAGES = {
   "platform-overview": { label: "Platform overview", icon: "dashboard", needs: ["platform.view"], purpose: "The platform at a glance, and what's waiting on someone." },
   "admin-overview": { label: "Administration overview", icon: "dashboard", needs: ["schools.manage"], filters: ["county", "school"], purpose: "The programme's main findings at a glance, and what needs attention." },
   "admin-detail": { label: "In detail", icon: "dashboard", needs: ["schools.manage"], filters: ["county", "school"], purpose: "Every result and finding, every school, how the programme is organised, and the data checks waiting." },
-  "me-dashboard": { label: "M&E overview", icon: "target", needs: ["me.view"], filters: ["county", "school"], purpose: "Every indicator against its target." },
+  // The M&E landing page: every dashboard's figures in one place (hub-ui.js, GET /me/hub).
+  "me-hub": { label: "Programme impact", icon: "dashboard", needs: ["me.view"], filters: ["county", "school"], purpose: "Every dashboard's figures in one place: results, reach, learning, teachers, field work and the library." },
+  "me-dashboard": { label: "Indicators", icon: "target", needs: ["me.view"], filters: ["county", "school"], purpose: "Every indicator against its target." },
   "me-data": { label: "Data completeness", icon: "check", needs: ["me.view"], filters: ["county", "school"],
     purpose: "Each indicator's definition, target, value and evidence; reporting coverage; data exceptions; Kobo surveys." },
   overview: { label: "Executive overview", icon: "dashboard", needs: ["intelligence.view"], filters: true, purpose: "The programme at a glance." },
@@ -180,7 +182,7 @@ export const WORKSPACES = {
     title: "Monitoring & Evaluation", page: "me.html", roles: ["me", "super_admin"],
     question: "Are HPF programmes achieving their intended results?",
     groups: [
-      entry("overview", "M&E overview", "target", [c("me-dashboard", { label: "M&E overview" }), c("me-data")]),
+      entry("overview", "M&E overview", "target", [c("me-hub"), c("me-dashboard"), c("me-data")]),
       entry("framework", "Results framework", "layers", [c("mel-framework", { label: "Programmes & indicators" }), c("mel-results")]),
       entry("analytics", "Dashboards & reports", "chart", [
         c("overview"), c("mel-reports"), c("reports", { label: "Exports" }), ...AREA_DASHBOARDS(),

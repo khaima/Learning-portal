@@ -17,6 +17,8 @@ does that better, there is no chart.
 | How did each result move since the same point last term? | **Two dots per result, joined**: hollow then, solid now, the change in words | `dumbbell` |
 | The shape of a figure's trend, or how near its target, inside its card | **A small line** (three points or more), **a meter** with the target marked | `sparkline`, `meter` |
 | How do two periods or groups compare, category by category (last term and this; a baseline and a follow-up)? | **Grouped bars**, side by side on one scale | `groupedBars` |
+| Two related measures over the same periods or groups (field visits each month and the Kobo submissions they sent; each result this term and last, with the share of its target) | **Columns and a line**: the columns on the left scale, the line on its own scale on the right, both named in the key | `comboChart` |
+| How do groups stand on two measures at once (schools: work handed in and average mark)? | **A dot per group**, the overall figures dashed across, one sentence on how many sit above or below both | `scatter` |
 | How far towards the target? | A **bar filling towards a line** | `targetList` |
 | What share of one whole? | **Bars, each with its share** — or, for 2 to 5 parts at a glance, **a ring** with every count and share in its key | `proportion`, `donut` |
 | What share, on a scale that has an order? | **One bar, split in order** | `stackBar` |
@@ -439,3 +441,22 @@ Not changed, and why: the platform overview's "When the portal is used"
 and sign-in recency (system health, for the Super Admin); key-figure
 cards (the headline indicators); detailed tables (searching and sorting).
 No maps: the counties are few and school locations aren't held.
+
+## Columns and a line, and a dot per group (29 October 2026)
+
+For the M&E hub (Programme impact, `hub-ui.js`), after the programme's
+reference dashboard:
+
+- **`comboChart`** — one or two column series (the earlier one lighter)
+  and an optional line with its own scale on the right, marked "(right
+  scale)" in the key. Only for measures that belong together; every value is
+  in the tooltip and the spoken description, and a period under way is
+  paler.
+- **`scatter`** — one dot per group, axes from zero (0–100 for %). With the
+  overall figures it draws them dashed and says, in one sentence, how many
+  groups are at or above both and how many below both (groups resting on
+  fewer than 5 left out); the ones below both are marked in the accent
+  colour and named in the key. A dot can open the group's page.
+- **Rings stay at three parts or fewer** with something in them, in the
+  three category colours (a part meaning "not yet" or "not specified" may be
+  grey); a whole with more parts is shown as bars with shares.

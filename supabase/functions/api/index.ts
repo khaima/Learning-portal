@@ -7738,6 +7738,48 @@ async function insightsFor(c: any, sc: ReturnType<typeof scopeOf>, place: { coun
    current one) and the place picked (?county= / ?school=, by name) — each
    indicator's definition, target, value and its status, evidence and
    baseline; reporting coverage; data-quality exceptions; Kobo surveys. */
+/* ---- the M&E hub (hub-ui.js) ----
+   Programme impact in one read, for the M&E landing page: every other
+   dashboard's figures (impact.ts — reach, learning, teachers, field work,
+   the library), the programme's results this term so far against the same
+   point of the last, with M&E's approved targets (admin_impact.ts), and what
+   they say (insights.ts). Within the caller's area, narrowed to one county
+   or school (by name) when picked. A problem with the results or findings
+   comes back as { error } beside the rest, never failing the page. */
+app.get("/me/hub", requirePermission("me.view"), async (c) => {
+  const sc = scopeOf(c);
+  const fCounty = (c.req.query("county") || "").trim() || null;
+  const fSchool = (c.req.query("school") || "").trim() || null;
+  let input;
+  try { input = await loadImpactInput(); } catch (e) { return c.json({ error: (e as Error).message }, 500); }
+  const mine = narrowInput(input, sc);
+  const impact = buildImpact(mine, { county: fCounty, school: fSchool });
+  let results: ReturnType<typeof buildAdminResults> | { error: string } | null = null;
+  let insights: Awaited<ReturnType<typeof insightsFor>> | { error: string } | null = null;
+  try {
+    const mc = await melCalendar();
+    const t = insightTerms(mc, null);
+    if (t) {
+      // Targets are the whole programme's: only on the whole programme's figures.
+      const mel = sc.global && !fCounty && !fSchool ? await melDashboard({ type: "programme", id: "", label: "Whole programme" }, t.current.id, "", input) : null;
+      const r = buildAdminResults(mine, { current: t.current, previous: t.previous }, mel, undefined, { county: fCounty, school: fSchool });
+      results = r;
+      try {
+        insights = await insightsFor(c, sc, { county: fCounty, school: fSchool }, input, r, mc, t.ended, true, mel);
+      } catch (e) {
+        insights = { error: (e as Error).message };
+      }
+    }
+  } catch (e) {
+    results = { error: (e as Error).message };
+  }
+  return c.json({
+    scope: { global: sc.global, label: fSchool || (fCounty ? `${fCounty} County` : sc.label) },
+    filter: { county: fCounty, school: fSchool },
+    impact, results, insights,
+  });
+});
+
 app.get("/mel/coverage", requirePermission("me.view"), async (c) => {
   const scope = await melScopeFromQuery(c);
   if (!scope) return c.json({ error: "That county or school isn't in the portal" }, 400);

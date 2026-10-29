@@ -173,3 +173,28 @@ test("a picture inside each result's card: each a different form, each saying wh
   assert.match(C.halfGauge(54, { label: "opened one" }), /stroke-dasharray="54.0 100"/);
   assert.equal(C.halfGauge(null), "");
 });
+
+test("columns and a line: each in the key, the line on its own scale, a period under way paler", () => {
+  const pts = [{ label: "Aug", values: { visits: 4 }, line: 10 }, { label: "Sep", values: { visits: 6 }, line: 30 }, { label: "Oct", values: { visits: 2 }, line: 12, partial: true }];
+  const html = C.comboChart(pts, { bars: [{ key: "visits", label: "Field visits" }], line: { label: "Kobo submissions" }, title: "Field work" });
+  assert.equal((html.match(/class="cmb-g/g) || []).length, 3);
+  assert.match(text(html), /Field visits.*Kobo submissions \(right scale\)/);
+  assert.match(html, /aria-label="Field work: Aug Field visits 4, Kobo submissions 10; Sep Field visits 6, Kobo submissions 30; Oct Field visits 2, Kobo submissions 12 so far"/);
+  assert.match(html, /Oct isn't over yet/);
+  assert.match(C.comboChart([], { bars: [{ key: "a", label: "A" }] }), /chart-empty/);
+  // Two series side by side: the earlier one lighter, both in the key.
+  const two = C.comboChart([{ label: "Learners", values: { before: 50, now: 60 } }], { bars: [{ key: "before", label: "Term 2" }, { key: "now", label: "Term 3" }], unit: "%" });
+  assert.match(two, /cmb-col is-earlier/);
+  assert.match(two, /key-sw is-earlier/);
+  assert.ok(!/cmb-line/.test(two), "no line unless asked");
+});
+
+test("two measures per group: a dot each, the overall figures dashed, and how many sit below both", () => {
+  const pts = [{ label: "A", x: 90, y: 70, base: 20 }, { label: "B", x: 40, y: 30, base: 20 }, { label: "C", x: 50, y: 80, base: 20 }, { label: "Tiny", x: 10, y: 10, base: 2 }];
+  const html = C.scatter(pts, { xAxis: { label: "Work handed in", unit: "%" }, yAxis: { label: "Average mark", unit: "%" }, avg: { x: 60, y: 60 }, noun: "schools", insight: true });
+  assert.equal((html.match(/class="sc-dot/g) || []).length, 4);
+  assert.equal(insight(html), "1 of 3 schools are at or above both overall figures; 1 is below both.", "a school resting on fewer than 5 isn't counted");
+  assert.match(html, /sc-dot is-low/);
+  assert.match(html, /Work handed in across, Average mark up\. A 90%, 70%/);
+  assert.match(C.scatter([], {}), /chart-empty/);
+});

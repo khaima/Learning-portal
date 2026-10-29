@@ -541,7 +541,7 @@ const COUNT_UNIT = { learners: "learners", teachers_trained: "teachers" };
 const kpiValue = (v, unit) => (v == null ? "No data" : unit === "percent" ? `${Math.round(v * 10) / 10}%` : count(v));
 /** The six results the overview leads with; the seventh (teachers using digital resources) is in detail. */
 const HEADLINE = ["learners", "participation", "teachers_trained", "teachers_digital", "schools_supported", "assessment"];
-const RESULT_ICON = { learners: "cap", participation: "activity", teachers_trained: "star", teachers_digital: "assignment", schools_supported: "pin", assessment: "results", teacher_resources: "book" };
+export const RESULT_ICON = { learners: "cap", participation: "activity", teachers_trained: "star", teachers_digital: "assignment", schools_supported: "pin", assessment: "results", teacher_resources: "book" };
 /* The results that can move from one term to the next, as shares: not the roll (today's count), not
    teachers trained (a count), not the classwork average (different work each term — never a change in learning). */
 const MOVES = ["participation", "teachers_digital", "schools_supported", "teacher_resources"];
@@ -562,7 +562,7 @@ function periodLine(r) {
    counts (charts.js): the roll term by term, one share as a ring, teachers
    as figures, the steps to teaching digitally, a square per school, the
    bands of the marks, a share on a dial. From the same read as the card. */
-function resultPicture(k, r) {
+export function resultPicture(k, r) {
   if (!r || k.value == null) return "";
   const part = (v, base) => Math.round(((v ?? 0) / 100) * (base ?? 0));
   switch (k.key) {

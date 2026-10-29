@@ -1151,3 +1151,25 @@ One more tab in an area each role already has — no new menu rows:
   and an editor squeezed into a table row.
 - Roles read "School Head" everywhere (the page's own list said "School
   Leader").
+
+## 31. Programme impact, the M&E hub, 29 October 2026
+
+- M&E lands on **Programme impact** (`#me-hub`), the first tab of *M&E
+  overview*, before *Indicators* (the page that was called M&E overview) and
+  *Data completeness*. The Super Admin finds it in the M&E workspace.
+- One read (`GET /me/hub`, `me.view`): the impact dashboards' figures
+  (impact.ts), the term's seven results against the same point of last
+  term and their approved targets (admin_impact.ts), and the findings
+  (insights.ts) — within the person's area, narrowed by the county and
+  school filters.
+- On the page: the seven results as key figures, each with a compact
+  picture and the change on last term (none for the average mark: different
+  work each term); field work month by month (visits, and Kobo submissions
+  on the right scale); the results that can move, this term and last, with
+  the share of target; learners by county; a strip of highlights (targets
+  met, the best school and county, the most-opened resource, the commonest
+  visit, people using the portal, Kobo); average mark by subject; teachers
+  trained by county; the most-opened resources; visits by type; what
+  happened to the work set (on time, late, not handed in, not due yet);
+  schools by work handed in and average mark; the schools as a table with
+  bars; and what the figures say. Every card opens its full dashboard.
