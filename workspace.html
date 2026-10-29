@@ -421,22 +421,7 @@
 
           <!-- Invitations (users.invite) -->
           <div id="invitePanel" hidden style="margin-bottom:1rem">
-            <button type="button" class="btn btn-primary" id="inviteToggle" aria-expanded="false" aria-controls="inviteForm">+ Invite staff</button>
-            <form id="inviteForm" hidden style="margin-top:.8rem">
-              <div class="form-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:.6rem">
-                <div class="field"><label for="inv_email">Email</label><input id="inv_email" type="email" required placeholder="name@example.org"></div>
-                <div class="field"><label for="inv_role">Role</label><select id="inv_role"></select></div>
-                <div class="field" id="inv_county_field"><label for="inv_county">County</label><select id="inv_county"></select></div>
-                <div class="field" id="inv_school_field"><label for="inv_school">School</label><select id="inv_school"></select></div>
-              </div>
-              <p class="field-hint" style="margin-top:0">A one-time link for this role and placement, emailed or for you to send. It expires in 14 days.</p>
-              <p class="field-hint" id="inviteNoEmail" hidden style="margin-top:0">Email isn't set up yet: copy the link and send it yourself.</p>
-              <div class="edit-actions">
-                <button class="btn btn-primary" type="submit" value="email" id="inviteSendEmail">Send invitation email</button>
-                <button class="btn btn-outline" type="submit" value="link" id="inviteCopyLink">Copy link instead</button>
-                <button class="btn btn-outline" type="button" id="inviteCancel">Cancel</button>
-              </div>
-            </form>
+            <button type="button" class="btn btn-primary" id="inviteToggle" aria-haspopup="dialog">+ Invite someone</button>
             <div id="inviteResult" hidden class="alert alert-ok" style="margin-top:.8rem"></div>
             <div id="invitationsList" style="margin-top:.6rem"></div>
           </div>

@@ -1139,3 +1139,15 @@ One more tab in an area each role already has — no new menu rows:
 - The Audit log keeps the actions that aren't a record changing (approvals,
   password resets, permissions, exports); its *Show* choice now reads
   "All actions".
+
+## 30. Users & roles for the Programme Admin, 29 October 2026
+
+- Programme Administration gets **Users & roles** (its seventh row): the
+  accounts of teachers, school heads and field officers, to invite and
+  edit ([RBAC.md §16](RBAC.md)). Its Role filter lists only the roles in
+  the list.
+- *Invite someone* and *Edit profile* are side panels now, for everyone who
+  manages accounts (the Super Admin too), instead of a form above the list
+  and an editor squeezed into a table row.
+- Roles read "School Head" everywhere (the page's own list said "School
+  Leader").

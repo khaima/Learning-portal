@@ -237,11 +237,12 @@ SUPER_ADMIN ── every right below, plus the system: staff accounts and roles,
 └─ LEARNER ──────── their own learning
 ```
 
-Accounts are the Super Admin's alone: only a Super Admin invites, approves,
-edits, places and hands out roles (never the old `admin` code — the
-Programme Admin is given as `education_team`), and manages everyone except
-that the last active Super Admin can't be removed. Nobody manages their own
-account.
+The Super Admin invites, approves, edits, places and hands out every role
+(never the old `admin` code — the Programme Admin is given as
+`education_team`), and manages everyone except that the last active Super
+Admin can't be removed. The Programme Admin sees, invites and edits
+teachers, school heads and field officers only (§16). Nobody manages their
+own account.
 
 Generated from `permissions.ts` (role permissions; explicit grants come on top). The
 `admin` and `education_team` codes have identical permissions, shown as one column:
@@ -256,11 +257,11 @@ Generated from `permissions.ts` (role permissions; explicit grants come on top).
 | Manage classes in their own school <br>`classes.manage.school` |   |   |   |   | ✓ |   |   |
 | Manage subjects <br>`subjects.manage` | ✓ | ✓ |   |   |   |   |   |
 | **People** ||||||||
-| See staff accounts <br>`users.view` | ✓ |   |   |   |   |   |   |
-| Invite staff <br>`users.invite` | ✓ |   |   |   |   |   |   |
+| See staff accounts <br>`users.view` | ✓ | ✓ |   |   |   |   |   |
+| Invite staff <br>`users.invite` | ✓ | ✓ |   |   |   |   |   |
 | Approve or reject new accounts <br>`users.approve` | ✓ |   |   |   |   |   |   |
-| Edit staff details <br>`users.edit` | ✓ |   |   |   |   |   |   |
-| Change staff roles <br>`users.roles.assign` | ✓ |   |   |   |   |   |   |
+| Edit staff details <br>`users.edit` | ✓ | ✓ |   |   |   |   |   |
+| Change staff roles <br>`users.roles.assign` | ✓ | ✓ |   |   |   |   |   |
 | Change where staff work, and their data scope <br>`users.placement.assign` | ✓ |   |   |   |   |   |   |
 | Suspend, deactivate and reactivate accounts <br>`users.status.manage` | ✓ |   |   |   |   |   |   |
 | Send someone a password reset link, or a temporary password <br>`users.password.reset` | ✓ |   |   |   |   |   |   |
@@ -333,7 +334,7 @@ FULL · CREATE · EDIT · VIEW · OWN · SCOPED (within their data scope) · NON
 |---|---|---|---|---|---|---|---|
 | Platform overview, system health | FULL | NONE | NONE | NONE | NONE | NONE | NONE |
 | Administration overview | VIEW | VIEW (scoped) | NONE | NONE | NONE | NONE | NONE |
-| Staff accounts (invite, approve, edit, role, school, suspend/deactivate/reactivate, password) | FULL | NONE | NONE | NONE | VIEW own school's teachers | NONE | NONE |
+| Staff accounts (invite, approve, edit, role, school, suspend/deactivate/reactivate, password) | FULL | SCOPED: teachers, school heads, field officers — see, invite, edit profile and role among those three (§16) | NONE | NONE | VIEW own school's teachers | NONE | NONE |
 | Data scope assignments, field officers' schools | FULL | OWN (see) | OWN (see) | OWN (see) | NONE | NONE | NONE |
 | Permission grants | FULL | NONE | NONE | NONE | NONE | NONE | NONE |
 | Audit log, security events, account activity | VIEW | NONE | NONE | NONE | NONE | NONE | NONE |
@@ -637,3 +638,54 @@ Tests: `history_test.ts` (who is recorded, by role; secrets; who sees what,
 scoped; put back with what it took along; undo only while unchanged; what
 can't be put back; filters and pages; the migration's table list matches
 `KINDS`), `authz_test.ts` (the four routes, every role).
+
+---
+
+## 16. Users & roles for the Programme Admin (29 October 2026)
+
+Asked for: *let users and roles also be in the Education Team, but limited
+to who they can invite — only teachers, field officers and school leaders;
+a nice invitation form and a decent one to edit a user's profile.*
+
+**What the Programme Admin (Education Team) can do**, on Programme
+Administration › *Users & roles* (`users.view`, `users.invite`,
+`users.edit`, `users.roles.assign`, limited by `grantableRoles`):
+
+- **See** the accounts of teachers, school heads and field officers only —
+  not other administrators, M&E or the Super Admin — within their place
+  scope. Their invitations likewise. Anything else answers "not found".
+- **Invite** a teacher, school head or field officer
+  (`PROGRAMME_ADMIN_GIVES` in permissions.ts). Any other role is refused.
+- **Edit their profile**: name, email (their sign-in), gender, employment
+  type (teachers), school or county, and their role among those three. A
+  new school or role gives a new code; a teacher's learners move with them.
+- **Not:** approve or reject sign-ups, suspend, deactivate or reactivate,
+  reset passwords, set data scope (Field officers' schools), grant
+  permissions — those stay the Super Admin's. A pending request shows in
+  their list, marked "Waiting for approval", and the overview's "waiting
+  for approval" prompt shows only to whoever can approve.
+
+Rules in code: `canManageAccount` — the Super Admin manages everyone (not
+themselves); anyone else only accounts in the roles they give.
+`seesAccount` (index.ts) — the same for reading. A profile's school,
+county or role can be changed with `users.placement.assign`, or for the
+roles the person gives.
+
+**The forms** (account-forms.js), in a side panel (a native `<dialog>`:
+focus stays in it, Escape closes it; the whole screen on a phone):
+
+- *Invite someone*: their role as cards with one line on what the role
+  does (only the roles this person may give, most used first), their
+  email, where they'll work (county → school, or county for a field
+  officer, nothing for programme-wide roles), and a sentence saying
+  exactly what will be sent. Then the link: emailed, or to copy, shown
+  once, with *Invite someone else*.
+- *Edit profile*: who it is (initials, role, school, code, status), their
+  details, their role and school. Save stays off until something changes,
+  and a line says what will change ("role, Teacher → School Head") before
+  it does; leaving with unsaved changes asks once.
+- Mistakes show beside the field, in words; the API checks everything again.
+
+Tests: `authz_test.ts` (the routes for each role; a narrowed Programme
+Admin; only those three roles, to invite, change into, edit or see),
+`scope_test.ts`, `navigation_test.ts`.

@@ -89,10 +89,11 @@ Deno.test("menus: the workspaces are the seven known ones — the Education Team
 Deno.test("menus: data quality and device sync are the Super Admin's alone (29 October 2026)", () => {
   for (const role of ["admin", "education_team", "me"]) {
     const pages = new Set(workspacesFor(role).flatMap((ws: string) => [...pagesIn(menuFor(ws, permsOf(role)))]));
-    for (const p of ["data-quality", "sync-problems", "users"]) assert(!pages.has(p), `${role} has no ${p}`);
+    for (const p of ["data-quality", "sync-problems", "permissions", "field-officers", "changes"]) assert(!pages.has(p), `${role} has no ${p}`);
   }
   const prog = pagesIn(menuFor("admin", permsOf("education_team")));
-  for (const p of ["admin-overview", "education-overview", "school-profiles", "assignments", "training", "content", "subjects", "forms", "learning", "reports"]) {
+  // Users & roles too (29 October 2026): teachers, school heads and field officers.
+  for (const p of ["admin-overview", "education-overview", "school-profiles", "assignments", "training", "content", "subjects", "forms", "learning", "reports", "users"]) {
     assert(prog.has(p), `the Programme Admin (Education Team) has ${p}`);
   }
 });

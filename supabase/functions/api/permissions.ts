@@ -173,6 +173,10 @@ const PROGRAMME: Permission[] = [
   "assignments.view.all", "attendance.view.all", "field_reports.view.all",
   "learning.dashboard.view", "stats.view",
   "reports.export", "reports.programme",
+  // Users & roles, for the people the programme works through (29 October 2026): see,
+  // invite and edit teachers, school heads and field officers — grantableRoles below.
+  // Approving sign-ups, suspending, passwords and data scope stay the Super Admin's.
+  "users.view", "users.invite", "users.edit", "users.roles.assign",
 ];
 
 /* The system, the Super Admin's alone: accounts and roles, data quality,
@@ -272,11 +276,15 @@ const RANK: Record<StaffRole, number> = {
 };
 export const rankOf = (role: string | null | undefined) => RANK[role as StaffRole] ?? 0;
 
+/** The roles the Programme Admin (Education Team) invites and manages: the people the
+    programme works through. */
+export const PROGRAMME_ADMIN_GIVES: StaffRole[] = ["teacher", "school_leader", "field_officer"];
+
 /** Roles this actor may hand out (invite as, approve as, change to). */
 export function grantableRoles(actorRole: string | null | undefined): StaffRole[] {
-  // "admin" is no longer given: the Programme Admin is the Education Team (ROLE_LABEL). Only the
-  // Super Admin manages accounts and roles (29 October 2026).
+  // "admin" is no longer given: the Programme Admin is the Education Team (ROLE_LABEL).
   if (actorRole === "super_admin") return STAFF_ROLES.filter((r) => r !== "admin");
+  if (actorRole === "education_team" || actorRole === "admin") return [...PROGRAMME_ADMIN_GIVES];
   return [];
 }
 
@@ -289,7 +297,9 @@ export function canManageAccount(
 ): boolean {
   if (actor.id === target.id) return false;
   if (actor.role === "super_admin") return true;
-  return rankOf(target.role) < rankOf(actor.role);
+  // Everyone else: only accounts in the roles they give (the Programme Admin: teachers,
+  // school heads, field officers) — never another administrator, M&E or the Super Admin.
+  return grantableRoles(actor.role).includes(target.role as StaffRole);
 }
 
 /* Which status changes are allowed, by action. */

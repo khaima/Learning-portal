@@ -631,7 +631,7 @@ function gapsOf(d, r) {
   const rule = (name) => r?.support?.find((x) => x.rule === name);
   const ruleGap = (name, title) => { const x = rule(name); return x ? gap(x.count, "info", `${plural(x.count, "school")}: ${title}`, some(x.schools), "#admin-detail", "Schools") : null; };
   return [
-    gap(p.pending, "warn", `${plural(p.pending, "account")} waiting for approval`, "", "#users?status=pending", "Review"),
+    p.pending ? { ...gap(p.pending, "warn", `${plural(p.pending, "account")} waiting for approval`, "", "#users?status=pending", "Review"), approve: true } : null,
     gap(noTeacher.count, "warn", `${plural(noTeacher.count, "school")} without an active teacher`, some(noTeacher.names), "#teachers", "Teachers"),
     gap(o.schoolsWithoutHead, "warn", `${plural(o.schoolsWithoutHead, "school")} without a school head`, "", "#school-profiles", "Schools"),
     gap(o.fieldOfficersWithoutSchools, "warn", `${plural(o.fieldOfficersWithoutSchools, "field officer")} without assigned schools`, "", "#field-officers", "Assign"),
@@ -735,7 +735,8 @@ export function adminOverviewHtml(d, opts = {}) {
   const r = d.results && !d.results.error ? d.results : null;
   // Only gaps this person can act on: accounts and field officers' schools are the Super Admin's.
   const pageOf = (link) => String(link).replace(/^#/, "").split("?")[0];
-  const items = gapsOf(d, r).filter((it) => !opts.canOpen || opts.canOpen(pageOf(it.link)));
+  // Waiting accounts only for whoever approves them (the Super Admin).
+  const items = gapsOf(d, r).filter((it) => (!opts.canOpen || opts.canOpen(pageOf(it.link))) && !(it.approve && opts.canApprove === false));
   const shown = 4; // the first few; the rest one click away
   const results = d.results?.error
     ? `<div class="alert alert-warn"><div><b>Programme results couldn't be worked out.</b>${esc(d.results.error)}</div></div>`

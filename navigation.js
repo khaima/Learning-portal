@@ -85,7 +85,7 @@ const PAGES = {
   calendar: { label: "Academic calendar", icon: "calendar", needs: ["calendar.manage"], purpose: "The current school year, and starting the next." },
   classes: { label: "Classes", icon: "classes", needs: ["classes.manage.all", "learners.view.all"], purpose: "This year's classes in each school." },
   subjects: { label: "Subjects", icon: "tag", needs: ["subjects.manage"], purpose: "The subjects classes take and work is set in." },
-  users: { label: "Staff accounts", icon: "users", needs: ["users.view"], badge: "approvals", heading: "Staff accounts", purpose: "Invite staff, approve requests, and change roles or access." },
+  users: { label: "Staff accounts", icon: "users", needs: ["users.view"], badge: "approvals", heading: "Staff accounts", purpose: "Invite people, and keep their role, school and details right." },
   learners: { label: "Find a learner", icon: "cap", needs: ["learners.view.all"], purpose: "Find any learner, see their history, or move them." },
   teachers: { label: "All teachers", icon: "teacher", needs: ["teachers.view"], filters: ["county", "school"], purpose: "Where teachers and school heads work, and what they teach." },
   "school-profiles": { label: "All schools", icon: "school", needs: ["schools.profile.view"], filters: ["county", "school"], purpose: "Each school's teachers, learners, classes and visits." },
@@ -171,6 +171,8 @@ export const WORKSPACES = {
       entry("teaching", "Teaching & learning", "cap", [c("assignments"), c("results"), c("training")]),
       entry("content", "Content library", "book", [c("content", { label: "Library" }), c("content-usage"), c("subjects")]),
       entry("forms", "Forms", "form", [c("forms")]),
+      // Teachers, school heads and field officers: see, invite, edit (29 October 2026).
+      entry("users", "Users & roles", "users", [c("users", { label: "Accounts" })]),
       entry("analytics", "Dashboards & reports", "chart", [c("learning"), c("teacher-development"), c("digital-resources"), c("reports", { label: "Reports" })]),
     ],
   },

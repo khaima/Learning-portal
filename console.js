@@ -27,10 +27,10 @@ import {
   getLibraryFolders, createLibraryFolder, deleteLibraryFolder, setLibraryFolder,
   koboConfig, saveKoboConfig, koboAssets, koboAssetPreview, koboForms, attachKoboForm,
   removeKoboForm, restoreKoboForm, syncKobo, koboResults,
-  getUserDirectory, updateUser, sendUserResetLink, issueTemporaryPassword,
-  approveUser, rejectUser, setUserStatus, getInvitations, inviteStaff, renewInvitation, revokeInvitation,
+  getUserDirectory, sendUserResetLink, issueTemporaryPassword,
+  approveUser, rejectUser, setUserStatus, getInvitations, renewInvitation, revokeInvitation,
   getLearners, getAcademicYears, createAcademicYear,
-  watchSchools, createSchool, renameSchool, deleteSchool, createCounty, deleteCounty, wireSchoolPicker,
+  watchSchools, createSchool, renameSchool, deleteSchool, createCounty, deleteCounty,
 } from "./store.js";
 import { openIframeViewer, openContentPanel } from "./viewer.js";
 import { formTagsHtml } from "./forms.js";
@@ -53,6 +53,7 @@ const melUi = once(() => import("./mel-ui.js"));
 const learnersUi = once(() => import("./learners-ui.js"));
 const syncProblemsUi = once(() => import("./sync-problems-ui.js"));
 const usageUi = once(() => import("./usage-ui.js"));
+const accountForms = once(() => import("./account-forms.js")); // Invite someone · Edit profile
 
 const AUDIENCE_LABEL = Object.fromEntries(FORM_AUDIENCES.map((a) => [a.value, a.label]));
 const STAFF_ROLES = ROLES.filter((r) => r.value !== "learner" && !r.legacy);
@@ -115,8 +116,6 @@ async function main() {
   // The live county/school list (see "school list" below) — the one source
   // for every county/school dropdown on this dashboard.
   let schoolDir = { counties: [], countyCodes: {}, schools: [] };
-  let userPicker = null; // the County → School picker in an open Users editor
-  let invitePicker = null; // the County → School picker in the invite form
   let lastStats = null;
   let formsCache = [];
   let responsesCache = [];
@@ -2534,8 +2533,6 @@ async function main() {
     // Don't re-render under someone mid-rename (they'd lose their typing).
     if (!renamingSchoolId) renderSchoolListDom();
     if (renderGlobalFilterOptions({ clearMissing: true })) applyFilters();
-    userPicker?.update(schoolDir);
-    invitePicker?.update(schoolDir);
     fillFinderSchools();
     refreshFormCountyOptions();
   }
@@ -2687,7 +2684,6 @@ async function main() {
      Search, status and sort all work client-side against the one fetch. */
   let allUsers = [];
   let grantable = []; // [{ value, label }] roles this administrator may give
-  let editingUserId = null;
   const historyCache = new Map();
 
   const STATUS_PILL = {
@@ -2701,69 +2697,6 @@ async function main() {
     const s = schoolDir.schools.find((x) => x.id === id);
     return s ? `${s.name} (${s.code})` : id;
   };
-
-  /* Inline editor for one account. Where it sits follows the role:
-     teachers and heads pick County → School from the school list (a new
-     school, or a new role letter, gives them a new code — and a teacher's
-     learners move with them); field officers pick a county; everyone else
-     neither. Only the roles this administrator may give are offered. */
-  function userEditRow(u) {
-    const roles = grantable.some((r) => r.value === u.role) ? grantable : [{ value: u.role, label: ROLE_LABEL[u.role] || u.role }, ...grantable];
-    const canDetails = has("users.edit");
-    const canRole = has("users.roles.assign");
-    const canPlace = has("users.placement.assign");
-    return `
-      <div class="task-row lib-edit-row" data-user="${esc(u.id)}" data-email="${esc(u.email || "")}">
-        <div style="flex:1">
-          <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem">
-            <div class="field"><label>Full name</label><input class="ue-name" type="text" value="${esc(u.fullName || "")}"${canDetails ? "" : " disabled"}></div>
-            <div class="field"><label>Email</label><input class="ue-email" type="email" value="${esc(u.email || "")}"${canDetails ? "" : " disabled"}></div>
-          </div>
-          <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.6rem">
-            <div class="field"><label>Role</label><select class="ue-role"${canRole ? "" : " disabled"}>${roles.map((r) =>
-              `<option value="${esc(r.value)}"${r.value === u.role ? " selected" : ""}>${esc(r.label)}</option>`).join("")}</select></div>
-            <div class="field ue-county-field"><label>County</label><select class="ue-county"${canPlace ? "" : " disabled"}></select></div>
-            <div class="field ue-school-field"><label>School</label><select class="ue-school"${canPlace ? "" : " disabled"}></select></div>
-          </div>
-          <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem">
-            <div class="field ue-tt-field"><label>Employment type</label>
-              <select class="ue-tt"${canDetails ? "" : " disabled"}>${["", "BOM", "TSC"].map((t) =>
-                `<option value="${t}"${t === (u.teacherType || "") ? " selected" : ""}>${t || "Not specified"}</option>`).join("")}</select></div>
-            <div class="field"><label>Gender <span class="hint-inline">— optional</span></label>
-              <select class="ue-gender"${canDetails ? "" : " disabled"}>${[["", "Not recorded"], ["female", "Female"], ["male", "Male"], ["prefer_not_to_say", "Prefer not to say"]].map(([v, l]) =>
-                `<option value="${v}"${v === (u.gender || "") ? " selected" : ""}>${l}</option>`).join("")}</select></div>
-          </div>
-          <p class="field-hint ue-note"></p>
-          <div class="edit-actions">
-            <button type="button" class="btn btn-primary" data-act="save-user">Save changes</button>
-            <button type="button" class="btn btn-outline" data-act="cancel-user">Cancel</button>
-          </div>
-        </div>
-      </div>`;
-  }
-
-  function wireUserEditor(u) {
-    const row = $(`#usersList .lib-edit-row[data-user="${u.id}"]`);
-    if (!row) return;
-    userPicker = wireSchoolPicker(row.querySelector(".ue-county"), row.querySelector(".ue-school"), schoolDir,
-      { schoolId: u.schoolId, countyId: schoolDir.counties.includes(u.county) ? u.county : "", onChange: syncUserEditor });
-    row.querySelector(".ue-role").addEventListener("change", syncUserEditor);
-    function syncUserEditor() {
-      const role = row.querySelector(".ue-role").value;
-      const inSchool = role === "teacher" || role === "school_leader";
-      row.querySelector(".ue-county-field").hidden = !(inSchool || role === "field_officer");
-      row.querySelector(".ue-school-field").hidden = !inSchool;
-      row.querySelector(".ue-tt-field").hidden = role !== "teacher";
-      const school = userPicker.current();
-      const moving = inSchool && school && (school.id !== u.schoolId || role !== u.role);
-      row.querySelector(".ue-note").textContent = !inSchool
-        ? (role === "field_officer" ? "Field officers belong to a county, not a school — they pick the school per visit." : "This role works across every school and county.")
-        : moving
-          ? `They'll get a new code under ${school.code}${role === "teacher" ? ", and their learners move to this school with new codes too" : ""}.`
-          : u.userCode ? `Code stays ${u.userCode}.` : "";
-    }
-    syncUserEditor();
-  }
 
   /* The buttons one account gets, from permissions + authority over it:
      the everyday ones first, then — on a line of their own, in the warning
@@ -2796,7 +2729,6 @@ async function main() {
      scope of someone not placed in a school), status, last sign-in,
      created — and what this administrator may do with it. */
   function userRow(u) {
-    if (u.id === editingUserId) return `<tr class="user-edit"><td colspan="8">${userEditRow(u)}</td></tr>`;
     const pill = STATUS_PILL[u.status];
     const where = u.school || (u.scope && !u.scope.global ? `Assigned: ${u.scope.label}` : u.scope?.global && !["teacher", "school_leader"].includes(u.role) ? "All schools" : "—");
     return `<tr data-user="${esc(u.id)}" data-email="${esc(u.email || "")}">
@@ -2867,8 +2799,6 @@ async function main() {
     list.innerHTML = `<div class="lms-table-wrap users-table"><table class="lms-table intel-table">
       <thead><tr>${["Name and email", "Role", "County", "School / scope", "Status", "Last login", "Created", "Actions"].map((h, i) => `<th${i === 0 ? ' class="lms-name"' : ""}>${h}</th>`).join("")}</tr></thead>
       <tbody>${rows.map(userRow).join("")}</tbody></table></div>`;
-    const editing = allUsers.find((u) => u.id === editingUserId);
-    if (editing) wireUserEditor(editing);
   }
 
   let usersFailed = false;
@@ -2879,6 +2809,11 @@ async function main() {
       ({ users: allUsers, grantableRoles: grantable } = await getUserDirectory());
       usersFailed = false;
       usersLoaded = true;
+      const present = new Set(allUsers.map((u) => (u.role === "admin" ? "education_team" : u.role)));
+      const keep = $("#usersRole").value;
+      $("#usersRole").innerHTML = `<option value="">All roles</option>${STAFF_ROLES.filter((r) => present.has(r.value))
+        .map((r) => `<option value="${esc(r.value)}">${esc(r.label)}</option>`).join("")}`;
+      $("#usersRole").value = present.has(keep) ? keep : "";
     } catch (err) {
       console.error("could not load staff accounts:", err);
       usersFailed = friendlyError(err); // what to say
@@ -2923,50 +2858,18 @@ async function main() {
       }
       if (act === "edit") {
         if (!schoolDir.counties.length) await renderSchoolList();
-        editingUserId = id;
-        renderUsersList();
-      } else if (act === "cancel-user") {
-        editingUserId = null;
-        userPicker = null;
-        renderUsersList();
-      } else if (act === "save-user") {
-        const role = row.querySelector(".ue-role").value;
-        const inSchool = role === "teacher" || role === "school_leader";
-        const school = userPicker?.current();
-        const county = userPicker?.county() || "";
-        if (inSchool && !school) {
-          toast("Choose a school", "Teachers and school heads must be placed in a school from the list.", "error");
-          return;
-        }
-        if (role === "field_officer" && !county) {
-          toast("Choose a county", "Field officers belong to a county.", "error");
-          return;
-        }
-        const patch = {};
-        if (has("users.edit")) {
-          patch.fullName = row.querySelector(".ue-name").value.trim();
-          const email = row.querySelector(".ue-email").value.trim();
-          if (email.toLowerCase() !== (row.dataset.email || "").toLowerCase()) patch.email = email;
-          if (role === "teacher") patch.teacherType = row.querySelector(".ue-tt").value;
-          if (row.querySelector(".ue-gender").value !== (u.gender || "")) patch.gender = row.querySelector(".ue-gender").value;
-        }
-        if (role !== u.role) patch.role = role;
-        if (has("users.placement.assign")) {
-          if (inSchool && school.id !== u.schoolId) patch.schoolId = school.id;
-          if (role === "field_officer" && county !== (u.county || "")) patch.county = county;
-          if (patch.role && inSchool) patch.schoolId = school.id;
-          if (patch.role && role === "field_officer") patch.county = county;
-        }
-        btn.disabled = true;
-        const updated = await updateUser(id, patch);
-        toast("Account updated", updated.userCode ? `${updated.fullName} is ${updated.userCode}.` : "", "success");
-        editingUserId = null;
-        userPicker = null;
-        historyCache.delete(id);
-        renderUsers();
-        renderSchoolList();
-        renderAuditPanel();
-      } else if (act === "approve") {
+        (await accountForms()).openProfileForm(u, {
+          grantable, schoolDir, roleLabel: (r) => ROLE_LABEL[r] || r,
+          can: {
+            details: has("users.edit"), role: has("users.roles.assign"),
+            // Where someone works: the Super Admin always; the Programme Admin, for the roles they give.
+            place: has("users.placement.assign") || grantable.some((r) => r.value === u.role),
+          },
+          onSaved: () => { historyCache.delete(id); renderUsers(); renderSchoolList(); renderAuditPanel(); },
+        });
+        return;
+      }
+      if (act === "approve") {
         const asked = ROLE_LABEL[u.requestedRole || u.role] || u.role;
         const where = u.school ? ` at ${u.school}` : u.county ? ` in ${u.county}` : "";
         const ok = await confirmDialog({
@@ -3256,28 +3159,16 @@ async function main() {
   $("#auditKind").addEventListener("change", (e) => renderAuditPage({ kind: e.target.value }));
 
   /* ---- invitations ---- */
-  function syncInviteFields() {
-    const role = $("#inv_role").value;
-    const inSchool = role === "teacher" || role === "school_leader";
-    $("#inv_county_field").hidden = !(inSchool || role === "field_officer");
-    $("#inv_school_field").hidden = !inSchool;
-  }
   /* Whether the portal can email invitations (the server says, from its
      mail settings); copying the link always works. */
   let inviteEmailReady = false;
-  function syncInviteDelivery() {
-    $("#inviteSendEmail").hidden = !inviteEmailReady;
-    $("#inviteNoEmail").hidden = inviteEmailReady;
-    // Without email, copying the link is the main action.
-    $("#inviteCopyLink").className = `btn ${inviteEmailReady ? "btn-outline" : "btn-primary"}`;
-    $("#inviteCopyLink").textContent = inviteEmailReady ? "Copy link instead" : "Create link to copy";
-  }
   async function renderInvitations() {
     try {
       const { invitations, emailReady } = await getInvitations();
       inviteEmailReady = emailReady;
-      syncInviteDelivery();
       const open = invitations.filter((i) => i.status === "open");
+      // An invitation names its school: read the school list first, if it isn't yet.
+      if (open.some((i) => i.schoolId) && !schoolDir.schools.length) await renderSchoolList().catch(() => {});
       $("#invitationsList").innerHTML = open.length
         ? `<div class="list-group"><div class="list-group-title">Open invitations<span class="count">${open.length}</span></div>${
           open.map((i) => `<div class="task-row" data-invitation="${esc(i.id)}" data-email="${esc(i.email)}"><div style="flex:1;min-width:0"><b>${esc(i.email)}</b>
@@ -3316,55 +3207,13 @@ async function main() {
   if (has("users.invite")) {
     $("#invitePanel").hidden = false;
     $("#inviteToggle").addEventListener("click", async () => {
-      const open = $("#inviteForm").hidden;
-      $("#inviteForm").hidden = !open;
-      $("#inviteToggle").setAttribute("aria-expanded", String(open));
-      if (!open) return;
       $("#inviteResult").hidden = true;
-      syncInviteDelivery();
       if (!grantable.length) await renderUsers();
-      $("#inv_role").innerHTML = grantable.map((r) => `<option value="${esc(r.value)}">${esc(r.label)}</option>`).join("");
-      $("#inv_role").value = grantable.some((r) => r.value === "teacher") ? "teacher" : grantable[0]?.value || "";
       if (!schoolDir.counties.length) await renderSchoolList();
-      if (!invitePicker) invitePicker = wireSchoolPicker($("#inv_county"), $("#inv_school"), schoolDir);
-      syncInviteFields();
-    });
-    $("#inv_role").addEventListener("change", syncInviteFields);
-    $("#inviteCancel").addEventListener("click", () => {
-      $("#inviteForm").hidden = true;
-      $("#inviteToggle").setAttribute("aria-expanded", "false");
-    });
-    $("#inviteForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const role = $("#inv_role").value;
-      const inSchool = role === "teacher" || role === "school_leader";
-      const school = invitePicker?.current();
-      const county = invitePicker?.county() || "";
-      if (inSchool && !school) { toast("Choose a school", "Teachers and school heads are invited into a school.", "error"); return; }
-      if (role === "field_officer" && !county) { toast("Choose a county", "Field officers belong to a county.", "error"); return; }
-      // Which button: email it (the default when email is set up), or a link to copy.
-      const send = inviteEmailReady && (e.submitter ? e.submitter.value === "email" : true);
-      const buttons = [...e.target.querySelectorAll("[type=submit]")];
-      buttons.forEach((b) => { b.disabled = true; });
-      try {
-        const res = await inviteStaff({
-          email: $("#inv_email").value.trim(), role,
-          schoolId: inSchool ? school.id : undefined,
-          county: role === "field_officer" ? county : undefined,
-          send,
-        });
-        showInviteResult(res);
-        if (res.emailed) toast("Invitation emailed", res.invitation.email, "success");
-        $("#inviteForm").reset();
-        $("#inviteForm").hidden = true;
-        $("#inviteToggle").setAttribute("aria-expanded", "false");
-        renderInvitations();
-        renderAuditPanel();
-      } catch (err) {
-        toast("Couldn't create the invitation", friendlyError(err), "error");
-      } finally {
-        buttons.forEach((b) => { b.disabled = false; });
-      }
+      (await accountForms()).openInviteForm({
+        grantable, schoolDir, emailReady: inviteEmailReady,
+        onDone: () => { renderInvitations(); renderAuditPanel(); },
+      });
     });
     $("#invitationsList").addEventListener("click", async (e) => {
       const renew = e.target.closest("[data-renew]");
@@ -3518,7 +3367,7 @@ async function main() {
   const asgRedraw = (A) => A.renderAssignments($("#asgBody"), { schoolId: $("#asgSchool").value, status: $("#asgStatus").value, subject: $("#asgSubject").value,
     county: gf.county, from: gf.from, to: gf.to }, schoolNames(), new Map(schoolDir.schools.map((x) => [x.id, x.county])));
   /** What the Administration overview is drawn with: the filters above, and this person's rights. */
-  const adminOverviewOpts = () => ({ filter: { county: gf.county, school: gf.school }, canOpen, canExport: has("reports.export") });
+  const adminOverviewOpts = () => ({ filter: { county: gf.county, school: gf.school }, canOpen, canExport: has("reports.export"), canApprove: has("users.approve") });
   function refreshFilteredPage() {
     if (!["field-visits", "teachers", "school-profiles", "assignments", "admin-overview", "admin-detail"].includes(pageNow)) return;
     adminUi().then((A) => {

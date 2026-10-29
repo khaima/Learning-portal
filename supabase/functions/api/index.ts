@@ -8115,6 +8115,15 @@ const mapUserRow = (r: Record<string, unknown>) => ({
 /** Loads the account named in :id and checks the caller has authority
     over it. Returns the row, or the response refusing the request. */
 // deno-lint-ignore no-explicit-any
+/** The accounts someone with users.view sees: the Super Admin, all of them; someone who gives
+    roles, the accounts in those roles (the Programme Admin: teachers, school heads, field
+    officers); anyone given users.view on its own, all of them, to read. */
+function seesAccount(actor: Actor, target: { role?: unknown }) {
+  if (actor.role === "super_admin") return true;
+  const gives = grantableRoles(actor.role);
+  return !gives.length || gives.includes(String(target.role) as never);
+}
+
 async function loadManagedAccount(c: any): Promise<Record<string, any> | Response> {
   const { data: target } = await admin.from("profiles").select("*").eq("id", c.req.param("id")).maybeSingle();
   if (!target || !inScope(c, target.school_id, target.county)) return c.json({ error: "User not found" }, 404);
@@ -8180,8 +8189,9 @@ app.get("/users", requirePermission("users.view"), async (c) => {
     admin.from("permission_grants").select("profile_id, permission").is("revoked_at", null),
   ]);
   if (error) return c.json({ error: error.message }, 500);
-  // Someone narrowed to an area sees the people placed in it.
-  const rows = (data ?? []).filter((r) => inScope(c, r.school_id, r.county));
+  // Someone narrowed to an area sees the people placed in it; the Programme Admin, the
+  // teachers, school heads and field officers there.
+  const rows = (data ?? []).filter((r) => inScope(c, r.school_id, r.county) && seesAccount(actor, r));
   return c.json({
     users: rows.map((r) => {
       const sc = scopes.get(r.id as string);
@@ -8257,7 +8267,7 @@ app.get("/users/invitations", requirePermission("users.invite"), async (c) => {
     .order("created_at", { ascending: false }).limit(100);
   if (error) return c.json({ error: error.message }, 500);
   return c.json({
-    invitations: (data ?? []).filter((i) => inScope(c, i.school_id, i.county)).map(mapInvitation),
+    invitations: (data ?? []).filter((i) => inScope(c, i.school_id, i.county) && seesAccount(c.get("actor"), i)).map(mapInvitation),
     // Whether "Send invitation email" can work (mail.ts); copying the link always does.
     emailReady: mailReady(),
   });
@@ -8315,7 +8325,7 @@ app.post("/users/invitations", requirePermission("users.invite"), async (c) => {
 app.post("/users/invitations/:id/renew", requirePermission("users.invite"), async (c) => {
   const actor = c.get("actor");
   const { data: inv } = await admin.from("staff_invitations").select("*").eq("id", c.req.param("id")).maybeSingle();
-  if (!inv || !inScope(c, inv.school_id, inv.county)) return c.json({ error: "Invitation not found" }, 404);
+  if (!inv || !inScope(c, inv.school_id, inv.county) || !seesAccount(actor, inv)) return c.json({ error: "Invitation not found" }, 404);
   if (!grantableRoles(actor.role).includes(inv.role)) {
     return c.json({ error: "You can't renew an invitation for that role." }, 403);
   }
@@ -8341,7 +8351,7 @@ app.post("/users/invitations/:id/renew", requirePermission("users.invite"), asyn
 app.delete("/users/invitations/:id", requirePermission("users.invite"), async (c) => {
   const actor = c.get("actor");
   const { data: inv } = await admin.from("staff_invitations").select("*").eq("id", c.req.param("id")).maybeSingle();
-  if (!inv || !inScope(c, inv.school_id, inv.county)) return c.json({ error: "Invitation not found" }, 404);
+  if (!inv || !inScope(c, inv.school_id, inv.county) || !seesAccount(actor, inv)) return c.json({ error: "Invitation not found" }, 404);
   if (!grantableRoles(actor.role).includes(inv.role)) {
     return c.json({ error: "You can't revoke an invitation for that role." }, 403);
   }
@@ -8460,9 +8470,13 @@ app.patch("/users/:id", requirePermission("users.edit", "users.roles.assign", "u
     (b.county !== undefined && String(b.county).trim() !== (existing.county ?? ""));
   if (wantsDetails && !actorCan(c, "users.edit")) return c.json({ error: NO_PERMISSION }, 403);
   if (wantsRole && !actorCan(c, "users.roles.assign")) return c.json({ error: NO_PERMISSION }, 403);
-  // A role change moves the account in or out of a school/county, so it
-  // needs placement rights too.
-  if ((wantsPlacement || wantsRole) && !actorCan(c, "users.placement.assign")) return c.json({ error: NO_PERMISSION }, 403);
+  // A role change moves the account in or out of a school/county, so it needs placement
+  // rights too — or, for the roles this person gives (the Programme Admin: teachers, school
+  // heads, field officers), their say over where those people work.
+  const roleWanted = wantsRole ? String(b.role) : String(existing.role);
+  if ((wantsPlacement || wantsRole) && !actorCan(c, "users.placement.assign") && !grantableRoles(actor.role).includes(roleWanted as never)) {
+    return c.json({ error: NO_PERMISSION }, 403);
+  }
 
   const patch: Record<string, unknown> = {};
   if (b.fullName !== undefined) {
@@ -9112,7 +9126,7 @@ const mapScopeRow = (r: Record<string, any>, schoolName: Map<string, string>, na
 
 app.get("/users/:id/access", requirePermission("users.view"), async (c) => {
   const { data: target } = await admin.from("profiles").select("*").eq("id", c.req.param("id")).maybeSingle();
-  if (!target || !inScope(c, target.school_id, target.county)) return c.json({ error: "User not found" }, 404);
+  if (!target || !inScope(c, target.school_id, target.county) || !seesAccount(c.get("actor"), target)) return c.json({ error: "User not found" }, 404);
   const [{ data: rows }, { data: grants }, { data: schools }] = await Promise.all([
     admin.from("staff_scopes").select("*").eq("profile_id", target.id),
     admin.from("permission_grants").select("*").eq("profile_id", target.id),
@@ -9323,8 +9337,8 @@ app.get("/permissions", requirePermission("permissions.manage", "audit.view"), a
 
 /* One account's history, for administrators without the full audit log. */
 app.get("/users/:id/history", requirePermission("users.view"), async (c) => {
-  const { data: target } = await admin.from("profiles").select("id, school_id, county").eq("id", c.req.param("id")).maybeSingle();
-  if (!target || !inScope(c, target.school_id, target.county)) return c.json({ error: "User not found" }, 404);
+  const { data: target } = await admin.from("profiles").select("id, role, school_id, county").eq("id", c.req.param("id")).maybeSingle();
+  if (!target || !inScope(c, target.school_id, target.county) || !seesAccount(c.get("actor"), target)) return c.json({ error: "User not found" }, 404);
   const { data } = await admin.from("audit_log").select("*").eq("target_type", "profile").eq("target_id", target.id)
     .order("id", { ascending: false }).limit(100);
   return c.json({ entries: await auditEntries(data ?? []) });

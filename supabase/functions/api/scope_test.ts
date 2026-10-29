@@ -86,8 +86,12 @@ Deno.test("permissions: the HPF separation of duties", () => {
   // It runs learning and education: schools, classes, learners, teaching, content, training, forms, reports.
   for (const p of ["schools.manage", "calendar.manage", "classes.manage.all", "learners.manage.all", "learners.transfer", "library.manage",
     "subjects.manage", "trainings.manage", "forms.manage", "learning.dashboard.view", "reports.programme"]) assert(has("education_team", p), p);
-  // Accounts, data quality, device sync, the Kobo pipeline and notifications are the Super Admin's alone.
-  for (const p of ["users.view", "users.invite", "users.roles.assign", "users.status.manage", "users.placement.assign", "data_quality.view",
+  // It sees, invites and edits the people the programme works through (grantableRoles keeps it to
+  // teachers, school heads and field officers).
+  for (const p of ["users.view", "users.invite", "users.edit", "users.roles.assign"]) assert(has("education_team", p), p);
+  // Approvals, suspending, passwords, data scope, data quality, device sync, the Kobo pipeline and
+  // notifications are the Super Admin's alone.
+  for (const p of ["users.approve", "users.status.manage", "users.password.reset", "users.placement.assign", "data_quality.view",
     "data_quality.manage", "sync.monitor", "sync.problems.view", "kobo.sync", "notifications.view.all"]) {
     assert(has("super_admin", p) && !has("education_team", p) && !has("admin", p) && !has("me", p), p);
   }

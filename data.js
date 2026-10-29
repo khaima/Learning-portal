@@ -11,7 +11,7 @@
 export const ROLES = [
   { value: "teacher", label: "Teacher", desc: "Classes, assignments, results" },
   { value: "learner", label: "Learner", desc: "Coursework and library" },
-  { value: "school_leader", label: "School Leader", desc: "Termly returns, oversight" },
+  { value: "school_leader", label: "School Head", desc: "Termly returns, oversight" },
   { value: "field_officer", label: "Field Officer", desc: "Visit reports by county" },
   { value: "education_team", label: "Programme Admin (Education Team)", desc: "Learning & education: schools, teaching, content, training" },
   // Given only by an administrator (invitation or role change), never

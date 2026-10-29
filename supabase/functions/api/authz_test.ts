@@ -46,7 +46,8 @@ const PLACE_VIEWERS: R[] = [...ANALYSTS, "field_officer", "school_leader"];    /
 const LEARNER_VIEWERS: R[] = [...ANALYSTS, "school_leader", "teacher"];
 const LEARNER_MANAGERS: R[] = ["super_admin", "admin", "education_team", "school_leader", "teacher"];
 const CLASS_MANAGERS: R[] = ["super_admin", "admin", "education_team", "school_leader"];
-const USER_ADMIN = SYSTEM;
+const USER_ADMIN = SYSTEM;                                                     // approvals, status, passwords, data scope
+const ACCOUNT_KEEPERS: R[] = ["super_admin", "admin", "education_team"];      // see, invite and edit teachers, heads, field officers
 const SYNC_PROBLEMS: R[] = SA_ONLY;
 const CHANGE_VIEWERS: R[] = SA_ONLY;  // the change history (history.ts): the Super Admin's                                           // devices with work stuck 48 hours, sync failures
 
@@ -285,15 +286,15 @@ const ROUTES: RouteSpec[] = [
   r("POST", "/mel/reports/:id/refresh", ME_ROLES, {}, "/mel/reports/{report}/refresh", { setup: meReport }),
   r("POST", "/mel/reports/:id/finalize", ME_ROLES, {}, "/mel/reports/{report}/finalize", { setup: meReport }),
   r("GET", "/school/overview", ["school_leader"]),
-  r("GET", "/users", SYSTEM),
-  r("GET", "/users/invitations", USER_ADMIN),
-  r("POST", "/users/invitations", USER_ADMIN, { email: "fresh@test.org", role: "teacher", schoolId: "sch_1" }),
-  r("DELETE", "/users/invitations/:id", USER_ADMIN, undefined, "/users/invitations/{invitation}", { setup: async () => ({ invitation: (await made("POST", "/users/invitations", { email: "fresh@test.org", role: "teacher", schoolId: "sch_1" })).invitation.id }) }),
-  r("POST", "/users/invitations/:id/renew", USER_ADMIN, {}, "/users/invitations/{invitation}/renew", { setup: async () => ({ invitation: (await made("POST", "/users/invitations", { email: "fresh@test.org", role: "teacher", schoolId: "sch_1" })).invitation.id }) }),
+  r("GET", "/users", ACCOUNT_KEEPERS),
+  r("GET", "/users/invitations", ACCOUNT_KEEPERS),
+  r("POST", "/users/invitations", ACCOUNT_KEEPERS, { email: "fresh@test.org", role: "teacher", schoolId: "sch_1" }),
+  r("DELETE", "/users/invitations/:id", ACCOUNT_KEEPERS, undefined, "/users/invitations/{invitation}", { setup: async () => ({ invitation: (await made("POST", "/users/invitations", { email: "fresh@test.org", role: "teacher", schoolId: "sch_1" })).invitation.id }) }),
+  r("POST", "/users/invitations/:id/renew", ACCOUNT_KEEPERS, {}, "/users/invitations/{invitation}/renew", { setup: async () => ({ invitation: (await made("POST", "/users/invitations", { email: "fresh@test.org", role: "teacher", schoolId: "sch_1" })).invitation.id }) }),
   r("POST", "/users/:id/approve", USER_ADMIN, {}, "/users/pending-id/approve"),
   r("POST", "/users/:id/reject", USER_ADMIN, {}, "/users/pending-id/reject"),
   r("POST", "/users/:id/status", USER_ADMIN, { action: "suspend" }, "/users/teacher2-id/status"),
-  r("PATCH", "/users/:id", USER_ADMIN, { fullName: "Renamed" }, "/users/teacher2-id"),
+  r("PATCH", "/users/:id", ACCOUNT_KEEPERS, { fullName: "Renamed" }, "/users/teacher2-id"),
   r("POST", "/users/:id/reset-link", USER_ADMIN, {}, "/users/teacher2-id/reset-link"),
   r("POST", "/users/:id/temporary-password", USER_ADMIN, {}, "/users/teacher2-id/temporary-password"),
   r("GET", "/audit", SA_ONLY),
@@ -338,8 +339,8 @@ const ROUTES: RouteSpec[] = [
   r("GET", "/admin/overview", ADMINS),
   r("GET", "/teachers", PLACE_VIEWERS),
   r("GET", "/schools/:id/profile", PLACE_VIEWERS, undefined, "/schools/sch_1/profile"),
-  r("GET", "/users/:id/access", SYSTEM, undefined, "/users/teacher2-id/access"),
-  r("GET", "/users/:id/history", SYSTEM, undefined, "/users/teacher2-id/history"),
+  r("GET", "/users/:id/access", ACCOUNT_KEEPERS, undefined, "/users/teacher2-id/access"),
+  r("GET", "/users/:id/history", ACCOUNT_KEEPERS, undefined, "/users/teacher2-id/history"),
   r("PUT", "/users/:id/scope", SYSTEM, { counties: ["Narok"] }, "/users/field_officer-id/scope"),
   r("POST", "/users/:id/grants", SA_ONLY, { permission: "kobo.review", reason: "Covering M&E" }, "/users/education_team-id/grants"),
   r("POST", "/users/:id/grants/:grantId/revoke", SA_ONLY, { reason: "Done" }, "/users/education_team-id/grants/{grant}/revoke", {
@@ -647,7 +648,8 @@ Deno.test("renewing an invitation: a new link (emailed or to copy), the old one 
   assertEquals((await call("POST", `/users/invitations/${id}/renew`, "tok_super_admin", {})).status, 409);
   // …or revoked, or by someone who doesn't manage accounts, or not there.
   const other = await call("POST", "/users/invitations", "tok_super_admin", { email: "other@test.org", role: "teacher", schoolId: "sch_1" });
-  assertEquals((await call("POST", `/users/invitations/${other.json.invitation.id}/renew`, "tok_admin", {})).status, 403, "a Programme Admin doesn't manage accounts");
+  const mel = await call("POST", "/users/invitations", "tok_super_admin", { email: "mel@test.org", role: "me" });
+  assertEquals((await call("POST", `/users/invitations/${mel.json.invitation.id}/renew`, "tok_admin", {})).status, 404, "a Programme Admin doesn't see M&E invitations");
   await call("DELETE", `/users/invitations/${other.json.invitation.id}`, "tok_super_admin");
   assertEquals((await call("POST", `/users/invitations/${other.json.invitation.id}/renew`, "tok_super_admin", {})).status, 409);
   assertEquals((await call("POST", "/users/invitations/inv_none/renew", "tok_super_admin", {})).status, 404);
@@ -2117,7 +2119,7 @@ Deno.test("reports: never PINs or usernames; staff emails only for those who man
   const ed = (await call("GET", "/reports/teacher-register", "tok_super_admin")).json;
   assert(sectionRows(ed, "Teachers").every((x) => String(x.email).endsWith("@test.org")));
   const pa = (await call("GET", "/reports/teacher-register", "tok_admin")).json;
-  assert(!JSON.stringify(pa).includes("@test.org"), "the Programme Admin doesn't manage accounts, so sees no emails");
+  assert(sectionRows(pa, "Teachers").every((x) => String(x.email).endsWith("@test.org")), "the Programme Admin manages teachers' accounts, so sees their emails");
   const me = (await call("GET", "/reports/teacher-register", "tok_me")).json;
   assert(!JSON.stringify(me).includes("@test.org"), "the M&E team sees the register, not emails");
   assertEquals(sectionRows(me, "Teachers").length, 3, "all schools' active teachers");
@@ -2179,10 +2181,16 @@ Deno.test("access: /me says which workspace, what scope and which permissions �
 Deno.test("access: separation of duties holds at the API, whatever the browser shows", async () => {
   freshWorld();
   const st = async (method: string, path: string, tok: string, body?: unknown) => (await call(method, path, tok, body)).status;
-  // The Programme Admin (Education Team, under either code): learning and education —
-  // no accounts, data quality, device sync, security or integrations.
+  // The Programme Admin (Education Team, under either code): learning and education, and the
+  // accounts of teachers, heads and field officers — no approvals, status, passwords, data
+  // quality, device sync, security or integrations.
   for (const tok of ["tok_education_team", "tok_admin"]) {
-    assertEquals(await st("GET", "/users", tok), 403, tok);
+    assertEquals(await st("GET", "/users", tok), 200, tok);
+    assertEquals(await st("POST", "/users/pending-id/approve", tok, {}), 403, tok);
+    assertEquals(await st("POST", "/users/teacher2-id/status", tok, { action: "suspend" }), 403, tok);
+    assertEquals(await st("POST", "/users/teacher2-id/reset-link", tok, {}), 403, tok);
+    assertEquals(await st("PUT", "/users/field_officer-id/scope", tok, { counties: ["Narok"] }), 403, tok);
+    assertEquals(await st("PATCH", "/users/me-id", tok, { fullName: "X" }), 403, `${tok}: never M&E`);
     assertEquals(await st("PUT", "/kobo/config", tok, { apiToken: "x" }), 403, tok);
     assertEquals(await st("POST", "/kobo/sync", tok, {}), 403, tok);
     assertEquals(await st("GET", "/audit", tok), 403, tok);
@@ -2246,19 +2254,54 @@ Deno.test("scope: M&E narrowed to one county sees only that county — lists, da
   assertEquals((await call("POST", "/data-quality/scan", "tok_me", {})).status, 403);
 });
 
-Deno.test("scope: a Programme Admin narrowed to a county runs schools there; accounts stay with the Super Admin", async () => {
+Deno.test("scope: a Programme Admin narrowed to a county runs schools there, and invites and edits teachers, heads and field officers there", async () => {
   const db = twoCounties();
   assign(db, "admin-id", [{ county: "Meru" }]);
   assertEquals((await call("GET", "/learners", "tok_admin")).json.learners.map((l: Row) => l.fullName), ["Kid C"], "only Meru's learners");
-  assertEquals((await call("GET", "/users", "tok_admin")).status, 403, "accounts are the Super Admin's");
-  assertEquals((await call("POST", "/users/invitations", "tok_admin", { email: "m@test.org", role: "teacher", schoolId: SCHOOL_C.id })).status, 403);
-  assertEquals((await call("PATCH", "/users/teacher-c-id", "tok_admin", { fullName: "Teacher Cee" })).status, 403);
+  const users = (await call("GET", "/users", "tok_admin")).json;
+  assertEquals(users.users.map((u: Row) => u.fullName).sort(), ["Teacher C"], "only people placed in Meru, in the roles they give");
+  assertEquals(users.grantableRoles.map((r: Row) => r.value), ["teacher", "school_leader", "field_officer"]);
+  assertEquals((await call("PATCH", "/users/teacher2-id", "tok_admin", { fullName: "X" })).status, 404, "a Narok teacher isn't theirs");
+  assertEquals((await call("PATCH", "/users/teacher-c-id", "tok_admin", { fullName: "Teacher Cee", gender: "female" })).status, 200);
+  assertEquals((await call("POST", "/users/invitations", "tok_admin", { email: "n@test.org", role: "teacher", schoolId: SCHOOL.id })).status, 403, "not in their area");
+  assertEquals((await call("POST", "/users/invitations", "tok_admin", { email: "m@test.org", role: "teacher", schoolId: SCHOOL_C.id })).status, 200);
+  assertEquals((await call("POST", "/users/invitations", "tok_admin", { email: "h@test.org", role: "school_leader", schoolId: SCHOOL_C.id })).status, 200);
+  for (const role of ["education_team", "admin", "me", "super_admin"]) {
+    assertEquals((await call("POST", "/users/invitations", "tok_admin", { email: `${role}@new.org`, role })).status, 403, `never ${role}`);
+  }
+  assertEquals((await call("PATCH", "/users/teacher-c-id", "tok_admin", { role: "me" })).status, 403, "nor change someone into one");
   assertEquals((await call("POST", "/schools", "tok_admin", { name: "Narok New", county: "Narok" })).status, 403);
   assertEquals((await call("POST", "/schools", "tok_admin", { name: "Meru New", county: "Meru" })).status, 200);
   assertEquals((await call("POST", "/counties", "tok_admin", { name: "Kajiado", code: "KJD" })).status, 403, "counties are for whole-portal admins");
   assertEquals((await call("POST", "/academic-years", "tok_admin", { id: "2027" })).status, 403, "so is the calendar");
   assertEquals((await call("POST", "/learners/learner-id/transfer", "tok_admin", { toSchoolId: SCHOOL_C.id })).status, 404, "a Narok learner isn't theirs");
-  assertEquals(db.staff_invitations?.length ?? 0, 0);
+  assertEquals(db.staff_invitations.length, 2);
+});
+
+Deno.test("the Programme Admin invites only teachers, school heads and field officers, and edits only them", async () => {
+  const db = freshWorld();
+  for (const tok of ["tok_education_team", "tok_admin"]) {
+    const list = (await call("GET", "/users", tok)).json;
+    assertEquals([...new Set(list.users.map((u: Row) => u.role))].sort(), ["field_officer", "school_leader", "teacher"], `${tok} sees only those roles`);
+    assert(list.users.every((u: Row) => u.canManage), tok);
+    assertEquals(list.grantableRoles.map((r: Row) => r.label), ["Teacher", "School Head", "Field Officer"]);
+  }
+  const inv = await call("POST", "/users/invitations", "tok_education_team", { email: "fo@test.org", role: "field_officer", county: "Narok" });
+  assertEquals(inv.status, 200);
+  assertEquals((await call("POST", "/users/invitations", "tok_education_team", { email: "x@test.org", role: "me" })).status, 403);
+  // Their profile: name, email, gender, employment type; their school, county, and role among the three.
+  const t = await call("PATCH", "/users/teacher2-id", "tok_education_team", { fullName: "Second Teacher", teacherType: "TSC", gender: "male" });
+  assertEquals([t.status, t.json.user.teacherType, t.json.user.gender], [200, "TSC", "male"]);
+  const head = await call("PATCH", "/users/teacher2-id", "tok_education_team", { role: "school_leader", schoolId: "sch_1" });
+  assertEquals([head.status, head.json.user.role], [200, "school_leader"]);
+  assert(db.audit_log.some((a) => a.action === "role.changed" && a.actor_id === "education_team-id"));
+  // Never an administrator's account, M&E or the Super Admin.
+  for (const id of ["me-id", "admin-id", "super_admin-id", "education_team-id"]) {
+    assertEquals((await call("PATCH", `/users/${id}`, "tok_education_team", { fullName: "X" })).status, id === "education_team-id" ? 403 : 403, id);
+  }
+  assertEquals((await call("GET", "/users/me-id/access", "tok_education_team")).status, 404);
+  // Approving, suspending and passwords stay with the Super Admin.
+  assertEquals((await call("POST", "/users/teacher2-id/temporary-password", "tok_education_team", {})).status, 403);
 });
 
 Deno.test("scope: a field officer works only at assigned schools", async () => {
@@ -2402,5 +2445,6 @@ Deno.test("access: overviews, badges, the users list and account activity", asyn
   const act = (await call("GET", "/security/activity", "tok_super_admin")).json;
   assertEquals(act.staff[0].lastSignInAt, "2026-10-02T08:00:00.000Z", "most recent first");
   assertEquals((await call("GET", "/users/teacher2-id/history", "tok_super_admin")).status, 200);
-  assertEquals((await call("GET", "/users/teacher2-id/history", "tok_admin")).status, 403);
+  assertEquals((await call("GET", "/users/teacher2-id/history", "tok_admin")).status, 200, "a teacher: the Programme Admin's to see");
+  assertEquals((await call("GET", "/users/me-id/history", "tok_admin")).status, 404, "M&E: not theirs");
 });
