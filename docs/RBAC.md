@@ -321,9 +321,9 @@ Generated from `permissions.ts` (role permissions; explicit grants come on top).
 | Export programme reports (term, county) <br>`reports.programme` | ✓ | ✓ | ✓ |   |   |   |   |
 | Audit log, security events and account activity <br>`audit.view` | ✓ |   |   |   |   |   |   |
 | Grant and revoke individual permissions <br>`permissions.manage` | ✓ |   |   |   |   |   |   |
-| Change history of learning and education records, in their area <br>`changes.view` | ✓ | ✓ |   |   |   |   |   |
+| Change history of learning and education records, in their area <br>`changes.view` | ✓ |   |   |   |   |   |   |
 | Change history of everything: who changed what, before and after <br>`changes.view.all` | ✓ |   |   |   |   |   |   |
-| Put back deleted records and undo edits (what they may see and manage) <br>`changes.restore` | ✓ | ✓ |   |   |   |   |   |
+| Put back deleted records and undo edits (what they may see and manage) <br>`changes.restore` | ✓ |   |   |   |   |   |   |
 
 ## 6. Feature matrix
 
@@ -337,8 +337,8 @@ FULL · CREATE · EDIT · VIEW · OWN · SCOPED (within their data scope) · NON
 | Data scope assignments, field officers' schools | FULL | OWN (see) | OWN (see) | OWN (see) | NONE | NONE | NONE |
 | Permission grants | FULL | NONE | NONE | NONE | NONE | NONE | NONE |
 | Audit log, security events, account activity | VIEW | NONE | NONE | NONE | NONE | NONE | NONE |
-| Change history (every add, edit and delete: who, when, before and after) | VIEW (everything) | VIEW (learning and education, scoped) | NONE | NONE | NONE | NONE | NONE |
-| Put back a deleted record, undo an edit (§15) | FULL | SCOPED (what they manage) | NONE | NONE | NONE | NONE | NONE |
+| Change history (every add, edit and delete: who, when, before and after) | VIEW (everything) | NONE (unless granted) | NONE | NONE | NONE | NONE | NONE |
+| Put back a deleted record, undo an edit (§15) | FULL | NONE (unless granted) | NONE | NONE | NONE | NONE | NONE |
 | Schools & counties | FULL | FULL (scoped; counties: whole-programme only) | NONE | NONE | NONE | NONE | NONE |
 | School profiles | VIEW | VIEW (scoped) | VIEW (scoped) | VIEW (assigned) | VIEW (own) | NONE | NONE |
 | Academic calendar | FULL | FULL (whole-programme only) | VIEW | VIEW | VIEW | VIEW | NONE |
@@ -568,9 +568,10 @@ controlling learning and education.*
 
 Asked for: *the Super Admin sees all the changes by all roles, who made each
 and what it was; the admin can retrieve or view what has been deleted or
-changed.* Chosen: the Super Admin sees and puts back everything; the
-Programme Admin (Education Team) sees learning and education records in
-their own area and puts back what they manage.
+changed.* Then (same day): *change history should be controlled by the
+platform admin.* So it is the Super Admin's: they see every change and put
+back what can be. Nobody else has it unless the Super Admin gives one person
+the right on Permissions.
 
 **How it's recorded.** A database trigger (`capture_change()`, migration
 `20261029090000_change_history.sql`) on 36 tables writes every add, edit and
@@ -593,15 +594,16 @@ recorded, and so is a change made outside the portal.
   itself (a failure is a database warning). Checked on real Postgres by
   `tests/change-history.test.mjs` (PGlite).
 
-**Who sees what.** `changes.view.all` (Super Admin): every table.
-`changes.view` (Programme Admin): learning and education tables, within
-their place scope (a narrowed admin sees only changes at their schools or
-counties; records with no place, such as library items, only when
-whole-programme). M&E and the working roles have none. All three
-permissions can be granted to one person on Permissions.
+**Who sees what.** `changes.view.all` and `changes.restore`: the Super
+Admin, and no role besides. The Super Admin can grant one person
+`changes.view` (learning and education tables, within that person's place
+scope: someone narrowed to an area sees only changes at their schools or
+counties, and records with no place, such as library items, only when
+whole-programme) and `changes.restore` (put back what that person manages).
+A granted page appears in their menu under *Granted to you*.
 
-**The page.** Platform › Audit & security › *Change history* (Super Admin)
-and Programme Administration › *Change history*. Filters: what happened
+**The page.** Platform › Audit & security › *Change history* (the first
+tab). Filters: what happened
 (added, edited, deleted, deleted and not put back yet), kind of record, who,
 their role, dates. One action is one row: renaming a school also renames it
 on its learners' records, and those come along as "and 33 more changes made
@@ -615,9 +617,10 @@ by the same action" under Details, which shows every field before and after.
 | Counties, school years, assignments and their questions, form responses, field visits | ✓ | — |
 | Learners, enrolments, learners' work, attendance, staff accounts, where people work, permissions, invitations, Kobo, the M&E framework | — (says where it's changed instead) | — |
 
-- The Super Admin puts back anything that can be; the Programme Admin only
-  what they manage (schools, the calendar, classes, subjects, the library,
-  forms, training) — not a teacher's assignment, not a field visit.
+- The Super Admin puts back anything that can be. Someone granted
+  `changes.restore` puts back only what they manage (for a Programme Admin:
+  schools, the calendar, classes, subjects, the library, forms, training) —
+  not a teacher's assignment, not a field visit.
 - **Put back** brings the record back as it was, with whatever the same
   action deleted alongside it (an assignment's questions), and reconnects
   what it left pointing at nothing (a folder's items). Refused, with the

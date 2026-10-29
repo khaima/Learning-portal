@@ -14,6 +14,9 @@ import { KINDS } from "./history.ts";
 const log = (db: Db) => (db.change_log ?? []) as Row[];
 const last = (db: Db, table: string, op?: string) => log(db).findLast((x) => x.table_name === table && (!op || x.op === op))!;
 const history = async (tok: string, qs = "") => (await call("GET", `/changes${qs ? `?${qs}` : ""}`, tok)).json;
+/** The Super Admin gives one person a right on Permissions. */
+const grant = (db: Db, who: string, permission: string) => db.permission_grants.push({ id: `g_${who}_${permission}`, profile_id: who, permission,
+  reason: "test", granted_by: "super_admin-id", granted_at: new Date().toISOString(), revoked_at: null });
 
 Deno.test("every change is recorded with who made it, their role and the request — whoever they are", async () => {
   const db = freshWorld();
@@ -50,7 +53,7 @@ Deno.test("a PIN change is recorded as a change, never with the PIN", async () =
   assertEquals(shown.putBack.can, false);
 });
 
-Deno.test("who sees what: the Super Admin everything; the Programme Admin learning and education in their area; nobody else", async () => {
+Deno.test("who sees what: the Super Admin everything; nobody else, unless the Super Admin gives them the right — then learning and education in their area", async () => {
   const db = twoCounties();
   await call("PATCH", "/users/teacher2-id", "tok_super_admin", { fullName: "Teacher Two" });
   await call("PATCH", "/schools/sch_1", "tok_super_admin", { name: "Aitong Primary School" });
@@ -58,6 +61,11 @@ Deno.test("who sees what: the Super Admin everything; the Programme Admin learni
   const sa = await history("tok_super_admin");
   assert(sa.entries.some((x: Row) => x.table === "profiles"), "accounts: the Super Admin's");
   assert(sa.filters.kinds.some((k: Row) => k.table === "profiles") && sa.filters.kinds.some((k: Row) => k.table === "me_indicators"));
+  // The Programme Admin doesn't see it…
+  for (const tok of ["tok_admin", "tok_education_team"]) assertEquals((await call("GET", "/changes", tok)).status, 403, `${tok}: the Super Admin's`);
+  // …until the Super Admin gives them the right: learning and education, never accounts.
+  grant(db, "admin-id", "changes.view");
+  grant(db, "education_team-id", "changes.view");
   for (const tok of ["tok_admin", "tok_education_team"]) {
     const pa = await history(tok);
     assert(!pa.entries.some((x: Row) => x.table === "profiles"), `${tok}: no accounts`);
@@ -92,27 +100,28 @@ Deno.test("a deleted folder comes back, with its items back in it — once", asy
   const del = last(db, "library_folders", "delete");
 
   // In the Deleted list, with a way back.
-  const deleted = await history("tok_education_team", "show=deleted");
+  const deleted = await history("tok_super_admin", "show=deleted");
   const d = deleted.entries.find((x: Row) => x.id === del.id);
-  assertEquals([d.action, d.record.name, d.putBack.action, d.putBack.can], ["deleted", "Grade 4 maths", "restore", true]);
-  const detail = (await call("GET", `/changes/${del.id}`, "tok_education_team")).json;
+  assertEquals([d.action, d.record.name, d.actor.name, d.putBack.action, d.putBack.can], ["deleted", "Grade 4 maths", "education_team person", "restore", true]);
+  assertEquals((await call("POST", `/changes/${del.id}/restore`, "tok_education_team", {})).status, 403, "putting back is the Super Admin's");
+  const detail = (await call("GET", `/changes/${del.id}`, "tok_super_admin")).json;
   assertEquals(detail.together.map((x: Row) => [x.table, x.action]), [["library_items", "edited"]], "what the same action did beside it");
 
-  const res = await call("POST", `/changes/${del.id}/restore`, "tok_education_team", { note: "Deleted by mistake" });
+  const res = await call("POST", `/changes/${del.id}/restore`, "tok_super_admin", { note: "Deleted by mistake" });
   assertEquals([res.status, res.json.restored, res.json.relinked], [200, 1, 1], JSON.stringify(res.json));
   assert(db.library_folders.some((f) => f.id === folder.id && f.name === "Grade 4 maths"));
   assertEquals(db.library_items.find((i) => i.id === "lib_f1")!.folder_id, folder.id, "its item is back in it");
   const a = db.audit_log.findLast((x) => x.action === "change.restored")!;
-  assertEquals([a.actor_id, a.details.changeId, a.details.note], ["education_team-id", del.id, "Deleted by mistake"]);
+  assertEquals([a.actor_id, a.details.changeId, a.details.note], ["super_admin-id", del.id, "Deleted by mistake"]);
 
   // Putting it back is itself in the history, and it leaves the Deleted list.
   const after = await history("tok_super_admin");
   const back = after.entries.find((x: Row) => x.table === "library_folders" && x.action === "restored");
-  assertEquals([back.actor.name, back.record.name], ["education_team person", "Grade 4 maths"]);
+  assertEquals([back.actor.name, back.record.name], ["super_admin person", "Grade 4 maths"]);
   const was = after.entries.find((x: Row) => x.id === del.id);
-  assertEquals([was.backAgain.by, was.putBack.can, was.putBack.why], ["education_team person", false, "It's back already."]);
+  assertEquals([was.backAgain.by, was.putBack.can, was.putBack.why], ["super_admin person", false, "It's back already."]);
   assert(!(await history("tok_super_admin", "show=deleted")).entries.some((x: Row) => x.id === del.id));
-  assertEquals((await call("POST", `/changes/${del.id}/restore`, "tok_education_team", {})).status, 409, "only once");
+  assertEquals((await call("POST", `/changes/${del.id}/restore`, "tok_super_admin", {})).status, 409, "only once");
 });
 
 Deno.test("a deleted library item keeps its files, so it comes back whole", async () => {
@@ -135,28 +144,31 @@ Deno.test("an edit is undone only while nothing has changed it since", async () 
   const first = last(db, "schools", "update");
   await call("PATCH", "/schools/sch_1", "tok_education_team", { name: "Aitong Pri. School" });
   const second = last(db, "schools", "update");
-  const early = await call("POST", `/changes/${first.id}/undo`, "tok_education_team", {});
+  assertEquals((await call("POST", `/changes/${first.id}/undo`, "tok_education_team", {})).status, 403, "undoing is the Super Admin's");
+  const early = await call("POST", `/changes/${first.id}/undo`, "tok_super_admin", {});
   assertEquals(early.status, 409);
   assert(/changed again since \(Name\)/.test(early.json.error), early.json.error);
-  assertEquals((await call("POST", `/changes/${second.id}/undo`, "tok_education_team", {})).status, 200);
+  assertEquals((await call("POST", `/changes/${second.id}/undo`, "tok_super_admin", {})).status, 200);
   assertEquals(db.schools.find((s) => s.id === "sch_1")!.name, "Aitong Primary School");
-  assertEquals((await call("POST", `/changes/${first.id}/undo`, "tok_education_team", { note: "Old name" })).status, 200);
+  assertEquals((await call("POST", `/changes/${first.id}/undo`, "tok_super_admin", { note: "Old name" })).status, 200);
   assertEquals(db.schools.find((s) => s.id === "sch_1")!.name, "Aitong Primary");
   const undone = (await history("tok_super_admin", "table=schools")).entries[0];
-  assertEquals([undone.action, undone.actor.name, undone.fields[0].after], ["undone", "education_team person", "Aitong Primary"]);
+  assertEquals([undone.action, undone.actor.name, undone.fields[0].after], ["undone", "super_admin person", "Aitong Primary"]);
   assert(db.audit_log.some((x) => x.action === "change.undone" && x.details.note === "Old name"));
   assertEquals((await call("POST", `/changes/${first.id}/restore`, "tok_super_admin", {})).status, 404, "an edit is undone, not restored");
 });
 
-Deno.test("what can't be put back from here says why; a Programme Admin puts back only what they manage", async () => {
+Deno.test("what can't be put back from here says why; someone given the rights puts back only what they manage", async () => {
   const db = freshWorld();
+  grant(db, "education_team-id", "changes.view");
+  grant(db, "education_team-id", "changes.restore");
   // A learner's details: changed on Learners, where enrolment is kept right.
   await call("PATCH", "/learners/learner-id", "tok_teacher", { fullName: "Kid Uno" });
   const kid = last(db, "learners", "update");
   const shown = (await history("tok_super_admin", "table=learners")).entries[0];
   assertEquals([shown.putBack.can, shown.putBack.why], [false, KINDS.learners.why]);
   assertEquals((await call("POST", `/changes/${kid.id}/undo`, "tok_super_admin", {})).status, 409);
-  // A teacher's draft assignment and its questions: the Super Admin can put them back; a Programme Admin can't.
+  // A teacher's draft assignment and its questions: the Super Admin can put them back; a Programme Admin given the rights can't (they don't manage assignments).
   db.assignments.push({ id: "asg_d", school_id: "sch_1", class_id: "cls_1", subject_id: "mathematics", grade: "Grade 4", title: "Draft quiz", status: "draft",
     max_marks: 2, created_by: "teacher-id", created_at: new Date().toISOString() });
   db.assignment_questions.push({ id: "q_d1", assignment_id: "asg_d", position: 1, type: "teacher_marked", prompt: "Why?", options: [], answer_key: null, max_marks: 2 });

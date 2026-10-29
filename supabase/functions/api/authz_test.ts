@@ -48,7 +48,7 @@ const LEARNER_MANAGERS: R[] = ["super_admin", "admin", "education_team", "school
 const CLASS_MANAGERS: R[] = ["super_admin", "admin", "education_team", "school_leader"];
 const USER_ADMIN = SYSTEM;
 const SYNC_PROBLEMS: R[] = SA_ONLY;
-const CHANGE_VIEWERS: R[] = ["super_admin", "admin", "education_team"];  // the change history (history.ts)                                           // devices with work stuck 48 hours, sync failures
+const CHANGE_VIEWERS: R[] = SA_ONLY;  // the change history (history.ts): the Super Admin's                                           // devices with work stuck 48 hours, sync failures
 
 /* Every allowed role must get a real success (2xx), not just get past the
    guard — so a route whose work needs records (an M&E programme, a started
@@ -297,7 +297,7 @@ const ROUTES: RouteSpec[] = [
   r("POST", "/users/:id/reset-link", USER_ADMIN, {}, "/users/teacher2-id/reset-link"),
   r("POST", "/users/:id/temporary-password", USER_ADMIN, {}, "/users/teacher2-id/temporary-password"),
   r("GET", "/audit", SA_ONLY),
-  // The change history: the Super Admin (everything) and the Programme Admin (learning and education).
+  // The change history: the Super Admin's.
   r("GET", "/changes", CHANGE_VIEWERS),
   r("GET", "/changes/:id", CHANGE_VIEWERS, undefined, "/changes/{change}", { setup: renamedSchool }),
   r("POST", "/changes/:id/undo", CHANGE_VIEWERS, {}, "/changes/{change}/undo", { setup: renamedSchool }),

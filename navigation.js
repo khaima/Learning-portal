@@ -104,7 +104,7 @@ const PAGES = {
   "sync-problems": { label: "Device sync", icon: "sync", needs: ["sync.problems.view"], purpose: "Devices with unsent work, and syncs that failed." },
   permissions: { label: "Permissions", icon: "shield", needs: ["permissions.manage"], purpose: "What each role may do, plus individual grants." },
   audit: { label: "Audit log", icon: "log", needs: ["audit.view"], purpose: "Account, password, permission and export actions: who and when." },
-  // Every record added, edited or deleted (history.ts): everything for the Super Admin, learning and education for the Programme Admin.
+  // Every record added, edited or deleted (history.ts): the Super Admin's. Anyone they give changes.view sees it under "Granted to you".
   changes: { label: "Change history", icon: "history", needs: ["changes.view", "changes.view.all"], purpose: "Every record added, edited or deleted: who, when, before and after. Put back what was deleted." },
   "account-activity": { label: "Account activity", icon: "activity", needs: ["audit.view"], purpose: "Who signs in and when, and learners locked out." },
 };
@@ -172,7 +172,6 @@ export const WORKSPACES = {
       entry("content", "Content library", "book", [c("content", { label: "Library" }), c("content-usage"), c("subjects")]),
       entry("forms", "Forms", "form", [c("forms")]),
       entry("analytics", "Dashboards & reports", "chart", [c("learning"), c("teacher-development"), c("digital-resources"), c("reports", { label: "Reports" })]),
-      entry("history", "Change history", "history", [c("changes")]),
     ],
   },
   me: {

@@ -1132,9 +1132,10 @@ One more tab in an area each role already has — no new menu rows:
 
 - **Change history** — every record added, edited or deleted, who did it
   and their role, when, and before → after, with *Put back* and *Undo this
-  edit* ([RBAC.md §15](RBAC.md)). Super Admin: the first tab of *Audit &
-  security* (before Audit log and Account activity). Programme Admin
-  (Education Team): its own row, the seventh, *Change history*.
+  edit* ([RBAC.md §15](RBAC.md)). The Super Admin's: the first tab of
+  *Audit & security* (before Audit log and Account activity). Anyone the
+  Super Admin gives the right finds it under *Granted to you*; the
+  Programme Admin's menu has no row for it.
 - The Audit log keeps the actions that aren't a record changing (approvals,
   password resets, permissions, exports); its *Show* choice now reads
   "All actions".

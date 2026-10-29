@@ -143,7 +143,7 @@ export const PERMISSIONS = [
   "audit.view",               // the full audit log, security events, account activity
   "permissions.manage",       // grant and revoke individual permissions
   // the change history (history.ts): every add, edit and delete, before and after
-  "changes.view",             // learning and education records, in their area
+  "changes.view",             // learning and education records, in their area (given by the Super Admin, as a grant)
   "changes.view.all",         // every change in the portal, by every role
   "changes.restore",          // put back a deleted record, or undo an edit — what they may see and manage
 ] as const;
@@ -173,7 +173,6 @@ const PROGRAMME: Permission[] = [
   "assignments.view.all", "attendance.view.all", "field_reports.view.all",
   "learning.dashboard.view", "stats.view",
   "reports.export", "reports.programme",
-  "changes.view", "changes.restore",
 ];
 
 /* The system, the Super Admin's alone: accounts and roles, data quality,
@@ -182,7 +181,9 @@ const SYSTEM: Permission[] = [
   "data_quality.view", "data_quality.manage",
   "kobo.sync", "kobo.review", "kobo.results.view",
   "sync.monitor", "sync.problems.view", "notifications.view.all",
-  "changes.view.all",
+  // The change history is the Super Admin's (29 October 2026); they can give
+  // changes.view / changes.restore to one person on Permissions.
+  "changes.view.all", "changes.view", "changes.restore",
   ...USER_ADMIN,
 ];
 

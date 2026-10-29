@@ -10,8 +10,8 @@
  * migration's list of tables (history_test.ts checks it).
  *
  *   Super Admin (changes.view.all)  every change, and puts back anything that can be
- *   Programme Admin (changes.view)  learning and education records in their area, and
- *                                   puts back what they manage (schools, the library…)
+ *   given changes.view by the       learning and education records in their area, and
+ *   Super Admin (a grant)           with changes.restore, puts back what they manage
  */
 import type { Permission } from "./permissions.ts";
 
