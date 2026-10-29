@@ -205,11 +205,18 @@
         <div id="permBody"><div data-skeleton="table" data-rows="8" data-cols="6"></div></div>
       </section>
 
+      <section class="dash-page" data-page="changes" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2 data-page-title>Change history</h2><span class="chart-meta" id="chScope" style="margin:0"></span></div>
+          <div id="chBody"><div data-skeleton="list" data-rows="6"></div></div>
+        </div>
+      </section>
+
       <section class="dash-page" data-page="audit" hidden>
         <div class="panel">
           <div class="panel-head"><h2 data-page-title><span id="auditTitle">Audit log</span></h2>
             <span class="dq-head-actions"><label class="hint-inline" for="auditKind">Show</label>
-              <select id="auditKind"><option value="">All changes</option><option value="security">Security events</option></select></span></div>
+              <select id="auditKind"><option value="">All actions</option><option value="security">Security events</option></select></span></div>
           <p class="hint" style="margin-top:0" id="auditHint">This record can't be edited or deleted.</p>
           <div id="auditList"><div data-skeleton="list" data-rows="5"></div></div>
           <button type="button" class="btn btn-outline" id="auditMore" hidden style="margin-top:.6rem">Load older</button>

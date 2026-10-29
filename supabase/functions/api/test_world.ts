@@ -13,7 +13,8 @@
 Deno.env.set("SUPABASE_URL", "http://localhost:54321");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "test-service-key");
 Deno.env.set("HPF_API_TEST", "1");
-export const { app, __setAdminClientForTests, __setMailerForTests, __setPwnedCheckForTests, __setSigningKeysForTests, __setFrameFetchForTests } = await import("./index.ts");
+export const { app, __setAdminClientForTests, __setMailerForTests, __setPwnedCheckForTests, __setSigningKeysForTests, __setFrameFetchForTests, changeContext } = await import("./index.ts");
+import { isSecret, KINDS } from "./history.ts";
 // A link's site, asked whether it may be shown in the portal (embed.ts): it says yes unless a test says otherwise.
 __setFrameFetchForTests(() => Promise.resolve(new Response("", { status: 200 })));
 /** Passwords the stand-in breach list knows. The real list (pwned.ts) is never called in tests. */
@@ -25,6 +26,43 @@ __setPwnedCheckForTests((pw: string) => Promise.resolve(LEAKED_PASSWORDS.has(pw)
 // deno-lint-ignore no-explicit-any
 export type Row = Record<string, any>;
 export type Db = Record<string, Row[]>;
+
+/* The database's change history (capture_change() in the change_history
+   migration, checked on real Postgres by tests/change-history.test.mjs), as
+   the stand-in keeps it: who, from which request, before and after, secrets
+   left out, bookkeeping alone skipped, and the record's school and county. */
+function recordChange(db: Db, table: string, op: "insert" | "update" | "delete", before: Row | null, after: Row | null) {
+  const k = KINDS[table];
+  if (!k || (op === "insert" && k.editsOnly)) return;
+  let changed: string[] = [];
+  if (op === "update") {
+    changed = Object.keys(after!).filter((f) => JSON.stringify(before![f] ?? null) !== JSON.stringify(after![f] ?? null) && !(k.noise ?? []).includes(f)).sort();
+    if (!changed.length) return;
+  }
+  const clean = (r: Row | null) => (r ? Object.fromEntries(Object.entries(r).filter(([f]) => !isSecret(f)).map(([f, v]) => [f, structuredClone(v)])) : null);
+  const r = (after ?? before)!;
+  let sid: string | null = table === "schools" ? r.id : r.school_id ?? null;
+  let cty: string | null = table === "counties" ? r.name : r.county ?? null;
+  if (!sid) {
+    const via = r.class_id ? db.classes?.find((x) => x.id === r.class_id)
+      : r.assignment_id ? db.assignments?.find((x) => x.id === r.assignment_id)
+      : r.register_id ? db.attendance_registers?.find((x) => x.id === r.register_id)
+      : r.visit_id ? db.field_reports?.find((x) => x.id === r.visit_id)
+      : r.training_id ? db.trainings?.find((x) => x.id === r.training_id) : null;
+    sid = via?.school_id ?? null;
+    if (r.training_id && !cty) cty = via?.county ?? null;
+  }
+  if (!cty && sid) cty = db.schools?.find((s) => s.id === sid)?.county ?? null;
+  const ctx = changeContext();
+  const log = (db.change_log ??= []);
+  log.push({
+    id: log.length + 1, at: new Date(Date.now() + log.length).toISOString(), table_name: table, record_id: k.key.map((f) => r[f] ?? "").join(":"),
+    op, changed, old_row: clean(before), new_row: clean(after),
+    actor_id: ctx?.["x-hpf-actor-id"] || null, actor_role: ctx?.["x-hpf-actor-role"] || null,
+    actor_kind: ctx ? ctx["x-hpf-actor-kind"] : "database", request_id: ctx?.["x-hpf-request-id"] ?? null, route: ctx?.["x-hpf-route"] ?? null,
+    school_id: sid, county: cty,
+  });
+}
 
 export function fakeAdmin(db: Db, users: Record<string, { id: string; email: string }>) {
   let seq = 1;
@@ -39,6 +77,7 @@ export function fakeAdmin(db: Db, users: Record<string, { id: string; email: str
     let range: [number, number] | null = null;
     let conflict = "id";
     let ignoreDup = false;
+    let orderBy: [string, boolean] | null = null; // modelled for the change history only
     // Embedded-resource filters ("learners.teacher_id") aren't modelled.
     const f = (k: string, test: (v: unknown) => boolean) => { if (!k.includes(".")) filters.push((r) => test(r[k])); return api; };
     const run = () => {
@@ -54,9 +93,14 @@ export function fakeAdmin(db: Db, users: Record<string, { id: string; email: str
         out = [];
         for (const p of list) {
           const hit = keys.every((k) => p[k] !== undefined) ? rows.find((r) => keys.every((k) => r[k] === p[k])) : undefined;
-          if (hit) { if (!ignoreDup) Object.assign(hit, p); out.push(hit); continue; }
+          if (hit) {
+            if (!ignoreDup) { const was = structuredClone(hit); Object.assign(hit, p); recordChange(db, table, "update", was, hit); }
+            out.push(hit);
+            continue;
+          }
           const row = { id: p.id ?? `${table}_${seq++}`, created_at: new Date().toISOString(), ...p };
           rows.push(row);
+          recordChange(db, table, "insert", null, row);
           out.push(row);
         }
       } else if (op === "insert") {
@@ -67,16 +111,28 @@ export function fakeAdmin(db: Db, users: Record<string, { id: string; email: str
           // The database's own default: a visit starts when it's recorded.
           if (table === "library_interactions" && !row.started_at) row.started_at = row.created_at;
           rows.push(row);
+          recordChange(db, table, "insert", null, row);
           return row;
         });
       } else if (op === "update") {
         out = rows.filter(match);
-        for (const r of out) Object.assign(r, payload);
+        for (const r of out) { const was = structuredClone(r); Object.assign(r, payload); recordChange(db, table, "update", was, r); }
       } else if (op === "delete") {
         out = rows.filter(match);
         db[table] = rows.filter((r) => !match(r));
+        for (const r of out) recordChange(db, table, "delete", r, null);
+        // The database's ON DELETE SET NULL: a deleted folder's items stay, unfiled.
+        if (table === "library_folders") {
+          for (const it of db.library_items ?? []) {
+            if (out.some((f) => f.id === it.folder_id)) { const was = structuredClone(it); it.folder_id = null; recordChange(db, "library_items", "update", was, it); }
+          }
+        }
       } else {
         out = rows.filter(match);
+      }
+      if (orderBy) {
+        const [col, asc] = orderBy;
+        out = [...out].sort((a, b) => (a[col] < b[col] ? -1 : a[col] > b[col] ? 1 : 0) * (asc ? 1 : -1));
       }
       if (range) out = out.slice(range[0], range[1] + 1);
       if (limit != null) out = out.slice(0, limit);
@@ -106,7 +162,9 @@ export function fakeAdmin(db: Db, users: Record<string, { id: string; email: str
       gt: (k: string, v: number) => f(k, (x) => (x as number) > v),
       gte: (k: string, v: unknown) => f(k, (x) => (x as number) >= (v as number)),
       lte: (k: string, v: unknown) => f(k, (x) => (x as number) <= (v as number)),
-      not: () => api, like: () => api, order: () => api, abortSignal: () => api,
+      not: () => api, like: () => api, abortSignal: () => api,
+      // deno-lint-ignore no-explicit-any
+      order(col: string, o?: any) { if (table === "change_log") orderBy = [col, o?.ascending !== false]; return api; },
       limit(n: number) { limit = n; return api; },
       range(a: number, b: number) { range = [a, b]; return api; },
       single() { one = "single"; return api; },
@@ -159,7 +217,8 @@ export function fakeAdmin(db: Db, users: Record<string, { id: string; email: str
         }),
         createSignedUrl: () => Promise.resolve({ data: { signedUrl: "https://signed" }, error: null }),
         createSignedUploadUrl: () => Promise.resolve({ data: { token: "t", signedUrl: "https://up" }, error: null }),
-        remove: () => Promise.resolve({ data: [], error: null }),
+        // Recorded, so a test can see what was removed (history_test.ts: nothing, on a delete).
+        remove: (paths: string[]) => { ((db as unknown as { __storage_removed?: string[] }).__storage_removed ??= []).push(...paths); return Promise.resolve({ data: [], error: null }); },
       }),
     },
   };

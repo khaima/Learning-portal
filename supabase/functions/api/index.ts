@@ -18,6 +18,8 @@ import { cors } from "hono/cors";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { Buffer } from "node:buffer";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { actionOf, fieldLabel, isPersonField, isSecret, KINDS, mayPutBack, ownName, REFS, showValue, tablesFor } from "./history.ts";
 import {
   ACCOUNT_STATUSES, can, canManageAccount, COUNTY_ROLES, effectivePermissions, GRANTABLE_PERMISSIONS, grantableRoles, roleGroup, STAFF_ROLE_GROUPS,
   isPermission, type Permission, PERMISSION_GROUPS, PERMISSION_LABEL, PERMISSIONS, permissionsFor, type Role, ROLE_LABEL, ROLE_PERMISSIONS, SELF_REQUESTABLE_ROLES,
@@ -69,9 +71,42 @@ const SERVICE_KEY =
   Deno.env.get("SUPABASE_SECRET_KEY") ??
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+/* ---- who is making each change (the change history, history.ts) ----
+   Every database call carries the person signed in for this request, so the
+   database's change history (capture_change() in the change_history
+   migration) records who made each add, edit and delete, and which request
+   it came from. Ids and role codes only — never a name or a token. */
+// deno-lint-ignore no-explicit-any
+const requestCtx = new AsyncLocalStorage<{ c: any; id: string }>();
+const headerSafe = (v: unknown) => String(v ?? "").replace(/[^\x20-\x7e]/g, "?").slice(0, 200);
+/** The headers for the request being answered now (null outside one). */
+export function changeContext(): Record<string, string> | null {
+  const s = requestCtx.getStore();
+  if (!s) return null;
+  const c = s.c;
+  const actor = c.get("actor") as { id?: string; role?: string } | undefined;
+  const learner = c.get("actorKind") === "learner";
+  const id = actor?.id ?? (learner ? c.get("learnerId") : c.get("userId")) ?? "";
+  return {
+    "x-hpf-actor-id": headerSafe(id),
+    "x-hpf-actor-role": headerSafe(learner ? "learner" : actor?.role ?? ""),
+    "x-hpf-actor-kind": learner ? "learner" : id ? "staff" : "system",
+    "x-hpf-request-id": s.id,
+    "x-hpf-route": headerSafe(`${c.req.method} ${c.req.path}`),
+  };
+}
+const withActor: typeof fetch = (input, init) => {
+  const extra = changeContext();
+  if (!extra) return fetch(input, init);
+  const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+  for (const [k, v] of Object.entries(extra)) headers.set(k, v);
+  return fetch(input, { ...init, headers });
+};
+
 /** Service-role client — bypasses RLS. Never expose this key to a browser. */
 let admin: SupabaseClient = createClient(SUPABASE_URL, SERVICE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
+  global: { fetch: withActor },
 });
 /** Tests only (authz_test.ts): swap in an in-memory stand-in. */
 export function __setAdminClientForTests(client: unknown) {
@@ -473,6 +508,9 @@ type Vars = {
 };
 
 export const app = new Hono<{ Variables: Vars }>().basePath("/api");
+
+// First: every request gets its own context, read by changeContext() above.
+app.use("*", (c, next) => requestCtx.run({ c, id: crypto.randomUUID() }, () => next()));
 
 app.use(
   "*",
@@ -2817,8 +2855,9 @@ app.delete("/library/:id", requirePermission("library.manage"), async (c) => {
     .select("files")
     .eq("id", id)
     .maybeSingle();
-  const paths = ((item?.files as LibFile[]) ?? []).map((f) => f.path);
-  if (paths.length) await admin.storage.from(LIBRARY_BUCKET).remove(paths);
+  if (!item) return c.json({ error: "Not found" }, 404);
+  // The files stay in storage (private: nothing links to them once the item is gone),
+  // so the item can be put back from the change history with its files.
   const { error } = await admin.from("library_items").delete().eq("id", id);
   if (error) return c.json({ error: error.message }, 400);
   return c.json({ ok: true });
@@ -3179,10 +3218,9 @@ app.delete("/forms/:id", requirePermission("forms.manage"), async (c) => {
   if ((count ?? 0) > 0) {
     return c.json({ error: `This form has ${count} response(s). Archive it instead so they're kept.` }, 409);
   }
+  // Its files stay in storage, so the form can be put back from the change history.
   const { error } = await admin.from("forms").delete().eq("id", id);
   if (error) return c.json({ error: error.message }, 400);
-  const paths = ((form.files as LibFile[]) ?? []).map((f) => f.path);
-  if (paths.length) await admin.storage.from(LIBRARY_BUCKET).remove(paths);
   return c.json({ ok: true });
 });
 
@@ -9345,6 +9383,322 @@ app.get("/audit", requirePermission("audit.view"), async (c) => {
   if (error) return c.json({ error: error.message }, 500);
   const rows = data ?? [];
   return c.json({ entries: await auditEntries(rows), nextBefore: rows.length === limit ? rows[rows.length - 1].id : null });
+});
+
+/* ---- the change history (history.ts; docs/RBAC.md §15) ----
+   Every add, edit and delete, as the database recorded it: who, when, the
+   record before and after. The Super Admin sees all of it; the Programme
+   Admin, learning and education records in their area. A deleted record can
+   be put back and an edit undone, by the Super Admin, or by whoever manages
+   that kind of record; doing so is itself recorded. */
+type ChangeRow = {
+  id: number; at: string; table_name: string; record_id: string | null; op: "insert" | "update" | "delete";
+  changed: string[]; old_row: Record<string, unknown> | null; new_row: Record<string, unknown> | null;
+  actor_id: string | null; actor_role: string | null; actor_kind: string; request_id: string | null; route: string | null;
+  school_id: string | null; county: string | null;
+};
+const CHANGE_BATCH = 200;
+const changeLabel = (r: ChangeRow) => KINDS[r.table_name]?.label ?? r.table_name;
+
+// deno-lint-ignore no-explicit-any
+function changeAccess(c: any) {
+  const actor = c.get("actor") as Actor;
+  const perms = actor.permissions as ReadonlySet<string>;
+  const tables = tablesFor(perms);
+  const all = perms.has("changes.view.all");
+  const scope = scopeOf(c);
+  const sees = (r: ChangeRow) => tables.includes(r.table_name) && (all || inPlaceScope(scope, r.school_id, r.county));
+  return { perms, tables, all, scope, sees };
+}
+
+/** Deletes that have been put back since: delete id → the insert that brought it back. */
+async function backAgain(rows: ChangeRow[]): Promise<Map<number, ChangeRow>> {
+  const out = new Map<number, ChangeRow>();
+  const dels = rows.filter((r) => r.op === "delete" && r.record_id);
+  if (!dels.length) return out;
+  const { data } = await admin.from("change_log").select("*").eq("op", "insert")
+    .in("record_id", [...new Set(dels.map((d) => d.record_id!))]).in("table_name", [...new Set(dels.map((d) => d.table_name))]);
+  for (const d of dels) {
+    const back = ((data ?? []) as ChangeRow[]).filter((i) => i.table_name === d.table_name && i.record_id === d.record_id && i.id > d.id)
+      .sort((a, b) => a.id - b.id)[0];
+    if (back) out.set(d.id, back);
+  }
+  return out;
+}
+
+/** What the ids in these changes stand for: schools, classes, people… */
+async function namesFor(rows: ChangeRow[]): Promise<Record<string, string>> {
+  const names: Record<string, string> = {};
+  const want: Record<string, Set<string>> = {};
+  const people = new Set<string>();
+  const learnerIds = new Set<string>();
+  const add = (table: string, id: unknown) => { if (id != null && id !== "") (want[table] ??= new Set()).add(String(id)); };
+  for (const r of rows) {
+    if (r.actor_id) (r.actor_kind === "learner" ? learnerIds : people).add(r.actor_id);
+    if (r.school_id) add("schools", r.school_id);
+    for (const row of [r.old_row, r.new_row]) {
+      if (!row) continue;
+      for (const [f, v] of Object.entries(row)) {
+        if (v == null || typeof v === "object") continue;
+        if (REFS[f]) add(REFS[f].table, v);
+        else if (isPersonField(f)) people.add(String(v));
+      }
+    }
+  }
+  for (const id of learnerIds) add("learners", id);
+  const reads = Object.entries(want).map(async ([table, ids]) => {
+    const nameCol = Object.values(REFS).find((x) => x.table === table)?.name ?? "name";
+    const { data } = await admin.from(table).select(`id, ${nameCol}`).in("id", [...ids]);
+    for (const row of (data ?? []) as unknown as Record<string, unknown>[]) if (row[nameCol] != null) names[String(row.id)] = String(row[nameCol]);
+  });
+  reads.push((async () => {
+    if (!people.size) return;
+    const { data } = await admin.from("profiles").select("id, full_name, email").in("id", [...people]);
+    for (const p of data ?? []) names[p.id] = p.full_name || p.email;
+  })());
+  await Promise.all(reads);
+  return names;
+}
+
+/** A record's name: its own, or — for a link between two records — theirs. */
+function recordName(r: ChangeRow, names: Record<string, string>): string {
+  const row = r.new_row ?? r.old_row;
+  const own = ownName(r.table_name, row);
+  if (own) return own;
+  const parts = ["teacher_id", "learner_id", "subject_id", "profile_id", "class_id", "training_id", "assignment_id", "form_id", "register_id"]
+    .map((f) => row?.[f]).filter((v) => v != null).map((v) => names[String(v)] ?? String(v));
+  return parts.join(" · ") || r.record_id || "—";
+}
+
+const SKIP_FIELDS = new Set(["id", "created_at", "updated_at", "seq"]);
+/** The fields worth showing: what changed, or (added, deleted) what it was. */
+function fieldsOf(r: ChangeRow, names: Record<string, string>, all = false) {
+  const o = r.old_row ?? {}, n = r.new_row ?? {};
+  const keys = all ? [...new Set([...Object.keys(o), ...Object.keys(n)])]
+    : r.op === "update" ? r.changed.filter((f) => !isSecret(f))
+    : Object.keys(r.op === "insert" ? n : o).filter((f) => !SKIP_FIELDS.has(f) && !/_at$/.test(f) && (r.op === "insert" ? n : o)[f] != null).slice(0, 6);
+  return keys.map((f) => ({
+    field: f, label: fieldLabel(f),
+    before: r.op === "insert" ? null : showValue(f, o[f], names),
+    after: r.op === "delete" ? null : showValue(f, n[f], names),
+    changed: r.op === "update" ? r.changed.includes(f) : true,
+  }));
+}
+
+/** Can this person put it back, and if not, why not. */
+function putBackOf(r: ChangeRow, perms: ReadonlySet<string>, back: ChangeRow | undefined) {
+  const k = KINDS[r.table_name];
+  if (!k || r.op === "insert") return { action: null, can: false };
+  const action = r.op === "delete" ? "restore" : "undo";
+  if ((action === "restore" && !k.restore) || (action === "undo" && !k.undo)) return { action, can: false, why: k.why ?? "This can't be put back from the history." };
+  if (!mayPutBack(perms, k)) return { action, can: false, why: `Putting back a ${k.label.toLowerCase()} is for the Super Admin${k.manage ? ", or whoever manages them" : ""}.` };
+  if (action === "restore" && back) return { action, can: false, why: "It's back already." };
+  if (action === "undo" && !r.changed.some((f) => !isSecret(f))) return { action, can: false, why: "Only hidden details (a PIN or password) changed." };
+  return { action, can: true };
+}
+
+async function describeChanges(rows: ChangeRow[], perms: ReadonlySet<string>) {
+  const [names, back] = await Promise.all([namesFor(rows), backAgain(rows)]);
+  const backers = [...back.values()];
+  if (backers.length) Object.assign(names, await namesFor(backers));
+  return rows.map((r) => {
+    const b = back.get(r.id);
+    const learner = r.actor_kind === "learner";
+    return {
+      id: r.id, at: r.at, op: r.op, action: actionOf(r), table: r.table_name, kind: changeLabel(r),
+      record: { id: r.record_id, name: recordName(r, names) },
+      actor: {
+        id: r.actor_id, kind: r.actor_kind, role: r.actor_role,
+        name: r.actor_id ? names[r.actor_id] ?? null : null,
+        roleLabel: learner ? "Learner" : r.actor_role ? ROLE_LABEL[r.actor_role as Role] ?? r.actor_role : null,
+      },
+      place: { school: r.school_id ? names[r.school_id] ?? null : null, county: r.county },
+      fields: fieldsOf(r, names),
+      hidden: [...new Set(r.changed.filter(isSecret).map(fieldLabel))],
+      putBack: putBackOf(r, perms, b),
+      backAgain: b ? { at: b.at, by: b.actor_id ? names[b.actor_id] ?? null : null } : null,
+    };
+  });
+}
+
+app.get("/changes", requirePermission("changes.view", "changes.view.all"), async (c) => {
+  const { perms, tables, all, scope, sees } = changeAccess(c);
+  const q = (k: string) => String(c.req.query(k) ?? "").trim();
+  const limit = Math.max(1, Math.min(100, Number(q("limit")) || 50));
+  const table = q("table"), op = q("op"), actorId = q("actorId"), role = q("role"), recordId = q("recordId");
+  const day = (s: string) => (/^\d{4}-\d{2}-\d{2}$/.test(s) ? s : "");
+  const from = day(q("from")), to = day(q("to"));
+  const deletedOnly = q("show") === "deleted";
+  let cursor = Number(q("before")) || 0;
+  const found: ChangeRow[] = [];
+  // One action is one row: renaming a school also renames it on its learners' records, and
+  // those come along under the change the person made ("and 33 more changes").
+  const groups = new Map<string, ChangeRow[]>();
+  let more = !(table && !tables.includes(table)) && tables.length > 0;
+  for (let batch = 0; more && found.length < limit && batch < 10; batch++) {
+    let qq = admin.from("change_log").select("*").order("id", { ascending: false }).limit(CHANGE_BATCH);
+    if (cursor) qq = qq.lt("id", cursor);
+    qq = table ? qq.eq("table_name", table) : qq.in("table_name", tables);
+    if (deletedOnly) qq = qq.eq("op", "delete");
+    else if (["insert", "update", "delete"].includes(op)) qq = qq.eq("op", op);
+    if (actorId) qq = qq.eq("actor_id", actorId);
+    if (role) qq = qq.in("actor_role", role === "education_team" ? ["education_team", "admin"] : [role]);
+    if (from) qq = qq.gte("at", from);
+    if (to) qq = qq.lt("at", new Date(Date.parse(`${to}T00:00:00Z`) + 864e5).toISOString().slice(0, 10));
+    if (recordId) qq = qq.eq("record_id", recordId);
+    const { data, error } = await qq;
+    if (error) return c.json({ error: error.message }, 500);
+    const rows = ((data ?? []) as ChangeRow[]).sort((a, b) => b.id - a.id);
+    more = rows.length === CHANGE_BATCH;
+    let candidates = rows.filter(sees);
+    if (deletedOnly) {
+      const back = await backAgain(candidates);
+      candidates = candidates.filter((r) => !back.has(r.id));
+    }
+    for (const r of rows) {
+      const member = !!r.request_id && groups.has(r.request_id) && candidates.includes(r);
+      // Full: take in the rest of an action already shown, then stop.
+      if (found.length >= limit && !member) { more = true; break; }
+      cursor = r.id;
+      if (!candidates.includes(r)) continue;
+      if (member) { groups.get(r.request_id!)!.push(r); continue; }
+      found.push(r);
+      if (r.request_id) groups.set(r.request_id, [r]);
+    }
+  }
+  // Each action under the record the person acted on (its id is in the address they used).
+  const lead = (g: ChangeRow[]) => g.find((x) => x.route && x.record_id && x.route.includes(`/${x.record_id}`)) ?? g.reduce((a, b) => (a.id < b.id ? a : b));
+  const shownRows = found.map((r) => (r.request_id ? lead(groups.get(r.request_id)!) : r)).sort((a, b) => b.id - a.id);
+  const entries = (await describeChanges(shownRows, perms))
+    .map((e, i) => ({ ...e, together: shownRows[i].request_id ? groups.get(shownRows[i].request_id!)!.length - 1 : 0 }));
+  let filters = null;
+  if (!q("before")) {
+    const { data: staff } = await admin.from("profiles").select("id, full_name, email, role, school_id, county").neq("role", "learner");
+    filters = {
+      kinds: tables.map((t) => ({ table: t, label: KINDS[t].plural })).sort((a, b) => a.label.localeCompare(b.label)),
+      people: ((staff ?? []) as Record<string, any>[])
+        .filter((p) => all || ["super_admin", "admin", "education_team", "me"].includes(p.role) || inPlaceScope(scope, p.school_id, p.county))
+        .map((p) => ({ id: p.id, name: p.full_name || p.email })).sort((a, b) => a.name.localeCompare(b.name)),
+    };
+  }
+  return c.json({
+    entries, nextBefore: more ? cursor : null, scope: all ? "Everything in the portal" : scope.global ? "Learning and education, every school" : `Learning and education — ${scope.label}`,
+    canPutBack: perms.has("changes.restore"), filters,
+  });
+});
+
+/** One change in full, and what else was changed by the same action. */
+// deno-lint-ignore no-explicit-any
+async function loadChange(c: any): Promise<ChangeRow | null> {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id) || id <= 0) return null;
+  const { data } = await admin.from("change_log").select("*").eq("id", id).maybeSingle();
+  return data && changeAccess(c).sees(data as ChangeRow) ? data as ChangeRow : null;
+}
+
+app.get("/changes/:id", requirePermission("changes.view", "changes.view.all"), async (c) => {
+  const r = await loadChange(c);
+  if (!r) return c.json({ error: "Change not found" }, 404);
+  const { perms, sees } = changeAccess(c);
+  let together: ChangeRow[] = [];
+  if (r.request_id) {
+    const { data } = await admin.from("change_log").select("*").eq("request_id", r.request_id);
+    together = ((data ?? []) as ChangeRow[]).filter((x) => x.id !== r.id && sees(x)).sort((a, b) => a.id - b.id);
+  }
+  const [entry, ...others] = await describeChanges([r, ...together.slice(0, 50)], perms);
+  const names = await namesFor([r]);
+  return c.json({ entry, fields: fieldsOf(r, names, true), together: others, togetherCount: together.length });
+});
+
+/** The record as it is now, by its key. */
+async function currentRow(table: string, row: Record<string, unknown>) {
+  let q = admin.from(table).select("*");
+  for (const f of KINDS[table].key) q = q.eq(f, row[f]);
+  const { data } = await q.maybeSingle();
+  return data as Record<string, unknown> | null;
+}
+const putBackError = (e: { code?: string; message?: string }) =>
+  e.code === "23503" ? "Something it belongs to has been deleted too — put that back first."
+  : e.code === "23505" ? "Another record now has the same name or code — change that one first."
+  : (console.error("change history: put back refused:", e.code, e.message), "It couldn't be put back automatically — the record no longer fits how the portal keeps it.");
+
+app.post("/changes/:id/restore", requirePermission("changes.restore"), async (c) => {
+  const r = await loadChange(c);
+  if (!r || r.op !== "delete") return c.json({ error: "Deleted record not found" }, 404);
+  const { perms, sees } = changeAccess(c);
+  const back = await backAgain([r]);
+  const pb = putBackOf(r, perms, back.get(r.id));
+  if (!pb.can) return c.json({ error: pb.why }, pb.why === "It's back already." ? 409 : KINDS[r.table_name]?.restore && !mayPutBack(perms, KINDS[r.table_name]) ? 403 : 409);
+  if (await currentRow(r.table_name, r.old_row!)) return c.json({ error: "It's back already." }, 409);
+  const body = await c.req.json().catch(() => ({}));
+  const note = String(body?.note ?? "").trim().slice(0, 500);
+
+  // What the same action deleted with it (an assignment's questions), and what it
+  // left pointing at nothing (a folder's items): put back too, where this person may.
+  let group: ChangeRow[] = [];
+  if (r.request_id) {
+    const { data } = await admin.from("change_log").select("*").eq("request_id", r.request_id);
+    group = ((data ?? []) as ChangeRow[]).filter((x) => x.id !== r.id && sees(x) && KINDS[x.table_name] && mayPutBack(perms, KINDS[x.table_name]));
+  }
+  const toInsert = [r, ...group.filter((x) => x.op === "delete" && KINDS[x.table_name].restore)];
+  const relink = group.filter((x) => x.op === "update" && x.changed.length > 0 &&
+    x.changed.every((f) => x.old_row?.[f] != null && x.new_row?.[f] == null));
+
+  const done = new Set<number>();
+  let lastError: { code?: string; message?: string } | null = null;
+  for (let pass = 0; pass < toInsert.length; pass++) {
+    let progress = false;
+    for (const x of toInsert) {
+      if (done.has(x.id)) continue;
+      if (x !== r && await currentRow(x.table_name, x.old_row!)) { done.add(x.id); continue; }
+      const { error } = await admin.from(x.table_name).insert(x.old_row!);
+      if (error) { lastError = error; continue; }
+      done.add(x.id);
+      progress = true;
+    }
+    if (!progress) break;
+  }
+  if (!done.has(r.id)) return c.json({ error: putBackError(lastError ?? {}) }, 409);
+  let relinked = 0;
+  for (const x of relink) {
+    const now = await currentRow(x.table_name, x.new_row!);
+    if (!now || !x.changed.every((f) => now[f] == null)) continue;
+    let q = admin.from(x.table_name).update(Object.fromEntries(x.changed.map((f) => [f, x.old_row![f]])));
+    for (const f of KINDS[x.table_name].key) q = q.eq(f, x.new_row![f]);
+    if (!(await q).error) relinked++;
+  }
+  const restored = done.size;
+  await audit(c, "change.restored", r.table_name, r.record_id, {
+    changeId: r.id, kind: changeLabel(r), name: ownName(r.table_name, r.old_row), note, restored, relinked,
+    skipped: toInsert.length - restored,
+  });
+  return c.json({ ok: true, restored, relinked, skipped: toInsert.length - restored });
+});
+
+app.post("/changes/:id/undo", requirePermission("changes.restore"), async (c) => {
+  const r = await loadChange(c);
+  if (!r || r.op !== "update") return c.json({ error: "Edit not found" }, 404);
+  const { perms } = changeAccess(c);
+  const k = KINDS[r.table_name];
+  const pb = putBackOf(r, perms, undefined);
+  if (!pb.can) return c.json({ error: pb.why }, k?.undo && !mayPutBack(perms, k) ? 403 : 409);
+  const body = await c.req.json().catch(() => ({}));
+  const note = String(body?.note ?? "").trim().slice(0, 500);
+  const fields = r.changed.filter((f) => !isSecret(f) && !k.key.includes(f));
+  const now = await currentRow(r.table_name, r.new_row!);
+  if (!now) return c.json({ error: "It has been deleted since — put it back first." }, 409);
+  const moved = fields.filter((f) => JSON.stringify(now[f] ?? null) !== JSON.stringify(r.new_row![f] ?? null));
+  if (moved.length) {
+    return c.json({ error: `It has been changed again since (${moved.map(fieldLabel).join(", ")}). Undo the later change first.` }, 409);
+  }
+  let q = admin.from(r.table_name).update(Object.fromEntries(fields.map((f) => [f, r.old_row![f] ?? null])));
+  for (const f of k.key) q = q.eq(f, r.new_row![f]);
+  const { error } = await q;
+  if (error) return c.json({ error: putBackError(error) }, 409);
+  await audit(c, "change.undone", r.table_name, r.record_id, {
+    changeId: r.id, kind: changeLabel(r), name: ownName(r.table_name, r.new_row), note, fields: fields.map(fieldLabel),
+  });
+  return c.json({ ok: true, fields: fields.map(fieldLabel) });
 });
 
 /** Audit rows with the names of the people involved. */

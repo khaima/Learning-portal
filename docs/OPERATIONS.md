@@ -198,6 +198,26 @@ outside Supabase.
 
 ---
 
+## 4b. Change history
+
+Every add, edit and delete is in `public.change_log` (docs/RBAC.md §15),
+written by a trigger, so it grows with use — roughly one row per change,
+a few hundred bytes to a few KB each. Nothing is purged yet; if the
+database nears its size limit, rows older than a set age can be moved out
+by a migration (the table refuses deletes from anyone else).
+
+- **Is it saying who?** A change made through the portal has
+  `actor_kind` staff, learner or system; `database` means made directly in
+  the database (the SQL editor, a migration). If portal changes start
+  showing as `database`, the API isn't sending the actor headers:
+
+  ```sql
+  select actor_kind, count(*) from change_log where at > now() - interval '7 days' group by 1;
+  ```
+- **Files of deleted library items and forms stay in storage** (private,
+  linked from nothing) so they can be put back. Removing them for good is
+  a by-hand job in Storage for now.
+
 ## 5. Staging and releases
 
 ```

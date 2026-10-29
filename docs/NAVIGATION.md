@@ -1127,3 +1127,14 @@ One more tab in an area each role already has — no new menu rows:
 - The Super Admin's *Switch workspace* lists Programme Administration and
   M&E.
 - Role permissions and the reasons: [RBAC.md §14](RBAC.md).
+
+## 29. Change history, 29 October 2026
+
+- **Change history** — every record added, edited or deleted, who did it
+  and their role, when, and before → after, with *Put back* and *Undo this
+  edit* ([RBAC.md §15](RBAC.md)). Super Admin: the first tab of *Audit &
+  security* (before Audit log and Account activity). Programme Admin
+  (Education Team): its own row, the seventh, *Change history*.
+- The Audit log keeps the actions that aren't a record changing (approvals,
+  password resets, permissions, exports); its *Show* choice now reads
+  "All actions".

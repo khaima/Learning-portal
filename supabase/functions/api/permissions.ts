@@ -142,6 +142,10 @@ export const PERMISSIONS = [
   // governance
   "audit.view",               // the full audit log, security events, account activity
   "permissions.manage",       // grant and revoke individual permissions
+  // the change history (history.ts): every add, edit and delete, before and after
+  "changes.view",             // learning and education records, in their area
+  "changes.view.all",         // every change in the portal, by every role
+  "changes.restore",          // put back a deleted record, or undo an edit — what they may see and manage
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -169,6 +173,7 @@ const PROGRAMME: Permission[] = [
   "assignments.view.all", "attendance.view.all", "field_reports.view.all",
   "learning.dashboard.view", "stats.view",
   "reports.export", "reports.programme",
+  "changes.view", "changes.restore",
 ];
 
 /* The system, the Super Admin's alone: accounts and roles, data quality,
@@ -177,6 +182,7 @@ const SYSTEM: Permission[] = [
   "data_quality.view", "data_quality.manage",
   "kobo.sync", "kobo.review", "kobo.results.view",
   "sync.monitor", "sync.problems.view", "notifications.view.all",
+  "changes.view.all",
   ...USER_ADMIN,
 ];
 
@@ -393,6 +399,9 @@ export const PERMISSION_GROUPS: { group: string; items: [Permission, string][] }
     ["reports.programme", "Export programme reports (term, county)"],
     ["audit.view", "Audit log, security events and account activity"],
     ["permissions.manage", "Grant and revoke individual permissions"],
+    ["changes.view", "Change history of learning and education records, in their area"],
+    ["changes.view.all", "Change history of everything: who changed what, before and after"],
+    ["changes.restore", "Put back deleted records and undo edits (what they may see and manage)"],
   ] },
 ];
 export const PERMISSION_LABEL: Record<string, string> = Object.fromEntries(PERMISSION_GROUPS.flatMap((g) => g.items));

@@ -3183,6 +3183,8 @@ async function main() {
     "me.report_generated": "generated an M&E report",
     "me.report_refreshed": "refreshed an M&E report",
     "me.report_finalized": "finalised an M&E report",
+    "change.restored": "put back a deleted record",
+    "change.undone": "undid an edit",
   };
   const roleName = (r) => ROLE_LABEL[r] || r || "—";
   function auditDetail(e) {
@@ -3205,6 +3207,8 @@ async function main() {
       case "password.temporary_set": return "must be replaced at their next sign-in";
       case "password.changed": return d.afterTemporary ? "replacing a temporary password" : "";
       case "report.exported": return `${e.targetId || ""} · ${d.format || ""} · ${d.rows ?? 0} rows`;
+      case "change.restored": case "change.undone":
+        return [`${d.kind || ""}${d.name ? ` · ${d.name}` : ""}`, d.fields?.length ? d.fields.join(", ") : "", d.note ? `“${d.note}”` : ""].filter(Boolean).join(" — ");
       default:
         if (e.action.startsWith("learner.") && d.fullName) return `${d.fullName}${d.username ? ` (@${d.username})` : ""}`;
         return d.reason ? `Reason: ${d.reason}` : "";
@@ -3568,6 +3572,10 @@ async function main() {
       case "admin-overview": A.renderAdminOverview($("#aoBody"), adminOverviewOpts()); break;
       case "me-data": renderMeData(); break;
       case "admin-detail": A.renderAdminDetail($("#adBody"), adminOverviewOpts()); break;
+      case "changes":
+        import("./changes-ui.js").then((m) => m.renderChanges($("#chBody"), { scopeEl: $("#chScope") }))
+          .catch(() => { $("#chBody").innerHTML = errorState("Couldn't open this page — check your connection.", () => onPage("changes", params)); });
+        break;
       case "field-officers":
         import("./officers-ui.js").then((m) => m.renderFieldOfficers($("#foBody")))
           .catch(() => { $("#foBody").innerHTML = errorState("Couldn't open this page — check your connection.", () => onPage("field-officers", params)); });

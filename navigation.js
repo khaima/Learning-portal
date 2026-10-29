@@ -48,6 +48,7 @@ export const ICON = {
   bell: P('<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>'),
   download: P('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/>'),
   shield: P('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/>'),
+  history: P('<path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>'),
   log: P('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h5"/>'),
   alert: P('<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/>'),
   activity: P('<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>'),
@@ -102,7 +103,9 @@ const PAGES = {
   notifications: { label: "Notifications log", icon: "bell", needs: ["notifications.view.all"], filters: ["term"], heading: "Notifications sent", purpose: "Every notification sent, and whether it was read." },
   "sync-problems": { label: "Device sync", icon: "sync", needs: ["sync.problems.view"], purpose: "Devices with unsent work, and syncs that failed." },
   permissions: { label: "Permissions", icon: "shield", needs: ["permissions.manage"], purpose: "What each role may do, plus individual grants." },
-  audit: { label: "Audit log", icon: "log", needs: ["audit.view"], purpose: "Every recorded change: who made it and when." },
+  audit: { label: "Audit log", icon: "log", needs: ["audit.view"], purpose: "Account, password, permission and export actions: who and when." },
+  // Every record added, edited or deleted (history.ts): everything for the Super Admin, learning and education for the Programme Admin.
+  changes: { label: "Change history", icon: "history", needs: ["changes.view", "changes.view.all"], purpose: "Every record added, edited or deleted: who, when, before and after. Put back what was deleted." },
   "account-activity": { label: "Account activity", icon: "activity", needs: ["audit.view"], purpose: "Who signs in and when, and learners locked out." },
 };
 /** A console page as a menu item, optionally relabelled or as a filtered view. */
@@ -148,7 +151,7 @@ export const WORKSPACES = {
         c("overview"), c("survey-results"), c("mel-reports"), c("reports", { label: "Exports" }), ...AREA_DASHBOARDS(),
       ]),
       entry("security", "Audit & security", "shield", [
-        c("audit"), c("account-activity"), // security events: the audit log's own "Show" choice
+        c("changes"), c("audit"), c("account-activity"), // security events: the audit log's own "Show" choice
       ]),
     ],
   },
@@ -169,6 +172,7 @@ export const WORKSPACES = {
       entry("content", "Content library", "book", [c("content", { label: "Library" }), c("content-usage"), c("subjects")]),
       entry("forms", "Forms", "form", [c("forms")]),
       entry("analytics", "Dashboards & reports", "chart", [c("learning"), c("teacher-development"), c("digital-resources"), c("reports", { label: "Reports" })]),
+      entry("history", "Change history", "history", [c("changes")]),
     ],
   },
   me: {

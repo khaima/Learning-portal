@@ -47,7 +47,8 @@ const LEARNER_VIEWERS: R[] = [...ANALYSTS, "school_leader", "teacher"];
 const LEARNER_MANAGERS: R[] = ["super_admin", "admin", "education_team", "school_leader", "teacher"];
 const CLASS_MANAGERS: R[] = ["super_admin", "admin", "education_team", "school_leader"];
 const USER_ADMIN = SYSTEM;
-const SYNC_PROBLEMS: R[] = SA_ONLY;                                           // devices with work stuck 48 hours, sync failures
+const SYNC_PROBLEMS: R[] = SA_ONLY;
+const CHANGE_VIEWERS: R[] = ["super_admin", "admin", "education_team"];  // the change history (history.ts)                                           // devices with work stuck 48 hours, sync failures
 
 /* Every allowed role must get a real success (2xx), not just get past the
    guard — so a route whose work needs records (an M&E programme, a started
@@ -79,6 +80,11 @@ async function made(method: string, path: string, body: unknown, token = SA): Pr
   return res.json;
 }
 /* Setups shared by several routes. */
+/** A school renamed by the Super Admin: its edit in the change history. */
+async function renamedSchool(db: Db) {
+  await made("PATCH", "/schools/sch_1", { name: "Aitong Primary School" });
+  return { change: db.change_log.findLast((x) => x.op === "update" && x.table_name === "schools")!.id };
+}
 async function koboConnected(db: Db) {
   connectKobo(db);
   afterCall.push(stubKobo(() => [kRow(1)]));
@@ -291,6 +297,17 @@ const ROUTES: RouteSpec[] = [
   r("POST", "/users/:id/reset-link", USER_ADMIN, {}, "/users/teacher2-id/reset-link"),
   r("POST", "/users/:id/temporary-password", USER_ADMIN, {}, "/users/teacher2-id/temporary-password"),
   r("GET", "/audit", SA_ONLY),
+  // The change history: the Super Admin (everything) and the Programme Admin (learning and education).
+  r("GET", "/changes", CHANGE_VIEWERS),
+  r("GET", "/changes/:id", CHANGE_VIEWERS, undefined, "/changes/{change}", { setup: renamedSchool }),
+  r("POST", "/changes/:id/undo", CHANGE_VIEWERS, {}, "/changes/{change}/undo", { setup: renamedSchool }),
+  r("POST", "/changes/:id/restore", CHANGE_VIEWERS, {}, "/changes/{change}/restore", {
+    setup: async (db) => {
+      const { folder } = await made("POST", "/library/folders", { name: "Old worksheets" });
+      await made("DELETE", `/library/folders/${folder.id}`, undefined);
+      return { change: db.change_log.findLast((x) => x.op === "delete" && x.record_id === folder.id)!.id };
+    },
+  }),
   r("GET", "/kobo/config", KOBO_REVIEW),
   r("PUT", "/kobo/config", SA_ONLY, { apiToken: "test-token", baseUrl: "https://kobo.test" }, undefined, { setup: () => { afterCall.push(stubKobo(() => [])); } }),
   r("GET", "/kobo/assets", SA_ONLY, undefined, undefined, { setup: koboConnected }),
