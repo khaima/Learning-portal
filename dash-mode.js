@@ -26,9 +26,12 @@ function paint() {
   btn.setAttribute("aria-label", `Dashboards in ${current} mode. Switch to ${next} mode`);
 }
 
-/** Paints the mode now (before the first dashboard draws) and wires the button. */
+let wired = false;
+/** Paints the mode now (before the first dashboard draws) and wires the button, once. */
 export function wireDashMode() {
   paint();
+  if (wired) return;
+  wired = true;
   document.getElementById("dashMode")?.addEventListener("click", () => {
     current = current === "dark" ? "light" : "dark";
     try { localStorage.setItem(KEY, current); } catch { /* not kept: this visit only */ }

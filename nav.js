@@ -14,6 +14,7 @@
    here is page-specific.
    ============================================================ */
 
+import { showDashMode, wireDashMode } from "./dash-mode.js";
 import "./pwa.js";
 import { $, $$, toast, confirmDialog } from "./util.js";
 import { startLibraryInteraction, completeLibraryInteraction, awardLibraryBadge, formatBytes } from "./store.js";
@@ -297,6 +298,7 @@ function mountAccountMenu() {
 }
 
 export function mountNavigation(user, { workspace, onPage } = {}) {
+  wireDashMode(); // Dark/Light for the dashboards, before the first one draws (dash-mode.js)
   const wsId = workspace || ROLE_WORKSPACE[user.role];
   const ws = WORKSPACES[wsId];
   const nav = $(".side-nav");
@@ -445,6 +447,7 @@ export function mountNavigation(user, { workspace, onPage } = {}) {
       ({ raw, page, params } = { raw: landing, page: landing, params: new URLSearchParams() });
     }
     pages.forEach((p) => { p.hidden = p.dataset.page !== page; });
+    showDashMode(pages.find((p) => p.dataset.page === page)); // the Dark/Light button, on dashboards only
     const [g, item] = page === "profile" ? [null, null] : locate(page, raw);
     // The area you're in is lit in the menu; its pages are the tabs above the page.
     for (const li of entries) {

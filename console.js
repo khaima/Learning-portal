@@ -4,7 +4,6 @@
    pages each person sees comes from their menu (navigation.js); what they
    can do, from their permissions — checked again by the API every time. */
 import { mountNavigation } from "./nav.js";
-import { showDashMode, wireDashMode } from "./dash-mode.js";
 // Staff dashboards always need Supabase Auth: fetched with the page, not after it.
 import "./supabase-auth.js";
 import { menuFor, WORKSPACES } from "./navigation.js";
@@ -3410,7 +3409,6 @@ async function main() {
 
   async function onPage(page, params) {
     pageNow = page;
-    showDashMode(document.querySelector(`.dash-page[data-page="${page}"]`)); // Dark/Light, on dashboards
     // A link can carry the filters (?county=…&school=…&term=2026 Term 3&month=2026-10) — except
     // where ?school= is a school's id (its profile, classes, work, results, learners): there it
     // stays in the address for the page, and the school filter (a name) is left as it was.
@@ -3581,8 +3579,7 @@ async function main() {
   if (canOpen("kobo", "survey-results")) renderKobo();
   if (canOpen("users")) renderUsers();
   enableSortableTables($(".app-main"));
-  wireDashMode(); // before the first dashboard draws
-  mountNavigation(user, { workspace: wsId, onPage });
+  mountNavigation(user, { workspace: wsId, onPage }); // also wires the dashboards' Dark/Light button
 }
 main();
 

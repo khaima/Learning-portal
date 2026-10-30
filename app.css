@@ -2822,6 +2822,38 @@ section.dash-screen{ padding:var(--pad-panel); border:1px solid var(--screen-lin
 .dash-screen .hub-table tbody tr:hover th,.dash-screen .hub-table tbody tr:hover td{ background:color-mix(in srgb, var(--hub-1) 7%, transparent); }
 .dash-screen .hub-table a{ color:var(--link); }
 
+/* The role home pages' looks: a teacher's classroom, a head's school, a field
+   officer's day, a learner's own page. */
+.dash-screen[data-look="classroom"]{ --sig-a:var(--hub-1); --sig-b:var(--hub-5);
+  --t1:var(--hub-1); --t2:var(--hub-5); --t3:var(--hub-3); --t4:var(--hub-2); --t5:var(--hub-7); --t6:var(--hub-6); }
+.dash-screen[data-look="school"]{ --sig-a:var(--hub-6); --sig-b:var(--hub-4);
+  --t1:var(--hub-6); --t2:var(--hub-1); --t3:var(--hub-2); --t4:var(--hub-3); --t5:var(--hub-7); --t6:var(--hub-5); }
+.dash-screen[data-look="fieldwork"]{ --sig-a:var(--hub-2); --sig-b:var(--hub-3);
+  --t1:var(--hub-2); --t2:var(--hub-3); --t3:var(--hub-1); --t4:var(--hub-7); --t5:var(--hub-6); --t6:var(--hub-5); }
+.dash-screen[data-look="learner"]{ --sig-a:var(--hub-7); --sig-b:var(--hub-3);
+  --t1:var(--hub-7); --t2:var(--hub-3); --t3:var(--hub-2); --t4:var(--hub-1); --t5:var(--hub-5); --t6:var(--hub-6); }
+
+/* A dashboard made of panels (the role home pages, the Executive overview): each panel a card
+   in its own colour — a bar across the top, a tinted wash, a dot beside its heading. */
+section.dash-screen > .panel:nth-child(6n+1){ --tone:var(--t1); }
+section.dash-screen > .panel:nth-child(6n+2){ --tone:var(--t2); }
+section.dash-screen > .panel:nth-child(6n+3){ --tone:var(--t3); }
+section.dash-screen > .panel:nth-child(6n+4){ --tone:var(--t4); }
+section.dash-screen > .panel:nth-child(6n+5){ --tone:var(--t5); }
+section.dash-screen > .panel:nth-child(6n+6){ --tone:var(--t6); }
+section.dash-screen > .panel{ --chart-1:var(--tone, var(--t1)); position:relative; overflow:hidden;
+  border-color:color-mix(in srgb, var(--tone, var(--t1)) 30%, var(--card-line));
+  background:linear-gradient(180deg, color-mix(in srgb, var(--tone, var(--t1)) 9%, var(--card-top)) 0%, var(--paper-raised) 45%);
+  box-shadow:0 14px 32px -24px rgba(0,0,0,.6); }
+section.dash-screen > .panel::before{ content:""; position:absolute; inset:0 0 auto; height:3px; background:var(--tone, var(--t1)); }
+section.dash-screen > .panel > .panel-head h2{ display:flex; align-items:center; gap:.5rem; font-size:var(--text-sm); letter-spacing:.06em; }
+section.dash-screen > .panel > .panel-head h2::before{ content:""; flex:none; width:.5rem; height:.5rem; border-radius:2px;
+  background:var(--tone, var(--t1)); box-shadow:0 0 10px var(--tone, var(--t1)); }
+section.dash-screen > .panel > .panel-head a{ color:var(--link); }
+
+/* A link drawn as a button reads as a button: no underline. */
+a.btn{ text-decoration:none; }
+
 /* The Dark/Light button in the top bar (dash-mode.js): shown on dashboards only. */
 .dash-mode{ display:inline-flex; align-items:center; gap:.4rem; min-height:40px; padding:.35rem .8rem; border:1px solid var(--line); border-radius:999px;
   background:var(--paper-raised); color:var(--ink); font:inherit; font-size:var(--text-sm); font-weight:600; cursor:pointer; }

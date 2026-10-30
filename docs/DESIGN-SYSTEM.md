@@ -117,7 +117,9 @@ Every dashboard is drawn in the programme's reference-dashboard colours, at
 the programme's request: **Dark (navy) by default**, with a **Dark / Light
 button** in the top bar (`dash-mode.js`) that switches every dashboard and is
 kept on the device. Only the dashboards change; forms, lists and every other
-page keep the portal's own theme. The button shows only on a dashboard.
+page keep the portal's own theme. The button shows only on a dashboard,
+on every role's pages (nav.js wires it, so the teacher, head, field officer
+and learner home pages have it too).
 
 A dashboard's screen is `.dash-screen` (its section, or its one panel) with
 `data-look`; it sets its own tokens (app.css), so every card, chart, ring,
@@ -154,6 +156,10 @@ accents in:
 | `teachers` | Teacher development | orange → yellow |
 | `field` | Field operations | magenta → orange |
 | `resources` | Digital resources, Content usage | violet → blue |
+| `classroom` | Teacher's home | blue → magenta |
+| `school` | School head's dashboard | green → yellow |
+| `fieldwork` | Field officer's dashboard | orange → aqua |
+| `learner` | Learner's home | violet → aqua |
 
 - **Key figures**: each its own accent, in the look's order — a bar across
   the top, a tinted wash, the icon, its picture; a warning figure is orange.
