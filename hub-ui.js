@@ -22,10 +22,16 @@
    Nothing is made up: a figure with no data says so, a trend is drawn only
    where the same measure exists for each period, and the average mark is
    never compared term with term (different work each term).
+
+   Its colours (30 October 2026, after the programme's reference dashboard):
+   always navy, each key figure and card with its own accent from eight
+   series colours checked for colour-blind readers on the navy (app.css,
+   .hub-screen). One scale per chart: measures of a different kind are two
+   charts, one above the other.
    ============================================================ */
 
 import { esc } from "./util.js";
-import { barList, bulletList, comboChart, donut, monthPoints, periodChip, proportion, scatter } from "./charts.js";
+import { barList, bulletList, columnChart, comboChart, donut, lineChart, monthPoints, periodChip, proportion, scatter } from "./charts.js";
 import { kpiCard, termName, trendTag } from "./kpi.js";
 import { RESULT_ICON, resultPicture } from "./admin-ui.js";
 import { insightsPanel } from "./insights-ui.js";
@@ -40,18 +46,23 @@ const SHORT = {
   schools_supported: "Schools supported", assessment: "Average mark", teacher_resources: "Using resources",
 };
 
-/** Parts of one whole: a ring when there are at most three with something in them (the
-    portal's three category colours, each part told apart), else bars with each share. */
+/** The hub's eight series colours, in their checked order (app.css .hub-screen). */
+const HUB = Array.from({ length: 8 }, (_, i) => `var(--hub-${i + 1})`);
+/** Each key figure's accent. */
+const TONE = { learners: 1, participation: 6, teachers_trained: 2, teachers_digital: 7, schools_supported: 3, assessment: 4, teacher_resources: 5 };
+
+/** Parts of one whole: a ring in the hub's colours, in order (neighbours checked apart for
+    colour-blind readers), for up to five parts with something in them; more are bars with shares. */
 function ringOrBars(parts, { noun, title, centre = "" }) {
   const some = parts.filter((p) => p.value > 0);
-  return some.length <= 3 ? donut(some, { noun, title, centre }) : proportion(parts, { noun, sort: true, zeros: "None yet" });
+  return some.length <= 5 ? donut(some, { noun, title, centre, colours: HUB }) : proportion(parts, { noun, sort: true, zeros: "None yet" });
 }
 
 /** One card: its title, a line on what it shows, its period, and the full dashboard it comes from. */
-function card(title, meta, body, { span = 4, period = "", page = "", label = "", opts }) {
+function card(title, meta, body, { span = 4, period = "", page = "", label = "", tone = 1, opts }) {
   const open = page && opts.canOpen?.(page)
     ? `<a class="hub-open" href="#${page}?via=${opts.via}">${esc(label || "Open")} <i aria-hidden="true">→</i></a>` : "";
-  return `<section class="chart-card hub-card s${span}">
+  return `<section class="chart-card hub-card s${span}" style="--tone:var(--hub-${tone});--chart-1:var(--hub-${tone})">
     <div class="chart-card-head hub-head"><div class="hub-head-top"><b>${esc(title)}</b>${open}</div>${meta ? `<span>${meta}</span>` : ""}${periodChip(period)}</div>
     ${body}
   </section>`;
@@ -70,7 +81,7 @@ function kpiTile(k, r, opts) {
   ].filter(Boolean).join("<br>");
   // One compact picture each, the same height: the roll term by term, the marks' bands, or a share as a slim bar.
   const viz = k.key === "learners" || k.key === "assessment" ? resultPicture(k, r) : shareBar(k);
-  return kpiCard({ label: k.label, value, icon: RESULT_ICON[k.key] || "", trend, sub, viz });
+  return `<div class="hub-kpi" style="--tone:var(--hub-${TONE[k.key] || 1})">${kpiCard({ label: k.label, value, icon: RESULT_ICON[k.key] || "", trend, sub, viz })}</div>`;
 }
 
 /** A share as a slim bar on 0–100, the approved target marked on it (the figure itself is printed above). */
@@ -82,8 +93,9 @@ function shareBar(k) {
 }
 
 /* ---- the highlights: one figure each, like a small card ---- */
+let hlSeq = 0;
 function highlight(icon, label, value, detail = "") {
-  return `<li class="hub-hl"><span class="hub-hl-ico" aria-hidden="true">${icon}</span><span><span class="hub-hl-label">${esc(label)}</span>
+  return `<li class="hub-hl" style="--tone:${HUB[hlSeq++ % HUB.length]}"><span class="hub-hl-ico" aria-hidden="true">${icon}</span><span><span class="hub-hl-label">${esc(label)}</span>
     <b>${esc(value)}</b>${detail ? `<span class="hub-hl-detail">${esc(detail)}</span>` : ""}</span></li>`;
 }
 const ICONS = {
@@ -110,6 +122,7 @@ function countiesByWork(schools) {
 }
 
 function highlightsHtml(imp, r) {
+  hlSeq = 0;
   const items = [];
   const t = r?.targets;
   items.push(t && t.indicators
@@ -135,15 +148,15 @@ function highlightsHtml(imp, r) {
 function schoolsTable(rows, opts) {
   const list = (rows || []).filter((s) => s.learners).sort((a, b) => (b.averagePercent ?? -1) - (a.averagePercent ?? -1) || b.learners - a.learners);
   if (!list.length) return `<div class="chart-empty">No schools with learners yet.</div>`;
-  const bar = (v) => (v == null ? `<span class="hub-nil">No data</span>`
-    : `<span class="hub-bar"><i style="width:${Math.max(2, Math.min(100, v)).toFixed(0)}%"></i></span><span class="hub-pct">${Math.round(v)}%</span>`);
+  const bar = (v, kind) => (v == null ? `<span class="hub-nil">No data</span>`
+    : `<span class="hub-bar ${kind}"><i style="width:${Math.max(2, Math.min(100, v)).toFixed(0)}%"></i></span><span class="hub-pct">${Math.round(v)}%</span>`);
   const name = (s) => (s.id && opts.canOpen?.("school-profiles")
     ? `<a href="#school-profiles?school=${encodeURIComponent(s.id)}&amp;via=${opts.via}">${esc(s.school)}</a>` : esc(s.school));
   const top = list.slice(0, 10);
   return `<div class="hub-table-wrap"><table class="hub-table">
     <thead><tr><th scope="col">School</th><th scope="col" class="num">Learners</th><th scope="col">Work handed in</th><th scope="col">Average mark</th><th scope="col" class="num">Visits</th></tr></thead>
     <tbody>${top.map((s) => `<tr><th scope="row">${name(s)}<small>${esc(s.county || "")}</small></th><td class="num">${num(s.learners)}</td>
-      <td><span class="hub-cell">${bar(s.completionRate)}</span></td><td><span class="hub-cell">${bar(s.averagePercent)}</span></td><td class="num">${num(s.visits)}</td></tr>`).join("")}</tbody>
+      <td><span class="hub-cell">${bar(s.completionRate, "is-in")}</span></td><td><span class="hub-cell">${bar(s.averagePercent, "is-mark")}</span></td><td class="num">${num(s.visits)}</td></tr>`).join("")}</tbody>
   </table></div>${list.length > top.length ? `<p class="chart-note">The 10 with the highest average mark, of ${num(list.length)} schools with learners.</p>` : ""}`;
 }
 
@@ -163,15 +176,16 @@ export function hubHtml(d, opts) {
     : `<div class="alert alert-warn"><div><b>The term's results couldn't be worked out.</b>${esc(d.results?.error || "There's no current term in the calendar yet.")}</div></div>`;
 
   // Row 1: field work month by month · results this term and last · learners by county.
-  const months = monthPoints(F.visitsByMonth || []);
-  const kobo = new Map((F.kobo?.byMonth || []).map((m) => [m.label, m.value]));
-  const fieldWork = comboChart(months.map((p, i) => ({ ...p, values: { visits: (F.visitsByMonth || [])[i]?.value ?? 0 }, line: kobo.get((F.visitsByMonth || [])[i]?.label) ?? 0 })),
-    { bars: [{ key: "visits", label: "Field visits" }], line: { label: "Kobo submissions" }, title: "Field work, month by month", empty: "No field visits or Kobo submissions in the last 12 months." });
+  // Visits and Kobo submissions are counted differently: two charts on the same months, each its own scale.
+  const fieldWork = `<div class="hub-multi"><p class="hub-multi-label"><i class="key-sw" aria-hidden="true"></i>Field visits</p>${
+    columnChart(monthPoints(F.visitsByMonth || []), { noun: "visits", title: "Field visits, month by month", time: true, height: 118, empty: "No field visits in the last 12 months." })}
+    <div class="hub-multi-2" style="--chart-1:var(--hub-3)"><p class="hub-multi-label"><i class="key-sw" aria-hidden="true"></i>Kobo submissions</p>${
+    lineChart(monthPoints(F.kobo?.byMonth || []), { noun: "submissions", title: "Kobo submissions, month by month", height: 84, empty: "No Kobo submissions in the last 12 months." })}</div></div>`;
   const moving = (r?.kpis || []).filter((k) => MOVES.includes(k.key));
   const targets = moving.filter((k) => k.target?.percent != null);
   const results = comboChart(moving.map((k) => ({ label: SHORT[k.key], full: k.label, values: { before: k.previous?.value ?? null, now: k.value }, line: k.target?.percent ?? null })), {
     unit: "%", bars: [...(r?.previous ? [{ key: "before", label: r.previous.label }] : []), { key: "now", label: r?.period.label || "This term" }],
-    line: targets.length ? { label: "% of target achieved", unit: "%" } : null, title: "Results this term and last", empty: "No results to compare yet.",
+    line: targets.length ? { label: "% of target achieved" } : null, title: "Results this term and last", empty: "No results to compare yet.",
   });
   const counties = ringOrBars((imp.reach?.learnersByCounty || []).map((c) => ({ label: c.label, value: c.value })), { noun: "learners", title: "Learners by county" });
 
@@ -188,8 +202,8 @@ export function hubHtml(d, opts) {
   const c = L.completion || {};
   // Every piece set, so the ring adds up to the work set: what isn't due yet is neither in nor missing.
   const open = Math.max(0, (c.assigned ?? 0) - (c.onTime ?? 0) - (c.late ?? 0) - (c.missing ?? 0));
-  const work = donut([{ label: "Handed in on time", value: c.onTime ?? 0, colour: "var(--cat-1)" }, { label: "Handed in late", value: c.late ?? 0, colour: "var(--cat-2)" },
-    { label: "Not handed in", value: c.missing ?? 0, colour: "var(--cat-3)" }, ...(open ? [{ label: "Not due yet", value: open, colour: "var(--neutral)" }] : [])],
+  const work = donut([{ label: "Handed in on time", value: c.onTime ?? 0, colour: HUB[0] }, { label: "Handed in late", value: c.late ?? 0, colour: HUB[1] },
+    { label: "Not handed in", value: c.missing ?? 0, colour: HUB[2] }, ...(open ? [{ label: "Not due yet", value: open, colour: "var(--neutral)" }] : [])],
     { noun: "pieces set", title: "Work set" });
 
   // Row 4: schools by work handed in and average mark · the schools in a table.
@@ -205,16 +219,16 @@ export function hubHtml(d, opts) {
 
   return `<div class="hub">${head}${kpis}
   <div class="hub-grid">
-    ${card("Field work, month by month", "Visits to schools, and the Kobo submissions sent", fieldWork, { span: 5, period: LAST_12, page: "field-operations", label: "Field operations", opts })}
-    ${card("Results this term and last", targets.length ? "Same point of each term · line: share of the approved target" : "Same point of each term", results, { span: 4, period: term, page: "me-dashboard", label: "Indicators", opts })}
+    ${card("Field work, month by month", "Visits to schools, and the Kobo submissions sent", fieldWork, { span: 5, period: LAST_12, page: "field-operations", label: "Field operations", tone: 1, opts })}
+    ${card("Results this term and last", targets.length ? "Same point of each term · line: share of the approved target" : "Same point of each term", results, { span: 4, period: term, page: "me-dashboard", label: "Indicators", tone: 1, opts })}
     ${card("Learners by county", `${num(imp.reach?.summary?.schoolsReached)} schools reached`, counties, { span: 3, period: "On roll now", page: "reach", label: "Reach", opts })}
     ${card("Highlights", "The best of each, from the same figures", highlightsHtml(imp, r), { span: 12, period: term, opts })}
-    ${card("Average mark by subject", "Marked classwork; the line is all subjects", subjects, { span: 6, period: "", page: "learning", label: "Learning", opts })}
-    ${card("Teachers trained by county", "Share of active teachers at a training session", trained, { span: 6, page: "teacher-development", label: "Teacher development", opts })}
-    ${card("Most-opened resources", "Library resources by how often they were opened", resources, { span: 4, page: "digital-resources", label: "Digital resources", opts })}
+    ${card("Average mark by subject", "Marked classwork; the line is all subjects", subjects, { span: 6, period: "", page: "learning", label: "Learning", tone: 6, opts })}
+    ${card("Teachers trained by county", "Share of active teachers at a training session", trained, { span: 6, page: "teacher-development", label: "Teacher development", tone: 3, opts })}
+    ${card("Most-opened resources", "Library resources by how often they were opened", resources, { span: 4, page: "digital-resources", label: "Digital resources", tone: 7, opts })}
     ${card("Field visits by type", `${num(F.visits?.visits)} visits by ${num(F.visits?.officersReporting)} field officers`, visitTypes, { span: 4, page: "field-operations", label: "Field operations", opts })}
     ${card("Work set", `${num(c.assigned)} pieces of work set to learners`, work, { span: 4, page: "learning", label: "Learning", opts })}
-    ${card("Schools by work handed in and average mark", "Each dot a school; dashed: all schools", spread, { span: 5, period: term, page: "school-profiles", label: "Schools", opts })}
+    ${card("Schools by work handed in and average mark", "Each dot a school; dashed: all schools", spread, { span: 5, period: term, page: "school-profiles", label: "Schools", tone: 6, opts })}
     ${card("Schools", "Highest average mark first", schoolsTable(r?.schools || L.schools, opts), { span: 7, period: term, page: "school-profiles", label: "Every school", opts })}
   </div>
   ${findings}</div>`;

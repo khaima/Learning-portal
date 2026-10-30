@@ -111,6 +111,43 @@ Key figures are always larger than any heading on the page. Weights: 700
 for figures and the page title, 600 for headings and chart titles, 400
 for text. Numbers that line up use `font-variant-numeric: tabular-nums`.
 
+## The M&E hub's colours (30 October 2026)
+
+Programme impact (`#me-hub`, `hub-ui.js`) is drawn in the programme's
+reference-dashboard colours, at the programme's request: **always navy,
+whatever the portal's theme**, each key figure and chart card with an accent
+of its own. The panel (`.panel.hub-screen`, app.css) sets its own tokens, so
+every card, chart, ring, table and finding inside takes them without code of
+its own.
+
+| Role | Value |
+|---|---|
+| Screen | `#0A1230`, with a faint blue and violet glow at the top |
+| Cards | `#101B3B` (a tinted wash of the card's accent at the top), hairline `#1E2C58` |
+| Ink | `#F1F4FA`; secondary `#A9B5D1` |
+| Series, in order | blue `#3987e5`, orange `#d95926`, aqua `#199e70`, yellow `#c98500`, magenta `#d55181`, green `#008300`, violet `#9085e9`, red `#e66767` (`--hub-1…8`) |
+| Columns | blue; an earlier period lighter (`#7DA3DA`) |
+| A line with columns | aqua (`--chart-line`) |
+
+The eight series colours are the validated dark palette, **checked on the
+hub's card colour** with the data-visualisation validator: all inside the
+lightness band, saturated enough, neighbours told apart by colour-blind
+readers (ΔE ≥ 8.4) and by everyone (≥ 19.3), each at least 3:1 against the
+card. The reference image's own colours were brighter but failed: five were
+too light for a dark ground, and its amber and green look alike to a reader
+with red–green colour blindness.
+
+- **Each key figure** has its own accent (a bar across the top, a tinted
+  wash, the icon, its picture): learners blue, taking part green, trained
+  orange, teaching digitally violet, schools supported aqua, average mark
+  yellow (its bands keep the band colours), using resources magenta.
+- **Each chart card** has one accent for its bars (a single series is one
+  colour); a ring uses the series colours in order.
+- **Text stays in the ink colours**; a colour only marks what a thing is.
+  Changes keep the status colours (green up, red down) with ▲/▼ and words.
+- Headings and card titles are in capitals with letter-spacing, as in the
+  reference.
+
 ## Spacing and grid
 
 | Token | Laptop and up | Phone (≤ 560px) | Use |

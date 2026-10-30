@@ -19,7 +19,7 @@
      counts on a grid         heatmap      a table of cells, one hue light → dark
                                            (scale: a measure in each cell — average marks)
      how values spread        histogram    columns side by side, one scale
-     two measures, one time   comboChart   columns on the left scale, a line on the right
+     columns and a line       comboChart   one scale: measures of the same kind
      two measures per group   scatter      one dot per group; dashed overall figures
      detailed values          a table      (not here)
 
@@ -736,25 +736,24 @@ export function dumbbell(rows, { unit = "%", from = "Before", to = "Now", empty 
 
 /* ------------------------------------------------------------ columns and a line together */
 
-/** Two related measures over the same periods or groups, in one picture:
-    columns on the left scale and a line on its own scale on the right, both
-    named in the key (field visits each month, with the Kobo submissions
-    those visits sent; each result this term, last term beside it). One or
-    two column series, side by side, the earlier lighter; the line is
-    optional. Every value is in the tooltip; a period still under way is
-    paler and says "so far".
+/** Columns and a line on ONE scale, for measures of the same kind (each
+    result this term, last term beside it, and the share of its approved
+    target — all percentages). Never two scales on one chart: measures of a
+    different kind go in charts of their own, side by side or one above the
+    other. One or two column series, side by side, the earlier lighter; the
+    line is optional, its colour the card's --chart-line. Every value is in
+    the tooltip; a period still under way is paler and says "so far".
       points  [{ label, full?, sub?, partial?, values: { [key]: number|null }, line?: number|null }]
       bars    [{ key, label }]   one or two series, the last one the brand colour
-      line    { label, unit? }   the line's values are each point's `line`
-      unit    the columns' unit ("%" puts them on 0–100) */
+      line    { label }          the line's values are each point's `line`, on the same scale
+      unit    the scale's unit ("%" puts it on 0–100) */
 export function comboChart(points, { bars = [], line = null, unit = "", noun = "", title = "", empty = "Nothing recorded yet.", period = "", height = 0 } = {}) {
   const pts = points || [];
   const colVals = pts.flatMap((p) => bars.map((b) => p.values?.[b.key])).filter((v) => v != null);
   const lineVals = line ? pts.map((p) => p.line).filter((v) => v != null) : [];
   if (!colVals.some(Boolean) && !lineVals.some(Boolean)) return none(empty);
-  const top = unit === "%" ? 100 : niceTop(Math.max(...colVals, 0));
-  const lUnit = line?.unit ?? "";
-  const lTop = lUnit === "%" ? 100 : niceTop(Math.max(...lineVals, 0));
+  const top = unit === "%" ? 100 : niceTop(Math.max(...colVals, ...lineVals, 0));
+  const lUnit = unit, lTop = top; // one scale for both
   const y = (v, t) => Math.max(0, Math.min(100, (v / t) * 100));
   const n = pts.length;
   const x = (i) => ((i + 0.5) / n) * 100;
@@ -770,26 +769,24 @@ export function comboChart(points, { bars = [], line = null, unit = "", noun = "
     pen = true;
   });
   const yL = [top, top / 2, 0].map((v) => show(v, unit));
-  const yR = line ? [lTop, lTop / 2, 0].map((v) => show(v, lUnit)) : [];
   const width = (ls) => `${(Math.max(...ls.map((l) => l.length)) * 0.58 + 0.2).toFixed(2)}em`;
   const group = (p, i) => {
     const rows = [...series.map((b, k) => [show(p.values?.[b.key], unit), b.label.toLowerCase(), series.length > 1 && k === 0 ? "var(--seq-4)" : "var(--chart-1)"]),
-      ...(line ? [[show(p.line, lUnit), line.label.toLowerCase(), "var(--cat-2)"]] : [])];
+      ...(line ? [[show(p.line, lUnit), line.label.toLowerCase(), "var(--chart-line, var(--cat-2))"]] : [])];
     const note = withPeriod(p.partial ? "So far: this period isn't over" : p.note || "", p.partial ? "" : period);
     return `<div class="cmb-g${p.partial ? " is-partial" : ""}"${tip(label(p), rows, note)}>${series.map((b) => {
       const v = p.values?.[b.key];
       return `<span class="cmb-col ${b.cls}">${caps && v != null ? `<b class="col-val">${esc(show(v, unit))}</b>` : ""}<i class="cmb-bar" style="height:${v == null ? 0 : y(v, top).toFixed(1)}%"></i></span>`;
     }).join("")}${line && p.line != null ? `<i class="cmb-dot" style="bottom:${y(p.line, lTop).toFixed(1)}%" aria-hidden="true"></i>` : ""}</div>`;
   };
-  return `<div class="cmb${line ? " has-line" : ""}" role="img" aria-label="${esc(said)}"${height ? ` style="--col-h:${height}px"` : ""}>
+  return `<div class="cmb" role="img" aria-label="${esc(said)}"${height ? ` style="--col-h:${height}px"` : ""}>
     <div class="lc-y" style="width:${width(yL)}" aria-hidden="true">${yL.map((l, i) => `<span style="bottom:${100 - i * 50}%">${esc(l)}</span>`).join("")}</div>
     <div class="cmb-plot"><i class="lc-grid" style="bottom:100%"></i><i class="lc-grid" style="bottom:50%"></i>
       ${line ? `<svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path class="cmb-line" d="${d.trim()}"/></svg>` : ""}
       ${pts.map(group).join("")}</div>
-    ${line ? `<div class="lc-y cmb-yr" style="width:${width(yR)}" aria-hidden="true">${yR.map((l, i) => `<span style="bottom:${100 - i * 50}%">${esc(l)}</span>`).join("")}</div>` : ""}
     <div class="cmb-x" aria-hidden="true">${pts.map((p) => `<span>${esc(p.label)}${p.sub ? `<small>${esc(p.sub)}</small>` : ""}</span>`).join("")}</div>
   </div><ul class="chart-key">${series.map((b, k) => `<li><i class="key-sw${series.length > 1 && k === 0 ? " is-earlier" : ""}"></i>${esc(b.label)}${noun && series.length === 1 ? ` (${esc(noun)})` : ""}</li>`).join("")}${
-    line ? `<li><i class="key-line key-cmb"></i>${esc(line.label)} <span class="key-scale">(right scale)</span></li>` : ""}</ul>${
+    line ? `<li><i class="key-line key-cmb"></i>${esc(line.label)}</li>` : ""}</ul>${
     pts.at(-1)?.partial ? `<p class="chart-note">${esc(label(pts.at(-1)))} isn't over yet: its columns are paler.</p>` : ""}`;
 }
 

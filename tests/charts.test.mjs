@@ -174,11 +174,14 @@ test("a picture inside each result's card: each a different form, each saying wh
   assert.equal(C.halfGauge(null), "");
 });
 
-test("columns and a line: each in the key, the line on its own scale, a period under way paler", () => {
+test("columns and a line: one scale for both, each in the key, a period under way paler", () => {
   const pts = [{ label: "Aug", values: { visits: 4 }, line: 10 }, { label: "Sep", values: { visits: 6 }, line: 30 }, { label: "Oct", values: { visits: 2 }, line: 12, partial: true }];
   const html = C.comboChart(pts, { bars: [{ key: "visits", label: "Field visits" }], line: { label: "Kobo submissions" }, title: "Field work" });
   assert.equal((html.match(/class="cmb-g/g) || []).length, 3);
-  assert.match(text(html), /Field visits.*Kobo submissions \(right scale\)/);
+  assert.match(text(html), /Field visits.*Kobo submissions/);
+  assert.ok(!/right scale|cmb-yr/.test(html), "never a second scale");
+  assert.equal((html.match(/class="lc-y"/g) || []).length, 1, "one axis");
+  assert.match(html, /<span style="bottom:100%">40<\/span>/, "the scale fits the line's values too");
   assert.match(html, /aria-label="Field work: Aug Field visits 4, Kobo submissions 10; Sep Field visits 6, Kobo submissions 30; Oct Field visits 2, Kobo submissions 12 so far"/);
   assert.match(html, /Oct isn't over yet/);
   assert.match(C.comboChart([], { bars: [{ key: "a", label: "A" }] }), /chart-empty/);
