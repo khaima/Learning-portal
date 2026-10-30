@@ -464,4 +464,4 @@ reference dashboard:
   grey); a whole with more parts is shown as bars with shares. **On the M&E
   hub** (30 October 2026) a ring takes up to five parts, in the hub's eight
   series colours in their checked order (neighbours apart for colour-blind
-  readers) — see DESIGN-SYSTEM.md, "The M&E hub's colours".
+  readers) — see DESIGN-SYSTEM.md, "The dashboards' colours".

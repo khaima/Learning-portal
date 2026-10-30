@@ -24,10 +24,10 @@
    never compared term with term (different work each term).
 
    Its colours (30 October 2026, after the programme's reference dashboard):
-   always navy, each key figure and card with its own accent from eight
-   series colours checked for colour-blind readers on the navy (app.css,
-   .hub-screen). One scale per chart: measures of a different kind are two
-   charts, one above the other.
+   Dark (navy) or Light, as every dashboard (app.css .dash-screen, look
+   "impact"), each key figure and card with its own accent from eight series
+   colours checked for colour-blind readers in each mode. One scale per
+   chart: measures of a different kind are two charts, one above the other.
    ============================================================ */
 
 import { esc } from "./util.js";
@@ -46,7 +46,7 @@ const SHORT = {
   schools_supported: "Schools supported", assessment: "Average mark", teacher_resources: "Using resources",
 };
 
-/** The hub's eight series colours, in their checked order (app.css .hub-screen). */
+/** The eight series colours, in their checked order (app.css .dash-screen). */
 const HUB = Array.from({ length: 8 }, (_, i) => `var(--hub-${i + 1})`);
 /** Each key figure's accent. */
 const TONE = { learners: 1, participation: 6, teachers_trained: 2, teachers_digital: 7, schools_supported: 3, assessment: 4, teacher_resources: 5 };

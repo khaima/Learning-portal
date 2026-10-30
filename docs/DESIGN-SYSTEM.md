@@ -111,42 +111,59 @@ Key figures are always larger than any heading on the page. Weights: 700
 for figures and the page title, 600 for headings and chart titles, 400
 for text. Numbers that line up use `font-variant-numeric: tabular-nums`.
 
-## The M&E hub's colours (30 October 2026)
+## The dashboards' colours: Dark or Light, a look for each (30 October 2026)
 
-Programme impact (`#me-hub`, `hub-ui.js`) is drawn in the programme's
-reference-dashboard colours, at the programme's request: **always navy,
-whatever the portal's theme**, each key figure and chart card with an accent
-of its own. The panel (`.panel.hub-screen`, app.css) sets its own tokens, so
-every card, chart, ring, table and finding inside takes them without code of
-its own.
+Every dashboard is drawn in the programme's reference-dashboard colours, at
+the programme's request: **Dark (navy) by default**, with a **Dark / Light
+button** in the top bar (`dash-mode.js`) that switches every dashboard and is
+kept on the device. Only the dashboards change; forms, lists and every other
+page keep the portal's own theme. The button shows only on a dashboard.
 
-| Role | Value |
-|---|---|
-| Screen | `#0A1230`, with a faint blue and violet glow at the top |
-| Cards | `#101B3B` (a tinted wash of the card's accent at the top), hairline `#1E2C58` |
-| Ink | `#F1F4FA`; secondary `#A9B5D1` |
-| Series, in order | blue `#3987e5`, orange `#d95926`, aqua `#199e70`, yellow `#c98500`, magenta `#d55181`, green `#008300`, violet `#9085e9`, red `#e66767` (`--hub-1…8`) |
-| Columns | blue; an earlier period lighter (`#7DA3DA`) |
-| A line with columns | aqua (`--chart-line`) |
+A dashboard's screen is `.dash-screen` (its section, or its one panel) with
+`data-look`; it sets its own tokens (app.css), so every card, chart, ring,
+table and finding inside takes them without code of its own.
 
-The eight series colours are the validated dark palette, **checked on the
-hub's card colour** with the data-visualisation validator: all inside the
-lightness band, saturated enough, neighbours told apart by colour-blind
-readers (ΔE ≥ 8.4) and by everyone (≥ 19.3), each at least 3:1 against the
-card. The reference image's own colours were brighter but failed: five were
-too light for a dark ground, and its amber and green look alike to a reader
-with red–green colour blindness.
+| Role | Dark | Light |
+|---|---|---|
+| Screen | `#0A1230` + a glow in the dashboard's two signature colours | `#F4F6FA` + a fainter glow |
+| Cards | `#101B3B` (a wash of the card's accent at the top), hairline `#1E2C58` | `#FFFFFF`, hairline `#DFE3E9` |
+| Ink | `#F1F4FA`; secondary `#A9B5D1` | the portal's ink |
+| Series, in order (`--hub-1…8`) | `#3987e5` `#d95926` `#199e70` `#c98500` `#d55181` `#008300` `#9085e9` `#e66767` | `#2a78d6` `#eb6834` `#1baf7a` `#eda100` `#e87ba4` `#008300` `#6250d6` `#e34948` |
 
-- **Each key figure** has its own accent (a bar across the top, a tinted
-  wash, the icon, its picture): learners blue, taking part green, trained
-  orange, teaching digitally violet, schools supported aqua, average mark
-  yellow (its bands keep the band colours), using resources magenta.
-- **Each chart card** has one accent for its bars (a single series is one
-  colour); a ring uses the series colours in order.
+Both series sets are the validated palette, **checked on each mode's card
+colour** with the data-visualisation validator (lightness band, saturation,
+neighbours told apart by colour-blind readers ΔE ≥ 8.4 dark / 9.1 light, by
+everyone ≥ 19.3 / 19.6). Dark: every colour at least 3:1 on the card. Light:
+aqua, yellow and magenta are under 3:1, so charts print their values beside
+the marks, and yellow is never a bar's colour. The reference image's own
+colours were brighter but failed: too light for a dark ground, and its amber
+and green look alike to a reader with red–green colour blindness.
+
+**Each dashboard has a look of its own** — two signature colours (the glow,
+the mark beside its title) and the order its key figures and cards take their
+accents in:
+
+| Look | Dashboards | Signature |
+|---|---|---|
+| `platform` | Platform overview (Super Admin) | violet → magenta |
+| `programme` | Programme Administration: Overview, In detail, Teaching progress | aqua → green |
+| `impact` | M&E: Programme impact, Indicators, Data completeness | blue → violet |
+| `executive` | Executive overview | blue → aqua |
+| `reach` | Reach | aqua → blue |
+| `learning` | Learning | green → aqua |
+| `teachers` | Teacher development | orange → yellow |
+| `field` | Field operations | magenta → orange |
+| `resources` | Digital resources, Content usage | violet → blue |
+
+- **Key figures**: each its own accent, in the look's order — a bar across
+  the top, a tinted wash, the icon, its picture; a warning figure is orange.
+- **Chart cards and panels**: each its own accent, its single-series bars in
+  that colour, the title in capitals beside a dot of it. A ring uses the
+  series colours in order (up to five parts on the M&E hub).
 - **Text stays in the ink colours**; a colour only marks what a thing is.
-  Changes keep the status colours (green up, red down) with ▲/▼ and words.
-- Headings and card titles are in capitals with letter-spacing, as in the
-  reference.
+  Changes keep the status colours (green up, red down) with ▲/▼ and words;
+  a health banner keeps its warning colour.
+- One scale per chart (CHARTS.md).
 
 ## Spacing and grid
 

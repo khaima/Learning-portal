@@ -2659,14 +2659,22 @@ a.sc-dot:focus-visible{ outline:2px solid var(--focus); outline-offset:2px; }
 .hub-pct{ min-width:2.6rem; text-align:right; font-variant-numeric:tabular-nums; font-weight:600; color:var(--ink); }
 .hub-nil{ font-size:var(--text-xs); color:var(--ink-soft); }
 
-/* ---- Programme impact in the programme's dashboard colours (30 October 2026) ----
-   Always navy, whatever the portal's theme, after the programme's reference
-   dashboard: its own tokens, so every card, chart and table inside takes them.
-   The eight series colours are the validated dark palette, checked on the card
-   colour #101B3B (dataviz validate_palette: lightness band, chroma, neighbours
-   apart for colour-blind readers ΔE ≥ 8.4, for everyone ≥ 19.3, contrast ≥ 3:1).
+/* ---- The dashboards: Dark (navy) or Light, each with a look of its own (30 October 2026) ----
+   After the programme's reference dashboard. Every dashboard's screen is
+   `.dash-screen` (a section, or its one panel) with `data-look` naming its
+   signature; it sets its own tokens, so every card, chart, ring, table and
+   finding inside takes them without code of its own. Dark — navy — is the
+   default; the Dark/Light button in the top bar (dash-mode.js) sets
+   html[data-dash="light"], kept on the device. Only the dashboards change.
+
+   Series colours (--hub-1…8, in their checked order): the validated palette,
+   checked with the data-visualisation validator on each mode's card colour —
+   dark on #101B3B, light on #FFFFFF (lightness band, chroma, neighbours apart
+   for colour-blind readers ΔE ≥ 8.4 / 9.1, for everyone ≥ 19.3 / 19.6;
+   contrast ≥ 3:1 dark; in light, aqua, yellow and magenta are under 3:1, so
+   charts print their values beside the marks, and yellow is never a bar).
    Text stays in the ink colours; a colour only marks what a thing is. */
-.panel.hub-screen{
+.dash-screen{
   --paper:#0A1230; --paper-raised:#101B3B; --paper-sunk:#0C1633;
   --ink:#F1F4FA; --ink-soft:#A9B5D1; --line:#22305A; --line-control:#4A5A86;
   --brand:#7FA8F0; --brand-soft:#1B2B55; --brand-fg:#B7CFF5; --focus:#7FA8F0;
@@ -2675,50 +2683,153 @@ a.sc-dot:focus-visible{ outline:2px solid var(--focus); outline-offset:2px; }
   --danger:#F0797A; --danger-soft:#3B1C1E; --danger-fg:#F0797A;
   --hub-1:#3987e5; --hub-2:#d95926; --hub-3:#199e70; --hub-4:#c98500;
   --hub-5:#d55181; --hub-6:#008300; --hub-7:#9085e9; --hub-8:#e66767;
-  --chart-1:var(--hub-1); --chart-2:var(--hub-2); --chart-3:var(--hub-3); --chart-line:var(--hub-3); --chart-target:#A9B5D1;
+  --chart-2:var(--hub-2); --chart-3:var(--hub-3); --chart-line:var(--hub-3); --chart-target:#A9B5D1;
   --cat-1:var(--hub-1); --cat-2:var(--hub-2); --cat-3:var(--hub-3);
   --band-1:#35A873; --band-2:#4F93E0; --band-3:#B8892A; --band-4:#CF4B41;
-  --seq-1:#ABC8EE; --seq-2:#7DA3DA; --seq-3:#5A80BC; --seq-4:#7DA3DA; --neutral:#5B6A93;
-  color-scheme:dark; color:var(--ink); border-color:#1A2750;
-  background:radial-gradient(900px 360px at 0% 0%, rgba(57,135,229,.16), transparent 65%),
-    radial-gradient(700px 300px at 100% 0%, rgba(144,133,233,.10), transparent 60%), var(--paper);
+  --seq-1:#ABC8EE; --seq-2:#7DA3DA; --seq-3:#5A80BC; --seq-4:#3D5F96; --neutral:#5B6A93; --earlier:#7DA3DA;
+  --hm-ink-1:#FFFFFF; --hm-ink-2:#050A18; --hm-ink-3:#0E1730; --hm-ink-4:#0E1730;
+  --card-line:#1E2C58; --card-top:#12204A; --well:#0C1633; --chip:#16244D; --track:#1B2A55; --hi:#FFFFFF; --link:#B7CFF5; --screen-line:#1A2750;
+  --glow-a:18%; --glow-b:12%;
+  /* the default look, until a dashboard names its own */
+  --sig-a:var(--hub-1); --sig-b:var(--hub-7);
+  --t1:var(--hub-1); --t2:var(--hub-3); --t3:var(--hub-7); --t4:var(--hub-2); --t5:var(--hub-6); --t6:var(--hub-5);
+  --chart-1:var(--t1);
+  color-scheme:dark; color:var(--ink); border-color:var(--screen-line);
+  background:radial-gradient(900px 360px at 0% 0%, color-mix(in srgb, var(--sig-a) var(--glow-a), transparent), transparent 65%),
+    radial-gradient(700px 300px at 100% 0%, color-mix(in srgb, var(--sig-b) var(--glow-b), transparent), transparent 60%), var(--paper);
 }
-.hub-screen .panel-head h2{ display:flex; align-items:center; gap:.65rem; text-transform:uppercase; letter-spacing:.04em; color:var(--ink); }
+html[data-dash="light"] .dash-screen{
+  --paper:#F4F6FA; --paper-raised:#FFFFFF; --paper-sunk:#EDF0F4;
+  --ink:#14213D; --ink-soft:#3D4C6B; --line:#DFE3E9; --line-control:#8A94A6;
+  --brand:#1E4C8A; --brand-soft:#E7EEF7; --brand-fg:#16386A; --focus:#1E4C8A;
+  --accent:#D97A34; --accent-soft:#FBE7D4; --accent-fg:#9C4F17;
+  --success:#3E9C6E; --success-soft:#E1F3EA; --success-fg:#2B6E4D;
+  --danger:#D64545; --danger-soft:#FBE4E2; --danger-fg:#B42318;
+  --hub-1:#2a78d6; --hub-2:#eb6834; --hub-3:#1baf7a; --hub-4:#eda100;
+  --hub-5:#e87ba4; --hub-6:#008300; --hub-7:#6250d6; --hub-8:#e34948;
+  --chart-target:var(--ink-soft);
+  --band-1:#3E9C6E; --band-2:#24589C; --band-3:#D97A34; --band-4:#B3261E;
+  --seq-1:#1E4C8A; --seq-2:#4370B2; --seq-3:#6A91C9; --seq-4:#94B2DC; --neutral:#9AA3B5; --earlier:#94B2DC;
+  --hm-ink-1:var(--ink); --hm-ink-2:var(--ink); --hm-ink-3:#FFFFFF; --hm-ink-4:#FFFFFF;
+  --card-line:#DFE3E9; --card-top:#FFFFFF; --well:#F3F5F9; --chip:#EEF2F8; --track:#E6EAF1; --hi:var(--ink); --link:var(--brand-fg); --screen-line:#DFE3E9;
+  --glow-a:12%; --glow-b:9%;
+  color-scheme:light;
+}
+section.dash-screen{ padding:var(--pad-panel); border:1px solid var(--screen-line); border-radius:var(--radius-lg); }
+
+/* Each dashboard's look: its two signature colours (the glow, the title mark)
+   and the order its key figures and cards take their accents in. */
+.dash-screen[data-look="impact"]{ --sig-a:var(--hub-1); --sig-b:var(--hub-7);
+  --t1:var(--hub-1); --t2:var(--hub-6); --t3:var(--hub-2); --t4:var(--hub-7); --t5:var(--hub-3); --t6:var(--hub-5); }
+.dash-screen[data-look="programme"]{ --sig-a:var(--hub-3); --sig-b:var(--hub-6);
+  --t1:var(--hub-3); --t2:var(--hub-1); --t3:var(--hub-6); --t4:var(--hub-2); --t5:var(--hub-7); --t6:var(--hub-5); }
+.dash-screen[data-look="platform"]{ --sig-a:var(--hub-7); --sig-b:var(--hub-5);
+  --t1:var(--hub-7); --t2:var(--hub-5); --t3:var(--hub-1); --t4:var(--hub-3); --t5:var(--hub-2); --t6:var(--hub-6); }
+.dash-screen[data-look="executive"]{ --sig-a:var(--hub-1); --sig-b:var(--hub-3);
+  --t1:var(--hub-1); --t2:var(--hub-3); --t3:var(--hub-2); --t4:var(--hub-7); --t5:var(--hub-6); --t6:var(--hub-5); }
+.dash-screen[data-look="reach"]{ --sig-a:var(--hub-3); --sig-b:var(--hub-1);
+  --t1:var(--hub-3); --t2:var(--hub-1); --t3:var(--hub-7); --t4:var(--hub-6); --t5:var(--hub-2); --t6:var(--hub-5); }
+.dash-screen[data-look="learning"]{ --sig-a:var(--hub-6); --sig-b:var(--hub-3);
+  --t1:var(--hub-6); --t2:var(--hub-1); --t3:var(--hub-3); --t4:var(--hub-2); --t5:var(--hub-7); --t6:var(--hub-5); }
+.dash-screen[data-look="teachers"]{ --sig-a:var(--hub-2); --sig-b:var(--hub-4);
+  --t1:var(--hub-2); --t2:var(--hub-1); --t3:var(--hub-3); --t4:var(--hub-7); --t5:var(--hub-6); --t6:var(--hub-5); }
+.dash-screen[data-look="field"]{ --sig-a:var(--hub-5); --sig-b:var(--hub-2);
+  --t1:var(--hub-5); --t2:var(--hub-2); --t3:var(--hub-1); --t4:var(--hub-3); --t5:var(--hub-6); --t6:var(--hub-7); }
+.dash-screen[data-look="resources"]{ --sig-a:var(--hub-7); --sig-b:var(--hub-1);
+  --t1:var(--hub-7); --t2:var(--hub-1); --t3:var(--hub-5); --t4:var(--hub-3); --t5:var(--hub-2); --t6:var(--hub-6); }
+
+/* Titles: capitals, and the dashboard's mark in its two colours. */
+.dash-screen .panel-head h2,.dash-screen .ao-head :is(h2,h3),.dash-screen .attn-head :is(h2,h3){ text-transform:uppercase; letter-spacing:.04em; color:var(--ink); }
+.dash-screen h2[data-page-title]{ display:flex; align-items:center; gap:.65rem; }
+.dash-screen h2[data-page-title]:not(:has(.hub-mark))::before{ content:""; flex:none; width:1.1rem; height:1.1rem; border-radius:.35rem;
+  background:linear-gradient(135deg, var(--sig-a), var(--sig-b)); box-shadow:0 0 14px color-mix(in srgb, var(--sig-a) 70%, transparent); }
 .hub-mark{ flex:none; width:2.25rem; height:2.25rem; display:grid; place-items:center; border-radius:.65rem;
-  background:linear-gradient(135deg, var(--hub-1), var(--hub-7)); color:#fff; box-shadow:0 8px 20px -10px rgba(57,135,229,.9); }
+  background:linear-gradient(135deg, var(--sig-a, var(--hub-1)), var(--sig-b, var(--hub-7))); color:#fff;
+  box-shadow:0 8px 20px -10px color-mix(in srgb, var(--sig-a, #3987e5) 90%, transparent); }
 .hub-mark svg{ width:1.2rem; height:1.2rem; }
-.hub-screen .chart-card{ border-color:#1E2C58; border-radius:12px;
-  background:linear-gradient(180deg, color-mix(in srgb, var(--tone, var(--hub-1)) 7%, #12204A) 0%, var(--paper-raised) 55%);
-  box-shadow:0 14px 32px -24px rgba(0,0,0,.95), inset 0 1px 0 rgba(255,255,255,.04); }
-.hub-screen .chart-card-head{ border-bottom-color:#1E2C58; }
-.hub-screen .hub-head-top b{ display:flex; align-items:center; gap:.5rem; text-transform:uppercase; letter-spacing:.06em; font-size:var(--text-xs); font-weight:700; }
-.hub-screen .hub-head-top b::before{ content:""; flex:none; width:.5rem; height:.5rem; border-radius:2px; background:var(--tone, var(--hub-1)); box-shadow:0 0 10px var(--tone, var(--hub-1)); }
-.hub-screen .chart-period{ background:#16244D; border-color:#22305A; color:var(--ink-soft); }
-.hub-screen .hub-open{ color:#B7CFF5; }
-/* The key figures: a card each in its own colour — a bar across the top, a tinted wash, the icon. */
+.dash-screen .panel{ border-color:var(--card-line); }
+
+/* Key figures: each its own colour — a bar across the top, a tinted wash, the icon, its picture. */
+.dash-screen .stat-row > :nth-child(6n+1){ --tone:var(--t1); }
+.dash-screen .stat-row > :nth-child(6n+2){ --tone:var(--t2); }
+.dash-screen .stat-row > :nth-child(6n+3){ --tone:var(--t3); }
+.dash-screen .stat-row > :nth-child(6n+4){ --tone:var(--t4); }
+.dash-screen .stat-row > :nth-child(6n+5){ --tone:var(--t5); }
+.dash-screen .stat-row > :nth-child(6n+6){ --tone:var(--t6); }
+.dash-screen .stat-tile.intel-warn{ --tone:var(--hub-2); }
+.dash-screen .stat-tile{ --chart-1:var(--tone, var(--t1)); position:relative; overflow:hidden;
+  border:1px solid color-mix(in srgb, var(--tone, var(--t1)) 38%, var(--card-line));
+  background:linear-gradient(160deg, color-mix(in srgb, var(--tone, var(--t1)) 20%, var(--paper-raised)) 0%, var(--paper-raised) 60%);
+  box-shadow:0 14px 30px -22px color-mix(in srgb, var(--tone, var(--t1)) 75%, transparent); }
+.dash-screen .stat-tile::before{ content:""; position:absolute; inset:0 0 auto; height:3px; background:var(--tone, var(--t1)); }
+.dash-screen .stat-tile .s-ico{ background:color-mix(in srgb, var(--tone, var(--t1)) 26%, transparent); color:color-mix(in srgb, var(--tone, var(--t1)) 62%, var(--hi)); }
+.dash-screen .stat-tile .s-title{ text-transform:uppercase; letter-spacing:.05em; font-weight:700; color:var(--ink-soft); }
+.dash-screen .stat-tile .s-num{ color:var(--hi); }
 .hub-kpi{ display:flex; min-width:0; }
-.hub-kpi > .stat-tile{ flex:1; position:relative; overflow:hidden; --chart-1:var(--tone);
-  border:1px solid color-mix(in srgb, var(--tone) 40%, #1E2C58);
-  background:linear-gradient(160deg, color-mix(in srgb, var(--tone) 24%, #101B3B) 0%, #101B3B 60%);
-  box-shadow:0 14px 30px -22px color-mix(in srgb, var(--tone) 85%, transparent); }
-.hub-kpi > .stat-tile::before{ content:""; position:absolute; inset:0 0 auto; height:3px; background:var(--tone); }
-.hub-kpi .s-ico{ background:color-mix(in srgb, var(--tone) 28%, transparent); color:color-mix(in srgb, var(--tone) 60%, #fff); }
-.hub-kpi .s-title{ text-transform:uppercase; letter-spacing:.05em; font-weight:700; color:var(--ink-soft); }
-.hub-kpi .s-num{ color:#fff; }
-.hub-screen .hub-meter{ background:#1B2A55; }
-.hub-screen .hub-meter span{ background:var(--tone, var(--chart-1)); box-shadow:0 0 10px color-mix(in srgb, var(--tone, var(--chart-1)) 70%, transparent); }
-.hub-screen .hub-meter.is-met span{ background:var(--tone, var(--chart-1)); }
-.hub-screen .hub-meter i{ background:#fff; }
-/* Highlights: a small card each, each in its own colour. */
-.hub-screen .hub-hl{ background:linear-gradient(135deg, color-mix(in srgb, var(--tone) 16%, #0C1633), #0C1633 70%); border:1px solid color-mix(in srgb, var(--tone) 32%, #1E2C58); }
-.hub-screen .hub-hl-ico{ background:color-mix(in srgb, var(--tone) 28%, transparent); color:color-mix(in srgb, var(--tone) 60%, #fff); }
-/* Field work: two charts on the same months, each its own scale. */
+.hub-kpi > .stat-tile{ flex:1; }
+
+/* Chart cards: each its own accent, its bars in that colour; the title in capitals beside a dot. */
+.dash-screen .chart-card:nth-child(6n+1){ --tone:var(--t1); }
+.dash-screen .chart-card:nth-child(6n+2){ --tone:var(--t2); }
+.dash-screen .chart-card:nth-child(6n+3){ --tone:var(--t3); }
+.dash-screen .chart-card:nth-child(6n+4){ --tone:var(--t4); }
+.dash-screen .chart-card:nth-child(6n+5){ --tone:var(--t5); }
+.dash-screen .chart-card:nth-child(6n+6){ --tone:var(--t6); }
+.dash-screen .chart-card{ --chart-1:var(--tone, var(--t1)); border-color:var(--card-line); border-radius:12px;
+  background:linear-gradient(180deg, color-mix(in srgb, var(--tone, var(--t1)) 8%, var(--card-top)) 0%, var(--paper-raised) 55%);
+  box-shadow:0 14px 32px -24px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.04); }
+.dash-screen .chart-card-head{ border-bottom-color:var(--card-line); }
+.dash-screen .chart-card-head > b,.dash-screen .hub-head-top b{ display:flex; align-items:center; gap:.5rem; text-transform:uppercase; letter-spacing:.06em; font-size:var(--text-xs); font-weight:700; }
+.dash-screen .chart-card-head > b::before,.dash-screen .hub-head-top b::before{ content:""; flex:none; width:.5rem; height:.5rem; border-radius:2px;
+  background:var(--tone, var(--t1)); box-shadow:0 0 10px var(--tone, var(--t1)); }
+.dash-screen .chart-period{ background:var(--chip); border-color:var(--line); color:var(--ink-soft); }
+.dash-screen .hub-open{ color:var(--link); }
+/* An earlier period beside the latest: a lighter blue, never the heatmap scale's own step. */
+.dash-screen .cmb-col.is-earlier .cmb-bar,.dash-screen .key-sw.is-earlier{ background:var(--earlier); }
+
+/* The platform overview's panels (admin-ui.js): cards like the others, each its own colour;
+   the health banner keeps its own (there the colour is the judgement). */
+.dash-screen .pov-title{ display:flex; align-items:center; gap:.65rem; text-transform:uppercase; letter-spacing:.04em; }
+.dash-screen .pov-title::before{ content:""; flex:none; width:1.1rem; height:1.1rem; border-radius:.35rem;
+  background:linear-gradient(135deg, var(--sig-a), var(--sig-b)); box-shadow:0 0 14px color-mix(in srgb, var(--sig-a) 70%, transparent); }
+.dash-screen .cc-grid > .pov-panel:nth-child(6n+1){ --tone:var(--t1); }
+.dash-screen .cc-grid > .pov-panel:nth-child(6n+2){ --tone:var(--t2); }
+.dash-screen .cc-grid > .pov-panel:nth-child(6n+3){ --tone:var(--t3); }
+.dash-screen .cc-grid > .pov-panel:nth-child(6n+4){ --tone:var(--t4); }
+.dash-screen .cc-grid > .pov-panel:nth-child(6n+5){ --tone:var(--t5); }
+.dash-screen .cc-grid > .pov-panel:nth-child(6n+6){ --tone:var(--t6); }
+.dash-screen .pov-panel{ --chart-1:var(--tone, var(--t1)); position:relative; overflow:hidden;
+  border-color:color-mix(in srgb, var(--tone, var(--t1)) 30%, var(--card-line));
+  background:linear-gradient(180deg, color-mix(in srgb, var(--tone, var(--t1)) 10%, var(--card-top)) 0%, var(--paper-raised) 50%);
+  box-shadow:0 14px 32px -24px rgba(0,0,0,.6); }
+.dash-screen .pov-panel::before{ content:""; position:absolute; inset:0 0 auto; height:3px; background:var(--tone, var(--t1)); }
+.dash-screen .pov-panel-head h3{ text-transform:uppercase; letter-spacing:.06em; font-size:var(--text-xs); }
+.dash-screen .pov-panel-head h3 .icon{ color:var(--tone, var(--t1)); }
+.dash-screen .pov-panel-head h3:not(:has(.icon))::before{ content:""; flex:none; width:.5rem; height:.5rem; border-radius:2px; background:var(--tone, var(--t1)); box-shadow:0 0 10px var(--tone, var(--t1)); }
+
+/* The hub's own pieces, in the same tokens. */
+.dash-screen .hub-meter{ background:var(--track); }
+.dash-screen .hub-meter span,.dash-screen .hub-meter.is-met span{ background:var(--tone, var(--chart-1)); box-shadow:0 0 10px color-mix(in srgb, var(--tone, var(--chart-1)) 60%, transparent); }
+.dash-screen .hub-meter i{ background:var(--hi); }
+.dash-screen .hub-hl{ background:linear-gradient(135deg, color-mix(in srgb, var(--tone) 16%, var(--well)), var(--well) 70%); border:1px solid color-mix(in srgb, var(--tone) 32%, var(--card-line)); }
+.dash-screen .hub-hl-ico{ background:color-mix(in srgb, var(--tone) 28%, transparent); color:color-mix(in srgb, var(--tone) 62%, var(--hi)); }
 .hub-multi-label{ display:flex; align-items:center; gap:.45rem; margin:0 0 -.75rem; font-size:var(--text-xs); font-weight:600; color:var(--ink-soft); }
 .hub-multi-label .key-sw{ background:var(--chart-1); }
 .hub-multi-2{ margin-top:.9rem; padding-top:.7rem; border-top:1px dashed var(--line); }
-/* The schools table: work handed in green, the average mark blue. */
-.hub-screen .hub-bar{ background:#1B2A55; }
+.dash-screen .hub-bar{ background:var(--track); }
 .hub-bar.is-in i{ background:var(--hub-6, var(--chart-1)); }
 .hub-bar.is-mark i{ background:var(--hub-1, var(--chart-1)); }
-.hub-screen .hub-table tbody tr:hover th,.hub-screen .hub-table tbody tr:hover td{ background:rgba(57,135,229,.07); }
-.hub-screen .hub-table a{ color:#B7CFF5; }
+.dash-screen .hub-table tbody tr:hover th,.dash-screen .hub-table tbody tr:hover td{ background:color-mix(in srgb, var(--hub-1) 7%, transparent); }
+.dash-screen .hub-table a{ color:var(--link); }
+
+/* The Dark/Light button in the top bar (dash-mode.js): shown on dashboards only. */
+.dash-mode{ display:inline-flex; align-items:center; gap:.4rem; min-height:40px; padding:.35rem .8rem; border:1px solid var(--line); border-radius:999px;
+  background:var(--paper-raised); color:var(--ink); font:inherit; font-size:var(--text-sm); font-weight:600; cursor:pointer; }
+.dash-mode[hidden]{ display:none; }
+.dash-mode:hover{ border-color:var(--brand); }
+.dash-mode:focus-visible{ outline:2px solid var(--focus); outline-offset:2px; }
+.dash-mode .icon{ width:1rem; height:1rem; }
+.dash-mode .dm-sun{ display:none; }
+html[data-dash="light"] .dash-mode .dm-sun{ display:inline; }
+html[data-dash="light"] .dash-mode .dm-moon{ display:none; }
+@media (max-width:560px){ .dash-mode .dm-word{ display:none; } .dash-mode{ padding:.35rem .6rem; min-height:44px; } }

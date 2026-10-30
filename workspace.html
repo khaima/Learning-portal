@@ -25,6 +25,8 @@
           <p id="topSub"></p>
         </div>
         <div class="app-top-actions">
+          <!-- Dashboards: Dark (navy) or Light, kept on the device (dash-mode.js); shown on dashboards only. -->
+          <button type="button" class="dash-mode" id="dashMode" hidden><svg class="icon dm-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg><svg class="icon dm-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><span class="dm-word">Dark</span></button>
           <button class="icon-btn" aria-label="Notifications"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 8a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg><span class="dot"></span></button>
         </div>
       </div>
@@ -65,15 +67,15 @@
       </div>
       <div class="gf-backdrop"></div>
 
-      <section class="dash-page" data-page="platform-overview" hidden>
+      <section class="dash-page dash-screen" data-look="platform" data-page="platform-overview" hidden>
         <div id="pfBody"><div data-skeleton="dashboard"></div></div>
       </section>
 
-      <section class="dash-page" data-page="admin-overview" hidden>
+      <section class="dash-page dash-screen" data-look="programme" data-page="admin-overview" hidden>
         <div id="aoBody"><div data-skeleton="dashboard"></div></div>
       </section>
 
-      <section class="dash-page" data-page="admin-detail" hidden>
+      <section class="dash-page dash-screen" data-look="programme" data-page="admin-detail" hidden>
         <div id="adBody"><div data-skeleton="dashboard"></div></div>
       </section>
 
@@ -227,7 +229,7 @@
         <div id="activityBody"><div data-skeleton="table" data-cols="5"></div></div>
       </section>
 
-      <section class="dash-page" data-page="overview" hidden>
+      <section class="dash-page dash-screen" data-look="executive" data-page="overview" hidden>
         <div class="panel-head" style="margin-bottom:.6rem"><h2 data-page-title style="margin:0">Executive overview</h2><span class="live-head"><span class="chart-meta" data-imp-meta style="margin:0"></span><span data-live-impact></span></span></div>
         <!-- Read top to bottom: the key figures, what needs doing about them, the pictures, then each programme area (docs/DASHBOARD-HIERARCHY.md). -->
         <div class="stat-row exec-row" id="statRow"></div>
@@ -242,21 +244,21 @@
       </section>
 
       <section class="dash-page" data-page="education-overview" hidden>
-        <div class="panel">
+        <div class="panel dash-screen" data-look="programme">
           <div class="panel-head"><h2 data-page-title>Education overview</h2><span class="live-head"><span class="chart-meta" data-imp-meta style="margin:0"></span><span data-live-impact></span></span></div>
           <div id="imp-education-overview"><div data-skeleton="dashboard"></div></div>
         </div>
       </section>
 
       <section class="dash-page" data-page="reach" hidden>
-        <div class="panel">
+        <div class="panel dash-screen" data-look="reach">
           <div class="panel-head"><h2 data-page-title>Reach</h2><span class="live-head"><span class="chart-meta" data-imp-meta style="margin:0"></span><span data-live-impact></span></span></div>
           <div id="imp-reach"><div data-skeleton="dashboard"></div></div>
         </div>
       </section>
 
       <section class="dash-page" data-page="learning" hidden>
-        <div class="panel">
+        <div class="panel dash-screen" data-look="learning">
           <div class="panel-head"><h2 data-page-title>Learning</h2><span class="live-head"><span class="chart-meta" data-imp-meta style="margin:0"></span><span data-live-impact></span></span></div>
           <p class="hint page-note"><b>Completion</b> (work handed in) and <b>results</b> (marks) are separate measures.</p>
           <div id="imp-learning"><div data-skeleton="dashboard"></div></div>
@@ -264,42 +266,42 @@
       </section>
 
       <section class="dash-page" data-page="teacher-development" hidden>
-        <div class="panel">
+        <div class="panel dash-screen" data-look="teachers">
           <div class="panel-head"><h2 data-page-title>Teacher development</h2><span class="live-head"><span class="chart-meta" data-imp-meta style="margin:0"></span><span data-live-impact></span></span></div>
           <div id="imp-teacher-development"><div data-skeleton="dashboard"></div></div>
         </div>
       </section>
 
       <section class="dash-page" data-page="field-operations" hidden>
-        <div class="panel">
+        <div class="panel dash-screen" data-look="field">
           <div class="panel-head"><h2 data-page-title>Field operations</h2><span class="live-head"><span class="chart-meta" data-imp-meta style="margin:0"></span><span data-live-impact></span></span></div>
           <div id="imp-field-operations"><div data-skeleton="dashboard"></div></div>
         </div>
       </section>
 
       <section class="dash-page" data-page="digital-resources" hidden>
-        <div class="panel">
+        <div class="panel dash-screen" data-look="resources">
           <div class="panel-head"><h2 data-page-title>Digital resources</h2><span class="live-head"><span class="chart-meta" data-imp-meta style="margin:0"></span><span data-live-impact></span></span></div>
           <div id="imp-digital-resources"><div data-skeleton="dashboard"></div></div>
         </div>
       </section>
 
       <section class="dash-page" data-page="me-hub" hidden>
-        <!-- Always navy, in the programme's dashboard colours (app.css .hub-screen). -->
-        <div class="panel hub-screen">
+        <!-- The programme's dashboard colours, Dark or Light (app.css .dash-screen). -->
+        <div class="panel dash-screen" data-look="impact">
           <div class="panel-head"><h2 data-page-title><span class="hub-mark" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m7 14 4-4 3 3 5-6"/></svg></span>Programme impact</h2><span class="chart-meta" id="hubMeta" style="margin:0"></span></div>
           <div id="hubBody"><div data-skeleton="dashboard"></div></div>
         </div>
       </section>
 
       <section class="dash-page" data-page="me-data" hidden>
-        <div class="panel">
+        <div class="panel dash-screen" data-look="impact">
           <div class="panel-head"><h2 data-page-title>Data completeness</h2><span class="chart-meta" id="meDataMeta" style="margin:0"></span></div>
           <div id="meDataBody"><div data-skeleton="dashboard"></div></div>
         </div>
       </section>
 
-      <section class="dash-page" data-page="me-dashboard" hidden>
+      <section class="dash-page dash-screen" data-look="impact" data-page="me-dashboard" hidden>
         <div class="panel">
           <div class="panel-head"><h2>M&amp;E — target against actual</h2><span class="live-head"><span class="chart-meta" id="melDashMeta" style="margin:0"></span><span id="melDashLive"></span></span></div>
           <p class="hint page-note">Record and verify actuals on <a href="#mel-results">Indicator results</a>.</p>
@@ -561,7 +563,7 @@
       </section>
 
       <section class="dash-page" data-page="content-usage" hidden>
-        <div class="panel">
+        <div class="panel dash-screen" data-look="resources">
           <div class="panel-head"><h2 data-page-title>Content usage</h2><span class="live-head"><span class="chart-meta" id="usageMeta" style="margin:0"></span><span id="usageLive"></span></span></div>
           <div id="usageBody"><div data-skeleton="dashboard"></div></div>
         </div>
