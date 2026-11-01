@@ -14,18 +14,25 @@ A **static, no-build, dependency-free front end** — plain HTML, CSS, and
 vanilla ES-module JavaScript — talking to a **real backend**: a Supabase
 Edge Function API in front of a locked-down Postgres database. Six pages:
 
-- **`index.html`** — sign-in. Pick a role, then sign in — staff with an
-  email + password, learners with a username + 4-digit PIN. New staff
-  create an account through the portal (public sign-ups are closed in
+- **`index.html`** — sign-in. One form for everyone, and nobody is asked
+  who they are (1 November 2026): staff type their email and password,
+  learners their username and 4-digit PIN (usernames never contain "@", so
+  the form tells them apart), and the portal opens the page for the role on
+  the account. The second field follows what's typed — *Password* (hidden,
+  kept by the browser's password manager) or *4-digit PIN* (numbers, never
+  offered to it, since learners share school devices); a returning,
+  remembered visitor finds their email or username filled in, and anyone
+  still signed in goes straight to their page. New staff create an account
+  through the portal (public sign-ups are closed in
   Supabase Auth — [`docs/AUTH.md`](docs/AUTH.md)) and a one-step form captures
   name, role and — for teachers and school heads — County → School from
   the school list (see "Schools and codes" below). Built for slow school
   connections: one light card (HPF, *Learn • Teach • Support • Measure*,
-  five role tiles, *Need help?*), no photos, fonts that don't hold up the
-  page, the tiles shown before the sign-in code has even arrived (a tap
-  still counts), a notice if the connection is too slow, and the school
-  list loaded only when an account is being set up. The role picked is in
-  the address (`#teacher`), so a phone's Back button returns to the tiles.
+  the sign-in form, *Need help?*), no photos, fonts that don't hold up the
+  page, the form shown before the sign-in code has even arrived (it waits
+  for that code rather than letting the browser send it), a notice if the
+  connection is too slow, and the school list loaded only when an account
+  is being set up.
 - **`teacher.html`** — a teacher's classes, this week's grading queue,
   recent results, forms sent by the Education Team, Teacher Resources and
   the Digital Library, plus **My Learners**: an editable roster where the
@@ -940,7 +947,7 @@ Vercel and GitHub Pages serve:
   Kobo, training, learner dialogs), the assignment screens, exports and the
   Supabase sign-in library are separate files fetched the first time
   they're needed. Learners and the sign-in page never download the sign-in
-  library unless a staff member picks their role.
+  library unless an email is typed (a staff sign-in).
 - **Content-hashed names** (`static/console-COGfuUhY.js`): a changed file
   gets a new name, so browsers keep the old ones for a year without ever
   using a stale copy. `public/` (the 404 page, `robots.txt`, the app manifest,
@@ -1101,7 +1108,7 @@ the one-time mail setup in [`docs/AUTH.md`](docs/AUTH.md).) Before pushing,
 
 | File | Purpose |
 |---|---|
-| `index.html` / `index.js` | Sign-in: role → staff password / learner PIN → onboarding (the page's first moments — role tiles, fonts, "taking longer than usual" — are a small inline script the CSP allows by its hash) |
+| `index.html` / `index.js` | Sign-in: one form — email + password or username + PIN — then the page for the account's role, or onboarding (the page's first moments — the form, fonts, "taking longer than usual" — are a small inline script the CSP allows by its hash) |
 | `teacher.html` / `teacher.js` | Teacher dashboard |
 | `learner.html` / `learner.js` | Learner dashboard |
 | `leader.html` / `leader.js` | Head-of-institution dashboard |

@@ -235,53 +235,26 @@ a{ color:inherit; }
 .gate-brand h1{ font-size:var(--text-kpi); line-height:1.15; margin:0 0 .35rem; }
 .gate-tagline{ margin:0; font-size:var(--text-title); font-weight:600; color:var(--ink-soft); letter-spacing:.02em; }
 .gate-tagline span{ color:var(--accent); margin:0 .2rem; }
-/* After step 1 the brand steps back: a small mark beside the name. */
-.gate-card:not([data-step="role"]):not([data-step="loading"]) .gate-brand{
+/* After the sign-in step the brand steps back: a small mark beside the name. */
+.gate-card:not([data-step="signin"]):not([data-step="loading"]) .gate-brand{
   display:flex; align-items:center; justify-content:center; gap:.6rem; padding:1rem 1.5rem;
 }
-.gate-card:not([data-step="role"]):not([data-step="loading"]) .gate-mark{ width:38px; height:38px; border-radius:11px; font-size:var(--text-title); margin:0; }
-.gate-card:not([data-step="role"]):not([data-step="loading"]) .gate-brand h1{ font-size:var(--text-section); margin:0; }
-.gate-card:not([data-step="role"]):not([data-step="loading"]) .gate-tagline{ display:none; }
+.gate-card:not([data-step="signin"]):not([data-step="loading"]) .gate-mark{ width:38px; height:38px; border-radius:11px; font-size:var(--text-title); margin:0; }
+.gate-card:not([data-step="signin"]):not([data-step="loading"]) .gate-brand h1{ font-size:var(--text-section); margin:0; }
+.gate-card:not([data-step="signin"]):not([data-step="loading"]) .gate-tagline{ display:none; }
 
 .login-card{ padding:1.5rem 1.6rem 1.7rem; }
 .login-inner{ width:100%; }
 .gate-wait{ text-align:center; margin:1rem 0; }
-.gate-prompt{ text-align:center; font-size:var(--text-sm); font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-soft); margin:0 0 .9rem; }
+/* Under the password: "Forgot password?", or for a learner, who to ask. */
+.si-forgot{ display:flex; justify-content:flex-end; margin:-.7rem 0 .9rem; font-size:var(--text-sm); color:var(--ink-soft); }
 
-/* Five big tiles: three across, then two (the sketch's layout); two
-   across on a phone, Education Team full width. */
-.gate-roles{ display:grid; grid-template-columns:repeat(6,1fr); gap:.7rem; }
-.gate-role{ grid-column:span 2; }
-.gate-role:nth-child(n+4){ grid-column:span 3; }
-.gate-role{
-  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.55rem; min-height:6.4rem;
-  padding:.9rem .5rem; border:1px solid var(--line-control); border-radius:var(--radius-md); background:var(--paper-raised);
-  color:var(--ink); text-decoration:none; text-align:center; -webkit-tap-highlight-color:transparent;
-  transition:border-color .15s, box-shadow .15s, transform .15s;
-}
-.gate-role b{ font-size:var(--text-title); font-weight:700; line-height:1.2; }
-.gate-role-icon{
-  width:42px; height:42px; border-radius:12px; display:flex; align-items:center; justify-content:center;
-  background:var(--brand-soft); color:var(--brand-fg);
-}
-.gate-role-icon .icon{ width:22px; height:22px; }
-.gate-role:hover{ border-color:var(--brand); box-shadow:0 0 0 3px var(--brand-soft); }
-.gate-role:active{ transform:scale(.98); }
-.gate-role:focus-visible{ outline:3px solid var(--focus); outline-offset:2px; }
 @media (max-width:480px){
-  .gate-roles{ grid-template-columns:1fr 1fr; gap:.6rem; }
-  .gate-role, .gate-role:nth-child(n+4){ grid-column:span 1; }
-  .gate-role:last-child{ grid-column:1 / -1; }
-  .gate-role{ min-height:5.8rem; }
   .gate-brand{ padding:1.6rem 1.2rem 1rem; }
   .gate-brand h1{ font-size:var(--text-page); }
   .login-card{ padding:1.2rem 1.1rem 1.4rem; }
 }
 
-.gate-help-btn{
-  display:block; margin:1.2rem auto 0; background:none; border:0; padding:.4rem .6rem; cursor:pointer;
-  font:inherit; font-size:var(--text-title); font-weight:600; color:var(--brand-fg); text-decoration:underline; text-underline-offset:3px;
-}
 .gate-help{ margin-top:.8rem; padding:.9rem 1rem; border-radius:var(--radius-md); background:var(--paper-sunk); font-size:var(--text-body); line-height:1.5; }
 .gate-help p{ margin:0 0 .55rem; }
 .gate-help p:last-child{ margin:0; }
@@ -339,8 +312,8 @@ a{ color:inherit; }
 }
 .panel-search input:focus{ border-color:var(--brand); }
 .field .field-error{ color:var(--danger-fg); font-size:var(--text-sm); margin-top:.3rem; }
-.login-foot{ display:flex; justify-content:space-between; margin-top:.8rem; font-size:var(--text-sm); }
-.login-foot button{ background:none; border:0; color:var(--ink-soft); cursor:pointer; font-size:var(--text-sm); text-decoration:underline; text-underline-offset:2px; }
+.login-foot{ display:flex; flex-wrap:wrap; justify-content:space-between; gap:.4rem 1rem; margin-top:.8rem; font-size:var(--text-sm); }
+.login-foot button{ white-space:nowrap; background:none; border:0; color:var(--ink-soft); cursor:pointer; font-size:var(--text-sm); text-decoration:underline; text-underline-offset:2px; }
 .link-btn{
   background:none; border:0; padding:0; color:var(--brand); font-weight:600;
   font-size:var(--text-sm); cursor:pointer; font-family:inherit;

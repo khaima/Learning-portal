@@ -34,84 +34,41 @@
           <p class="login-sub gate-wait">One moment…</p>
         </div>
 
-        <!-- step 1: pick a role. Plain links, so a tap before the page's
-             code has arrived still counts (index.js opens that role). -->
-        <div id="stepRole" hidden>
-          <p class="gate-prompt" id="gateRolePrompt">Sign in as</p>
-          <nav class="gate-roles" aria-labelledby="gateRolePrompt" id="loginRoleGrid">
-            <a class="gate-role" href="#teacher" data-role="teacher"><span class="gate-role-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 19V6a2 2 0 0 1 2-2h13v14H6a2 2 0 0 0-2 2Zm0 0a2 2 0 0 0 2 2h13"/><path d="M9 8h7M9 11h7"/></svg></span><b>Teacher</b></a>
-            <a class="gate-role" href="#learner" data-role="learner"><span class="gate-role-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/></svg></span><b>Learner</b></a>
-            <a class="gate-role" href="#school_leader" data-role="school_leader"><span class="gate-role-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 21V9l9-6 9 6v12"/><path d="M9 21v-6h6v6"/></svg></span><b>School Head</b></a>
-            <a class="gate-role" href="#field_officer" data-role="field_officer"><span class="gate-role-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 21s7-6.1 7-11.5A7 7 0 0 0 5 9.5C5 14.9 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg></span><b>Field Officer</b></a>
-            <a class="gate-role" href="#education_team" data-role="education_team"><span class="gate-role-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 6-7"/></svg></span><b>Education Team</b></a>
-          </nav>
-          <button type="button" class="gate-help-btn" id="gateHelpBtn" aria-expanded="false" aria-controls="gateHelp">Need help?</button>
-          <div class="gate-help" id="gateHelp" hidden>
-            <p><b>Learners</b> — your teacher gives you a username and a 4-digit PIN. After 5 wrong tries, wait 15 minutes or ask your teacher to unlock you.</p>
-            <p><b>Teachers, school heads and field officers</b> — choose your role, then sign in with your email and password. New here? Choose your role, then <i>Create an account</i>; an administrator approves it before you can use it.</p>
-            <p><b>Forgot your password?</b> Choose your role, then <i>Forgot password?</i> — or ask the Education Team to reset it.</p>
-            <p><b>On a shared school device?</b> Leave <i>Remember me</i> unticked, and sign out when you're done.</p>
-            <p><b>Still stuck?</b> Ask your HPF field officer or the Education Team.</p>
-          </div>
-        </div>
+        <!-- Sign in: one form for everyone, so nobody is asked who they are.
+             An email signs staff in with their password; a username signs a
+             learner in with the PIN from their teacher. The portal then opens
+             the page for the role on the account (index.js). -->
+        <div id="stepSignIn" hidden>
+          <h2 id="siHeading">Sign in</h2>
+          <p class="login-sub" id="siSub">Staff: your email and password. Learners: the username and PIN from your teacher.</p>
 
-        <!-- step 2 (learners): username + PIN -->
-        <div id="stepLearner" hidden>
-          <h2>Sign in as Learner</h2>
-          <p class="login-sub">Your teacher gives you a username and a 4-digit PIN.</p>
-          <form id="learnerForm">
+          <form id="signInForm" method="post">
             <div class="field">
-              <label for="ln_user">Username</label>
-              <input id="ln_user" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="e.g. naomi.k" required>
+              <label for="si_id" id="siIdLabel">Email or username</label>
+              <input id="si_id" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="you@example.org or naomi.k" required>
             </div>
             <div class="field">
-              <label for="ln_pin">4-digit PIN</label>
-              <input id="ln_pin" name="pin" type="text" inputmode="numeric" autocomplete="off" pattern="[0-9]{4}" maxlength="4" placeholder="0000" required>
-              <div class="field-error" id="learnerError" hidden></div>
+              <label for="si_secret" id="siSecretLabel">Password or PIN</label>
+              <input id="si_secret" name="password" type="password" autocomplete="current-password" placeholder="Your password or 4-digit PIN" required>
+              <div class="field-error" id="siError" role="alert" hidden></div>
             </div>
+            <p class="si-forgot">
+              <button type="button" class="link-btn" id="pwForgotLink">Forgot password?</button>
+              <span id="pinForgot" hidden>Forgot your PIN? Ask your teacher.</span>
+            </p>
             <div class="field-remember">
-              <input id="ln_remember" type="checkbox">
-              <label for="ln_remember">Remember me on this device</label>
+              <input id="si_remember" type="checkbox">
+              <label for="si_remember">Remember me on this device</label>
             </div>
-            <button class="btn btn-primary btn-block" type="submit">Sign in</button>
+            <button class="btn btn-primary btn-block" type="submit" id="siSubmit">Sign in</button>
           </form>
-          <div class="login-foot" style="margin-top:1rem">
-            <span></span>
-            <button type="button" id="learnerBack">← Not a learner</button>
-          </div>
-        </div>
 
-        <!-- step 2 (staff): email + password -->
-        <div id="stepPassword" hidden>
-          <h2><span id="pwHeadVerb">Sign in</span> as <span id="pwRoleLabel">Teacher</span></h2>
-          <p class="login-sub" id="pwSub">Enter your email and password.</p>
-
-          <!-- shown only when Google is switched on in Supabase Auth (index.js) -->
+          <!-- shown only when Google is switched on in Supabase Auth (index.js); staff only -->
+          <div class="login-divider" id="googleDivider" hidden><span>or</span></div>
           <button type="button" class="btn btn-google btn-block" id="googleBtn" hidden>
             <svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24c0,11.045,8.955,20,20,20c11.045,0,20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"/><path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"/><path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"/><path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571c0.001-0.001,0.002-0.001,0.003-0.002l6.19,5.238C36.971,39.205,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z"/></svg>
             Continue with Google
           </button>
-          <div class="login-divider" id="googleDivider" hidden><span>or use email and password</span></div>
-
-          <form id="passwordForm">
-            <div class="field">
-              <label for="pw_email">Email address</label>
-              <input id="pw_email" name="email" type="email" autocomplete="email" placeholder="you@example.org" required>
-            </div>
-            <div class="field">
-              <label for="pw_pass">Password</label>
-              <input id="pw_pass" name="password" type="password" autocomplete="current-password" minlength="8" placeholder="Your password" required>
-              <div class="field-error" id="pwError" hidden></div>
-            </div>
-            <p style="text-align:right;margin:-.7rem 0 .9rem">
-              <button type="button" class="link-btn" id="pwForgotLink">Forgot password?</button>
-            </p>
-            <div class="field-remember">
-              <input id="pw_remember" type="checkbox">
-              <label for="pw_remember">Remember me on this device</label>
-            </div>
-            <button class="btn btn-primary btn-block" type="submit" id="pwSubmit">Sign in</button>
-          </form>
 
           <!-- self-service password reset: emails a link, the same one an
                administrator's "Send reset link" sends -->
@@ -127,12 +84,20 @@
           <p class="login-sub" id="forgotSent" hidden style="margin-top:0"></p>
 
           <div class="login-foot" style="margin-top:1rem" id="pwFootLinks">
-            <button type="button" id="pwToggleMode">New here? Create an account</button>
-            <button type="button" id="changeRole">← Different role</button>
+            <button type="button" id="pwToggleMode">New staff member? Create an account</button>
+            <button type="button" id="gateHelpBtn" aria-expanded="false" aria-controls="gateHelp">Need help?</button>
           </div>
           <div class="login-foot" style="margin-top:1rem" id="forgotFootLinks" hidden>
             <span></span>
-            <button type="button" id="forgotBack">← Back to sign in</button>
+            <button type="button" id="forgotBack">&larr; Back to sign in</button>
+          </div>
+          <div class="gate-help" id="gateHelp" hidden>
+            <p><b>No need to choose a role</b> &mdash; sign in and the portal opens your own page.</p>
+            <p><b>Learners</b> &mdash; type the username your teacher gave you, then your 4-digit PIN. After 5 wrong tries, wait 15 minutes or ask your teacher to unlock you.</p>
+            <p><b>Teachers, school heads, field officers and HPF staff</b> &mdash; your email and password. New here? <i>Create an account</i>; an administrator approves it before you can use it.</p>
+            <p><b>Forgot your password?</b> <i>Forgot password?</i> sends a link to your email &mdash; or ask the Education Team to reset it.</p>
+            <p><b>On a shared school device?</b> Leave <i>Remember me</i> unticked, and sign out when you're done.</p>
+            <p><b>Still stuck?</b> Ask your HPF field officer or the Education Team.</p>
           </div>
         </div>
 
@@ -303,7 +268,7 @@
     </footer>
   </main>
 
-  <!-- The first moments — role tiles, fonts, "taking longer than usual" —
+  <!-- The first moments — the sign-in form, fonts, "taking longer than usual" —
        run inline so they don't wait for a download on a slow connection.
        The CSP (vercel.json) allows exactly this script by its SHA-256, and
        scripts/check-csp.mjs checks the hash; it never changes with a build. -->
@@ -316,7 +281,7 @@
     else font.addEventListener("load", function () { font.media = "all"; });
   }
 
-  /* Show the role tiles at once — unless there's a session or a sign-in
+  /* Show the sign-in form at once — unless there's a session or a sign-in
      link to check first. */
   try {
     var stored = function (st) {
@@ -328,10 +293,17 @@
     };
     if (!/[?&](code|flow|invite|error)=/.test(location.search) && !stored(localStorage) && !stored(sessionStorage)) {
       document.getElementById("stepLoading").hidden = true;
-      document.getElementById("stepRole").hidden = false;
-      document.querySelector(".gate-card").setAttribute("data-step", "role");
+      document.getElementById("stepSignIn").hidden = false;
+      document.querySelector(".gate-card").setAttribute("data-step", "signin");
     }
   } catch (e) { /* storage blocked: wait for index.js */ }
+
+  /* Signing in is index.js's job: until it has arrived, the form is never
+     sent by the browser itself (that would post the password to this page). */
+  var form = document.getElementById("signInForm");
+  if (form) form.addEventListener("submit", function (e) {
+    if (!window.__hpfReady) { e.preventDefault(); document.getElementById("gateSlow").hidden = false; }
+  });
 
   /* On a slow connection the page's code can take a while; if it hasn't
      started after 12 seconds, say so, with a way to try again. */

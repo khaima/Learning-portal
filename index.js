@@ -13,23 +13,27 @@ const ROLE_LABEL = Object.fromEntries(ROLES.map((r) => [r.value, r.label]));
 /* The school list (and the store code behind it) is only needed when an
    account is being set up, so it isn't part of the sign-in page's download. */
 const schoolTools = () => import("./store.js");
-const PENDING_ROLE_KEY = "hpf_pending_role";
 
 /* "Remember me": besides where the session token lives (supabase.js),
-   remember the last email/username used per role so a returning,
-   remembered visitor doesn't have to retype it. Never stores a password
-   or PIN. Cleared the moment someone signs in with the box unchecked. */
-const LAST_STAFF_KEY = "hpf_last_staff_login";
-const LAST_LEARNER_KEY = "hpf_last_learner_username";
+   remember the last email or username used, so a returning, remembered
+   visitor doesn't have to retype it. Never stores a password or PIN.
+   Cleared the moment someone signs in with the box unchecked. (The two
+   older keys, one for staff and one for learners, are still read once.) */
+const LAST_LOGIN_KEY = "hpf_last_login";
+const OLD_LAST_KEYS = ["hpf_last_staff_login", "hpf_last_learner_username"];
 
-function loadLastStaffLogin() {
-  try { return JSON.parse(localStorage.getItem(LAST_STAFF_KEY) || "null"); } catch { return null; }
+function loadLastLogin() {
+  try {
+    return localStorage.getItem(LAST_LOGIN_KEY)
+      || JSON.parse(localStorage.getItem(OLD_LAST_KEYS[0]) || "null")?.email
+      || localStorage.getItem(OLD_LAST_KEYS[1]) || "";
+  } catch { return ""; }
 }
-function saveLastStaffLogin(role, email) {
-  try { localStorage.setItem(LAST_STAFF_KEY, JSON.stringify({ role, email })); } catch { /* ignore */ }
+function saveLastLogin(id) {
+  try { localStorage.setItem(LAST_LOGIN_KEY, id); } catch { /* ignore */ }
 }
-function clearLastStaffLogin() {
-  try { localStorage.removeItem(LAST_STAFF_KEY); } catch { /* ignore */ }
+function clearLastLogin() {
+  try { for (const k of [LAST_LOGIN_KEY, ...OLD_LAST_KEYS]) localStorage.removeItem(k); } catch { /* ignore */ }
 }
 /* Ask the browser's own password manager to remember this login — what
    actually makes it autofill email+password next time (staff only)
@@ -46,25 +50,13 @@ async function offerToSaveCredential(id, password) {
   } catch { /* not fatal — sign-in already succeeded either way */ }
 }
 
-function loadLastLearnerUsername() {
-  try { return localStorage.getItem(LAST_LEARNER_KEY) || ""; } catch { return ""; }
-}
-function saveLastLearnerUsername(username) {
-  try { localStorage.setItem(LAST_LEARNER_KEY, username); } catch { /* ignore */ }
-}
-function clearLastLearnerUsername() {
-  try { localStorage.removeItem(LAST_LEARNER_KEY); } catch { /* ignore */ }
-}
-
 // The page's code has arrived: no "slow connection" notice needed.
 window.__hpfReady = true;
 $("#gateSlow").hidden = true;
 
 const steps = {
   loading: $("#stepLoading"),
-  role: $("#stepRole"),
-  learner: $("#stepLearner"),
-  password: $("#stepPassword"),
+  signin: $("#stepSignIn"),
   resetPassword: $("#stepResetPassword"),
   onboard: $("#stepOnboard"),
   school: $("#stepSchool"),
@@ -73,25 +65,13 @@ const steps = {
 };
 function show(name) {
   for (const [k, el] of Object.entries(steps)) el.hidden = k !== name;
-  $(".gate-card").dataset.step = name; // the brand header shrinks after step 1
-  // A staff sign-in is coming: fetch the sign-in library while they type,
-  // and find out whether to offer Google (its button is on this step only,
-  // so the first load of the page doesn't wait on another server).
-  if (name === "password") {
-    getAuth().catch(() => {});
-    authSettings().then((s) => { authCfg = s; syncGoogleButton(); });
-  }
-}
-
-function pendingRole() {
-  try { return sessionStorage.getItem(PENDING_ROLE_KEY) || "teacher"; } catch { return "teacher"; }
-}
-function setPendingRole(role) {
-  try { sessionStorage.setItem(PENDING_ROLE_KEY, role); } catch { /* ignore */ }
+  $(".gate-card").dataset.step = name; // the brand header shrinks after the sign-in step
+  // Find out whether to offer Google (its button is on this step only, and
+  // the page never waits for the answer).
+  if (name === "signin") authSettings().then((s) => { authCfg = s; syncGoogleButton(); });
 }
 
 function goToDashboard(role) {
-  try { sessionStorage.removeItem(PENDING_ROLE_KEY); } catch { /* ignore */ }
   location.href = DASHBOARD_PATH[role] || "index.html";
 }
 
@@ -197,13 +177,12 @@ async function loadInviteOrDrop(token) {
 /* Not signed in yet: create the account for the invited email. */
 async function showInviteSignup(token) {
   const inv = await loadInviteOrDrop(token);
-  if (!inv) { show("role"); return; }
-  setPendingRole(inv.role);
-  $("#pwRoleLabel").textContent = inv.roleLabel;
+  if (!inv) { showSignIn(); return; }
   setPwMode(true);
-  $("#pwSub").textContent = `You've been invited to join as ${inv.roleLabel}. Create a password for ${inv.email} — or sign in if you already have an account.`;
-  $("#pw_email").value = inv.email;
-  show("password");
+  $("#siHeading").textContent = `Join as ${inv.roleLabel}`;
+  $("#siSub").textContent = `You've been invited to join as ${inv.roleLabel}. Create a password for ${inv.email} — or sign in if you already have an account.`;
+  siId.value = inv.email;
+  show("signin");
 }
 
 /* Signed in: confirm name (and BOM/TSC for teachers) and join. */
@@ -242,7 +221,7 @@ $("#inviteAcceptForm").addEventListener("submit", async (e) => {
 $("#inviteSignOut").addEventListener("click", async () => {
   await signOut();
   const token = pendingInvite();
-  if (token) showInviteSignup(token); else show("role");
+  if (token) showInviteSignup(token); else showSignIn();
 });
 
 /* ---- accounts that can't be used yet (or any more) ---- */
@@ -266,7 +245,7 @@ function showStatus(profile) {
 $("#stRefresh").addEventListener("click", () => { show("loading"); route(); });
 $("#stSignOut").addEventListener("click", async () => {
   await signOut();
-  show("role");
+  showSignIn();
 });
 
 /* ---- decide which step to show on load ---- */
@@ -274,12 +253,12 @@ async function route() {
   const hasLearner = !!learnerToken();
   const invite = hasLearner ? "" : pendingInvite();
   if (!hasLearner) {
-    // No staff session on this device: the role tiles, without loading the sign-in library.
+    // No staff session on this device: the sign-in form, without loading the sign-in library.
     const data = storedStaffUserId()
       ? await getAuth().then((a) => a.getSession()).then((r) => r.data).catch(() => ({}))
       : {};
     if (!data.session) {
-      if (invite) await showInviteSignup(invite); else showRoles();
+      if (invite) await showInviteSignup(invite); else showSignIn();
       return;
     }
   }
@@ -304,142 +283,129 @@ async function route() {
     return;
   }
   if (profile && !profile.needsOnboarding) {
-    if (profile.email && getRememberMe()) saveLastStaffLogin(profile.role, profile.email);
+    // Signed in: straight to the page for the role on the account.
+    if (profile.email && getRememberMe()) saveLastLogin(profile.email);
     goToDashboard(profile.role);
     return;
   }
-  if (hasLearner) { showRoles(); return; } // stale learner token, cleared by getProfile
+  if (hasLearner) { showSignIn(); return; } // stale learner token, cleared by getProfile
   // Staff signed in but not onboarded yet (first Google sign-in lands here too).
-  if (profile?.email && getRememberMe()) saveLastStaffLogin(pendingRole(), profile.email);
+  if (profile?.email && getRememberMe()) saveLastLogin(profile.email);
   $("#onboardEmail").textContent = profile?.email || "you";
-  setOnboardRole(pendingRole());
+  setOnboardRole("teacher"); // they choose on the form
   show("onboard");
   loadOnboardSchools();
 }
 
-// ---- step 1: role ----
-// The role picked goes in the address (#teacher), so the phone's Back
-// button returns to the tiles instead of leaving the portal — and a tile
-// tapped before this code arrived is opened as soon as it does.
-const ROLE_TILES = new Set($$("#loginRoleGrid .gate-role").map((a) => a.dataset.role));
-const hashRole = () => { const h = location.hash.slice(1); return ROLE_TILES.has(h) ? h : null; };
-let pushedRole = false;
+// ---- sign in: one form, and the account says who it is ----
+/* Nobody is asked who they are. An email is a staff sign-in (password);
+   anything else is a learner's username (4-digit PIN) — usernames never
+   contain "@" (the API's rule). Once in, the portal opens the page for the
+   role on the account (route → goToDashboard). The second field follows
+   what's typed: a staff password stays hidden and can be kept by the
+   browser's password manager; a learner's PIN is 4 numbers and is never
+   offered to it (learners share school devices). */
+const signInForm = $("#signInForm");
+const siId = $("#si_id");
+const siSecret = $("#si_secret");
+const siError = $("#siError");
+let pwSignupMode = false;
+let forgotOn = false;
+/* A name without "@" is taken as a learner's username once they've moved
+   on from the field — not while a staff member is still typing the start of
+   their email. */
+let idSettled = true;
 
-function showRoles() {
-  show("role");
-  const role = hashRole();
-  if (role) openRole(role);
+function signInKind() {
+  if (pwSignupMode) return "staff";
+  const id = siId.value.trim();
+  if (!id) return "either";
+  if (id.includes("@")) return "staff";
+  return idSettled ? "learner" : "either";
 }
-function backToRoles() {
-  if (pushedRole) { pushedRole = false; history.back(); return; } // hashchange shows the tiles
-  if (location.hash) history.replaceState(null, "", location.pathname + location.search);
-  show("role");
+function setAttrs(el, attrs) {
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v == null) el.removeAttribute(k); else el.setAttribute(k, v);
+  }
 }
-$$("#loginRoleGrid .gate-role").forEach((tile) =>
-  tile.addEventListener("click", (e) => {
-    e.preventDefault();
-    const role = tile.dataset.role;
-    if (hashRole() === role) { openRole(role); return; }
-    pushedRole = true;
-    location.hash = role; // → hashchange → openRole
-  })
-);
-window.addEventListener("hashchange", () => {
-  if (!["role", "learner", "password"].includes($(".gate-card").dataset.step)) return;
-  const role = hashRole();
-  if (role) openRole(role);
-  else { pushedRole = false; show("role"); }
-});
+const SECRET = {
+  either: { label: "Password or PIN", type: "password", autocomplete: "current-password", placeholder: "Your password or 4-digit PIN", inputmode: null, maxlength: null, minlength: null },
+  staff: { label: "Password", type: "password", autocomplete: "current-password", placeholder: "Your password", inputmode: null, maxlength: null, minlength: null },
+  newStaff: { label: "Password", type: "password", autocomplete: "new-password", placeholder: "At least 8 characters", inputmode: null, maxlength: null, minlength: "8" },
+  learner: { label: "4-digit PIN", type: "text", autocomplete: "off", placeholder: "0000", inputmode: "numeric", maxlength: "4", minlength: null },
+};
+let fieldsNow = "";
+function syncSignInFields() {
+  const kind = signInKind();
+  const key = pwSignupMode ? "newStaff" : kind;
+  if (key !== fieldsNow) {
+    // A typed password is never shown as plain text: it goes when the field becomes a PIN.
+    if (key === "learner" && siSecret.type === "password") siSecret.value = "";
+    fieldsNow = key;
+    const { label, ...attrs } = SECRET[key];
+    $("#siSecretLabel").textContent = label;
+    setAttrs(siSecret, attrs);
+    if (kind === "staff") getAuth().catch(() => {}); // fetch the sign-in library while they type
+  }
+  $("#pwForgotLink").hidden = kind === "learner" || pwSignupMode;
+  $("#pinForgot").hidden = kind !== "learner";
+  syncGoogleButton();
+}
+siId.addEventListener("input", () => { idSettled = false; siError.hidden = true; syncSignInFields(); });
+siId.addEventListener("change", () => { idSettled = true; syncSignInFields(); }); // moved on, or filled in by the browser
+
+function showSignInError(text) {
+  siError.textContent = text;
+  siError.hidden = false;
+}
+
+/** The sign-in form; a remembered visitor finds their email or username filled in. */
+function showSignIn() {
+  setPwMode(false);
+  if (!siId.value) siId.value = loadLastLogin();
+  idSettled = true;
+  syncSignInFields();
+  show("signin");
+  // Straight into the form with a mouse; on a phone the keyboard waits for a tap.
+  if (matchMedia("(pointer: fine)").matches) (siId.value ? siSecret : siId).focus();
+}
+
 $("#gateHelpBtn").addEventListener("click", () => {
   const open = $("#gateHelp").hidden;
   $("#gateHelp").hidden = !open;
   $("#gateHelpBtn").setAttribute("aria-expanded", String(open));
 });
 
-function openRole(role) {
-  if (role === "learner") {
-    $("#learnerError").hidden = true;
-    $("#ln_user").value = loadLastLearnerUsername();
-    show("learner");
-    $("#ln_user").focus();
-    return;
-  }
-  setPendingRole(role);
-  // The tile's own wording ("School Head"), so the heading matches what was tapped.
-  $("#pwRoleLabel").textContent = $(`#loginRoleGrid [data-role="${role}"] b`)?.textContent || ROLE_LABEL[role] || role;
-  setPwMode(false);
-  const last = loadLastStaffLogin();
-  $("#pw_email").value = last && last.role === role ? last.email : "";
-  show("password");
-  $("#pw_email").focus();
-}
-
-$("#changeRole").addEventListener("click", backToRoles);
-$("#learnerBack").addEventListener("click", backToRoles);
-
-// ---- learner sign-in (username + PIN) ----
-const learnerForm = $("#learnerForm");
-const learnerError = $("#learnerError");
-learnerForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  learnerError.hidden = true;
-  const username = $("#ln_user").value.trim().toLowerCase();
-  const remember = $("#ln_remember").checked;
-  setRememberMe(remember);
-  const btn = learnerForm.querySelector("[type=submit]");
-  btn.disabled = true;
-  btn.textContent = "Signing in…";
-  const res = await learnerLogin(username, $("#ln_pin").value);
-  btn.disabled = false;
-  btn.textContent = "Sign in";
-  if (res.error) {
-    learnerError.textContent = res.error;
-    learnerError.hidden = false;
-    $("#ln_pin").value = "";
-    return;
-  }
-  // Learners share school devices, so their PIN is never offered to the
-  // browser's password manager — only the username is remembered.
-  if (remember) {
-    saveLastLearnerUsername(username);
-  } else {
-    clearLastLearnerUsername();
-  }
-  location.href = "learner.html";
-});
-
-// ---- staff step 2: email + password ----
-const passwordForm = $("#passwordForm");
-const pwError = $("#pwError");
-let pwSignupMode = false;
-
 function setPwMode(signup) {
   pwSignupMode = signup;
-  $("#pwHeadVerb").textContent = signup ? "Create an account" : "Sign in";
-  $("#pwSub").textContent = signup
-    ? "Pick a password you'll remember."
-    : "Enter your email and password.";
-  $("#pwSubmit").textContent = signup ? "Create account" : "Sign in";
-  $("#pw_pass").setAttribute("autocomplete", signup ? "new-password" : "current-password");
-  $("#pw_pass").placeholder = signup ? "At least 8 characters" : "Your password";
-  syncGoogleButton();
+  $("#siHeading").textContent = signup ? "Create an account" : "Sign in";
+  $("#siSub").textContent = signup
+    ? "For teachers, school heads and field officers: your email and a password you'll remember."
+    : "Staff: your email and password. Learners: the username and PIN from your teacher.";
+  $("#siIdLabel").textContent = signup ? "Email address" : "Email or username";
+  setAttrs(siId, signup
+    ? { type: "email", autocomplete: "email", placeholder: "you@example.org" }
+    : { type: "text", autocomplete: "username", placeholder: "you@example.org or naomi.k" });
+  $("#siSubmit").textContent = signup ? "Create account" : "Sign in";
   $("#pwToggleMode").textContent = signup
     ? "Already have an account? Sign in"
-    : "New here? Create an account";
-  pwError.hidden = true;
+    : "New staff member? Create an account";
+  siError.hidden = true;
   setForgotMode(false);
+  syncSignInFields();
 }
 
 $("#pwToggleMode").addEventListener("click", () => setPwMode(!pwSignupMode));
 
 /* "Continue with Google" appears only once Supabase Auth's public settings
    say Google is switched on — never shown and then failing (they're read
-   when the password step opens, in show()). While public sign-ups are
-   closed it's for signing in only, so it isn't offered when creating an
-   account. */
+   when the sign-in step shows, in show()). It's for staff, so it goes while
+   a learner's username is typed; and while public sign-ups are closed it's
+   for signing in only, so it isn't offered when creating an account. */
 let authCfg = null;
 function syncGoogleButton() {
-  const on = !!authCfg?.external?.google && !(pwSignupMode && authCfg?.disable_signup);
+  const on = !!authCfg?.external?.google && !(pwSignupMode && authCfg?.disable_signup)
+    && !forgotOn && signInKind() !== "learner";
   $("#googleBtn").hidden = !on;
   $("#googleDivider").hidden = !on;
 }
@@ -449,14 +415,17 @@ const forgotForm = $("#forgotForm");
 const forgotError = $("#forgotError");
 
 function setForgotMode(on) {
-  passwordForm.hidden = on;
+  forgotOn = on;
+  signInForm.hidden = on;
   $("#pwFootLinks").hidden = on;
   forgotForm.hidden = !on;
   $("#forgotSent").hidden = true;
   forgotError.hidden = true;
   $("#forgotFootLinks").hidden = !on;
+  syncGoogleButton();
   if (on) {
-    $("#fp_email").value = $("#pw_email").value.trim();
+    const id = siId.value.trim();
+    $("#fp_email").value = id.includes("@") ? id : "";
     $("#fp_email").focus();
   }
 }
@@ -487,58 +456,84 @@ forgotForm.addEventListener("submit", async (e) => {
   }
 });
 
-passwordForm.addEventListener("submit", async (e) => {
+signInForm.addEventListener("submit", async (e) => {
   e.preventDefault();
-  pwError.hidden = true;
-  const email = $("#pw_email").value.trim();
-  const password = $("#pw_pass").value;
-  const remember = $("#pw_remember").checked;
+  siError.hidden = true;
+  const id = siId.value.trim();
+  const remember = $("#si_remember").checked;
   setRememberMe(remember);
-  const btn = $("#pwSubmit");
+  idSettled = true;
+  syncSignInFields();
+  if (signInKind() === "learner") await learnerSignIn(id, siSecret.value, remember);
+  else await staffSignIn(id, siSecret.value, remember);
+});
+
+async function staffSignIn(email, password, remember) {
+  const btn = $("#siSubmit");
   btn.disabled = true;
   btn.textContent = pwSignupMode ? "Creating…" : "Signing in…";
-
   try {
     if (pwSignupMode) {
       const reg = await registerStaff(email, password);
       if (reg.error && !reg.exists) {
-        pwError.textContent = reg.error;
-        pwError.hidden = false;
+        showSignInError(reg.error);
         return;
       }
       // reg.exists → fall through and just try to sign in
     }
     const res = await signInWithPassword(email, password);
     if (res.error) {
-      pwError.textContent = pwSignupMode
-        ? "Account is ready, but that password didn't sign you in. Try again."
-        : res.error;
-      pwError.hidden = false;
+      showSignInError(pwSignupMode ? "Account is ready, but that password didn't sign you in. Try again." : res.error);
       return;
     }
     if (remember) {
-      saveLastStaffLogin(pendingRole(), email);
+      saveLastLogin(email);
       await offerToSaveCredential(email, password);
     } else {
-      clearLastStaffLogin();
+      clearLastLogin();
     }
     show("loading");
-    route();
+    route(); // → the page for the role on the account
   } finally {
     btn.disabled = false;
     btn.textContent = pwSignupMode ? "Create account" : "Sign in";
   }
-});
+}
 
-// ---- staff step 2: Google ----
+async function learnerSignIn(username, pin, remember) {
+  username = username.toLowerCase();
+  pin = pin.trim();
+  if (!/^\d{4}$/.test(pin)) {
+    showSignInError("A PIN is 4 numbers. Check it and try again.");
+    return;
+  }
+  const btn = $("#siSubmit");
+  btn.disabled = true;
+  btn.textContent = "Signing in…";
+  const res = await learnerLogin(username, pin);
+  btn.disabled = false;
+  btn.textContent = "Sign in";
+  if (res.error) {
+    // Someone with an email account who typed only their name lands here too.
+    showSignInError(/^wrong username or pin$/i.test(res.error)
+      ? "Wrong username or PIN. (Staff: sign in with your email address.)"
+      : res.error);
+    siSecret.value = "";
+    return;
+  }
+  // Only the username is remembered, never the PIN.
+  if (remember) saveLastLogin(username); else clearLastLogin();
+  location.href = DASHBOARD_PATH.learner;
+}
+
+// ---- staff: Google ----
 $("#googleBtn").addEventListener("click", async () => {
-  pwError.hidden = true;
-  setRememberMe($("#pw_remember").checked);
+  siError.hidden = true;
+  setRememberMe($("#si_remember").checked);
   try {
     await signInWithGoogle();
   } catch (err) {
-    pwError.textContent = friendlyError(err, "Couldn't start Google sign-in. Check your connection and try again.");
-    pwError.hidden = false;
+    showSignInError(friendlyError(err, "Couldn't start Google sign-in. Check your connection and try again."));
   }
 });
 
@@ -643,7 +638,7 @@ onboardForm.addEventListener("submit", async (e) => {
 
 $("#onboardSignOut").addEventListener("click", async () => {
   await signOut();
-  show("role");
+  showSignIn();
 });
 
 // ---- one-time school pick (accounts made before school codes) ----
@@ -696,13 +691,13 @@ schoolForm.addEventListener("submit", async (e) => {
 });
 $("#schoolSignOut").addEventListener("click", async () => {
   await signOut();
-  show("role");
+  showSignIn();
 });
 
 // ---- set a new password (from an emailed reset link) ----
 $("#rpBack").addEventListener("click", async () => {
   await signOut().catch(() => {});
-  show("role");
+  showSignIn();
 });
 
 /* Signed in with a temporary password from an administrator: the only way
