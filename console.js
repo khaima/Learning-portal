@@ -2492,6 +2492,10 @@ async function main() {
      officers. Every change here refreshes every dropdown on this page at
      once; other people's open pages pick it up via watchSchools(). */
   let renamingSchoolId = null;
+  /* With a long list the counties start folded, each saying what's in it;
+     the ones opened stay open while schools are added, renamed or removed. */
+  const countiesOpen = new Set();
+  let countiesFolded = null; // decided on the first draw
   const PIN_ICON = '<path d="M12 21s7-6.1 7-11.5A7 7 0 0 0 5 9.5C5 14.9 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/>';
   const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
@@ -2508,12 +2512,15 @@ async function main() {
     // The counts shown are active staff and enrolled learners; anyone still
     // placed here, whatever their status, stops the school being removed.
     const people = s.placed ?? (s.teachers || 0) + (s.heads || 0) + (s.learners || 0);
+    const who = (s.teachers || 0) + (s.heads || 0) + (s.learners || 0)
+      ? `${plural(s.heads || 0, "head")} · ${plural(s.teachers || 0, "teacher")} · ${plural(s.learners || 0, "learner")}`
+      : people ? "Nobody active here" : "Nobody placed here yet";
     return `
       <div class="school-item" data-school-id="${esc(s.id)}" data-people="${people}" data-name="${esc(s.name)}">
         <span class="code-chip">${esc(s.code)}</span>
         <div class="school-item-main">
           <b>${esc(s.name)}</b>
-          <span>${plural(s.teachers || 0, "teacher")} · ${plural(s.heads || 0, "head")} · ${plural(s.learners || 0, "learner")}</span>
+          <span>${who}</span>
         </div>
         <div class="school-item-actions">
           <button type="button" data-act="rename">Rename</button>
@@ -2526,16 +2533,22 @@ async function main() {
     const { counties, countyCodes, schools } = schoolDir;
     $("#schoolListCount").textContent =
       `${counties.length} ${counties.length === 1 ? "county" : "counties"} · ${plural(schools.length, "school")}`;
+    if (countiesFolded === null) countiesFolded = counties.length > 1 && schools.length > 20;
+    const learnersIn = (list) => list.reduce((a, s) => a + (s.learners || 0), 0);
+    const running = (list) => list.filter((s) => s.heads && s.teachers && s.learners).length;
     $("#schoolList").innerHTML = counties.map((c) => {
       const list = schools.filter((s) => s.county === c);
+      const about = list.length
+        ? `${plural(list.length, "school")} · ${running(list)} running · ${plural(learnersIn(list), "learner")}`
+        : "No schools yet";
       return `
-        <details class="lib-section" open>
+        <details class="lib-section county-section" data-county="${esc(c)}"${!countiesFolded || countiesOpen.has(c) || !list.length ? " open" : ""}>
           <summary class="lib-section-head">
             <span class="lib-section-ic">${svg(PIN_ICON)}</span>
             <span class="lib-section-name">${esc(c)}</span>
             <span class="code-chip">${esc(countyCodes[c] || "")}</span>
+            <span class="lib-section-dest">${about}</span>
             ${list.length ? "" : `<button type="button" class="county-remove" data-remove-county="${esc(c)}">Remove county</button>`}
-            <span class="count">${list.length}</span>
           </summary>
           <div class="lib-section-body school-list-body">${list.length
             ? list.map(schoolItem).join("")
@@ -2557,6 +2570,12 @@ async function main() {
     fillFinderSchools();
     refreshFormCountyOptions();
   }
+
+  $("#schoolList").addEventListener("toggle", (e) => {
+    const d = e.target.closest?.(".county-section");
+    if (!d) return;
+    if (d.open) countiesOpen.add(d.dataset.county); else countiesOpen.delete(d.dataset.county);
+  }, true);
 
   $("#schoolList").innerHTML = skeleton(3, { avatar: false });
   const schoolsWatch = watchSchools(applySchoolDir, (err) => {
@@ -2630,6 +2649,7 @@ async function main() {
       const school = await createSchool(name, county);
       toast("School added", `${school.name} is ${school.code}.`, "success");
       $("#as_name").value = "";
+      countiesOpen.add(county); // show it where it went
       await renderSchoolList();
     } catch (err) {
       toast("Couldn't add that school", friendlyError(err), "error");

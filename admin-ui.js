@@ -1101,29 +1101,126 @@ export async function renderSchoolsModule(el, { params = new URLSearchParams(), 
   }
 }
 
+/* The list of schools, county by county. With head counts (the API sends
+   them to whoever manages schools: Programme Admin, Super Admin) each school
+   says how far it has got, and the figures across the top count the schools
+   at each stage and show only those when pressed. Without them (M&E, a field
+   officer's My schools) it is the same list, by county, with its codes. */
+const SCHOOL_STAGES = [
+  { id: "running", label: "Running", sub: "A head, teachers and learners", icon: "check", pill: "ok" },
+  { id: "staff", label: "Needs staff", sub: "No head or no teachers yet", icon: "alert", pill: "warm" },
+  { id: "learners", label: "No learners yet", sub: "Staff in place, nobody enrolled", icon: "users", pill: "" },
+  { id: "empty", label: "Not started", sub: "Nobody placed here yet", icon: "clock", pill: "muted" },
+];
+function schoolStage(s) {
+  const heads = s.heads || 0, teachers = s.teachers || 0, learners = s.learners || 0;
+  if (!heads && !teachers && !learners) return "empty";
+  if (!heads || !teachers) return "staff";
+  return learners ? "running" : "learners";
+}
+/** The stage in a word or two, as a pill: "No head", "Running"… */
+function stagePill(s) {
+  const id = schoolStage(s);
+  const st = SCHOOL_STAGES.find((x) => x.id === id);
+  const words = id !== "staff" ? st.label : !s.heads && !s.teachers ? "No head or teachers" : !s.heads ? "No head" : "No teachers";
+  return `<span class="pill${st.pill ? ` ${st.pill}` : ""}">${esc(words)}</span>`;
+}
+const PIN_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 21s7-6.1 7-11.5A7 7 0 0 0 5 9.5C5 14.9 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg>';
+let schoolListShow = ""; // the stage picked above the list, kept while filters change
+
 function schoolListHtml(el, schools, { base, actions, filter = {} }) {
   const inArea = schools.length;
   schools = schools.filter((s) => (!filter.county || s.county === filter.county) && (!filter.school || s.name === filter.school));
   const counties = [...new Set(schools.map((s) => s.county))];
-  el.innerHTML = `
-    <div class="filter-bar-row" style="margin-bottom:.8rem"><div class="field"><label for="schoolFind">Find a school</label>
-      <input id="schoolFind" type="search" placeholder="Name, code or county…" autocomplete="off"></div></div>
-    <p class="hint" data-count style="margin-top:0"></p>
-    <div data-list></div>`;
+  const counted = schools.some((s) => s.teachers != null);
+  const n = (v) => Number(v || 0).toLocaleString();
+  const learnersIn = (list) => list.reduce((a, x) => a + (x.learners || 0), 0);
+  const atStage = (id) => schools.filter((x) => schoolStage(x) === id).length;
+  if (!counted || !SCHOOL_STAGES.some((st) => st.id === schoolListShow && atStage(st.id))) schoolListShow = "";
+  const href = (x) => `${base}?school=${encodeURIComponent(x.id)}`;
+
+  const figure = (id, label, value, sub, icon, warn = false) => `
+    <button type="button" class="stat-tile sl-fig${warn ? " intel-warn" : ""}" data-show="${id}" aria-pressed="${schoolListShow === id}">
+      <span class="s-label"><span class="s-ico" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${ICON[icon] || ""}</svg></span><span class="s-title">${esc(label)}</span></span>
+      <span class="s-num">${n(value)}</span>
+      <span class="s-sub">${esc(sub)}</span>
+    </button>`;
+  const figures = counted && schools.length > 1 ? `<div class="stat-row sl-figures" role="group" aria-label="Show schools by how far they have got">
+    ${figure("", "All schools", schools.length, `In ${counties.length} ${counties.length === 1 ? "county" : "counties"} · ${n(learnersIn(schools))} learners`, "school")}
+    ${SCHOOL_STAGES.map((st) => figure(st.id, st.label, atStage(st.id), st.sub, st.icon, st.id === "staff" && atStage(st.id) > 0)).join("")}
+  </div>` : "";
+
+  // Redrawn whenever a filter changes: the listeners go with the old wrapper.
+  el.innerHTML = `<div class="sl-root">${figures}
+    <div class="sl-tools">
+      <div class="field sl-find"><label for="schoolFind">Find a school</label>
+        <input id="schoolFind" type="search" placeholder="Name, code or county…" autocomplete="off"></div>
+      <p class="hint sl-count" data-count aria-live="polite"></p>
+      ${counties.length > 1 ? `<button type="button" class="btn btn-ghost q-small" data-fold>Close all counties</button>` : ""}
+    </div>
+    <div data-list></div></div>`;
+  const root = el.firstElementChild;
+
+  const row = (x) => `<tr>
+      <td class="lms-name"><a class="school-link" href="${esc(href(x))}"><b>${esc(x.name)}</b></a></td>
+      <td><span class="code-chip">${esc(x.code)}</span></td>
+      ${counted ? (schoolStage(x) === "empty" // nobody yet: dashes, not a row of warnings
+    ? '<td data-sort="0">—</td><td class="num">—</td><td class="num">—</td>'
+    : `<td data-sort="${x.heads || 0}">${x.heads ? (x.heads > 1 ? n(x.heads) : "Yes") : '<span class="sl-none">None</span>'}</td>
+      <td class="num">${n(x.teachers)}</td>
+      <td class="num">${n(x.learners)}</td>`) : ""}
+      ${counted ? `
+      <td data-sort="${SCHOOL_STAGES.findIndex((st) => st.id === schoolStage(x))}">${stagePill(x)}</td>` : ""}
+      <td class="td-actions sl-go" data-label=""><div class="roster-actions">${actions(x, { inList: true })}<a class="btn btn-ghost q-small" href="${esc(href(x))}">Open<span class="sr-only"> ${esc(x.name)}</span></a></div></td>
+    </tr>`;
+  const head = `<thead><tr><th class="lms-name">School</th><th>Code</th>${counted ? "<th>Head</th><th>Teachers</th><th>Learners</th><th>Stage</th>" : ""}<th aria-label="Open"></th></tr></thead>`;
+  const cols = `<colgroup><col><col class="c-code">${counted ? '<col class="c-head"><col class="c-n"><col class="c-n"><col class="c-stage">' : ""}<col class="c-go${schools.length && actions(schools[0], { inList: true }) ? " c-wide" : ""}"></colgroup>`;
+
   const draw = () => {
-    const q = el.querySelector("#schoolFind").value.trim().toLowerCase();
-    const shown = schools.filter((s) => !q || [s.name, s.code, s.county].some((v) => String(v || "").toLowerCase().includes(q)));
-    el.querySelector("[data-count]").textContent = `${shown.length} of ${inArea} school${inArea === 1 ? "" : "s"}${filter.school ? "" : filter.county ? ` · ${filter.county} County` : ""}`;
-    el.querySelector("[data-list]").innerHTML = shown.length ? counties.map((c) => {
-      const list = shown.filter((s) => s.county === c);
-      return list.length ? `<div class="list-group"><div class="list-group-title">${esc(c)}<span class="count">${list.length}</span></div>
-        ${list.map((s) => `<div class="task-row"><div style="flex:1;min-width:0"><a class="school-link" href="${esc(`${base}?school=${encodeURIComponent(s.id)}`)}"><b>${esc(s.name)}</b></a>
-          <span><span class="code-chip">${esc(s.code)}</span></span></div>
-          <div class="roster-actions">${actions(s, { inList: true })}<a class="btn btn-ghost q-small" href="${esc(`${base}?school=${encodeURIComponent(s.id)}`)}">Open</a></div></div>`).join("")}</div>` : "";
-    }).join("") : `<div class="empty-state">${schools.length ? `No school matches “${esc(q)}”. Try its code, or the county.`
-      : inArea ? "No school here matches the filters above. Take one off to see more." : "No schools in your area yet."}</div>`;
+    const q = root.querySelector("#schoolFind").value.trim().toLowerCase();
+    const shown = schools.filter((x) => (!q || [x.name, x.code, x.county].some((v) => String(v || "").toLowerCase().includes(q)))
+      && (!schoolListShow || schoolStage(x) === schoolListShow));
+    const stage = SCHOOL_STAGES.find((st) => st.id === schoolListShow);
+    root.querySelector("[data-count]").textContent = `${shown.length === inArea ? "All" : `${shown.length} of`} ${inArea} school${inArea === 1 ? "" : "s"}`
+      + `${stage ? ` · ${stage.label.toLowerCase()}` : ""}${!filter.school && filter.county ? ` · ${filter.county} County` : ""}`;
+    root.querySelectorAll(".sl-fig").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.show === schoolListShow)));
+    const closed = new Set([...root.querySelectorAll(".sl-county:not([open])")].map((d) => d.dataset.county));
+    root.querySelector("[data-list]").innerHTML = shown.length ? counties.map((c) => {
+      const list = shown.filter((x) => x.county === c);
+      if (!list.length) return "";
+      const all = schools.filter((x) => x.county === c);
+      const running = all.filter((x) => schoolStage(x) === "running").length;
+      const about = counted
+        ? `${all.length} school${all.length === 1 ? "" : "s"} · ${running} running · ${n(learnersIn(all))} learners`
+        : `${all.length} school${all.length === 1 ? "" : "s"}`;
+      // A search or a stage opens every county it finds schools in.
+      return `<details class="lib-section sl-county" data-county="${esc(c)}"${q || schoolListShow || !closed.has(c) ? " open" : ""}>
+        <summary class="lib-section-head">
+          <span class="lib-section-ic">${PIN_SVG}</span>
+          <span class="lib-section-name">${esc(c)}</span>
+          <span class="lib-section-dest">${esc(about)}</span>
+          ${list.length < all.length ? `<span class="count">${list.length} shown</span>` : ""}
+        </summary>
+        <div class="lms-table-wrap sl-wrap"><table class="lms-table sl-table"${list.length > 3 ? " data-sortable" : ""}>${cols}${head}<tbody>${list.map(row).join("")}</tbody></table></div>
+      </details>`;
+    }).join("") : `<div class="empty-state">${q ? `No school matches “${esc(q)}”${stage ? ` among those ${esc(stage.label.toLowerCase())}` : ""}. Try its code, or the county.`
+      : schools.length ? "No school is at that stage." : inArea ? "No school here matches the filters above. Take one off to see more." : "No schools in your area yet."}</div>`;
+    foldWords();
   };
-  el.querySelector("#schoolFind").addEventListener("input", draw);
+  const foldWords = () => {
+    const fold = root.querySelector("[data-fold]");
+    if (fold) fold.textContent = root.querySelector(".sl-county[open]") ? "Close all counties" : "Open all counties";
+  };
+  root.querySelector("#schoolFind").addEventListener("input", draw);
+  root.addEventListener("click", (e) => {
+    const fig = e.target.closest(".sl-fig");
+    if (fig) { schoolListShow = schoolListShow === fig.dataset.show ? "" : fig.dataset.show; draw(); return; }
+    if (e.target.closest("[data-fold]")) {
+      const openNow = !!root.querySelector(".sl-county[open]");
+      root.querySelectorAll(".sl-county").forEach((d) => { d.open = !openNow; });
+    }
+  });
+  root.addEventListener("toggle", foldWords, true); // a county opened or closed by hand, or all at once
   draw();
 }
 

@@ -1173,3 +1173,29 @@ One more tab in an area each role already has — no new menu rows:
   happened to the work set (on time, late, not handed in, not due yet);
   schools by work handed in and average mark; the schools as a table with
   bars; and what the figures say. Every card opens its full dashboard.
+
+## 32. Schools, organised, 1 November 2026
+
+At the Programme Admin's request ("make this page more organised and
+decent"):
+
+- **All schools** (`#school-profiles`, the Schools area's first tab; the same
+  list is M&E's All schools and a field officer's My schools). Each county
+  is a box that opens and closes, its header saying what's in it ("17
+  schools · 4 running · 88 learners"), and its schools are one table:
+  School, Code, then for whoever manages schools Head, Teachers, Learners
+  and **Stage**, with *Open* (and a field officer's *Start visit*). A stage
+  says how far a school has got: *Running* (a head, teachers and learners),
+  *Needs staff* (no head or no teachers), *No learners yet*, *Not started*
+  (nobody placed). Across the top, five figures count the schools at each
+  stage; pressing one shows only those schools (again, all of them).
+  *Find a school* searches names, codes and counties; *Close all counties*
+  folds the list to its county headers. On a phone each school is a card.
+  M&E and field officers have no head counts, so their list is School and
+  Code by county, without the figures.
+- **Counties & schools** (`#schools`): with more than 20 schools the
+  counties start folded, each header with the same summary; a county opened
+  stays open while schools are added, renamed or removed, and the county a
+  school was just added to opens. A school's line reads "1 head · 2 teachers
+  · 34 learners", or "Nobody placed here yet". Codes sit in one column, so
+  the names line up.
