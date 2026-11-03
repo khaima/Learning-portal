@@ -51,10 +51,14 @@ jobs:
 
       - name: Dump the database
         run: |
+          # Linking gives the CLI an IPv4 route to the database (Supabase's pooler);
+          # GitHub's runners can't reach its IPv6-only direct address.
+          supabase init --force >/dev/null
+          supabase link --project-ref "$PROJECT_REF" < /dev/null
           mkdir -p backup && cd backup
-          supabase db dump --project-ref "$PROJECT_REF" -f roles.sql --role-only
-          supabase db dump --project-ref "$PROJECT_REF" -f schema.sql
-          supabase db dump --project-ref "$PROJECT_REF" -f data.sql --use-copy --data-only \
+          supabase db dump --linked -f roles.sql --role-only
+          supabase db dump --linked -f schema.sql
+          supabase db dump --linked -f data.sql --use-copy --data-only \
             -x "storage.buckets_vectors" -x "storage.vector_indexes"
           ls -la
 
