@@ -62,6 +62,9 @@ jobs:
         run: |
           mkdir drill && cd drill
           supabase init --force >/dev/null
+          # Linking makes the drill run the same Auth, Storage and Postgres versions
+          # as production, so their tables (e.g. auth.mfa_recovery_code_sets) exist.
+          supabase link --project-ref "$PROJECT_REF" < /dev/null
           sed -i 's/^major_version = .*/major_version = 17/' supabase/config.toml
           supabase start -x realtime,imgproxy,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
           cd ..
