@@ -65,9 +65,13 @@ jobs:
           sed -i 's/^major_version = .*/major_version = 17/' supabase/config.toml
           supabase start -x realtime,imgproxy,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
           cd ..
+          # roles.sql sets log_* parameters on some Supabase roles, which only a
+          # superuser may do. The drill's postgres user can't, so the drill skips
+          # those logging settings. The kept backup still has roles.sql as dumped.
+          sed -E '/^(ALTER ROLE .* )?SET "?log_[a-z_]+"?( TO | ?= ?)/d' backup/roles.sql > backup/roles.drill.sql
           psql() { docker run --rm -i --network host -e PGPASSWORD=postgres -v "$PWD/backup:/backup" postgres:17 psql -h 127.0.0.1 -p 54322 -U postgres -d postgres "$@"; }
           psql --single-transaction -v ON_ERROR_STOP=1 \
-            -f /backup/roles.sql -f /backup/schema.sql -c "SET session_replication_role = replica" -f /backup/data.sql > restore.log
+            -f /backup/roles.drill.sql -f /backup/schema.sql -c "SET session_replication_role = replica" -f /backup/data.sql > restore.log
           # Rows per table in the dump, then in the restored database: they must match.
           awk '/^COPY [^ ]+ /{t=$2; n=0; inside=1; next} inside && /^\\\.$/{print t, n; inside=0; next} inside{n++}' backup/data.sql | sort > dumped.txt
           # One query counts them all: select '"public"."x"', count(*) from "public"."x" union all …
