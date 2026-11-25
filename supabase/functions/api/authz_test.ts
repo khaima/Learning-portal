@@ -2398,7 +2398,7 @@ Deno.test("platform overview: backups, mail, error tracking and sign-ups are che
     const checks = async () => Object.fromEntries(((await call("GET", "/platform/overview", "tok_super_admin")).json.checks as Row[]).map((x) => [x.label, x]));
     let cs = await checks();
     assertEquals(cs["Database backed up in the last two days"].ok, false);
-    assert(cs["Database backed up in the last two days"].detail.includes("SUPABASE_ACCESS_TOKEN"));
+    assert(cs["Database backed up in the last two days"].detail.includes("Nightly database backup runs"));
     assertEquals(cs["Invitation emails can be sent"].ok, false);
     assertEquals(cs["Errors are reported to the error tracker"].ok, false);
     assertEquals([cs["Public sign-ups are closed"].ok, cs["Public sign-ups are closed"].detail.startsWith("Open")], [false, true]);
@@ -2416,7 +2416,7 @@ Deno.test("platform overview: backups, mail, error tracking and sign-ups are che
     db.storage_files = [{ bucket: "backups", folder: "daily", name: `hpf-db-${day(5)}.tar.gz` }];
     signups = "down";
     cs = await checks();
-    assertEquals([cs["Database backed up in the last two days"].ok, cs["Database backed up in the last two days"].detail], [false, `Last backup ${day(5)} — 5 days ago`]);
+    assertEquals([cs["Database backed up in the last two days"].ok, cs["Database backed up in the last two days"].detail], [false, `Last backup ${day(5)} — 5 days ago; see the Nightly database backup runs in GitHub Actions`]);
     assertEquals([cs["Public sign-ups are closed"].ok, cs["Public sign-ups are closed"].detail], [false, "Couldn't ask Supabase Auth just now"]);
   } finally {
     globalThis.fetch = realFetch;
