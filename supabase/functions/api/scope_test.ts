@@ -75,47 +75,41 @@ Deno.test("permissions: every role's permissions are real permissions", () => {
   }
 });
 
-Deno.test("permissions: the HPF separation of duties", () => {
+Deno.test("permissions: the HPF separation of duties (25 November 2026)", () => {
   const has = (role: string, p: string) => permissionsFor(role).includes(p as never);
-  // Admin is not Super Admin.
-  for (const p of ["platform.view", "permissions.manage", "audit.view", "kobo.configure", "kobo.manage"]) {
-    assert(has("super_admin", p) && !has("admin", p), p);
+  const MANAGERS = ["admin", "education_team", "me"];
+  // Only the Super Admin governs the platform: permissions, the audit log and the change history.
+  for (const p of ["permissions.manage", "audit.view", "changes.view.all", "changes.restore"]) {
+    assert(has("super_admin", p), p);
+    for (const r of MANAGERS) assert(!has(r, p), `${r}: ${p}`);
   }
-  // The Programme Admin is the Education Team (29 October 2026): one role, the same permissions.
-  assertEquals([...permissionsFor("admin")].sort(), [...permissionsFor("education_team")].sort());
-  // It runs learning and education: schools, classes, learners, teaching, content, training, forms, reports.
-  for (const p of ["schools.manage", "calendar.manage", "classes.manage.all", "learners.manage.all", "learners.transfer", "library.manage",
-    "subjects.manage", "trainings.manage", "forms.manage", "learning.dashboard.view", "reports.programme"]) assert(has("education_team", p), p);
-  // It sees, invites and edits the people the programme works through (grantableRoles keeps it to
-  // teachers, school heads and field officers).
-  for (const p of ["users.view", "users.invite", "users.edit", "users.roles.assign"]) assert(has("education_team", p), p);
-  // Approvals, suspending, passwords, data scope, data quality, device sync, the Kobo pipeline and
-  // notifications are the Super Admin's alone.
-  for (const p of ["users.approve", "users.status.manage", "users.password.reset", "users.placement.assign", "data_quality.view",
-    "data_quality.manage", "sync.monitor", "sync.problems.view", "kobo.sync", "notifications.view.all"]) {
-    assert(has("super_admin", p) && !has("education_team", p) && !has("admin", p) && !has("me", p), p);
-  }
-  assert(!has("education_team", "kobo.review") && !has("admin", "kobo.review"), "Kobo review: M&E and the Super Admin");
-  // M&E keeps reviewing the Kobo data it measures with.
-  assert(has("me", "kobo.review") && has("me", "kobo.results.view"));
-  // The Programme Admin doesn't run the M&E results framework.
-  for (const p of ["me.view", "me.framework.manage", "me.actuals.verify", "me.reports.manage"]) assert(!has("admin", p), p);
-  // M&E measures; it doesn't manage accounts, settings, integrations or records.
-  for (const p of ["users.view", "users.roles.assign", "users.status.manage", "permissions.manage", "kobo.configure",
-    "kobo.manage", "schools.manage", "learners.transfer", "learners.manage.all", "library.manage", "audit.view", "platform.view"]) {
-    assert(!has("me", p), p);
-  }
-  // The Programme Admin (Education Team): not security, the platform or M&E.
-  for (const p of ["audit.view", "platform.view", "permissions.manage", "kobo.configure", "kobo.manage", "me.view"]) {
-    assert(!has("education_team", p), p);
-  }
+  // Admin: user accounts and operational settings…
+  for (const p of ["users.view", "users.invite", "users.approve", "users.roles.assign", "users.status.manage", "users.password.reset",
+    "users.placement.assign", "users.edit", "schools.manage", "calendar.manage", "kobo.configure", "kobo.manage", "sync.problems.view",
+    "notifications.view.all", "platform.view"]) assert(has("admin", p), `admin: ${p}`);
+  // …not learning, content or M&E.
+  for (const p of ["learners.view.all", "learners.manage.all", "learners.transfer", "classes.manage.all", "library.manage", "forms.manage",
+    "trainings.manage", "subjects.manage", "learning.dashboard.view", "intelligence.view", "programme.overview.view", "me.view",
+    "data_quality.view", "kobo.review"]) assert(!has("admin", p), `admin: ${p}`);
+  // Education Team: learning programmes, teachers, learning resources and education reports…
+  for (const p of ["programme.overview.view", "classes.manage.all", "learners.manage.all", "learners.transfer", "teachers.view", "library.manage",
+    "subjects.manage", "trainings.manage", "forms.manage", "learning.dashboard.view", "reports.programme"]) assert(has("education_team", p), `education_team: ${p}`);
+  // …not accounts, school setup, integrations, data quality or M&E.
+  for (const p of ["users.view", "users.invite", "users.roles.assign", "users.status.manage", "schools.manage", "calendar.manage",
+    "kobo.configure", "kobo.manage", "kobo.review", "data_quality.view", "platform.view", "me.view"]) assert(!has("education_team", p), `education_team: ${p}`);
+  // M&E Super Admin: monitoring, evaluation, indicators, data quality and programme reporting…
+  for (const p of ["me.view", "me.framework.manage", "me.actuals.record", "me.actuals.verify", "me.reports.manage", "data_quality.view",
+    "data_quality.manage", "kobo.review", "kobo.results.view", "kobo.sync", "intelligence.view", "reports.programme"]) assert(has("me", p), `me: ${p}`);
+  // …changing no account, school setting, integration or learning content.
+  for (const p of ["users.view", "users.roles.assign", "users.status.manage", "schools.manage", "calendar.manage", "kobo.configure",
+    "kobo.manage", "learners.manage.all", "learners.transfer", "library.manage", "forms.manage", "platform.view"]) assert(!has("me", p), `me: ${p}`);
   // Administrators don't act as a teacher, head, field officer or learner.
   for (const p of ["learners.manage", "assignments.manage", "assignments.grade", "field_reports.create", "forms.respond",
     "school.overview.view", "assignments.submit"]) {
-    assert(!has("super_admin", p) && !has("admin", p), p);
+    for (const r of ["super_admin", ...MANAGERS]) assert(!has(r, p), `${r}: ${p}`);
   }
   // Super Admin holds everything any management role holds.
-  for (const role of ["admin", "me", "education_team"]) {
+  for (const role of MANAGERS) {
     for (const p of permissionsFor(role)) assert(has("super_admin", p), `${role}: ${p}`);
   }
 });

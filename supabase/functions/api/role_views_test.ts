@@ -18,13 +18,13 @@ Deno.test("roles: each dashboard's read is the API's to refuse, not only the men
   freshWorld();
   const ok = (s: number) => s >= 200 && s < 300;
   const admin = await status("/admin/overview");
-  assertEquals(ROLES.filter((r) => ok(admin[r])), ["super_admin", "admin", "education_team"], "the Programme Admin (Education Team)");
+  assertEquals(ROLES.filter((r) => ok(admin[r])), ["super_admin", "education_team"], "the Education overview");
   const impact = await status("/impact");
-  assertEquals(ROLES.filter((r) => ok(impact[r])), ["super_admin", "admin", "me", "education_team"], "the impact dashboards (the Programme Admin: the learning side)");
+  assertEquals(ROLES.filter((r) => ok(impact[r])), ["super_admin", "me", "education_team"], "the impact dashboards (the Education Team: the learning side)");
   const coverage = await status("/mel/coverage");
   assertEquals(ROLES.filter((r) => ok(coverage[r])), ["super_admin", "me"], "M&E data completeness");
   const platform = await status("/platform/overview");
-  assertEquals(ROLES.filter((r) => ok(platform[r])), ["super_admin"], "the technical overview");
+  assertEquals(ROLES.filter((r) => ok(platform[r])), ["super_admin", "admin"], "the platform overview: the Super Admin's and the Admin's");
 });
 
 Deno.test("roles: the Education Team's overview data — school by school progress, the learning side only", async () => {

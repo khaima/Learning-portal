@@ -13,7 +13,7 @@ import { assertEquals } from "jsr:@std/assert@1";
 import { call, freshWorld, SCHOOL, SCHOOL_B } from "./test_world.ts";
 
 const charts = async () => {
-  const res = await call("GET", "/admin/overview", "tok_admin");
+  const res = await call("GET", "/admin/overview", "tok_education_team");
   assertEquals(res.status, 200);
   return res.json.charts;
 };
@@ -60,7 +60,7 @@ Deno.test("admin overview: gaps to fill — schools without a teacher, not visit
   db.schools.push({ id: "sch_new", name: "Ilkerin", county: "Narok", code: "NRK-099" });
   db.field_reports.push({ id: "fr_t", school_id: SCHOOL.id, school: SCHOOL.name, county: "Narok", visit_type: "ICT", officer_id: "field_officer-id", created_at: new Date().toISOString() });
   db.forms.push({ id: "form_quiet", title: "Term 3 check-in", audience: "teacher", county: null, archived_at: null });
-  const res = await call("GET", "/admin/overview", "tok_admin");
+  const res = await call("GET", "/admin/overview", "tok_education_team");
   assertEquals(res.status, 200, JSON.stringify(res.json));
   const { organisation: o, operations: ops, charts: c, people: p } = res.json;
   assertEquals(o.schoolsWithoutTeacher, { count: 1, names: ["Ilkerin"] });
@@ -77,7 +77,7 @@ Deno.test("admin overview: a county or school filter narrows every figure alike,
   const db = freshWorld();
   db.schools.push({ id: "sch_ny", name: "Nyeri Hill", county: "Nyeri", code: "NYR-001" });
   const get = async (qs: string) => {
-    const res = await call("GET", `/admin/overview${qs}`, "tok_admin");
+    const res = await call("GET", `/admin/overview${qs}`, "tok_education_team");
     assertEquals(res.status, 200, JSON.stringify(res.json));
     return res.json;
   };

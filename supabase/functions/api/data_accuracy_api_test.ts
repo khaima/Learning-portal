@@ -60,7 +60,7 @@ Deno.test("accuracy API: a new open records the school the reader's account is l
 Deno.test("accuracy API: the Administration overview — a read that fails is an error, never a page of zeros", async () => {
   const db = freshWorld();
   (db as unknown as { __fail_reads: string[] }).__fail_reads = ["class_teachers"];
-  const res = await call("GET", "/admin/overview", "tok_admin");
+  const res = await call("GET", "/admin/overview", "tok_education_team");
   assertEquals(res.status, 500);
   assertMatch(res.json.error, /Couldn't read the programme's records/);
 });

@@ -40,7 +40,7 @@ function withMel() {
 
 Deno.test("insights API: for whoever sees the impact dashboards (the Education Team: their learning side) — not admin or school roles", async () => {
   freshWorld();
-  for (const [token, status] of [["tok_me", 200], ["tok_super_admin", 200], ["tok_education_team", 200], ["tok_admin", 200], ["tok_teacher", 403], ["tok_field_officer", 403]] as const) {
+  for (const [token, status] of [["tok_me", 200], ["tok_super_admin", 200], ["tok_education_team", 200], ["tok_admin", 403], ["tok_teacher", 403], ["tok_field_officer", 403]] as const) {
     const res = await call("GET", "/impact/insights", token);
     assertEquals(res.status, status, token);
   }
@@ -58,7 +58,7 @@ Deno.test("insights API: a form past its due date, by who hasn't answered — on
   const f = find(exec, "reporting:form:form_1")!;
   assertMatch(f.text, /^\d+ of \d+ teachers haven't answered “Survey”, due /);
   assertEquals(f.links[0].page, "forms");
-  const admin = (await call("GET", "/admin/overview", "tok_admin")).json.insights;
+  const admin = (await call("GET", "/admin/overview", "tok_education_team")).json.insights;
   assertEquals(find(admin.items, "reporting:form:form_1")?.text, f.text, "the same finding on the Administration overview");
 });
 
@@ -87,9 +87,9 @@ Deno.test("insights API: one county — only its own targets, never the whole pr
 Deno.test("insights API: the Administration overview — the programme's M&E findings, and for one school only its own", async () => {
   withMel();
   // The overview already shows the programme's M&E targets to its administrators; its findings say the same.
-  const admin = (await call("GET", "/admin/overview", "tok_admin")).json.insights;
+  const admin = (await call("GET", "/admin/overview", "tok_education_team")).json.insights;
   assert(find(admin.items, "baseline:i1"), "the administrator's overview shows what its targets already show");
-  const narrowed = (await call("GET", `/admin/overview?school=${encodeURIComponent(SCHOOL.name)}`, "tok_admin")).json.insights;
+  const narrowed = (await call("GET", `/admin/overview?school=${encodeURIComponent(SCHOOL.name)}`, "tok_education_team")).json.insights;
   assertEquals(find(narrowed.items, "baseline:i1"), undefined, "the baseline is the programme's: never set against one school");
   assertEquals(find(narrowed.items, "evidence:learning"), undefined, "nor is the programme's evidence note said of one school");
   assertEquals(find(narrowed.items, "target:i1")?.text,

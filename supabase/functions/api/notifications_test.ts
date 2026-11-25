@@ -12,7 +12,7 @@ import { buildNotifications, localDay, missingVisitForms, type NotifyInput } fro
 const NOW = new Date("2026-10-03T06:00:00Z");
 // deno-lint-ignore no-explicit-any
 const can = (person: Record<string, any>, p: string) =>
-  (p === "kobo.review" && ["me", "admin", "super_admin"].includes(person.role)) ||
+  (p === "kobo.review" && ["me", "super_admin"].includes(person.role)) ||
   (p === "users.approve" && ["admin", "super_admin"].includes(person.role));
 
 function world(): NotifyInput {
@@ -132,7 +132,7 @@ Deno.test("Kobo reviewers: '12 Kobo submissions received.' since they were last 
   assertEquals(me.title, "12 Kobo submissions received.", "the one from two days ago is older than a day");
   assertEquals(me.body, "Classroom observation: 10 · School infrastructure: 2 — 3 need review.");
   assertEquals(me.link, "me.html#kobo", "to their own workspace");
-  assertEquals(forWho(all, "ad", "kobo_received")[0].link, "admin.html#kobo", "admins review Kobo too");
+  assertEquals(forWho(all, "ad", "kobo_received").length, 0, "the Admin sets Kobo up; M&E reviews what comes in");
   assertEquals(forWho(all, "ed", "kobo_received").length, 0, "the Education Team doesn't handle Kobo any more");
   assertEquals(forWho(all, "t1", "kobo_received").length, 0);
   w.koboLastNotified = { me1: "2026-10-03T05:40:00Z" };

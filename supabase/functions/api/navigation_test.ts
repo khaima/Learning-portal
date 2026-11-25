@@ -32,7 +32,7 @@ Deno.test("menus: each management role reaches every page its permissions open, 
 });
 
 Deno.test("menus: the Super Admin's own menu is the system; the operational areas are a workspace switch away", () => {
-  assertEquals(workspacesFor("super_admin"), ["platform", "admin", "me"]);
+  assertEquals(workspacesFor("super_admin"), ["platform", "operations", "admin", "me"]);
   for (const role of ["admin", "me", "education_team", "field_officer", "school_leader", "teacher", "learner"]) {
     assertEquals(workspacesFor(role), [(ROLE_WORKSPACE as Record<string, string>)[role]], `${role} has one workspace`);
   }
@@ -81,19 +81,27 @@ Deno.test("menus: a granted page shows up for that person only, in an entry of i
   assertEquals(menuFor("admin", permsOf("education_team")).some((g: Entry) => g.label === "Granted to you"), false);
 });
 
-Deno.test("menus: the workspaces are the seven known ones — the Education Team is Programme Administration", () => {
-  assertEquals(Object.keys(WORKSPACES).sort(), ["admin", "field", "learner", "me", "platform", "school", "teacher"]);
-  assertEquals((ROLE_WORKSPACE as Record<string, string>).education_team, "admin");
+Deno.test("menus: eight workspaces, one per role (25 November 2026)", () => {
+  assertEquals(Object.keys(WORKSPACES).sort(), ["admin", "field", "learner", "me", "operations", "platform", "school", "teacher"]);
+  const ws = ROLE_WORKSPACE as Record<string, string>;
+  assertEquals([ws.super_admin, ws.admin, ws.education_team, ws.me], ["platform", "operations", "admin", "me"]);
+  assertEquals((WORKSPACES as Record<string, { title: string }>).operations.title, "Administration");
+  assertEquals((WORKSPACES as Record<string, { title: string }>).admin.title, "Education & Learning");
 });
 
-Deno.test("menus: data quality and device sync are the Super Admin's alone (29 October 2026)", () => {
-  for (const role of ["admin", "education_team", "me"]) {
-    const pages = new Set(workspacesFor(role).flatMap((ws: string) => [...pagesIn(menuFor(ws, permsOf(role)))]));
-    for (const p of ["data-quality", "sync-problems", "permissions", "field-officers", "changes"]) assert(!pages.has(p), `${role} has no ${p}`);
-  }
-  const prog = pagesIn(menuFor("admin", permsOf("education_team")));
-  // Users & roles too (29 October 2026): teachers, school heads and field officers.
-  for (const p of ["admin-overview", "education-overview", "school-profiles", "assignments", "training", "content", "subjects", "forms", "learning", "reports", "users"]) {
-    assert(prog.has(p), `the Programme Admin (Education Team) has ${p}`);
-  }
+Deno.test("menus: each management role's menu is its own responsibility (25 November 2026)", () => {
+  const menuOf = (role: string) => new Set(workspacesFor(role).flatMap((ws: string) => [...pagesIn(menuFor(ws, permsOf(role)))]));
+  const check = (role: string, yes: string[], no: string[]) => {
+    const pages = menuOf(role);
+    for (const p of yes) assert(pages.has(p), `${role} has ${p}`);
+    for (const p of no) assert(!pages.has(p), `${role} has no ${p}`);
+  };
+  // Only the Super Admin: permissions, the audit log, the change history.
+  for (const role of ["admin", "education_team", "me"]) check(role, [], ["permissions", "audit", "changes"]);
+  check("admin", ["platform-overview", "users", "field-officers", "notifications", "schools", "calendar", "kobo", "sync-problems", "reports"],
+    ["admin-overview", "learners", "content", "forms", "training", "data-quality", "mel-framework", "learning"]);
+  check("education_team", ["admin-overview", "education-overview", "school-profiles", "teachers", "learners", "assignments", "training",
+    "content", "subjects", "forms", "learning", "reports"], ["users", "schools", "calendar", "kobo", "data-quality", "sync-problems", "platform-overview"]);
+  check("me", ["me-hub", "mel-framework", "mel-results", "mel-reports", "data-quality", "kobo", "survey-results", "overview"],
+    ["users", "schools", "calendar", "sync-problems", "content-upload", "platform-overview"]);
 });

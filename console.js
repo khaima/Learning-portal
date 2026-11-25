@@ -2211,7 +2211,7 @@ async function main() {
       const k = await koboUi().catch((err) => { toast("Couldn't open it", friendlyError(err, "Check your connection and try again."), "error"); });
       if (!k) return;
       k.openKoboPipeline(btn.dataset.koboPipeline, {
-        canManage: has("kobo.manage"), canRecheck: has("kobo.manage", "kobo.sync"), canReview: has("kobo.review"), schools: schoolDir.schools,
+        canManage: has("kobo.manage"), canRecheck: has("kobo.manage", "kobo.sync"), canReview: has("kobo.review"), canRead: has("kobo.results.view"), schools: schoolDir.schools,
         onChange: () => { renderKoboForms(); loadSurveyResults(); renderImpact(); },
       });
     }));
@@ -2821,8 +2821,7 @@ async function main() {
     const role = $("#usersRole").value;
     let filtered = allUsers.filter((u) => userMatchesSearch(u, q));
     if (status) filtered = filtered.filter((u) => (u.status || "active") === status);
-    // The Programme Admin is the Education Team: accounts that still carry the old "admin" code are in it.
-    if (role) filtered = filtered.filter((u) => u.role === role || (role === "education_team" && u.role === "admin"));
+    if (role) filtered = filtered.filter((u) => u.role === role);
 
     const pendingCount = allUsers.filter((u) => u.status === "pending").length;
     $("#usersMeta").innerHTML = esc(filtered.length === allUsers.length
@@ -2850,7 +2849,7 @@ async function main() {
       ({ users: allUsers, grantableRoles: grantable } = await getUserDirectory());
       usersFailed = false;
       usersLoaded = true;
-      const present = new Set(allUsers.map((u) => (u.role === "admin" ? "education_team" : u.role)));
+      const present = new Set(allUsers.map((u) => u.role));
       const keep = $("#usersRole").value;
       $("#usersRole").innerHTML = `<option value="">All roles</option>${STAFF_ROLES.filter((r) => present.has(r.value))
         .map((r) => `<option value="${esc(r.value)}">${esc(r.label)}</option>`).join("")}`;

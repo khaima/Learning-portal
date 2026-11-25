@@ -29,26 +29,31 @@ import {
 /* Named after responsibilities (docs/RBAC.md). Super Admin is in every
    management group: they keep every right. */
 const SA_ONLY: R[] = ["super_admin"];
-/* The Programme Admin is the Education Team (29 October 2026): one role.
-   `admin` is that same role, kept for accounts that already had it. */
-const ADMINS: R[] = ["super_admin", "admin", "education_team"];               // schools, counties, the calendar, transfers, the programme's overview
-const SYSTEM: R[] = SA_ONLY;                                                  // accounts, field officers' schools, notifications sent, device sync, the Kobo pipeline
+/* Eight roles, one responsibility each (25 November 2026, docs/RBAC.md):
+   the Admin runs accounts and operational settings, the Education Team the
+   learning programme, the M&E Super Admin monitoring and data quality. */
+const ORG_ADMINS: R[] = ["super_admin", "admin"];                             // counties, schools, the academic calendar
+const PROGRAMME_LEADS: R[] = ["super_admin", "education_team"];               // the learning programme's overview, learner transfers
+const ACCOUNTS: R[] = ["super_admin", "admin"];                               // accounts, field officers' schools, notifications sent, device sync
+const KOBO_SYNC: R[] = ["super_admin", "me"];                                 // sync and re-check Kobo data
 const ME_ROLES: R[] = ["super_admin", "me"];                                   // results framework, indicator results, M&E reports
-const CONTENT: R[] = ["super_admin", "admin", "education_team"];               // content, training register, subjects
-const FORM_MANAGERS: R[] = ["super_admin", "admin", "education_team"];         // build and send forms
-const DATA_QUALITY: R[] = SA_ONLY;                                            // data quality: the Super Admin's alone
-const KOBO_REVIEW: R[] = ["super_admin", "me"];                               // Kobo review and results
+const CONTENT: R[] = ["super_admin", "education_team"];                       // content, training register, subjects
+const FORM_MANAGERS: R[] = ["super_admin", "education_team"];                 // build and send forms
+const DATA_QUALITY: R[] = ["super_admin", "me"];                              // data quality: monitoring
+const KOBO_REVIEW: R[] = ["super_admin", "me"];                               // Kobo review and results: survey answers
+const KOBO_SETUP: R[] = ["super_admin", "admin"];                             // the connection, the surveys, their field mapping
+const KOBO_RUN: R[] = ["super_admin", "admin", "me"];                         // which surveys there are, syncing them, how each is processing
 const STATS: R[] = ["super_admin", "admin", "education_team", "me"];
 const DASHBOARDS: R[] = ["super_admin", "me"];                                 // programme performance
-const LEARNING_DASHBOARDS: R[] = ["super_admin", "admin", "me", "education_team"]; // the learning side
-const ANALYSTS: R[] = ["super_admin", "admin", "education_team", "me"];        // read programme data within their scope
+const LEARNING_DASHBOARDS: R[] = ["super_admin", "me", "education_team"];      // the learning side
+const ANALYSTS: R[] = ["super_admin", "education_team", "me"];                 // read programme data within their scope
 const PLACE_VIEWERS: R[] = [...ANALYSTS, "field_officer", "school_leader"];    // schools and teachers within scope
 const LEARNER_VIEWERS: R[] = [...ANALYSTS, "school_leader", "teacher"];
-const LEARNER_MANAGERS: R[] = ["super_admin", "admin", "education_team", "school_leader", "teacher"];
-const CLASS_MANAGERS: R[] = ["super_admin", "admin", "education_team", "school_leader"];
-const USER_ADMIN = SYSTEM;                                                     // approvals, status, passwords, data scope
-const ACCOUNT_KEEPERS: R[] = ["super_admin", "admin", "education_team"];      // see, invite and edit teachers, heads, field officers
-const SYNC_PROBLEMS: R[] = SA_ONLY;
+const LEARNER_MANAGERS: R[] = ["super_admin", "education_team", "school_leader", "teacher"];
+const CLASS_MANAGERS: R[] = ["super_admin", "education_team", "school_leader"];
+const USER_ADMIN = ACCOUNTS;                                                   // approvals, status, passwords, data scope
+const ACCOUNT_KEEPERS: R[] = ACCOUNTS;                                         // see, invite and edit accounts
+const SYNC_PROBLEMS: R[] = ACCOUNTS;                                           // devices with work stuck 48 hours, sync failures
 const CHANGE_VIEWERS: R[] = SA_ONLY;  // the change history (history.ts): the Super Admin's                                           // devices with work stuck 48 hours, sync failures
 
 /* Every allowed role must get a real success (2xx), not just get past the
@@ -129,22 +134,22 @@ const ROUTES: RouteSpec[] = [
   r("PUT", "/me/school", ["teacher", "school_leader"], { schoolId: "sch_1" }, undefined, {
     setup: (db, role) => { const p = db.profiles.find((x) => x.id === idOfRole(role)); if (p) p.school_id = null; },
   }),
-  r("POST", "/counties", ADMINS, { name: "Kajiado", code: "KJD" }),
-  r("DELETE", "/counties/:name", ADMINS, undefined, "/counties/Kajiado", { setup: async () => { await made("POST", "/counties", { name: "Kajiado", code: "KJD" }); } }),
-  r("POST", "/schools", ADMINS, { name: "New School", county: "Narok" }),
-  r("PATCH", "/schools/:id", ADMINS, { name: "Renamed" }, "/schools/sch_1"),
-  r("DELETE", "/schools/:id", ADMINS, undefined, "/schools/{school}", { setup: async () => ({ school: (await made("POST", "/schools", { name: "Spare School", county: "Narok" })).school?.id }) }),
+  r("POST", "/counties", ORG_ADMINS, { name: "Kajiado", code: "KJD" }),
+  r("DELETE", "/counties/:name", ORG_ADMINS, undefined, "/counties/Kajiado", { setup: async () => { await made("POST", "/counties", { name: "Kajiado", code: "KJD" }); } }),
+  r("POST", "/schools", ORG_ADMINS, { name: "New School", county: "Narok" }),
+  r("PATCH", "/schools/:id", ORG_ADMINS, { name: "Renamed" }, "/schools/sch_1"),
+  r("DELETE", "/schools/:id", ORG_ADMINS, undefined, "/schools/{school}", { setup: async () => ({ school: (await made("POST", "/schools", { name: "Spare School", county: "Narok" })).school?.id }) }),
   r("GET", "/learners", LEARNER_VIEWERS),
   r("POST", "/learners", LEARNER_MANAGERS, { fullName: "Kid Two", username: "kid.two", pin: "2580", schoolId: "sch_1" }),
   r("PATCH", "/learners/:id", LEARNER_MANAGERS, { fullName: "Kid" }, "/learners/learner-id"),
   r("DELETE", "/learners/:id", LEARNER_MANAGERS, undefined, "/learners/learner-id"),
   r("POST", "/learners/:id/status", LEARNER_MANAGERS, { status: "INACTIVE" }, "/learners/learner-id/status"),
-  r("POST", "/learners/:id/transfer", ADMINS, { toSchoolId: "sch_2" }, "/learners/learner-id/transfer"),
+  r("POST", "/learners/:id/transfer", PROGRAMME_LEADS, { toSchoolId: "sch_2" }, "/learners/learner-id/transfer"),
   r("GET", "/learners/:id/history", LEARNER_VIEWERS, undefined, "/learners/learner-id/history"),
   r("GET", "/learners/:id/activity", LEARNER_VIEWERS, undefined, "/learners/learner-id/activity"),
-  r("GET", "/enrollments", ["super_admin", "admin", "education_team", "me", "school_leader"], undefined, "/enrollments?schoolId=sch_1"),
+  r("GET", "/enrollments", ["super_admin", "education_team", "me", "school_leader"], undefined, "/enrollments?schoolId=sch_1"),
   r("GET", "/academic-years", [...STAFF]),
-  r("POST", "/academic-years", ADMINS, { id: "2027" }),
+  r("POST", "/academic-years", ORG_ADMINS, { id: "2027" }),
   r("GET", "/classes", LEARNER_VIEWERS),
   r("POST", "/classes", CLASS_MANAGERS, { grade: "Grade 6", name: "Grade 6 West", schoolId: "sch_1" }),
   r("PATCH", "/classes/:id", CLASS_MANAGERS, { name: "Renamed" }, "/classes/cls_1"),
@@ -161,12 +166,12 @@ const ROUTES: RouteSpec[] = [
   // On the staff shelf, which every staff role reads; learners read the library
   // shelf. Field officers read no shelf at all, so to them it doesn't exist.
   r("POST", "/library/:id/interactions", ALL, {}, "/library/lib_1/interactions", {
-    setup: (db, role) => { if (role !== "learner") db.library_items[0].audience = "staff"; }, refused: { field_officer: 404 },
+    setup: (db, role) => { if (role !== "learner") db.library_items[0].audience = "staff"; }, refused: { field_officer: 404, admin: 404 },
   }),
   r("PATCH", "/library/interactions/:id/complete", ALL, {}, "/library/interactions/li_1/complete", { setup: (db, role) => { db.library_interactions[0].actor_id = idOfRole(role); } }),
   r("GET", "/library/interactions/mine", ALL),
   r("POST", "/library/:id/badge", ALL, {}, "/library/lib_1/badge", {
-    setup: (db, role) => { if (role !== "learner") db.library_items[0].audience = "staff"; }, refused: { field_officer: 404 },
+    setup: (db, role) => { if (role !== "learner") db.library_items[0].audience = "staff"; }, refused: { field_officer: 404, admin: 404 },
   }),
   r("GET", "/library/usage", ANALYSTS),
   r("GET", "/forms", [...ANALYSTS, "field_officer", "school_leader", "teacher"]),
@@ -209,7 +214,7 @@ const ROUTES: RouteSpec[] = [
   r("POST", "/learner/assignments/:id/submit", ["learner"], {}, "/learner/assignments/asg_1/submit", { setup: () => startedWork() }),
   r("GET", "/results", [...LEARNER_VIEWERS, "learner"]),
   r("GET", "/results/compare", LEARNER_VIEWERS, undefined, "/results/compare?rows=class"),
-  r("GET", "/field-officers", SYSTEM),
+  r("GET", "/field-officers", ACCOUNTS),
   r("POST", "/class-teachers", CLASS_MANAGERS, { teacherIds: ["teacher-id"], classIds: ["cls_1"], role: "subject_teacher" }),
   // Class attendance: a teacher takes their class's register; heads and the programme roles see it.
   r("GET", "/attendance/register", LEARNER_VIEWERS, undefined, "/attendance/register?classId=cls_1"),
@@ -228,26 +233,26 @@ const ROUTES: RouteSpec[] = [
     setup: (db, role) => { db.notifications.push({ id: "ntf_1", recipient_id: idOfRole(role), recipient_kind: role === "learner" ? "learner" : "staff", kind: "form_due", title: "A form is due", body: "", link: null, dedupe_key: "k1", created_at: new Date().toISOString(), read_at: null }); },
   }),
   r("POST", "/notifications/read-all", ALL, {}),
-  r("GET", "/notifications/log", SYSTEM),
-  r("POST", "/notifications/run-now", SYSTEM, {}),
+  r("GET", "/notifications/log", ACCOUNTS),
+  r("POST", "/notifications/run-now", ACCOUNTS, {}),
   r("PATCH", "/forms/:id", FORM_MANAGERS, { dueOn: "2026-10-10" }, "/forms/form_1"),
   r("POST", "/sync/report", ALL, { deviceId: "device-0001" }),
   r("POST", "/sync/events", ALL, { deviceId: "device-0001", events: [{ id: "event-00001", event: "failed", kind: "mark", status: 400, message: "Closed" }] }),
   r("GET", "/sync/problems", SYNC_PROBLEMS),
-  r("GET", "/sync/devices", SYSTEM),
+  r("GET", "/sync/devices", ACCOUNTS),
   // Reports export: each report's own permissions decide who may export it.
   r("GET", "/reports", [...STAFF]),
   r("GET", "/reports/:id", LEARNER_VIEWERS, undefined, "/reports/learner-register"),
-  r("GET", "/reports/:id", PLACE_VIEWERS, undefined, "/reports/teacher-register"),
-  r("GET", "/reports/:id", PLACE_VIEWERS, undefined, "/reports/school-register"),
+  r("GET", "/reports/:id", [...PLACE_VIEWERS, "admin"], undefined, "/reports/teacher-register"),
+  r("GET", "/reports/:id", [...PLACE_VIEWERS, "admin"], undefined, "/reports/school-register"),
   r("GET", "/reports/:id", LEARNER_VIEWERS, undefined, "/reports/assignment-report"),
   r("GET", "/reports/:id", LEARNER_VIEWERS, undefined, "/reports/assessment-report"),
   r("GET", "/reports/:id", [...ANALYSTS, "field_officer"], undefined, "/reports/field-visit-report"),
   r("GET", "/reports/:id", KOBO_REVIEW, undefined, "/reports/kobo-report"),
   r("GET", "/reports/:id", ANALYSTS, undefined, "/reports/library-usage"),
   r("GET", "/reports/:id", ME_ROLES, undefined, "/reports/me-indicator-report"),
-  r("GET", "/reports/:id", ["super_admin", "admin", "education_team", "me", "school_leader"], undefined, "/reports/term-report"),
-  r("GET", "/reports/:id", STATS, undefined, "/reports/county-report"),
+  r("GET", "/reports/:id", ["super_admin", "education_team", "me", "school_leader"], undefined, "/reports/term-report"),
+  r("GET", "/reports/:id", ANALYSTS, undefined, "/reports/county-report"),
   r("GET", "/trainings", LEARNING_DASHBOARDS),
   r("GET", "/trainings/teachers", CONTENT),
   r("GET", "/trainings/:id", LEARNING_DASHBOARDS, undefined, "/trainings/{training}", { setup: async () => ({ training: (await made("POST", "/trainings", { title: "ICT workshop", heldOn: "2026-09-10" })).training.id }) }),
@@ -311,39 +316,39 @@ const ROUTES: RouteSpec[] = [
       return { change: db.change_log.findLast((x) => x.op === "delete" && x.record_id === folder.id)!.id };
     },
   }),
-  r("GET", "/kobo/config", KOBO_REVIEW),
-  r("PUT", "/kobo/config", SA_ONLY, { apiToken: "test-token", baseUrl: "https://kobo.test" }, undefined, { setup: () => { afterCall.push(stubKobo(() => [])); } }),
-  r("GET", "/kobo/assets", SA_ONLY, undefined, undefined, { setup: koboConnected }),
-  r("GET", "/kobo/forms", KOBO_REVIEW),
-  r("POST", "/kobo/forms", SA_ONLY, { assetUid: "aNewSurvey77" }, undefined, { setup: koboConnected }),
-  r("GET", "/kobo/assets/:uid/preview", SA_ONLY, undefined, undefined, {
+  r("GET", "/kobo/config", KOBO_RUN),
+  r("PUT", "/kobo/config", KOBO_SETUP, { apiToken: "test-token", baseUrl: "https://kobo.test" }, undefined, { setup: () => { afterCall.push(stubKobo(() => [])); } }),
+  r("GET", "/kobo/assets", KOBO_SETUP, undefined, undefined, { setup: koboConnected }),
+  r("GET", "/kobo/forms", KOBO_RUN),
+  r("POST", "/kobo/forms", KOBO_SETUP, { assetUid: "aNewSurvey77" }, undefined, { setup: koboConnected }),
+  r("GET", "/kobo/assets/:uid/preview", KOBO_SETUP, undefined, undefined, {
     setup: (db) => { connectKobo(db); afterCall.push(stubKobo(() => [], { ...KOBO_ASSET, deployment__links: { url: "https://ee.kobo.test/x/aAbC" } })); },
   }),
-  r("DELETE", "/kobo/forms/:id", SA_ONLY, undefined, "/kobo/forms/kb_1"),
-  r("POST", "/kobo/forms/:id/restore", SA_ONLY, {}, "/kobo/forms/kb_1/restore"),
-  r("POST", "/kobo/sync", SYSTEM, {}, undefined, { setup: koboConnected }),
+  r("DELETE", "/kobo/forms/:id", KOBO_SETUP, undefined, "/kobo/forms/kb_1"),
+  r("POST", "/kobo/forms/:id/restore", KOBO_SETUP, {}, "/kobo/forms/kb_1/restore"),
+  r("POST", "/kobo/sync", KOBO_RUN, {}, undefined, { setup: koboConnected }),
   r("GET", "/kobo/forms/:id/results", KOBO_REVIEW, undefined, "/kobo/forms/kb_1/results"),
-  r("GET", "/kobo/forms/:id/pipeline", KOBO_REVIEW, undefined, "/kobo/forms/kb_1/pipeline"),
-  r("PUT", "/kobo/forms/:id/mapping", SA_ONLY, { school: null }, "/kobo/forms/kb_1/mapping", { setup: koboSynced }),
-  r("POST", "/kobo/forms/:id/reprocess", SYSTEM, {}, "/kobo/forms/kb_1/reprocess", { setup: koboSynced }),
+  r("GET", "/kobo/forms/:id/pipeline", KOBO_RUN, undefined, "/kobo/forms/kb_1/pipeline"),
+  r("PUT", "/kobo/forms/:id/mapping", KOBO_SETUP, { school: null }, "/kobo/forms/kb_1/mapping", { setup: koboSynced }),
+  r("POST", "/kobo/forms/:id/reprocess", KOBO_RUN, {}, "/kobo/forms/kb_1/reprocess", { setup: koboSynced }),
   r("GET", "/kobo/records", KOBO_REVIEW, undefined, "/kobo/records?formId=kb_1"),
   r("GET", "/kobo/records/:id", KOBO_REVIEW, undefined, "/kobo/records/{record}", { setup: koboSynced }),
   r("POST", "/kobo/records/:id/review", KOBO_REVIEW, { decision: "accepted", note: "Checked by phone" }, "/kobo/records/{record}/review", { setup: koboSynced }),
   r("GET", "/kobo/school-aliases", KOBO_REVIEW),
   r("POST", "/kobo/school-aliases", KOBO_REVIEW, { value: "Aitong Pri", schoolId: "sch_1" }),
   r("DELETE", "/kobo/school-aliases/:key", KOBO_REVIEW, undefined, "/kobo/school-aliases/aitong%20pri", { setup: async () => { await made("POST", "/kobo/school-aliases", { value: "Aitong Pri", schoolId: "sch_1" }); } }),
-  r("POST", "/kobo/webhook", SA_ONLY, {}, undefined, { setup: (db) => connectKobo(db) }),
-  r("DELETE", "/kobo/webhook", SA_ONLY),
+  r("POST", "/kobo/webhook", KOBO_SETUP, {}, undefined, { setup: (db) => connectKobo(db) }),
+  r("DELETE", "/kobo/webhook", KOBO_SETUP),
   // Workspaces: badges, overviews, people, scope, grants.
   r("GET", "/nav/badges", ALL),
   r("GET", "/me/access", ALL),
-  r("GET", "/platform/overview", SA_ONLY),
-  r("GET", "/admin/overview", ADMINS),
+  r("GET", "/platform/overview", ACCOUNTS),
+  r("GET", "/admin/overview", PROGRAMME_LEADS),
   r("GET", "/teachers", PLACE_VIEWERS),
   r("GET", "/schools/:id/profile", PLACE_VIEWERS, undefined, "/schools/sch_1/profile"),
   r("GET", "/users/:id/access", ACCOUNT_KEEPERS, undefined, "/users/teacher2-id/access"),
   r("GET", "/users/:id/history", ACCOUNT_KEEPERS, undefined, "/users/teacher2-id/history"),
-  r("PUT", "/users/:id/scope", SYSTEM, { counties: ["Narok"] }, "/users/field_officer-id/scope"),
+  r("PUT", "/users/:id/scope", ACCOUNTS, { counties: ["Narok"] }, "/users/field_officer-id/scope"),
   r("POST", "/users/:id/grants", SA_ONLY, { permission: "kobo.review", reason: "Covering M&E" }, "/users/education_team-id/grants"),
   r("POST", "/users/:id/grants/:grantId/revoke", SA_ONLY, { reason: "Done" }, "/users/education_team-id/grants/{grant}/revoke", {
     setup: async () => ({ grant: (await made("POST", "/users/education_team-id/grants", { permission: "kobo.review", reason: "Covering M&E" })).grant?.id }),
@@ -651,7 +656,7 @@ Deno.test("renewing an invitation: a new link (emailed or to copy), the old one 
   // …or revoked, or by someone who doesn't manage accounts, or not there.
   const other = await call("POST", "/users/invitations", "tok_super_admin", { email: "other@test.org", role: "teacher", schoolId: "sch_1" });
   const mel = await call("POST", "/users/invitations", "tok_super_admin", { email: "mel@test.org", role: "me" });
-  assertEquals((await call("POST", `/users/invitations/${mel.json.invitation.id}/renew`, "tok_admin", {})).status, 404, "a Programme Admin doesn't see M&E invitations");
+  assertEquals((await call("POST", `/users/invitations/${mel.json.invitation.id}/renew`, "tok_education_team", {})).status, 403, "the Education Team doesn't manage accounts");
   await call("DELETE", `/users/invitations/${other.json.invitation.id}`, "tok_super_admin");
   assertEquals((await call("POST", `/users/invitations/${other.json.invitation.id}/renew`, "tok_super_admin", {})).status, 409);
   assertEquals((await call("POST", "/users/invitations/inv_none/renew", "tok_super_admin", {})).status, 404);
@@ -698,7 +703,8 @@ Deno.test("a reset link is emailed by Supabase Auth to the account's own address
   ]);
   // Never to someone the caller can't manage, or an account that can't sign in.
   assertEquals((await call("POST", "/users/super_admin-id/reset-link", "tok_super_admin", {})).status, 403, "not your own account");
-  assertEquals((await call("POST", "/users/teacher2-id/reset-link", "tok_admin", {})).status, 403, "a Programme Admin doesn't manage accounts");
+  assertEquals((await call("POST", "/users/teacher2-id/reset-link", "tok_education_team", {})).status, 403, "the Education Team doesn't manage accounts");
+  assertEquals((await call("POST", "/users/admin-id/reset-link", "tok_admin", {})).status, 403, "not your own account");
   assertEquals((await call("POST", "/users/suspended-id/reset-link", "tok_super_admin", {})).status, 409);
   assertEquals((await call("POST", "/users/no-such-id/reset-link", "tok_super_admin", {})).status, 404);
   assertEquals(db.auth_emails.length, 4);
@@ -775,14 +781,15 @@ Deno.test("temporary passwords follow the same authority rules as other account 
   const db = freshWorld();
   assertEquals((await call("POST", "/users/super_admin-id/temporary-password", "tok_super_admin", {})).status, 403, "not your own account");
   assertEquals((await call("POST", "/users/pending-id/temporary-password", "tok_super_admin", {})).status, 409);
-  for (const tok of ["tok_admin", "tok_education_team"]) {
-    assertEquals((await call("POST", "/users/teacher2-id/temporary-password", tok, {})).status, 403, `${tok}: a Programme Admin doesn't manage accounts`);
+  for (const tok of ["tok_education_team", "tok_me", "tok_teacher"]) {
+    assertEquals((await call("POST", "/users/teacher2-id/temporary-password", tok, {})).status, 403, `${tok}: doesn't manage accounts`);
   }
+  assertEquals((await call("POST", "/users/super_admin-id/temporary-password", "tok_admin", {})).status, 403, "an Admin never manages a Super Admin");
   assertEquals(db.auth_passwords ?? [], []);
   assert(!db.profiles.some((p) => p.must_change_password), "a refused request changes nothing");
-  // A Super Admin can for a Programme Admin, who is then held at the password step.
+  // A Super Admin can for an Admin, who is then held at the password step.
   assertEquals((await call("POST", "/users/admin-id/temporary-password", "tok_super_admin", {})).status, 200);
-  const held = await call("GET", "/admin/overview", "tok_admin");
+  const held = await call("GET", "/users", "tok_admin");
   assertEquals([held.status, held.json.mustChangePassword], [403, true], "and that admin is held at the password step");
 });
 
@@ -864,14 +871,14 @@ Deno.test("a school head sees only their own school", async () => {
   assert(db.learners.length === 2);
 });
 
-Deno.test("an admin manages every school", async () => {
+Deno.test("the Education Team manages learning in every school", async () => {
   freshWorld();
-  assertEquals(ids(await call("GET", "/learners?status=all", "tok_admin")), ["learner-b-id", "learner-id"]);
-  assertEquals(ids(await call("GET", "/learners?schoolId=sch_2", "tok_admin")), ["learner-b-id"]);
-  assertEquals((await call("PATCH", "/learners/learner-b-id", "tok_admin", { fullName: "Kid Bee" })).status, 200);
-  assertEquals((await call("POST", "/classes", "tok_admin", { grade: "Grade 6", name: "Grade 6 B", schoolId: "sch_2" })).json.class.schoolId, "sch_2");
-  assertEquals((await call("POST", "/classes/cls_2/teachers", "tok_admin", { teacherId: "teacher-b-id" })).status, 200);
-  assertEquals((await call("POST", "/learners", "tok_admin", { fullName: "New", username: "kid.new", pin: "2580", schoolId: "sch_2", classId: "cls_2" })).json.learner.schoolId, "sch_2");
+  assertEquals(ids(await call("GET", "/learners?status=all", "tok_education_team")), ["learner-b-id", "learner-id"]);
+  assertEquals(ids(await call("GET", "/learners?schoolId=sch_2", "tok_education_team")), ["learner-b-id"]);
+  assertEquals((await call("PATCH", "/learners/learner-b-id", "tok_education_team", { fullName: "Kid Bee" })).status, 200);
+  assertEquals((await call("POST", "/classes", "tok_education_team", { grade: "Grade 6", name: "Grade 6 B", schoolId: "sch_2" })).json.class.schoolId, "sch_2");
+  assertEquals((await call("POST", "/classes/cls_2/teachers", "tok_education_team", { teacherId: "teacher-b-id" })).status, 200);
+  assertEquals((await call("POST", "/learners", "tok_education_team", { fullName: "New", username: "kid.new", pin: "2580", schoolId: "sch_2", classId: "cls_2" })).json.learner.schoolId, "sch_2");
   // M&E can see and transfer, but not edit.
   assertEquals((await call("PATCH", "/learners/learner-b-id", "tok_me", { fullName: "X" })).status, 403);
 });
@@ -879,7 +886,7 @@ Deno.test("an admin manages every school", async () => {
 Deno.test("a transferred learner keeps their history, code, sign-in and work", async () => {
   const db = freshWorld();
   assertEquals((await call("POST", "/learner/assignments/asg_1/start", tokenFor("learner"))).status, 200);
-  const res = await call("POST", "/learners/learner-id/transfer", "tok_admin", { toSchoolId: "sch_2", toClassId: "cls_2", reason: "Family moved" });
+  const res = await call("POST", "/learners/learner-id/transfer", "tok_education_team", { toSchoolId: "sch_2", toClassId: "cls_2", reason: "Family moved" });
   assertEquals(res.status, 200);
   const l = db.learners.find((x) => x.id === "learner-id")!;
   assertEquals(l.school_id, "sch_2");
@@ -985,7 +992,7 @@ Deno.test("assignment visibility: learners see published work for their own clas
   assertEquals(asgIds(await call("GET", "/assignments", "tok_teacher2")), [], "a teacher who doesn't teach the class");
   assertEquals((await call("GET", "/assignments/asg_1", "tok_teacher2")).status, 404);
   assertEquals((await call("GET", "/assignments/asg_1", "tok_teacher")).json.questions[0].answerKey, 0, "teachers do see the key");
-  assertEquals(asgIds(await call("GET", "/assignments", "tok_admin")), ["asg_1", "asg_b", "asg_draft"]);
+  assertEquals(asgIds(await call("GET", "/assignments", "tok_education_team")), ["asg_1", "asg_b", "asg_draft"]);
 });
 
 Deno.test("a teacher creates, edits and publishes an assignment for a class they teach", async () => {
@@ -1182,7 +1189,7 @@ Deno.test("school isolation: results, submissions and assignments never cross sc
   assertEquals(headB.json.rows.map((r: Row) => r.key), ["sch_2"]);
   assertEquals(headB.json.rows[0].achievement.averagePercent, 100);
   assertEquals((await call("GET", "/results?by=school", "tok_school_leader")).json.rows.map((r: Row) => r.key), ["sch_1"]);
-  assertEquals((await call("GET", "/results?by=school", "tok_admin")).json.rows.map((r: Row) => r.key).sort(), ["sch_1", "sch_2"]);
+  assertEquals((await call("GET", "/results?by=school", "tok_education_team")).json.rows.map((r: Row) => r.key).sort(), ["sch_1", "sch_2"]);
   // Even asking for the other school's learner or school by id gives nothing.
   assertEquals((await call("GET", "/results?by=learner&learnerId=learner-b-id", "tok_teacher")).json.rows, []);
   assertEquals((await call("GET", "/results?by=school&schoolId=sch_2", "tok_school_leader")).json.rows.map((r: Row) => r.key), ["sch_1"]);
@@ -1446,10 +1453,10 @@ Deno.test("Kobo field mapping: only the survey's own questions; saving re-checks
   const restore = stubKobo(() => [kRow(1, { school_code: "Nowhere Primary" })]);
   try {
     assertEquals((await call("PUT", "/kobo/forms/kb_1/mapping", "tok_super_admin", { school: "school_code" })).status, 409, "not synced yet");
-    assertEquals((await call("POST", "/kobo/sync", "tok_admin")).status, 403, "the Kobo pipeline is the Super Admin's…");
+    assertEquals((await call("POST", "/kobo/sync", "tok_education_team")).status, 403, "the Kobo pipeline isn't the Education Team's…");
     assertEquals((await call("POST", "/kobo/sync", "tok_super_admin")).status, 200);
     assertEquals(recByKobo(db, 1).status, "invalid");
-    assertEquals((await call("PUT", "/kobo/forms/kb_1/mapping", "tok_admin", { school: null })).status, 403, "…and so is mapping fields");
+    assertEquals((await call("PUT", "/kobo/forms/kb_1/mapping", "tok_me", { school: null })).status, 403, "…and M&E reads surveys but doesn't set their mapping");
     assertEquals((await call("PUT", "/kobo/forms/kb_1/mapping", "tok_super_admin", { school: "no_such_question" })).status, 400);
     assertEquals((await call("PUT", "/kobo/forms/kb_1/mapping", "tok_me", { school: null })).status, 403, "M&E can look, not change");
     const saved = await call("PUT", "/kobo/forms/kb_1/mapping", "tok_super_admin",
@@ -1550,12 +1557,12 @@ Deno.test("data quality: status workflow with reasons, ignore sticks, filters by
 Deno.test("data quality corrections: through the normal edit, audited before/after, never a deletion, permission-checked", async () => {
   const db = dqWorld();
   await call("POST", "/data-quality/scan", "tok_admin");
-  assertEquals((db.dq_issues ?? []).length, 0, "a Programme Admin can't scan: data quality is the Super Admin's");
+  await call("POST", "/data-quality/scan", "tok_education_team");
+  assertEquals((db.dq_issues ?? []).length, 0, "neither the Admin nor the Education Team scans: data quality is M&E's");
   await call("POST", "/data-quality/scan", "tok_super_admin");
   const bg = dqByKey(db, "invalid_grade:learner:badgrade-id");
-  assertEquals((await call("GET", `/data-quality/issues/${bg.id}`, "tok_me")).status, 403, "nor is it M&E's");
-  // The fixes offered depend on who's asking: given it to look at, M&E can triage, not edit learners.
-  db.permission_grants.push({ id: "g_dq", profile_id: "me-id", permission: "data_quality.view", reason: "test", granted_by: "super_admin-id", granted_at: new Date().toISOString(), revoked_at: null });
+  assertEquals((await call("GET", `/data-quality/issues/${bg.id}`, "tok_education_team")).status, 403, "nor is it the Education Team's");
+  // The fixes offered depend on who's asking: M&E triages data quality, but doesn't edit learners.
   assertEquals((await call("GET", `/data-quality/issues/${bg.id}`, "tok_me")).json.fixes, [], "M&E can triage, not edit learners");
   assertEquals((await call("POST", `/data-quality/issues/${bg.id}/fix`, "tok_education_team", { action: "set_learner_grade", grade: "Grade 4" })).status, 403);
   const offered = (await call("GET", `/data-quality/issues/${bg.id}`, "tok_super_admin")).json.fixes.map((f: Row) => f.action);
@@ -1716,8 +1723,9 @@ Deno.test("impact dashboards: analysts only, the six areas, gender kept optional
   const r = await call("GET", "/impact", "tok_me");
   assertEquals(r.status, 200, JSON.stringify(r.json));
   for (const k of ["executive", "reach", "learning", "teachers", "fieldOps", "resources"]) assert(k in r.json, k);
-  // The Programme Admin (Education Team) gets the learning side only — never reach or field operations.
-  for (const tok of ["tok_education_team", "tok_admin"]) {
+  // The Education Team gets the learning side only — never reach or field operations; the Admin none of it.
+  assertEquals((await call("GET", "/impact", "tok_admin")).status, 403);
+  for (const tok of ["tok_education_team"]) {
     const learning = (await call("GET", "/impact", tok)).json;
     assertEquals(Object.keys(learning).filter((k) => ["executive", "reach", "learning", "teachers", "fieldOps", "resources"].includes(k)).sort(),
       ["executive", "learning", "resources", "teachers"], tok);
@@ -1960,9 +1968,10 @@ Deno.test("sync center: staff devices report their sync state; administrators se
   assertEquals((await call("POST", "/sync/report", LEARNER, report)).status, 200, "a learner's tablet reports too…");
   assertEquals([db.learner_device_sync_status.length, db.device_sync_status.length], [1, 1], "…in a table of its own, never among the staff");
   await call("POST", "/sync/report", "tok_teacher", { deviceId: "laptop-0001", lastSyncAt: new Date().toISOString(), lastSyncAtFuture: true });
-  for (const tok of ["tok_admin", "tok_education_team", "tok_me"]) {
-    assertEquals((await call("GET", "/sync/devices", tok)).status, 403, `${tok}: device sync is the Super Admin's`);
+  for (const tok of ["tok_education_team", "tok_me"]) {
+    assertEquals((await call("GET", "/sync/devices", tok)).status, 403, `${tok}: device sync is the Admin's`);
   }
+  assertEquals((await call("GET", "/sync/devices", "tok_admin")).status, 200, "the Admin watches device sync");
   const res = await call("GET", "/sync/devices", "tok_super_admin");
   assertEquals(res.status, 200);
   const fo = res.json.people.find((p: Row) => p.id === "field_officer-id");
@@ -2003,9 +2012,9 @@ Deno.test("notifications: stored per person, never twice, read with a record of 
   await call("POST", `/notifications/${due.id}/read`, "tok_teacher", {});
   assertEquals(db.notification_events.filter((e) => e.notification_id === due.id).map((e) => [e.action, e.actor_id]), [["created", null], ["read", "teacher-id"]]);
   assert(db.notifications.find((n) => n.id === due.id)!.read_at);
-  // Approvers: pending accounts. Only the Super Admin approves, so only they are told.
+  // Approvers: pending accounts. The Super Admin and the Admin approve, so only they are told.
   assertEquals((await call("GET", "/notifications", "tok_super_admin")).json.notifications.find((n: Row) => n.kind === "accounts_pending")?.title, "1 staff account awaiting approval.");
-  for (const tok of ["tok_admin", "tok_education_team"]) {
+  for (const tok of ["tok_education_team", "tok_me"]) {
     assertEquals((await call("GET", "/notifications", tok)).json.notifications.some((n: Row) => n.kind === "accounts_pending"), false, tok);
   }
   // Mark all read.
@@ -2108,7 +2117,7 @@ Deno.test("reports: the catalogue lists only the reports a person may export", a
   const programme = ["learner-register", "teacher-register", "school-register", "assignment-report",
     "assessment-report", "field-visit-report", "library-usage", "term-report", "county-report"];
   assertEquals(await ids("tok_education_team"), programme, "learning and programme reports");
-  assertEquals(await ids("tok_admin"), programme, "the same role under its old code: not the M&E results framework, not Kobo");
+  assertEquals(await ids("tok_admin"), ["teacher-register", "school-register"], "the Admin: who works where, and the schools");
   assertEquals(await ids("tok_teacher"), ["learner-register", "assignment-report", "assessment-report"]);
   assertEquals(await ids("tok_field_officer"), ["teacher-register", "school-register", "field-visit-report"], "their assigned schools");
   assertEquals(await ids("tok_school_leader"), ["learner-register", "teacher-register", "school-register", "assignment-report", "assessment-report", "term-report"]);
@@ -2197,11 +2206,11 @@ Deno.test("access: /me says which workspace, what scope and which permissions �
   const me = async (tok: string) => (await call("GET", "/me", tok)).json.profile;
   const sa = await me("tok_super_admin");
   assertEquals([sa.workspace.page, sa.workspace.title, sa.scope.global], ["platform.html", "Platform Administration", true]);
-  assertEquals(sa.workspaces, ["platform", "admin", "me"], "a Super Admin can open every management workspace");
+  assertEquals(sa.workspaces, ["platform", "operations", "admin", "me"], "a Super Admin can open every management workspace");
   for (const p of ["users.roles.assign", "me.framework.manage", "library.manage", "kobo.configure", "permissions.manage", "audit.view"]) assert(sa.permissions.includes(p), p);
   assertEquals([(await me("tok_admin")).workspace.page, (await me("tok_me")).workspace.page, (await me("tok_education_team")).workspace.page],
-    ["admin.html", "me.html", "admin.html"], "the Programme Admin is the Education Team: one workspace");
-  assertEquals((await me("tok_admin")).workspaces, ["admin"], "no other workspace");
+    ["operations.html", "me.html", "admin.html"], "one workspace per management role");
+  assertEquals((await me("tok_admin")).workspaces, ["operations"], "no other workspace");
   assertEquals((await me("tok_education_team")).workspaces, ["admin"]);
   const fo = await me("tok_field_officer");
   assertEquals([fo.workspace.title, fo.scope.global, fo.scope.label], ["Field Operations", false, "Narok County"]);
@@ -2210,44 +2219,33 @@ Deno.test("access: /me says which workspace, what scope and which permissions �
 Deno.test("access: separation of duties holds at the API, whatever the browser shows", async () => {
   freshWorld();
   const st = async (method: string, path: string, tok: string, body?: unknown) => (await call(method, path, tok, body)).status;
-  // The Programme Admin (Education Team, under either code): learning and education, and the
-  // accounts of teachers, heads and field officers — no approvals, status, passwords, data
-  // quality, device sync, security or integrations.
-  for (const tok of ["tok_education_team", "tok_admin"]) {
-    assertEquals(await st("GET", "/users", tok), 200, tok);
-    assertEquals(await st("POST", "/users/pending-id/approve", tok, {}), 403, tok);
-    assertEquals(await st("POST", "/users/teacher2-id/status", tok, { action: "suspend" }), 403, tok);
-    assertEquals(await st("POST", "/users/teacher2-id/reset-link", tok, {}), 403, tok);
-    assertEquals(await st("PUT", "/users/field_officer-id/scope", tok, { counties: ["Narok"] }), 403, tok);
-    assertEquals(await st("PATCH", "/users/me-id", tok, { fullName: "X" }), 403, `${tok}: never M&E`);
-    assertEquals(await st("PUT", "/kobo/config", tok, { apiToken: "x" }), 403, tok);
-    assertEquals(await st("POST", "/kobo/sync", tok, {}), 403, tok);
-    assertEquals(await st("GET", "/audit", tok), 403, tok);
-    assertEquals(await st("GET", "/data-quality/issues", tok), 403, tok);
-    assertEquals(await st("GET", "/sync/problems", tok), 403, tok);
-    assertEquals(await st("GET", "/sync/devices", tok), 403, tok);
-    assertEquals(await st("GET", "/admin/overview", tok), 200, tok);
+  // The Admin: accounts and operational settings — not learning, M&E, data quality or platform governance.
+  assertEquals(await st("GET", "/users", "tok_admin"), 200);
+  assertEquals(await st("GET", "/sync/devices", "tok_admin"), 200);
+  assertEquals(await st("GET", "/sync/problems", "tok_admin"), 200);
+  assertEquals(await st("GET", "/platform/overview", "tok_admin"), 200);
+  assertEquals(await st("POST", "/schools", "tok_admin", { name: "X", county: "Narok" }), 200, "it runs the schools");
+  for (const [m, path, body] of [["GET", "/admin/overview"], ["GET", "/learners"], ["POST", "/learners/learner-id/transfer", { toSchoolId: "sch_2" }],
+    ["POST", "/mel/programmes", { name: "X" }], ["GET", "/permissions"], ["GET", "/audit"], ["GET", "/data-quality/issues"],
+    ["GET", "/kobo/records"], ["GET", "/impact"]] as [string, string, unknown?][]) {
+    assertEquals(await st(m, path, "tok_admin", body), 403, `admin: ${m} ${path}`);
   }
-  assertEquals(await st("POST", "/schools", "tok_education_team", { name: "X", county: "Narok" }), 200, "it runs the schools");
-  // M&E: measures, never changes accounts or records.
+  assertEquals(await st("PATCH", "/users/super_admin-id", "tok_admin", { fullName: "X" }), 403, "never a Super Admin");
+  // The Education Team: learning and education — no accounts, school setup, integrations, data quality or sync.
+  assertEquals(await st("GET", "/admin/overview", "tok_education_team"), 200);
+  for (const [m, path, body] of [["GET", "/users"], ["POST", "/users/invitations", { email: "x@test.org", role: "teacher", schoolId: "sch_1" }],
+    ["POST", "/users/pending-id/approve", {}], ["POST", "/users/teacher2-id/status", { action: "suspend" }],
+    ["PATCH", "/users/teacher2-id", { fullName: "X" }], ["POST", "/schools", { name: "X", county: "Narok" }],
+    ["PUT", "/kobo/config", { apiToken: "x" }], ["POST", "/kobo/sync", {}], ["GET", "/audit"], ["GET", "/data-quality/issues"],
+    ["GET", "/sync/problems"], ["GET", "/sync/devices"], ["GET", "/platform/overview"]] as [string, string, unknown?][]) {
+    assertEquals(await st(m, path, "tok_education_team", body), 403, `education_team: ${m} ${path}`);
+  }
+  // M&E: measures, never changes accounts, records or settings.
   assertEquals(await st("PATCH", "/users/teacher2-id", "tok_me", { fullName: "X" }), 403);
   assertEquals(await st("POST", "/learners/learner-id/transfer", "tok_me", { toSchoolId: "sch_2" }), 403);
-  assertEquals(await st("POST", "/kobo/sync", "tok_me", {}), 403);
-  // Nor the M&E framework, nor the platform.
-  assertEquals(await st("POST", "/mel/programmes", "tok_admin", { name: "X" }), 403);
-  assertEquals(await st("GET", "/platform/overview", "tok_admin"), 403);
-  assertEquals(await st("GET", "/permissions", "tok_admin"), 403);
-  assertEquals(await st("PUT", "/kobo/config", "tok_admin", { apiToken: "x" }), 403);
-  // Working roles: never another workspace's data.
-  assertEquals(await st("GET", "/admin/overview", "tok_teacher"), 403);
-  assertEquals(await st("GET", "/users", "tok_school_leader"), 403);
-  assertEquals(await st("GET", "/learners", "tok_field_officer"), 403);
-  assertEquals(await st("GET", "/assignments", LEARNER), 403);
-  // The Super Admin can do all of it.
-  for (const [m, path] of [["GET", "/users"], ["GET", "/audit"], ["GET", "/platform/overview"], ["GET", "/admin/overview"], ["GET", "/mel/programmes"], ["GET", "/permissions"],
-    ["GET", "/data-quality/issues"], ["GET", "/sync/problems"], ["GET", "/sync/devices"]]) {
-    assertEquals(await st(m, path, "tok_super_admin"), 200, path);
-  }
+  assertEquals(await st("PUT", "/kobo/config", "tok_me", { apiToken: "x" }), 403);
+  assertEquals(await st("POST", "/schools", "tok_me", { name: "X", county: "Narok" }), 403);
+  assertEquals(await st("GET", "/data-quality/issues", "tok_me"), 200);
 });
 
 Deno.test("scope: M&E narrowed to one county sees only that county — lists, dashboards, data quality (given it), M&E, reports", async () => {
@@ -2283,53 +2281,54 @@ Deno.test("scope: M&E narrowed to one county sees only that county — lists, da
   assertEquals((await call("POST", "/data-quality/scan", "tok_me", {})).status, 403);
 });
 
-Deno.test("scope: a Programme Admin narrowed to a county runs schools there, and invites and edits teachers, heads and field officers there", async () => {
+Deno.test("scope: an Admin narrowed to a county runs schools there, and invites and edits accounts there", async () => {
   const db = twoCounties();
   assign(db, "admin-id", [{ county: "Meru" }]);
-  assertEquals((await call("GET", "/learners", "tok_admin")).json.learners.map((l: Row) => l.fullName), ["Kid C"], "only Meru's learners");
+  assertEquals((await call("GET", "/learners", "tok_admin")).status, 403, "learners are the Education Team's");
   const users = (await call("GET", "/users", "tok_admin")).json;
   assertEquals(users.users.map((u: Row) => u.fullName).sort(), ["Teacher C"], "only people placed in Meru, in the roles they give");
-  assertEquals(users.grantableRoles.map((r: Row) => r.value), ["teacher", "school_leader", "field_officer"]);
+  assertEquals(users.grantableRoles.map((r: Row) => r.value), ["teacher", "school_leader", "field_officer", "education_team", "me"]);
   assertEquals((await call("PATCH", "/users/teacher2-id", "tok_admin", { fullName: "X" })).status, 404, "a Narok teacher isn't theirs");
   assertEquals((await call("PATCH", "/users/teacher-c-id", "tok_admin", { fullName: "Teacher Cee", gender: "female" })).status, 200);
   assertEquals((await call("POST", "/users/invitations", "tok_admin", { email: "n@test.org", role: "teacher", schoolId: SCHOOL.id })).status, 403, "not in their area");
   assertEquals((await call("POST", "/users/invitations", "tok_admin", { email: "m@test.org", role: "teacher", schoolId: SCHOOL_C.id })).status, 200);
   assertEquals((await call("POST", "/users/invitations", "tok_admin", { email: "h@test.org", role: "school_leader", schoolId: SCHOOL_C.id })).status, 200);
-  for (const role of ["education_team", "admin", "me", "super_admin"]) {
+  for (const role of ["admin", "super_admin"]) {
     assertEquals((await call("POST", "/users/invitations", "tok_admin", { email: `${role}@new.org`, role })).status, 403, `never ${role}`);
   }
-  assertEquals((await call("PATCH", "/users/teacher-c-id", "tok_admin", { role: "me" })).status, 403, "nor change someone into one");
+  for (const role of ["education_team", "me"]) {
+    assertEquals((await call("POST", "/users/invitations", "tok_admin", { email: `${role}@new.org`, role })).status, 403, `${role} works portal-wide: not from one county`);
+  }
+  assertEquals((await call("PATCH", "/users/teacher-c-id", "tok_admin", { role: "admin" })).status, 403, "nor change someone into an Admin");
   assertEquals((await call("POST", "/schools", "tok_admin", { name: "Narok New", county: "Narok" })).status, 403);
   assertEquals((await call("POST", "/schools", "tok_admin", { name: "Meru New", county: "Meru" })).status, 200);
   assertEquals((await call("POST", "/counties", "tok_admin", { name: "Kajiado", code: "KJD" })).status, 403, "counties are for whole-portal admins");
   assertEquals((await call("POST", "/academic-years", "tok_admin", { id: "2027" })).status, 403, "so is the calendar");
-  assertEquals((await call("POST", "/learners/learner-id/transfer", "tok_admin", { toSchoolId: SCHOOL_C.id })).status, 404, "a Narok learner isn't theirs");
   assertEquals(db.staff_invitations.length, 2);
 });
 
-Deno.test("the Programme Admin invites only teachers, school heads and field officers, and edits only them", async () => {
+Deno.test("the Admin invites and edits everyone but administrators; the Education Team manages no accounts", async () => {
   const db = freshWorld();
-  for (const tok of ["tok_education_team", "tok_admin"]) {
-    const list = (await call("GET", "/users", tok)).json;
-    assertEquals([...new Set(list.users.map((u: Row) => u.role))].sort(), ["field_officer", "school_leader", "teacher"], `${tok} sees only those roles`);
-    assert(list.users.every((u: Row) => u.canManage), tok);
-    assertEquals(list.grantableRoles.map((r: Row) => r.label), ["Teacher", "School Head", "Field Officer"]);
-  }
-  const inv = await call("POST", "/users/invitations", "tok_education_team", { email: "fo@test.org", role: "field_officer", county: "Narok" });
+  const list = (await call("GET", "/users", "tok_admin")).json;
+  assertEquals([...new Set(list.users.map((u: Row) => u.role))].sort(), ["education_team", "field_officer", "me", "school_leader", "teacher"], "admin sees only those roles");
+  assertEquals(list.grantableRoles.map((r: Row) => r.label), ["Teacher", "School Head", "Field Officer", "Education Team", "M&E Super Admin"]);
+  const inv = await call("POST", "/users/invitations", "tok_admin", { email: "fo@test.org", role: "field_officer", county: "Narok" });
   assertEquals(inv.status, 200);
-  assertEquals((await call("POST", "/users/invitations", "tok_education_team", { email: "x@test.org", role: "me" })).status, 403);
-  // Their profile: name, email, gender, employment type; their school, county, and role among the three.
-  const t = await call("PATCH", "/users/teacher2-id", "tok_education_team", { fullName: "Second Teacher", teacherType: "TSC", gender: "male" });
+  assertEquals((await call("POST", "/users/invitations", "tok_admin", { email: "x@test.org", role: "admin" })).status, 403);
+  const t = await call("PATCH", "/users/teacher2-id", "tok_admin", { fullName: "Second Teacher", teacherType: "TSC", gender: "male" });
   assertEquals([t.status, t.json.user.teacherType, t.json.user.gender], [200, "TSC", "male"]);
-  const head = await call("PATCH", "/users/teacher2-id", "tok_education_team", { role: "school_leader", schoolId: "sch_1" });
+  const head = await call("PATCH", "/users/teacher2-id", "tok_admin", { role: "school_leader", schoolId: "sch_1" });
   assertEquals([head.status, head.json.user.role], [200, "school_leader"]);
-  assert(db.audit_log.some((a) => a.action === "role.changed" && a.actor_id === "education_team-id"));
-  // Never an administrator's account, M&E or the Super Admin.
-  for (const id of ["me-id", "admin-id", "super_admin-id", "education_team-id"]) {
-    assertEquals((await call("PATCH", `/users/${id}`, "tok_education_team", { fullName: "X" })).status, id === "education_team-id" ? 403 : 403, id);
+  assert(db.audit_log.some((a) => a.action === "role.changed" && a.actor_id === "admin-id"));
+  // Never their own account, another Admin or the Super Admin.
+  for (const id of ["admin-id", "super_admin-id"]) {
+    assertEquals((await call("PATCH", `/users/${id}`, "tok_admin", { fullName: "X" })).status, 403, id);
   }
-  assertEquals((await call("GET", "/users/me-id/access", "tok_education_team")).status, 404);
-  // Approving, suspending and passwords stay with the Super Admin.
+  assertEquals((await call("GET", "/users/super_admin-id/access", "tok_admin")).status, 404);
+  // The Education Team: no accounts at all.
+  assertEquals((await call("GET", "/users", "tok_education_team")).status, 403);
+  assertEquals((await call("POST", "/users/invitations", "tok_education_team", { email: "y@test.org", role: "teacher", schoolId: "sch_1" })).status, 403);
+  assertEquals((await call("PATCH", "/users/teacher2-id", "tok_education_team", { fullName: "X" })).status, 403);
   assertEquals((await call("POST", "/users/teacher2-id/temporary-password", "tok_education_team", {})).status, 403);
 });
 
@@ -2362,10 +2361,11 @@ Deno.test("scope: assignments are set on the Users page, ended (never deleted) a
   assert(db.audit_log.some((a) => a.action === "scope.changed" && a.target_id === "field_officer-id"));
   const access = (await call("GET", "/users/field_officer-id/access", "tok_super_admin")).json;
   assertEquals([access.scope.label, access.canEditScope, access.scope.rows.length], ["Meru County and Aitong Primary", true, 3]);
-  // A Programme Admin places no one, even narrowed to an area.
+  // The Education Team places no one; a narrowed Admin never widens anyone past their own area.
   assign(db, "admin-id", [{ county: "Meru" }]);
   assign(db, "me-id", [{ county: "Meru" }]);
-  assertEquals((await put("tok_admin", "me-id", { counties: ["Meru"] })).status, 403, "placing people is the Super Admin's");
+  assertEquals((await put("tok_education_team", "me-id", { counties: ["Meru"] })).status, 403, "placing people is the Admin's");
+  assert([403, 404].includes((await put("tok_admin", "me-id", { counties: [] })).status), "a Meru Admin can't make anyone global");
   assertEquals((await put("tok_super_admin", "me-id", { counties: [] })).status, 200, "a Super Admin can make M&E global again");
   assertEquals((await call("GET", "/me", "tok_me")).json.profile.scope.global, true);
 });
@@ -2394,7 +2394,8 @@ Deno.test("grants: a Super Admin gives one person one extra permission, with a r
   const sec = (await call("GET", "/audit?kind=security", "tok_super_admin")).json.entries.map((e: Row) => e.action);
   assert(sec.includes("permission.granted") && sec.includes("permission.revoked"));
   const model = (await call("GET", "/permissions", "tok_super_admin")).json;
-  assertEquals(model.roles.find((x: Row) => x.role === "admin").workspace.title, "Programme Administration");
+  assertEquals(model.roles.find((x: Row) => x.role === "admin").workspace.title, "Administration");
+  assertEquals(model.roles.find((x: Row) => x.role === "education_team").workspace.title, "Education & Learning");
 });
 
 Deno.test("CORS: the portal's own sites and this team's Vercel previews — not anyone's learning-portal*.vercel.app", async () => {
@@ -2456,15 +2457,15 @@ Deno.test("access: overviews, badges, the users list and account activity", asyn
   assertEquals(pf.accounts.pending, 1);
   assert(pf.checks.some((x: Row) => x.label === "More than one active Super Admin" && !x.ok), "one Super Admin is a risk");
   assert(pf.checks.some((x: Row) => x.label === "Every field officer has assigned schools" && x.ok));
-  // One row per role: accounts still on the old "admin" code count as the Programme Admin (Education Team).
+  // One row per role.
   const labels = pf.accounts.byRole.map((r: Row) => r.label);
   assertEquals(new Set(labels).size, labels.length, labels.join(", "));
-  assertEquals(pf.accounts.byRole.some((r: Row) => r.role === "admin"), false);
-  const ad = (await call("GET", "/admin/overview", "tok_admin")).json;
+  const ad = (await call("GET", "/admin/overview", "tok_education_team")).json;
   assertEquals(pf.platform.environment, "development");
   assertEquals([ad.organisation.schools, ad.people.learners, ad.people.pending], [2, 2, 1]);
   assertEquals((await call("GET", "/nav/badges", "tok_super_admin")).json.badges.approvals, 1);
-  for (const tok of ["tok_admin", "tok_education_team"]) {
+  assertEquals((await call("GET", "/nav/badges", "tok_admin")).json.badges.approvals, 1, "the Admin approves accounts");
+  for (const tok of ["tok_education_team", "tok_me"]) {
     assertEquals((await call("GET", "/nav/badges", tok)).json.badges.approvals, undefined, `${tok}: only badges they may see`);
   }
   const users = (await call("GET", "/users", "tok_super_admin")).json.users;
@@ -2474,6 +2475,7 @@ Deno.test("access: overviews, badges, the users list and account activity", asyn
   const act = (await call("GET", "/security/activity", "tok_super_admin")).json;
   assertEquals(act.staff[0].lastSignInAt, "2026-10-02T08:00:00.000Z", "most recent first");
   assertEquals((await call("GET", "/users/teacher2-id/history", "tok_super_admin")).status, 200);
-  assertEquals((await call("GET", "/users/teacher2-id/history", "tok_admin")).status, 200, "a teacher: the Programme Admin's to see");
-  assertEquals((await call("GET", "/users/me-id/history", "tok_admin")).status, 404, "M&E: not theirs");
+  assertEquals((await call("GET", "/users/teacher2-id/history", "tok_admin")).status, 200, "a teacher: the Admin's to see");
+  assertEquals((await call("GET", "/users/super_admin-id/history", "tok_admin")).status, 404, "a Super Admin: not theirs");
+  assertEquals((await call("GET", "/users/teacher2-id/history", "tok_education_team")).status, 403, "the Education Team keeps no accounts");
 });

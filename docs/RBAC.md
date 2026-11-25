@@ -689,3 +689,39 @@ focus stays in it, Escape closes it; the whole screen on a phone):
 Tests: `authz_test.ts` (the routes for each role; a narrowed Programme
 Admin; only those three roles, to invite, change into, edit or see),
 `scope_test.ts`, `navigation_test.ts`.
+
+## 17. Eight roles, one responsibility each (25 November 2026)
+
+Supersedes §14 and §16 where they differ. The Admin is a role of its own again,
+separate from the Education Team, and the M&E Super Admin owns data quality.
+
+| Role | Workspace (page) | Responsible for |
+|---|---|---|
+| Super Admin | Platform Administration (`platform.html`) + every other management workspace | The whole platform: permissions, grants, the audit log, change history, and everything below |
+| Admin | Administration (`operations.html`) | User accounts (invite, approve, roles, status, passwords, placement) for every role except Admin and Super Admin; counties & schools; the academic calendar; the KoboToolbox connection and survey set-up; device sync; notifications sent; exports of the teacher and school registers |
+| Education Team | Education & Learning (`admin.html`) | Learning programmes: the Education overview, classes, learners and transfers, teachers, assignments, training, content and subjects, forms, learning dashboards and education reports. **No account management.** |
+| M&E Super Admin | Monitoring & Evaluation (`me.html`) | Results framework and indicators, actuals and verification, M&E reports, impact dashboards, the Data Quality Center, Kobo review, survey results and Kobo sync |
+| Field Officer | Field Operations (`field.html`) | Visits and field data for their assigned schools |
+| School Head | School (`leader.html`) | Their own school |
+| Teacher | Teacher (`teacher.html`) | Their assigned classes and learners |
+| Learner | Learner (`learner.html`) | Their own activities and progress |
+
+Enforced in `permissions.ts` (`ROLE_PERMISSIONS`, `ADMIN_GIVES`, `grantableRoles`,
+`canManageAccount`) and on every API route with `requirePermission`; the menus
+in `navigation.js` only show what those permissions allow.
+
+Changes at the API:
+- `/admin/overview` needs the new `programme.overview.view` (Education Team, Super Admin).
+- Survey answers (`GET /kobo/records`, `/kobo/records/:id`, `/kobo/forms/:id/results`,
+  the Kobo report) need `kobo.results.view` (M&E, Super Admin); matching school names
+  needs `kobo.review` or `kobo.results.view`. The Admin sets surveys up and sees
+  their counts but not their answers.
+- Data quality (`data_quality.*`) moved from the Super Admin's system set to M&E.
+- The activity filter treats `admin` and `education_team` as separate roles.
+- An Admin narrowed to a county can only invite or place within it, and can't create
+  portal-wide roles (Education Team, M&E) from there.
+
+Tests: the role × route matrix in `authz_test.ts` (named groups `ORG_ADMINS`,
+`PROGRAMME_LEADS`, `ACCOUNTS`, `KOBO_SETUP`, `KOBO_RUN`, `KOBO_REVIEW`…), the
+separation-of-duties test in `scope_test.ts`, and the per-role menu test in
+`navigation_test.ts` — 513 API tests in all.

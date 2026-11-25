@@ -50,8 +50,10 @@ const VIEWS = {
     (for placing unmatched names); `onChange` after anything changes. */
 /* canManage: change the field mapping (kobo.manage); canRecheck: re-check the
    submissions (kobo.manage or kobo.sync); canReview:
-   accept or exclude flagged submissions and match school names (kobo.review). */
-export async function openKoboPipeline(formId, { canManage = false, canRecheck = canManage, canReview = canManage, schools = [], onChange = () => {} } = {}) {
+   accept or exclude flagged submissions and match school names (kobo.review);
+   canRead: open the submissions themselves (kobo.results.view) — the Admin sets a
+   survey up and sees its counts, but its answers are M&E's. */
+export async function openKoboPipeline(formId, { canManage = false, canRecheck = canManage, canReview = canManage, canRead = canReview, schools = [], onChange = () => {} } = {}) {
   const panel = openContentPanel({ title: "Data pipeline", html: skeleton(5) });
   const state = { view: "review", rule: "", offset: 0 };
   let p;
@@ -128,19 +130,19 @@ export async function openKoboPipeline(formId, { canManage = false, canRecheck =
         ${mappingHtml()}
       </details>
       ${unknownSchoolsHtml()}
-      <h3 style="margin:1.2rem 0 .3rem">Submissions</h3>
+      ${canRead ? `<h3 style="margin:1.2rem 0 .3rem">Submissions</h3>
       <div class="filter-bar-row" style="margin-bottom:.6rem">
         <div class="field"><label for="kq_view">Show</label>
           <select id="kq_view">${Object.entries(VIEWS).map(([k, v]) => `<option value="${k}"${k === state.view ? " selected" : ""}>${esc(v.label)}</option>`).join("")}</select></div>
         <div class="field"><label for="kq_rule">Check</label>
           <select id="kq_rule"><option value="">Any</option>${Object.entries(RULE_LABEL).map(([k, v]) => `<option value="${k}"${k === state.rule ? " selected" : ""}>${esc(v)}</option>`).join("")}</select></div>
       </div>
-      <div data-queue>${skeleton(3)}</div>`;
+      <div data-queue>${skeleton(3)}</div>` : `<p class="field-hint" style="margin-top:1.2rem">The submissions themselves are read and reviewed by the M&amp;E team.</p>`}`;
   }
 
   async function loadQueue() {
     const box = panel.querySelector("[data-queue]");
-    if (!box) return;
+    if (!box || !canRead) return;
     box.innerHTML = skeleton(3);
     let res;
     try {
@@ -203,7 +205,7 @@ export async function openKoboPipeline(formId, { canManage = false, canRecheck =
       return;
     }
     const rule = e.target.closest("[data-rule]");
-    if (rule) {
+    if (rule && canRead) {
       state.rule = rule.dataset.rule;
       state.view = "all";
       state.offset = 0;
@@ -235,7 +237,7 @@ export async function openKoboPipeline(formId, { canManage = false, canRecheck =
     const recEl = e.target.closest("[data-rec]");
     if (!recEl) return;
     const id = recEl.dataset.rec;
-    if (e.target.closest("[data-view]")) { openKoboRecord(id, () => openKoboPipeline(formId, { canManage, canRecheck, canReview, schools, onChange })); return; }
+    if (e.target.closest("[data-view]")) { openKoboRecord(id, () => openKoboPipeline(formId, { canManage, canRecheck, canReview, canRead, schools, onChange })); return; }
     if (e.target.closest("[data-clear]")) {
       try { await reviewKoboRecord(id, "clear"); onChange(); load(); } catch (err) { toast("Couldn't update the submission", friendlyError(err), "error"); }
       return;

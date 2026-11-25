@@ -39,7 +39,7 @@ export const REPORTS: ReportDef[] = [
     description: "Results by subject and class, and every piece of marked work with its marks, band and marker." },
   { id: "field-visit-report", title: "Field Visit Report", needs: ["field_reports.view.all", "field_reports.view.own"], filters: ["place", "dates"],
     description: "Field visits by date, officer, school and type, with the visit forms filled and any still missing." },
-  { id: "kobo-report", title: "Kobo Report", needs: ["kobo.results.view", "kobo.manage"], filters: ["place", "dates"],
+  { id: "kobo-report", title: "Kobo Report", needs: ["kobo.results.view"], filters: ["place", "dates"],
     description: "Each Kobo survey's status, and every submission with its school, officer, validation status and issues." },
   { id: "library-usage", title: "Library Usage", needs: ["library.usage.view"], filters: ["place", "dates"],
     description: "How each resource is used — opens, readers, time — and use by school." },

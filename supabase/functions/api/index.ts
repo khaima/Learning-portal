@@ -474,7 +474,7 @@ const mapProfile = (r: Record<string, unknown>, access?: { grants: string[]; sco
   scope: access ? { global: access.scope.global, label: access.scope.label } : null,
   workspace: WORKSPACE[r.role as Role] ?? null,
   // A Super Admin may open every management workspace; everyone else only their own.
-  workspaces: r.role === "super_admin" ? ["platform", "admin", "me"] : [WORKSPACE[r.role as Role]?.id].filter(Boolean),
+  workspaces: r.role === "super_admin" ? ["platform", "operations", "admin", "me"] : [WORKSPACE[r.role as Role]?.id].filter(Boolean),
 });
 const mapLearnerSelf = (r: Record<string, unknown>) => ({
   id: r.id,
@@ -9008,7 +9008,7 @@ async function publicSignupsOpen(): Promise<boolean | null> {
 /* Administration overview (Admin, and Super Admin): the programme's
    organisation and operations, within the caller's area. */
 // Programme Administration (the Education Team) and the Super Admin: schools.manage since 29 October 2026.
-app.get("/admin/overview", requirePermission("schools.manage"), async (c) => {
+app.get("/admin/overview", requirePermission("programme.overview.view"), async (c) => {
   const sc = scopeOf(c);
   // The filters above the dashboard (console.js): a county and a school (by
   // name), applied to every figure on the page alike — and only ever inside
@@ -9687,7 +9687,7 @@ app.get("/changes", requirePermission("changes.view", "changes.view.all"), async
     if (deletedOnly) qq = qq.eq("op", "delete");
     else if (["insert", "update", "delete"].includes(op)) qq = qq.eq("op", op);
     if (actorId) qq = qq.eq("actor_id", actorId);
-    if (role) qq = qq.in("actor_role", role === "education_team" ? ["education_team", "admin"] : [role]);
+    if (role) qq = qq.in("actor_role", [role]);
     if (from) qq = qq.gte("at", from);
     if (to) qq = qq.lt("at", new Date(Date.parse(`${to}T00:00:00Z`) + 864e5).toISOString().slice(0, 10));
     if (recordId) qq = qq.eq("record_id", recordId);
@@ -10372,7 +10372,7 @@ app.post("/kobo/forms/:id/reprocess", requirePermission("kobo.manage", "kobo.syn
 /* The review queue: ?formId= &status= (or needs_review: failing or duplicate,
    no decision yet) &rule= &review=none|accepted|excluded &limit= &offset=.
    Newest first; each with its issues, without answers. */
-app.get("/kobo/records", requirePermission("kobo.manage", "kobo.results.view"), async (c) => {
+app.get("/kobo/records", requirePermission("kobo.results.view"), async (c) => {
   const f = (k: string) => String(c.req.query(k) ?? "");
   if (!f("formId")) return c.json({ error: "Pick a survey" }, 400);
   const { data, error } = await selectAll(() => {
@@ -10428,7 +10428,7 @@ function displayAnswer(f: Record<string, any>, v: unknown, choices: Record<strin
   return typeof v === "object" ? JSON.stringify(v) : String(v);
 }
 
-app.get("/kobo/records/:id", requirePermission("kobo.manage", "kobo.results.view"), async (c) => {
+app.get("/kobo/records/:id", requirePermission("kobo.results.view"), async (c) => {
   const { data: r } = await admin.from("kobo_records").select("*").eq("id", c.req.param("id")).maybeSingle();
   if (!r || !inScope(c, r.school_id, r.county)) return c.json({ error: "Record not found" }, 404);
   const form = await loadKoboForm(r.kobo_form_id);
@@ -10486,7 +10486,7 @@ async function reprocessAllKobo() {
   return n;
 }
 
-app.get("/kobo/school-aliases", requirePermission("kobo.manage", "kobo.results.view"), async (c) => {
+app.get("/kobo/school-aliases", requirePermission("kobo.review", "kobo.results.view"), async (c) => {
   const { data, error } = await selectAll(() => admin.from("kobo_school_aliases").select("*").order("value_key"));
   if (error) return c.json({ error: error.message }, 500);
   const ids = [...new Set(data.map((a) => a.school_id as string))];
@@ -10541,7 +10541,7 @@ app.delete("/kobo/webhook", requirePermission("kobo.configure"), async (c) => {
 // ---- KoboToolbox: survey results (charts), from the portal's own records ----
 /* ?county= ?school= (name) narrow it to records linked there. Only records
    that pass validation (or a person accepted) are counted. */
-app.get("/kobo/forms/:id/results", requirePermission("kobo.manage", "kobo.results.view"), async (c) => {
+app.get("/kobo/forms/:id/results", requirePermission("kobo.results.view"), async (c) => {
   const form = await loadKoboForm(c.req.param("id"));
   if (!form) return c.json({ error: "Survey not found" }, 404);
   const county = String(c.req.query("county") ?? "").trim();

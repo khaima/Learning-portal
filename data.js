@@ -13,13 +13,12 @@ export const ROLES = [
   { value: "learner", label: "Learner", desc: "Coursework and library" },
   { value: "school_leader", label: "School Head", desc: "Termly returns, oversight" },
   { value: "field_officer", label: "Field Officer", desc: "Visit reports by county" },
-  { value: "education_team", label: "Programme Admin (Education Team)", desc: "Learning & education: schools, teaching, content, training" },
+  { value: "education_team", label: "Education Team", desc: "Learning programmes, teachers, resources and education reports" },
   // Given only by an administrator (invitation or role change), never
   // chosen at sign-up. They use the Education Team dashboard, which shows
   // each of them only what their permissions allow.
-  { value: "me", label: "M&E", desc: "Monitoring & evaluation" },
-  // The same role as the Education Team since 29 October 2026, kept for accounts that already had it; never given.
-  { value: "admin", label: "Programme Admin (Education Team)", desc: "Learning & education", legacy: true },
+  { value: "me", label: "M&E Super Admin", desc: "Monitoring, evaluation, indicators, data quality and programme reports" },
+  { value: "admin", label: "Admin", desc: "User accounts and operational settings" },
   { value: "super_admin", label: "Super Admin", desc: "Everything, including admins" },
 ];
 

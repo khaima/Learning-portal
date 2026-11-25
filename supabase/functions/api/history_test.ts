@@ -142,7 +142,7 @@ Deno.test("an edit is undone only while nothing has changed it since", async () 
   const db = freshWorld();
   await call("PATCH", "/schools/sch_1", "tok_super_admin", { name: "Aitong Primary School" });
   const first = last(db, "schools", "update");
-  await call("PATCH", "/schools/sch_1", "tok_education_team", { name: "Aitong Pri. School" });
+  await call("PATCH", "/schools/sch_1", "tok_admin", { name: "Aitong Pri. School" });
   const second = last(db, "schools", "update");
   assertEquals((await call("POST", `/changes/${first.id}/undo`, "tok_education_team", {})).status, 403, "undoing is the Super Admin's");
   const early = await call("POST", `/changes/${first.id}/undo`, "tok_super_admin", {});
@@ -198,7 +198,9 @@ Deno.test("filters: kind of record, what happened, who, their role, dates; and o
   assertEquals((await ids("op=update&table=schools")).length, 5);
   assertEquals((await ids("actorId=super_admin-id&table=schools")).length, 4);
   const pa = (await history("tok_super_admin", "role=education_team")).entries;
-  assertEquals([...new Set(pa.map((x: Row) => x.actor.role))].sort(), ["admin", "education_team"], "the Programme Admin under either role code");
+  assertEquals([...new Set(pa.map((x: Row) => x.actor.role))], ["education_team"], "one role, its own code");
+  const ad = (await history("tok_super_admin", "role=admin")).entries;
+  assertEquals([...new Set(ad.map((x: Row) => x.actor.role))], ["admin"], "the Admin is a role of its own");
   const today = new Date().toISOString().slice(0, 10);
   assertEquals((await ids(`from=${today}&to=${today}&table=schools`)).length, 5);
   assertEquals((await ids("to=2020-01-01")).length, 0);

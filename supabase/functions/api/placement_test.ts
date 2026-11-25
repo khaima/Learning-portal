@@ -47,12 +47,11 @@ Deno.test("assigning schools one by one, several at once, and taking one away â€
 
 Deno.test("field officers: only for those who place staff, and only in their own area", async () => {
   const db = twoCounties();
-  // Placing staff is the Super Admin's (29 October 2026).
-  for (const role of ["field_officer", "teacher", "school_leader", "education_team", "admin", "me"]) {
+  // Placing staff is the Super Admin's and the Admin's (25 November 2026).
+  for (const role of ["field_officer", "teacher", "school_leader", "education_team", "me"]) {
     assertEquals((await call("GET", "/field-officers", `tok_${role}`)).status, 403, role);
   }
-  // Someone given it as a grant, narrowed to Meru, sees Meru's schools only, and can't hand out Narok's.
-  db.permission_grants.push({ id: "g_place", profile_id: "admin-id", permission: "users.placement.assign", reason: "test", granted_by: "super_admin-id", granted_at: new Date().toISOString(), revoked_at: null });
+  // An Admin narrowed to Meru sees Meru's schools only, and can't hand out Narok's.
   db.staff_scopes.push({ id: "scp_adm", profile_id: "admin-id", scope_type: "county", county: "Meru", school_id: null, note: "", created_at: new Date().toISOString(), created_by: null, ended_at: null, ended_by: null });
   const res = await call("GET", "/field-officers", "tok_admin");
   assertEquals(res.json.schools.map((s: Row) => s.id), ["sch_3"]);

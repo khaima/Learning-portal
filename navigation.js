@@ -63,8 +63,8 @@ export const ICON = {
 /* ---- the console pages (platform / admin / me / education share them) ---- */
 const PAGES = {
   "platform-overview": { label: "Platform overview", icon: "dashboard", needs: ["platform.view"], purpose: "The platform at a glance, and what's waiting on someone." },
-  "admin-overview": { label: "Administration overview", icon: "dashboard", needs: ["schools.manage"], filters: ["county", "school"], purpose: "The programme's main findings at a glance, and what needs attention." },
-  "admin-detail": { label: "In detail", icon: "dashboard", needs: ["schools.manage"], filters: ["county", "school"], purpose: "Every result and finding, every school, how the programme is organised, and the data checks waiting." },
+  "admin-overview": { label: "Education overview", icon: "dashboard", needs: ["programme.overview.view"], filters: ["county", "school"], purpose: "The programme's main findings at a glance, and what needs attention." },
+  "admin-detail": { label: "In detail", icon: "dashboard", needs: ["programme.overview.view"], filters: ["county", "school"], purpose: "Every result and finding, every school, how the programme is organised, and the data checks waiting." },
   // The M&E landing page: every dashboard's figures in one place (hub-ui.js, GET /me/hub).
   "me-hub": { label: "Programme impact", icon: "dashboard", needs: ["me.view"], filters: ["county", "school"], purpose: "Every dashboard's figures in one place: results, reach, learning, teachers, field work and the library." },
   "me-dashboard": { label: "Indicators", icon: "target", needs: ["me.view"], filters: ["county", "school"], purpose: "Every indicator against its target." },
@@ -157,24 +157,36 @@ export const WORKSPACES = {
       ]),
     ],
   },
-  /* Programme Administration is the Education Team (one role since 29 October
-     2026): learning and education. Accounts, data quality, device sync and
-     Kobo are the Super Admin's (the platform workspace). */
+  /* Administration — the Admin (25 November 2026): user accounts and
+     operational settings. */
+  operations: {
+    title: "Administration", page: "operations.html", roles: ["admin", "super_admin"],
+    question: "Are the right people set up, and is the portal running smoothly?",
+    groups: [
+      entry("overview", "Overview", "dashboard", [c("platform-overview", { label: "Overview" })]),
+      entry("users", "Users & roles", "users", [
+        c("users", { label: "Accounts" }), c("field-officers"), c("notifications", { label: "Notifications sent" }),
+      ], { badge: "approvals" }),
+      entry("organisation", "Organisation setup", "school", [c("schools", { label: "Counties & schools" }), c("calendar")]),
+      entry("integrations", "Integrations", "plug", [c("kobo", { label: "KoboToolbox" }), c("sync-problems")]),
+      entry("reports", "Exports", "download", [c("reports", { label: "Exports" })]),
+    ],
+  },
+  /* Education & Learning — the Education Team: learning programmes. Accounts,
+     schools and counties, the calendar and integrations are the Admin's;
+     data quality and the Kobo review are M&E's. */
   admin: {
-    title: "Programme Administration", page: "admin.html", roles: ["education_team", "admin", "super_admin"],
+    title: "Education & Learning", page: "admin.html", roles: ["education_team", "super_admin"],
     question: "How are learning and education going, and what support is needed?",
     groups: [
       entry("dashboard", "Dashboard", "dashboard", [c("admin-overview", { label: "Overview" }), c("education-overview", { label: "Teaching progress" }), c("admin-detail")]),
       entry("schools", "Schools", "school", [
         c("school-profiles"), c("teachers"), c("learners"), c("field-visits"),
         c("classes", { hidden: true }), // a school's classes are on its page; the old address still works
-        c("schools", { label: "Counties & schools" }), c("calendar"),
       ]),
       entry("teaching", "Teaching & learning", "cap", [c("assignments"), c("results"), c("training")]),
       entry("content", "Content library", "book", [c("content", { label: "Library" }), c("content-usage"), c("subjects")]),
       entry("forms", "Forms", "form", [c("forms")]),
-      // Teachers, school heads and field officers: see, invite, edit (29 October 2026).
-      entry("users", "Users & roles", "users", [c("users", { label: "Accounts" })]),
       entry("analytics", "Dashboards & reports", "chart", [c("learning"), c("teacher-development"), c("digital-resources"), c("reports", { label: "Reports" })]),
     ],
   },
@@ -187,8 +199,8 @@ export const WORKSPACES = {
       entry("analytics", "Dashboards & reports", "chart", [
         c("overview"), c("mel-reports"), c("reports", { label: "Exports" }), ...AREA_DASHBOARDS(),
       ]),
-      entry("surveys", "Surveys & forms", "survey", [c("survey-results"), c("kobo", { label: "Kobo review", purpose: "Kobo submissions waiting for a decision before they are counted." }),
-        c("forms", { label: "Form responses", purpose: "The forms sent to staff, and their responses." })], { badge: "koboReview" }),
+      entry("surveys", "Data & surveys", "survey", [c("survey-results"), c("kobo", { label: "Kobo review", purpose: "Kobo submissions waiting for a decision before they are counted." }),
+        c("data-quality"), c("forms", { label: "Form responses", purpose: "The forms sent to staff, and their responses." })], { badge: "koboReview" }),
       entry("schools", "Schools", "school", [
         c("school-profiles"), c("teachers"), c("learners"), c("field-visits"), c("classes", { hidden: true }),
       ]),
@@ -270,7 +282,7 @@ export const WORKSPACES = {
 
 /** Each role's own workspace. */
 export const ROLE_WORKSPACE = {
-  super_admin: "platform", admin: "admin", me: "me", education_team: "admin",
+  super_admin: "platform", admin: "operations", me: "me", education_team: "admin",
   field_officer: "field", school_leader: "school", teacher: "teacher", learner: "learner",
 };
 export const workspacePage = (role) => WORKSPACES[ROLE_WORKSPACE[role]]?.page ?? "index.html";
@@ -282,7 +294,7 @@ export const workspacesFor = (role) => [ROLE_WORKSPACE[role], ...Object.keys(WOR
    Education Team member granted kobo.results.view) are listed together, so
    a grant shows in the menu as well as being allowed by the API. Each
    role's own menu above already lists every page its role opens. */
-const CONSOLE_WORKSPACES = new Set(["platform", "admin", "me"]);
+const CONSOLE_WORKSPACES = new Set(["platform", "operations", "admin", "me"]);
 
 /** The menu for this person in this workspace: its entries, each with the
     items (tabs) their permissions allow — an entry with none is left out —

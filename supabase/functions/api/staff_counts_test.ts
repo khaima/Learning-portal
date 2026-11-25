@@ -36,9 +36,9 @@ async function aitong() {
   };
   const overview = await get("/school/overview", "tok_school_leader");
   const listed = (await get("/schools", "tok_admin")).schools.find((s: Row) => s.id === SCHOOL.id);
-  const profile = await get(`/schools/${SCHOOL.id}/profile`, "tok_admin");
-  const stats = await get(`/stats?school=${encodeURIComponent(SCHOOL.name)}`, "tok_admin");
-  const admin = await get("/admin/overview", "tok_admin");
+  const profile = await get(`/schools/${SCHOOL.id}/profile`, "tok_education_team");
+  const stats = await get(`/stats?school=${encodeURIComponent(SCHOOL.name)}`, "tok_education_team");
+  const admin = await get("/admin/overview", "tok_education_team");
   return {
     counts: {
       overview: overview.teacherCount, list: listed.teachers, profile: profile.teachers,
