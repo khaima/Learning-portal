@@ -8880,8 +8880,8 @@ app.get("/platform/overview", requirePermission("platform.view"), async (c) => {
         scan ? `Last scan ${String(scan.started_at).slice(0, 10)}` : "Never scanned", "#data-quality"),
       check("No devices needing attention", !attention.length, attention.length ? `${attention.length} device(s)` : "All fine", ""),
       check("Database backed up in the last two days", backupAge != null && backupAge <= 2,
-        backupDay ? `Last backup ${backupDay}${backupAge! > 2 ? ` — ${backupAge} days ago` : ""}`
-          : "No backup yet — the nightly backup needs the SUPABASE_ACCESS_TOKEN repository secret (RESTORE.md)"),
+        backupDay ? `Last backup ${backupDay}${backupAge! > 2 ? ` — ${backupAge} days ago; see the Nightly database backup runs in GitHub Actions` : ""}`
+          : "No backup yet — see the Nightly database backup runs in GitHub Actions (docs/OPERATIONS.md)"),
       check("Invitation emails can be sent", mailReady(),
         mailReady() ? "A mail provider is set up" : "Not set up — invitations give a link to pass on instead (scripts/configure-auth.mjs)"),
       check("Errors are reported to the error tracker", telemetryOn(),
