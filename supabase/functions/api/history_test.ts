@@ -44,7 +44,7 @@ Deno.test("every change is recorded with who made it, their role and the request
 
 Deno.test("a PIN change is recorded as a change, never with the PIN", async () => {
   const db = freshWorld();
-  assertEquals((await call("PATCH", "/learners/learner-id", "tok_teacher", { pin: "5678" })).status, 200);
+  assertEquals((await call("PATCH", "/learners/learner-id", "tok_teacher", { pin: "5830" })).status, 200);
   const e = last(db, "learners", "update");
   assert(e.changed.includes("pin_hash"), JSON.stringify(e.changed));
   assert(!JSON.stringify(log(db)).includes("pin_hash\":"), "no PIN hash in the history");
