@@ -147,6 +147,16 @@ export function trivialPin(pin: string): boolean {
   const step = d[1] - d[0];
   return Math.abs(step) <= 1 && d.every((x, i) => i === 0 || x - d[i - 1] === step);
 }
+/** A grade as people type it ("5", "grade 5", "pp1") in the portal's own form; "" for none; null if it isn't a grade. */
+export function cleanGrade(v: unknown): string | null {
+  const s = String(v ?? "").trim().replace(/\s+/g, " ");
+  if (!s) return "";
+  const n = s.match(/^(?:grade ?)?(\d{1,2})$/i);
+  const pp = s.match(/^pp ?([12])$/i);
+  const g = n ? `Grade ${Number(n[1])}` : pp ? `PP${pp[1]}` : s;
+  return GRADES.find((x) => x.toLowerCase() === g.toLowerCase()) ?? null;
+}
+const GRADE_MESSAGE = "Grade must be one of the portal's grades: PP1, PP2, or Grade 1 to Grade 12";
 const TRIVIAL_PIN_MESSAGE = "Choose a PIN that's harder to guess — not one digit four times or a run like 1234";
 
 // ---------------------------------------------------------------- helpers
@@ -781,6 +791,7 @@ app.post("/learner/login", async (c) => {
       failed_attempts: lock ? 0 : attempts,
       locked_until: lock,
     }).eq("id", learner.id);
+    if (lock) await audit(c, "learner.locked", "learner", learner.id, { minutes: PIN_LOCK_MINUTES, school_id: learner.school_id ?? null });
     await wrongTry();
     return c.json({
       error: lock ? "Too many tries. Ask your teacher to unlock it." : "Wrong username or PIN",
@@ -1965,7 +1976,8 @@ app.post("/learners", requirePermission("learners.manage", "learners.manage.scho
 
   const cal = await currentCalendar();
   if (!cal.yearId) return c.json({ error: "No current academic year is set — ask an administrator." }, 409);
-  const grade = cls ? cls.grade : String(b.grade ?? "").trim();
+  const grade = cls ? cls.grade : cleanGrade(b.grade);
+  if (grade === null) return c.json({ error: GRADE_MESSAGE }, 400);
   const teacherId = cls ? await classTeacherOf(cls.id) : (scope.kind === "teacher" ? actor.id : null);
 
   const salt = randomBytes(16).toString("hex");
@@ -2015,7 +2027,11 @@ app.patch("/learners/:id", requirePermission("learners.manage", "learners.manage
     if (!fn) return c.json({ error: "Full name is required" }, 400);
     patch.full_name = fn;
   }
-  if (b.grade !== undefined) patch.grade = String(b.grade).trim();
+  if (b.grade !== undefined) {
+    const g = cleanGrade(b.grade);
+    if (g === null) return c.json({ error: GRADE_MESSAGE }, 400);
+    patch.grade = g;
+  }
   if (b.gender !== undefined) {
     const g = cleanGender(b.gender);
     if (g === false) return c.json({ error: GENDER_ERROR }, 400);

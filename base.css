@@ -326,7 +326,10 @@ a{ color:inherit; }
 /* ---- remember-me checkbox ---- */
 .field-remember{ display:flex; align-items:center; gap:.5rem; margin:-.1rem 0 1rem; }
 .field-remember input{ width:16px; height:16px; accent-color:var(--brand); flex:none; cursor:pointer; }
-.field-remember label{ font-size:var(--text-sm); color:var(--ink-soft); cursor:pointer; }
+.field-remember label{ font-size:var(--text-sm); color:var(--ink-soft); cursor:pointer; padding:.2rem 0; }
+/* Tap targets at least 24px tall (WCAG 2.5.8): learners sign in on shared phones. */
+.link-btn,.login-foot button{ min-height:24px; }
+.field-remember input{ width:20px; height:20px; }
 
 /* ---- Google sign-in ---- */
 .btn-google{

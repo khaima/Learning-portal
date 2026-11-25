@@ -1,4 +1,5 @@
 import { mountNavigation } from "./nav.js";
+import { parseCsv } from "./csv.js";
 // Staff dashboards always need Supabase Auth: fetched with the page, not after it.
 import "./supabase-auth.js";
 import { $, $$, esc, initials, schoolLine, toast, formatDuration, skeleton, skeletonCards, emptyState, errorState, friendlyError, confirmDialog } from "./util.js";
@@ -660,11 +661,7 @@ async function main() {
   }
 
   function parseLearnerCsv(text) {
-    return text
-      .split(/\r?\n/)
-      .map((line) => line.replace(/^﻿/, "").trim())
-      .filter(Boolean)
-      .map((line) => line.split(",").map((cell) => cell.trim().replace(/^"|"$/g, "")))
+    return parseCsv(text)
       .filter((cells) => cells[0] && cells[0].toLowerCase() !== "full name")
       .map(([fullName, username, grade, pin, gender]) => ({
         fullName, username: (username || "").toLowerCase(), grade: grade || "", pin: pin || "", gender: csvGender(gender),

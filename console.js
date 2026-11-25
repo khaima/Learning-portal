@@ -3062,6 +3062,7 @@ async function main() {
     "learner.updated": "edited a learner",
     "learner.pin_reset": "reset a learner's PIN",
     "learner.unlocked": "unlocked a learner",
+    "learner.locked": "locked a learner out after 5 wrong PINs",
     "invitation.created": "created an invitation",
     "invitation.emailed": "emailed an invitation",
     "invitation.renewed": "made a new invitation link",
