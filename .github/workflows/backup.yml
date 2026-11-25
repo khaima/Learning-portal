@@ -56,9 +56,10 @@ jobs:
           supabase init --force >/dev/null
           supabase link --project-ref "$PROJECT_REF" < /dev/null
           mkdir -p backup && cd backup
-          supabase db dump --linked -f roles.sql --role-only
-          supabase db dump --linked -f schema.sql
-          supabase db dump --linked -f data.sql --use-copy --data-only \
+          # Full paths: a linked CLI runs from the project folder, not from backup/.
+          supabase db dump --linked -f "$PWD/roles.sql" --role-only
+          supabase db dump --linked -f "$PWD/schema.sql"
+          supabase db dump --linked -f "$PWD/data.sql" --use-copy --data-only \
             -x "storage.buckets_vectors" -x "storage.vector_indexes"
           ls -la
 
