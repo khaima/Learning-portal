@@ -25,6 +25,27 @@
 import "./telemetry.js";
 import { PREVIEW, TARGET } from "./config.js";
 
+// Never inside another site's frame, where a hidden page could be clicked
+// on someone's behalf. GitHub Pages can't send the header that forbids it
+// (Vercel does), so the page leaves the frame itself. The portal's own
+// frames (the resource viewer) are the same site and stay as they are.
+if (window.top !== window.self) {
+  let foreign = false;
+  try {
+    foreign = window.top.location.origin !== window.location.origin;
+  } catch {
+    foreign = true; // another site's page: its address can't even be read
+  }
+  if (foreign) {
+    document.documentElement.style.visibility = "hidden";
+    try {
+      window.top.location.replace(window.location.href);
+    } catch {
+      /* a sandboxed frame: the page stays hidden */
+    }
+  }
+}
+
 // A preview says so on every page — and whose data it is: staging's test
 // data, or (until a staging project is set up) the live data.
 if (TARGET === "staging" || PREVIEW) {

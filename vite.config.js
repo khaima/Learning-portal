@@ -54,6 +54,29 @@ const stylesheetsFirst = {
   },
 };
 
+/* The Content-Security-Policy as a <meta> tag in every page, so it holds
+   where the host can't send headers (GitHub Pages). The policy is the one in
+   vercel.json, which Vercel also sends as a header. A <meta> policy can't
+   use frame-ancestors (browsers ignore it there): pwa.js stops the portal
+   running inside another site's frame instead. */
+const vercelHeaders = JSON.parse(readFileSync(resolve(root, "vercel.json"), "utf8")).headers;
+const cspHeader = vercelHeaders.find((h) => h.source === "/(.*)").headers
+  .find((h) => h.key.toLowerCase() === "content-security-policy").value;
+const metaCsp = cspHeader.split(";").map((d) => d.trim())
+  .filter((d) => d && !/^(frame-ancestors|report-uri|report-to|sandbox)\b/.test(d)).join("; ");
+const cspInPages = {
+  name: "hpf-csp-meta",
+  transformIndexHtml: {
+    order: "post",
+    handler(html) {
+      const tag = `<meta http-equiv="Content-Security-Policy" content="${metaCsp}">`;
+      const charset = html.match(/<meta charset=[^>]*>/i);
+      if (charset) return html.replace(charset[0], `${charset[0]}\n    ${tag}`);
+      return html.replace(/<head>/i, `<head>\n    ${tag}`);
+    },
+  },
+};
+
 export default defineConfig({
   base: "./",
   define: {
@@ -63,7 +86,7 @@ export default defineConfig({
     "import.meta.env.HPF_SUPABASE_URL": JSON.stringify(target.supabaseUrl),
     "import.meta.env.HPF_PUBLISHABLE_KEY": JSON.stringify(target.publishableKey),
   },
-  plugins: [stylesheetsFirst],
+  plugins: [stylesheetsFirst, cspInPages],
   publicDir: "public",
   server: { port: 5174, strictPort: true },
   preview: { port: 5174, strictPort: true },

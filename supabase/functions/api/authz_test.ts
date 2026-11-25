@@ -135,7 +135,7 @@ const ROUTES: RouteSpec[] = [
   r("PATCH", "/schools/:id", ADMINS, { name: "Renamed" }, "/schools/sch_1"),
   r("DELETE", "/schools/:id", ADMINS, undefined, "/schools/{school}", { setup: async () => ({ school: (await made("POST", "/schools", { name: "Spare School", county: "Narok" })).school?.id }) }),
   r("GET", "/learners", LEARNER_VIEWERS),
-  r("POST", "/learners", LEARNER_MANAGERS, { fullName: "Kid Two", username: "kid.two", pin: "1234", schoolId: "sch_1" }),
+  r("POST", "/learners", LEARNER_MANAGERS, { fullName: "Kid Two", username: "kid.two", pin: "2580", schoolId: "sch_1" }),
   r("PATCH", "/learners/:id", LEARNER_MANAGERS, { fullName: "Kid" }, "/learners/learner-id"),
   r("DELETE", "/learners/:id", LEARNER_MANAGERS, undefined, "/learners/learner-id"),
   r("POST", "/learners/:id/status", LEARNER_MANAGERS, { status: "INACTIVE" }, "/learners/learner-id/status"),
@@ -517,7 +517,7 @@ Deno.test("role, school and password changes are audited (never the password)", 
 
 Deno.test("learner creation and removal are audited (removal archives, never deletes)", async () => {
   const db = freshWorld();
-  assertEquals((await call("POST", "/learners", "tok_teacher", { fullName: "Kid Two", username: "kid.two", pin: "1234" })).status, 200);
+  assertEquals((await call("POST", "/learners", "tok_teacher", { fullName: "Kid Two", username: "kid.two", pin: "2580" })).status, 200);
   assertEquals((await call("DELETE", "/learners/learner-id", "tok_teacher")).status, 200);
   assert(db.learners.some((l) => l.id === "learner-id" && l.enrollment_status === "INACTIVE"), "the learner is archived, not deleted");
   const actions = db.audit_log.map((a) => a.action);
@@ -839,10 +839,10 @@ Deno.test("a teacher can't reach another school's learners — even one they onc
   }
   assertEquals(db.learners.find((l) => l.id === "learner-b-id")!.full_name, "Kid B");
   // Can't add a learner to a class they don't teach, or to another school.
-  assertEquals((await call("POST", "/learners", "tok_teacher", { fullName: "X", username: "kid.x", pin: "1234", classId: "cls_2" })).status, 400);
-  assertEquals((await call("POST", "/learners", "tok_teacher", { fullName: "Y", username: "kid.y", pin: "1234", schoolId: "sch_2" })).json.learner.schoolId, "sch_1");
+  assertEquals((await call("POST", "/learners", "tok_teacher", { fullName: "X", username: "kid.x", pin: "2580", classId: "cls_2" })).status, 400);
+  assertEquals((await call("POST", "/learners", "tok_teacher", { fullName: "Y", username: "kid.y", pin: "2580", schoolId: "sch_2" })).json.learner.schoolId, "sch_1");
   // A class they don't teach in their own school is refused too.
-  assertEquals((await call("POST", "/learners", "tok_teacher", { fullName: "Z", username: "kid.z", pin: "1234", classId: "cls_1b" })).status, 403);
+  assertEquals((await call("POST", "/learners", "tok_teacher", { fullName: "Z", username: "kid.z", pin: "2580", classId: "cls_1b" })).status, 403);
 });
 
 Deno.test("a school head sees only their own school", async () => {
@@ -871,7 +871,7 @@ Deno.test("an admin manages every school", async () => {
   assertEquals((await call("PATCH", "/learners/learner-b-id", "tok_admin", { fullName: "Kid Bee" })).status, 200);
   assertEquals((await call("POST", "/classes", "tok_admin", { grade: "Grade 6", name: "Grade 6 B", schoolId: "sch_2" })).json.class.schoolId, "sch_2");
   assertEquals((await call("POST", "/classes/cls_2/teachers", "tok_admin", { teacherId: "teacher-b-id" })).status, 200);
-  assertEquals((await call("POST", "/learners", "tok_admin", { fullName: "New", username: "kid.new", pin: "1234", schoolId: "sch_2", classId: "cls_2" })).json.learner.schoolId, "sch_2");
+  assertEquals((await call("POST", "/learners", "tok_admin", { fullName: "New", username: "kid.new", pin: "2580", schoolId: "sch_2", classId: "cls_2" })).json.learner.schoolId, "sch_2");
   // M&E can see and transfer, but not edit.
   assertEquals((await call("PATCH", "/learners/learner-b-id", "tok_me", { fullName: "X" })).status, 403);
 });
@@ -910,6 +910,7 @@ Deno.test("a transferred learner keeps their history, code, sign-in and work", a
 
 Deno.test("archived learners don't appear as active, can't sign in, and are never deleted", async () => {
   const db = freshWorld();
+  assertEquals((await call("PATCH", "/learners/learner-id", "tok_teacher", { pin: "2580" })).status, 200);
   assertEquals((await call("POST", "/learners/learner-id/status", "tok_teacher", { status: "DROPPED_OUT", reason: "Left school" })).status, 200);
   assertEquals(ids(await call("GET", "/learners", "tok_teacher")), [], "not on the active roster");
   const archived = await call("GET", "/learners?status=archived", "tok_teacher");
@@ -917,7 +918,8 @@ Deno.test("archived learners don't appear as active, can't sign in, and are neve
   assert(db.learners.some((l) => l.id === "learner-id"), "the learner row still exists");
   assertEquals(db.learner_enrollments.find((e) => e.id === "enr_1")!.status, "DROPPED_OUT");
   assertEquals(db.learner_sessions.filter((s) => s.learner_id === "learner-id").length, 0, "signed out everywhere");
-  assertEquals((await call("POST", "/learner/login", undefined, { username: "kid.one", pin: "1234" })).status, 403);
+  assertEquals((await call("POST", "/learner/login", undefined, { username: "kid.one", pin: "2580" })).status, 403);
+  assertEquals((await call("POST", "/learner/login", undefined, { username: "kid.one", pin: "1470" })).status, 401, "a wrong PIN isn't told the account is archived");
   // Not counted as an active learner anywhere.
   assertEquals((await call("GET", "/stats", "tok_me")).json.byRole.learner, 1, "only learner-b-id is active");
   // "Remove" archives instead of deleting.
@@ -1278,6 +1280,31 @@ function connectKobo(db: Db, secret?: string) {
 import { createHash as createHashForTest0 } from "node:crypto";
 const createHashForTest = (s: string) => createHashForTest0("sha256").update(s).digest("hex");
 const recByKobo = (db: Db, id: number) => db.kobo_records.find((r) => r.kobo_id === id)!;
+
+Deno.test("Kobo token: saved to Vault, never in the table, and used from there", async () => {
+  const db = freshWorld();
+  const sent: string[] = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input);
+    sent.push(String(new Headers(init?.headers).get("authorization")));
+    if (url.includes("/api/v2/assets/")) return Promise.resolve(new Response(JSON.stringify({ count: 0, next: null, results: [] })));
+    return real(input, init);
+  }) as typeof fetch;
+  try {
+    const saved = await call("PUT", "/kobo/config", "tok_super_admin", { apiToken: "vault-token", baseUrl: "https://kobo.test" });
+    assertEquals(saved.status, 200, JSON.stringify(saved.json));
+    assertEquals(db.kobo_config[0].api_token, "", "the table keeps no token");
+    assertEquals(db.vault_secrets?.[0]?.secret, "vault-token");
+    sent.length = 0;
+    const assets = await call("GET", "/kobo/assets", "tok_super_admin");
+    assertEquals(assets.status, 200, JSON.stringify(assets.json));
+    assert(sent.includes("Token vault-token"), `Kobo was called with: ${sent.join(", ")}`);
+    assert(!JSON.stringify((await call("GET", "/kobo/config", "tok_super_admin")).json).includes("vault-token"), "never shown");
+  } finally {
+    globalThis.fetch = real;
+  }
+});
 
 Deno.test("Kobo pipeline: sync stores raw, validates, normalizes; dashboards count only what passes", async () => {
   const db = freshWorld();
@@ -1697,8 +1724,8 @@ Deno.test("impact dashboards: analysts only, the six areas, gender kept optional
   }
   assertEquals([r.json.executive.schools, r.json.executive.learners], [2, 2]);
   // Gender: optional, checked, and never shown for fewer than 5 people.
-  assertEquals((await call("POST", "/learners", "tok_teacher", { fullName: "Kid Two", username: "kid.two", pin: "1234", classId: "cls_1", gender: "boy" })).status, 400);
-  const made = await call("POST", "/learners", "tok_teacher", { fullName: "Kid Two", username: "kid.two", pin: "1234", classId: "cls_1", gender: "female" });
+  assertEquals((await call("POST", "/learners", "tok_teacher", { fullName: "Kid Two", username: "kid.two", pin: "2580", classId: "cls_1", gender: "boy" })).status, 400);
+  const made = await call("POST", "/learners", "tok_teacher", { fullName: "Kid Two", username: "kid.two", pin: "2580", classId: "cls_1", gender: "female" });
   assertEquals([made.status, made.json.learner.gender], [200, "female"]);
   assertEquals((await call("PATCH", "/learners/learner-id", "tok_teacher", { gender: "prefer not to say" })).json.learner.gender, "prefer_not_to_say");
   assertEquals((await call("PATCH", "/learners/learner-id", "tok_teacher", { gender: "" })).json.learner.gender, null, "it can be cleared");

@@ -134,6 +134,20 @@ const PIN_MAX_ATTEMPTS = 5;
 const PIN_LOCK_MINUTES = 15;
 const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{2,31}$/;
 const PIN_RE = /^\d{4}$/;
+/* Guessing limits, counted per network address across every copy of this
+   function (table auth_attempts). A school's devices often share one
+   address, so the learner limit counts only WRONG tries and is generous. */
+const LEARNER_FAILS_PER_ADDRESS = 40; // wrong PINs from one address…
+const LEARNER_FAILS_WINDOW_MS = 15 * 60_000; // …in 15 minutes
+const SIGNUPS_PER_ADDRESS = 20; // new staff accounts from one address…
+const SIGNUPS_WINDOW_MS = 60 * 60_000; // …in an hour
+/** A PIN anyone would try first: one digit four times, or a straight run up or down (1234, 9876). */
+export function trivialPin(pin: string): boolean {
+  const d = [...pin].map(Number);
+  const step = d[1] - d[0];
+  return Math.abs(step) <= 1 && d.every((x, i) => i === 0 || x - d[i - 1] === step);
+}
+const TRIVIAL_PIN_MESSAGE = "Choose a PIN that's harder to guess — not one digit four times or a run like 1234";
 
 // ---------------------------------------------------------------- helpers
 
@@ -254,7 +268,15 @@ type KoboConfig = { base_url: string; api_token: string; officer_field: string; 
 
 async function loadKoboConfig(): Promise<KoboConfig | null> {
   const { data } = await admin.from("kobo_config").select("*").eq("id", 1).maybeSingle();
-  return (data as KoboConfig) ?? null;
+  if (!data) return null;
+  const cfg = data as KoboConfig;
+  // The token is kept in Vault (kobo_token_get). One still in the table, from before, is used as it is.
+  if (!cfg.api_token) {
+    const { data: token, error } = await admin.rpc("kobo_token_get");
+    if (error) console.error("kobo token read failed:", error.message);
+    cfg.api_token = typeof token === "string" ? token : "";
+  }
+  return cfg;
 }
 
 async function koboFetch(cfg: KoboConfig, path: string) {
@@ -320,6 +342,30 @@ function pinMatches(pin: string, salt: string, hash: string) {
   const a = Buffer.from(hashPin(pin, salt), "hex");
   const b = Buffer.from(hash, "hex");
   return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/** The caller's network address as the platform's proxy reports it; null when there is none (tests). */
+// deno-lint-ignore no-explicit-any
+function clientAddress(c: any): string | null {
+  const h = (name: string) => (c.req.header(name) ?? "").split(",")[0].trim() || null;
+  return h("cf-connecting-ip") ?? h("x-real-ip") ?? h("x-forwarded-for");
+}
+/** How many attempts of this kind one address made in the window. If the count can't be read, nobody is stopped. */
+async function attemptsFrom(kind: string, address: string, windowMs: number): Promise<number> {
+  const { count, error } = await admin.from("auth_attempts").select("id", { count: "exact", head: true })
+    .eq("kind", kind).eq("address", address).gte("at_ms", Date.now() - windowMs);
+  if (error) {
+    console.error("auth_attempts read failed:", error.message);
+    return 0;
+  }
+  return count ?? 0;
+}
+async function noteAttempt(kind: string, address: string) {
+  const now = Date.now();
+  const { error } = await admin.from("auth_attempts").insert({ kind, address, at_ms: now });
+  if (error) console.error("auth_attempts write failed:", error.message);
+  // Now and then, forget attempts older than a day.
+  if (Math.random() < 0.02) await admin.from("auth_attempts").delete().lt("at_ms", now - 24 * 60 * 60_000);
 }
 
 /** Three content destinations; legacy values fold in. */
@@ -662,6 +708,15 @@ app.get("/invitations/:token", async (c) => {
 });
 
 app.post("/auth/register", async (c) => {
+  // Open to anyone, so limited per network address: enough for a whole
+  // workshop joining together, not for making accounts in bulk.
+  const address = clientAddress(c);
+  if (address) {
+    if (await attemptsFrom("signup", address, SIGNUPS_WINDOW_MS) >= SIGNUPS_PER_ADDRESS) {
+      return c.json({ error: "Too many new accounts from this network. Try again in an hour, or ask for an invitation." }, 429);
+    }
+    await noteAttempt("signup", address);
+  }
   const b = await c.req.json().catch(() => ({}));
   const email = String(b.email ?? "").trim().toLowerCase();
   const password = String(b.password ?? "");
@@ -693,14 +748,24 @@ app.post("/learner/login", async (c) => {
   if (!username || !PIN_RE.test(pin)) {
     return c.json({ error: "Enter your username and 4-digit PIN" }, 400);
   }
+  // One address trying PIN after PIN across many usernames is stopped for a while.
+  const address = clientAddress(c);
+  if (address && await attemptsFrom("learner_pin", address, LEARNER_FAILS_WINDOW_MS) >= LEARNER_FAILS_PER_ADDRESS) {
+    return c.json({ error: "Too many wrong tries on this network. Wait 15 minutes, or ask your teacher." }, 429);
+  }
+  const wrongTry = async () => {
+    if (address) await noteAttempt("learner_pin", address);
+  };
   const { data: learner } = await admin
     .from("learners")
     .select("*")
     .eq("username", username)
     .maybeSingle();
-  if (!learner) return c.json({ error: "Wrong username or PIN" }, 401);
-  if ((learner.enrollment_status ?? "ACTIVE") !== "ACTIVE") {
-    return c.json({ error: "This account isn't active any more. Ask your teacher." }, 403);
+  if (!learner) {
+    // The same work and the same answer as a wrong PIN: a reply never says whether a username exists.
+    hashPin(pin, "no-such-learner");
+    await wrongTry();
+    return c.json({ error: "Wrong username or PIN" }, 401);
   }
 
   if (learner.locked_until && new Date(learner.locked_until) > new Date()) {
@@ -716,9 +781,15 @@ app.post("/learner/login", async (c) => {
       failed_attempts: lock ? 0 : attempts,
       locked_until: lock,
     }).eq("id", learner.id);
+    await wrongTry();
     return c.json({
       error: lock ? "Too many tries. Ask your teacher to unlock it." : "Wrong username or PIN",
     }, lock ? 423 : 401);
+  }
+
+  // Only someone who knows the PIN is told the account has been archived.
+  if ((learner.enrollment_status ?? "ACTIVE") !== "ACTIVE") {
+    return c.json({ error: "This account isn't active any more. Ask your teacher." }, 403);
   }
 
   await admin.from("learners")
@@ -1870,6 +1941,7 @@ app.post("/learners", requirePermission("learners.manage", "learners.manage.scho
     return c.json({ error: "Username: 3–32 chars, lowercase letters, digits, . _ -" }, 400);
   }
   if (!PIN_RE.test(pin)) return c.json({ error: "PIN must be exactly 4 digits" }, 400);
+  if (trivialPin(pin)) return c.json({ error: TRIVIAL_PIN_MESSAGE }, 400);
   const gender = cleanGender(b.gender);
   if (gender === false) return c.json({ error: GENDER_ERROR }, 400);
 
@@ -1962,6 +2034,7 @@ app.patch("/learners/:id", requirePermission("learners.manage", "learners.manage
   if (b.pin !== undefined) {
     const pin = String(b.pin).trim();
     if (!PIN_RE.test(pin)) return c.json({ error: "PIN must be exactly 4 digits" }, 400);
+    if (trivialPin(pin)) return c.json({ error: TRIVIAL_PIN_MESSAGE }, 400);
     const salt = randomBytes(16).toString("hex");
     patch.pin_salt = salt;
     patch.pin_hash = hashPin(pin, salt);
@@ -9819,8 +9892,11 @@ app.put("/kobo/config", requirePermission("kobo.configure"), async (c) => {
         : s ? `KoboToolbox returned ${s}` : "Couldn't reach KoboToolbox",
     }, 400);
   }
+  // The token goes to Vault, encrypted; the table keeps only the settings.
+  const { error: vaultError } = await admin.rpc("kobo_token_set", { token: apiToken });
+  if (vaultError) return c.json({ error: "Couldn't store the token safely — please try again" }, 500);
   const { error } = await admin.from("kobo_config").upsert({
-    id: 1, base_url: baseUrl, api_token: apiToken, officer_field: officerField,
+    id: 1, base_url: baseUrl, api_token: "", officer_field: officerField,
     updated_by: c.get("actor").fullName, updated_at: new Date().toISOString(),
   });
   if (error) return c.json({ error: error.message }, 400);

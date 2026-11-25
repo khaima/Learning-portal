@@ -639,7 +639,18 @@ async function main() {
     taken.add(candidate);
     return candidate;
   }
-  const randomPin = () => String(Math.floor(1000 + Math.random() * 9000));
+  // A PIN anyone would try first (one digit four times, or a run like 1234) is refused by the API.
+  const easyPin = (p) => {
+    const d = [...p].map(Number);
+    const step = d[1] - d[0];
+    return Math.abs(step) <= 1 && d.every((x, i) => i === 0 || x - d[i - 1] === step);
+  };
+  const randomPin = () => {
+    for (;;) {
+      const pin = String(1000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 9000));
+      if (!easyPin(pin)) return pin;
+    }
+  };
 
   // Gender is optional: F / M, female / male, or "prefer not to say".
   function csvGender(v) {

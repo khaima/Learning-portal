@@ -176,10 +176,13 @@ export function fakeAdmin(db: Db, users: Record<string, { id: string; email: str
   const ok = { data: { user: { id: "new-user" } }, error: null };
   return {
     from,
-    // The database functions the API calls: only the cron secret check.
-    rpc: (name: string, args: Row) => Promise.resolve(name === "notify_cron_secret_ok"
-      ? { data: args.candidate === CRON_SECRET, error: null }
-      : { data: null, error: { message: `no function ${name}` } }),
+    // The database functions the API calls: the cron secret check, and the Kobo token kept in Vault.
+    rpc: (name: string, args: Row) => {
+      if (name === "notify_cron_secret_ok") return Promise.resolve({ data: args.candidate === CRON_SECRET, error: null });
+      if (name === "kobo_token_set") { db.vault_secrets = [{ name: "kobo_api_token", secret: String(args.token) }]; return Promise.resolve({ data: null, error: null }); }
+      if (name === "kobo_token_get") return Promise.resolve({ data: db.vault_secrets?.find((v) => v.name === "kobo_api_token")?.secret ?? null, error: null });
+      return Promise.resolve({ data: null, error: { message: `no function ${name}` } });
+    },
     auth: {
       // Every token Supabase Auth is asked about (jwt_test.ts: a token
       // checked in the function never comes here).
